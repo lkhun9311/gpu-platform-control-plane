@@ -131,16 +131,20 @@ say "zones with both types under their caps: $ZONES"
 routed=""
 for z in $ZONES; do
   sn=$(spot_subnet_in_zone "$REGION" "$z") || { say "no default subnet in $z"; continue; }
-  rt=$(aws ec2 describe-route-tables --region "$REGION" --filters "Name=association.subnet-id,Values=$sn" \
-    --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0` && State==`active`].GatewayId' --output text 2>&1) ||
-    fail "the route table of $sn could not be read: $rt"
-  if [ -z "$rt" ] || [ "$rt" = None ]; then
+  # The table that applies is the one associated with the subnet, and the main one only when there is none: a table
+  # that is associated but has no internet route must not fall back to the main table.
+  tid=$(aws ec2 describe-route-tables --region "$REGION" --filters "Name=association.subnet-id,Values=$sn" \
+    --query 'RouteTables[0].RouteTableId' --output text 2>&1) || fail "the route table of $sn could not be read: $tid"
+  if [ -z "$tid" ] || [ "$tid" = None ]; then
     vpc_of=$(aws ec2 describe-subnets --region "$REGION" --subnet-ids "$sn" --query 'Subnets[0].VpcId' --output text 2>&1) ||
       fail "the VPC of $sn could not be read: $vpc_of"
-    rt=$(aws ec2 describe-route-tables --region "$REGION" --filters "Name=vpc-id,Values=$vpc_of" Name=association.main,Values=true \
-      --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0` && State==`active`].GatewayId' --output text 2>&1) ||
-      fail "the main route table of $vpc_of could not be read: $rt"
+    tid=$(aws ec2 describe-route-tables --region "$REGION" --filters "Name=vpc-id,Values=$vpc_of" Name=association.main,Values=true \
+      --query 'RouteTables[0].RouteTableId' --output text 2>&1) || fail "the main route table of $vpc_of could not be read: $tid"
   fi
+  [[ "$tid" =~ ^rtb- ]] || fail "no route table applies to $sn ('$tid')"
+  rt=$(aws ec2 describe-route-tables --region "$REGION" --route-table-ids "$tid" \
+    --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0` && State==`active`].GatewayId' --output text 2>&1) ||
+    fail "the routes of $tid could not be read: $rt"
   if [[ "$rt" =~ ^igw-[0-9a-f]+$ ]]; then routed="$routed $z"; else say "$z's subnet $sn does not route 0.0.0.0/0 to an internet gateway ('$rt')"; fi
 done
 ZONES=${routed# }
@@ -232,7 +236,7 @@ dd if=/dev/urandom of="$SECRETS/munge.key" bs=1024 count=1 status=none || fail "
 for role in head gpu1 gpu2; do
   # The boot-relative backstop is the precise T0 one plus the launch skew, so it never fires first on an instance that
   # booted before T0; an instance that never learns T0 stops itself within 900 s of boot anyway (instance.sh).
-  slurmec2_render_userdata "$role" "$OUT/user-data-$role.sh" "$BUCKET" "$RUN_ID" "$SOURCE_SHA" $(( STOP_S + LAUNCH_SKEW_S )) || fail "render $role"
+  slurmec2_render_userdata "$role" "$OUT/user-data-$role.sh" "$BUCKET" "$RUN_ID" "$SOURCE_SHA" "$STOP_S" $(( STOP_S + LAUNCH_SKEW_S )) || fail "render $role"
   bash -n "$OUT/user-data-$role.sh" || fail "the $role user-data does not parse"
   [ "$(head -c 2 "$OUT/user-data-$role.sh")" = '#!' ] || fail "the $role user-data has no shebang"
   [ "$(wc -c <"$OUT/user-data-$role.sh")" -lt 16384 ] || fail "the $role user-data is over EC2's 16 KB"

@@ -109,6 +109,16 @@ expect "a deadline miss that never recorded the configuration is NOTRUN, not VOI
 copy; echo "gpu2 still drained after the resume" >"$work/ev/b4/setup-failed"; score
 expect "a B4 whose stimulus failed is INVALID" "$(q 'v["b4"]["status"]')" INVALID
 
+copy; with_gpu; python3 - "$work/ev/b1/rep-1/alloc.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["torch_error"] = "ModuleNotFoundError: No module named 'torch'"; d.pop("cuda_sum", None)
+json.dump(d, open(sys.argv[1], "w"))
+PY
+score
+expect "an allocated probe that could not import PyTorch is INVALID, not a CUDA rule that did not hold" "$(q 'v["b1"][0]["status"]')" INVALID
+copy; rm "$work/ev/b4/gpu1-state.txt"; score
+expect "a B4 with no node polls is INVALID" "$(q 'v["b4"]["status"]')" INVALID
+
 if [ "$fails" -ne 0 ]; then
   echo "check-slurm-ec2-score: $fails failure(s)"
   exit 1

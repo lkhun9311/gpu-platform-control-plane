@@ -64,7 +64,7 @@ dd if=/dev/urandom of="$FAKES3/$PREFIX/munge.key" bs=1024 count=1 status=none
 # shellcheck source=hack/lib/slurm-ec2.sh
 . hack/lib/slurm-ec2.sh
 for c in head gpu1 gpu2; do
-  slurmec2_render_userdata "$c" "$OUT/user-data-$c.sh" rehearsal-bucket "$PREFIX" "$SOURCE_SHA" "$STOP_S" || fail "render $c"
+  slurmec2_render_userdata "$c" "$OUT/user-data-$c.sh" rehearsal-bucket "$PREFIX" "$SOURCE_SHA" "$STOP_S" "$STOP_S" || fail "render $c"
   docker cp "$OUT/user-data-$c.sh" "$c:/user-data.sh" >>"$OUT/docker.log" 2>&1 || fail "copy user-data to $c"
 done
 ip() { docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$1"; }

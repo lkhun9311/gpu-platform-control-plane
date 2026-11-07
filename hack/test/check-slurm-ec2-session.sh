@@ -114,6 +114,7 @@ scene() {
   put nopolicy "An error occurred (NoSuchBucketPolicy) when calling the GetBucketPolicy operation: The bucket policy does not exist"
   put zero "0"
   put igw "igw-0abc"
+  put rtb "rtb-0assoc"
   put versioning "None"
   put vpc "vpc-0default"
   put sg "sg-0session"
@@ -134,6 +135,7 @@ base_rules() {
   rule "cloudwatch get-metric-statistics*Errors*" errors
   rule "configure export-credentials*" creds
   rule "ec2 describe-instances*tag:purpose*" none
+  rule "ec2 describe-route-tables*RouteTableId*" rtb
   rule "ec2 describe-route-tables*" igw
   rule "ec2 describe-subnets*--subnet-ids*" vpc
   rule "ec2 describe-subnets*" subnet
@@ -230,9 +232,13 @@ rule "iam get-role*" bounded; base_rules; refused "a role with a permissions bou
 scene; put inline2 $'deny-s3\twrite-results'; rule "iam list-role-policies*" inline2; base_rules; refused "a role with another inline policy" "carries inline policies"
 scene; put attached "arn:aws:iam::aws:policy/AdministratorAccess"; rule "iam list-attached-role-policies*" attached; base_rules
 refused "a role with an attached policy" "has attached policies"
-scene; put nat "nat-0abc"; rule "ec2 describe-route-tables*" "none|nat"; base_rules; refused "a subnet whose main route table goes to a NAT gateway" "routing 0.0.0.0/0 to an internet gateway"
-scene; rule "ec2 describe-route-tables*" "none|igw"; base_rules; void_evidence; session "a subnet on the VPC's main route table"
-[ "$rc" = 3 ] && grep -q "^ec2 describe-route-tables .*association.main,Values=true" "$STUB/calls.log" && launched &&
+scene; put nat "nat-0abc"; rule "ec2 describe-route-tables*--route-table-ids*" nat; base_rules; refused "a subnet whose route table goes to a NAT gateway" "routing 0.0.0.0/0 to an internet gateway"
+# An associated table with no internet route must not fall back to the main table, which has one.
+scene; rule "ec2 describe-route-tables*--route-table-ids rtb-0assoc*" none; base_rules; refused "an associated table with no internet route" "routing 0.0.0.0/0 to an internet gateway"
+grep -q "association.main" "$STUB/calls.log" && bad "an associated table fell back to the main one" || ok "an associated table is never replaced by the main one"
+scene; put rtbmain "rtb-0main"; rule "ec2 describe-route-tables*association.subnet-id*" none; rule "ec2 describe-route-tables*association.main*" rtbmain; base_rules; void_evidence
+session "a subnet on the VPC's main route table"
+[ "$rc" = 3 ] && grep -q "^ec2 describe-route-tables .*--route-table-ids rtb-0main" "$STUB/calls.log" && launched &&
   ok "a subnet with no table of its own is judged by the VPC's main table and accepted" || bad "main-table fallback: exit $rc, $(tail -2 <<<"$out")"
 scene; put kms "aws:kms"; rule "s3api get-bucket-encryption*" kms; base_rules; refused "a bucket encrypted with KMS" "encrypts with 'aws:kms'"
 scene; put pol '{"Statement":[{"Effect":"Deny"}]}'; rule "s3api get-bucket-policy*" pol; base_rules; refused "a bucket with a policy" "has a bucket policy"
@@ -281,7 +287,7 @@ grep -q "^ec2 delete-security-group .*sg-0session" "$STUB/calls.log" && ok "the 
 ! find "$STUB/out" -name 'munge.key' | grep -q . && ok "the munge key is not in the run directory" || bad "the munge key is in the run directory"
 for r in head gpu1 gpu2; do
   ud="$STUB/out/user-data-$r.sh"
-  bash -n "$ud" && grep -q "export ROLE=$r " "$ud" && grep -q '( sleep 6600; ' "$ud" && (( $(wc -c <"$ud") < 16384 )) ||
+  bash -n "$ud" && grep -q "export ROLE=$r " "$ud" && grep -q '( sleep 6600; ' "$ud" && grep -q " STOP_S=5700$" "$ud" && (( $(wc -c <"$ud") < 16384 )) ||
     bad "the $r user-data: role, backstop, parse or size"
 done
 ok "each user-data names its role, arms the 6,600 s boot backstop (5,700 + the 900 s launch skew), parses and fits 16 KB"

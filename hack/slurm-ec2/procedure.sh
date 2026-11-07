@@ -163,7 +163,7 @@ b4() {
   echo "reference_job=$ref" >"$d/jobs.env"
   job_done "$ref" $(( $(date +%s) + 600 )) || { echo "reference did not end in 600 s" >"$d/reference.timeout"; return; }
 
-  scontrol update nodename=gpu2 state=drain reason=b4-hold
+  scontrol update nodename=gpu2 state=drain reason=b4-hold || { echo "the drain of gpu2 exited $?" >"$d/setup-failed"; return; }
   run=$(as_tenant sbatch --parsable --requeue --gres=gpu:1 --mem=4G -t 15 --open-mode=append -o "$d/run.jsonl" -e "$d/run.err" \
     --export=ALL,TRAIN_DIR=$SHARED/ckpt/run,TRAIN_STEPS=60,TRAIN_STEP_SLEEP=1,TRAIN_DEVICE=$TRAIN_DEVICE \
     --wrap "$PY $BIN/train_gpu.py") || { echo "run sbatch failed" >"$d/sbatch-error"; scontrol update nodename=gpu2 state=resume; return; }
@@ -171,6 +171,8 @@ b4() {
   until_true $(( $(date +%s) + 300 )) 1 grep -q '"event": "ckpt", .*"step": 20,' "$d/run.jsonl" ||
     { echo "the run never checkpointed step 20 in 300 s" >"$d/run.no-ckpt"; scontrol update nodename=gpu2 state=resume; return; }
   scontrol show job "$run" >"$d/run-job-before.txt" 2>&1
+  # The fault goes to gpu1 because the first attempt is there; a first attempt anywhere else is a setup failure.
+  grep -q '"event": "start", .*"host": "gpu1"' "$d/run.jsonl" || echo "the first attempt did not start on gpu1" >>"$d/setup-failed"
   # The stimulus is checked, not assumed: a gpu2 still drained, or a fault that was not written, is a setup failure.
   scontrol update nodename=gpu2 state=resume || echo "resume of gpu2 exited $?" >>"$d/setup-failed"
   scontrol show node gpu2 | grep -qE 'State=\S*DRAIN' && echo "gpu2 still drained after the resume" >>"$d/setup-failed"

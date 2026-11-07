@@ -128,6 +128,9 @@ def b1(ev):
         except json.JSONDecodeError:
             out.append({"rep": rep, **result("INVALID", ["the allocated probe left no JSON"])})
             continue
+        if "torch_error" in a:
+            out.append({"rep": rep, **result("INVALID", ["the allocated probe could not import PyTorch: " + a["torch_error"]])})
+            continue
         lines = a.get("nvidia_smi_lines", [])
         a_rules = [
             ("B1a: nvidia-smi lists exactly one A10G", len(lines) == 1 and "A10G" in lines[0]),
@@ -275,7 +278,7 @@ def b4(ev):
     ref = [r for r in jsonl(os.path.join(d, "reference.jsonl")) if r.get("event") == "done"]
     run = jsonl(os.path.join(d, "run.jsonl"))
     events = env(os.path.join(d, "events.env"))
-    if not ref or not run or "fault_written" not in events:
+    if not ref or not run or "fault_written" not in events or read(os.path.join(d, "gpu1-state.txt")) is None:
         return result("INVALID", ["the reference, the run's log or the fault time is missing"])
     broken = failed_instruments(d, ["run-job-after.txt", "run-sacct.txt"])
     if broken:

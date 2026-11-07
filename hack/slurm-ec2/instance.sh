@@ -28,9 +28,15 @@ die() {
 # late REASON: the bring-up missed its deadline. The registration makes every check NOTRUN then, not the session VOID:
 # nothing about the system under test was shown to be wrong, only slow.
 late() {
-  mkdir -p "$EVID" && echo "$*" >"$EVID/NOTRUN_ALL"
   log "NOTRUN: $*"
-  bash hack/slurm-ec2/collect.sh
+  if [ "$ROLE" = head ]; then
+    mkdir -p "$EVID" && echo "$*" >"$EVID/NOTRUN_ALL"
+    bash hack/slurm-ec2/collect.sh
+  else
+    # Head reads the LATE prefix and makes the session NOTRUN rather than VOID.
+    echo "LATE: $*" >"/tmp/stopped-$ROLE"
+    s3put "/tmp/stopped-$ROLE" "stopped-$ROLE"
+  fi
   exit 1
 }
 
@@ -49,7 +55,11 @@ head_wait() {
   shift
   while :; do
     "$@" && return 0
-    worker_stopped && die "a worker stopped: $(for n in gpu1 gpu2; do s3get "stopped-$n" - 2>>/var/log/slurmec2-probe.log; done | paste -sd';')"
+    if worker_stopped; then
+      local why
+      why=$(for n in gpu1 gpu2; do s3get "stopped-$n" - 2>>/var/log/slurmec2-probe.log; done | paste -sd';')
+      case "$why" in LATE:*) late "a worker missed the bring-up deadline: $why" ;; *) die "a worker stopped: $why" ;; esac
+    fi
     [ "$(date +%s)" -lt "$end" ] || return 1
     sleep 5
   done
@@ -91,7 +101,11 @@ export DEBIAN_FRONTEND=noninteractive
 # A fresh Ubuntu instance's own apt runs (cloud-init, unattended-upgrades) hold the dpkg lock for minutes after boot;
 # waiting for it inside the bring-up budget is cheaper than failing on it.
 timeout "$(left "$BRINGUP_END")" bash -c "apt-get -o DPkg::Lock::Timeout=900 update -q && apt-get -o DPkg::Lock::Timeout=900 install -y -q --no-install-recommends $pkgs" \
-  >/var/log/slurmec2-apt.log 2>&1 || die "apt install failed or ran out of time; see /var/log/slurmec2-apt.log"
+  >/var/log/slurmec2-apt.log 2>&1
+apt_rc=$?
+# Out of time is a missed bring-up deadline, which the registration makes NOTRUN; any other failure is VOID.
+if [ "$apt_rc" = 124 ]; then late "the package install ran out of the bring-up time"
+elif [ "$apt_rc" != 0 ]; then die "apt install failed ($apt_rc); see /var/log/slurmec2-apt.log"; fi
 
 until_true $(( BOOT + 900 )) 5 s3get munge.key /etc/munge/munge.key || die "munge.key"
 chown munge:munge /etc/munge/munge.key && chmod 400 /etc/munge/munge.key

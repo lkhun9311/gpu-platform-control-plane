@@ -5,17 +5,20 @@
 # containers it starts, so the rehearsal runs the same user-data, byte for byte apart from the run's identifiers.
 # Like hack/lib/spot-run.sh it never calls `set`, never `cd`s and installs no traps.
 
-# slurmec2_render_userdata ROLE FILE BUCKET PREFIX SOURCE_SHA STOP_S
+# slurmec2_render_userdata ROLE FILE BUCKET PREFIX SOURCE_SHA STOP_S BOOT_STOP_S
+#
+# STOP_S is the session's end counted from T0, which instance.sh enforces once it reads T0; BOOT_STOP_S, the backstop
+# counted from the instance's own boot before T0 is known, is longer by the launch skew, and is never exported.
 #
 # The user-data arms a shutdown at its own boot plus STOP_S before anything can fail, fetches the source archive the
 # runner uploaded, checks it, and runs hack/slurm-ec2/instance.sh as ROLE. On exit it uploads its log and shuts the
 # instance down, which terminates it (instance-initiated-shutdown-behavior=terminate); the rehearsal, which marks itself
 # with SLURMEC2_REHEARSAL=1 in the environment it runs this with, does not shut its container down.
 slurmec2_render_userdata() {
-  local role="$1" file="$2" bucket="$3" prefix="$4" source_sha="$5" stop_s="$6"
+  local role="$1" file="$2" bucket="$3" prefix="$4" source_sha="$5" stop_s="$6" boot_stop_s="${7:-}"
   case "$role" in head|gpu1|gpu2) ;; *) printf 'slurmec2_render_userdata: role %s\n' "$role" >&2; return 1 ;; esac
   # Every value is written into the script unquoted, so each must be one shell word with no metacharacter.
-  [[ "$stop_s" =~ ^[0-9]+$ ]] && [[ "$source_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$bucket" =~ ^[a-z0-9.-]+$ ]] &&
+  [[ "$stop_s" =~ ^[0-9]+$ ]] && [[ "$boot_stop_s" =~ ^[0-9]+$ ]] && [ "$boot_stop_s" -ge "$stop_s" ] && [[ "$source_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$bucket" =~ ^[a-z0-9.-]+$ ]] &&
     [[ "$prefix" =~ ^[A-Za-z0-9._-]+$ ]] || {
     printf 'slurmec2_render_userdata: bad arguments\n' >&2
     return 1
@@ -25,7 +28,7 @@ slurmec2_render_userdata() {
 exec > >(tee -a /var/log/slurmec2.log) 2>&1
 export ROLE=$role BUCKET=$bucket PREFIX=$prefix STOP_S=$stop_s
 export BOOT=\$(date +%s)
-( sleep $stop_s; [ "\${SLURMEC2_REHEARSAL:-0}" = 1 ] || shutdown -h now ) &
+( sleep $boot_stop_s; [ "\${SLURMEC2_REHEARSAL:-0}" = 1 ] || shutdown -h now ) &
 trap 'aws s3 cp --only-show-errors /var/log/slurmec2.log "s3://\$BUCKET/\$PREFIX/log-\$ROLE.txt"; [ "\${SLURMEC2_REHEARSAL:-0}" = 1 ] || shutdown -h now' EXIT
 # The Canonical AMI head runs on has no AWS CLI; the Deep Learning AMI the workers run on has one.
 if ! command -v aws >/dev/null; then
