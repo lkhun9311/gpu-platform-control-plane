@@ -139,6 +139,25 @@ var _ = Describe("WorkloadRun", func() {
 		Expect(err.Error()).To(ContainSubstring("recoversWithinSeconds must not exceed observationWindowSeconds"))
 	})
 
+	// The window and the deadline are the registration a verdict is judged against; one edited afterwards leaves a
+	// Recovered verdict beside a deadline it missed (codex review r8).
+	//
+	// Mutation that turns this red: drop either field's immutability rule and regenerate.
+	It("refuses an edit of the window or the deadline", func() {
+		createRun(30, 20, tgtName)
+		for _, edit := range []func(*platformv1.WorkloadRun){
+			func(r *platformv1.WorkloadRun) { r.Spec.RecoversWithinSeconds = 5 },
+			func(r *platformv1.WorkloadRun) { r.Spec.ObservationWindowSeconds = 60 },
+		} {
+			run := &platformv1.WorkloadRun{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: runName, Namespace: ns}, run)).To(Succeed())
+			edit(run)
+			err := k8sClient.Update(ctx, run)
+			Expect(err).To(HaveOccurred(), "a registered timing field was edited")
+			Expect(err.Error()).To(ContainSubstring("is immutable"))
+		}
+	})
+
 	// The boundary is allowed on purpose: a deadline exactly at the edge is still inside the window, and a
 	// rule that excluded it would refuse the most natural way to say "by the end".
 	It("accepts a deadline exactly at the end of the window", func() {

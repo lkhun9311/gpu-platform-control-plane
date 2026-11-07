@@ -115,3 +115,24 @@ func TestIsServingRefusesAKindItHasNoRuleFor(t *testing.T) {
 		t.Errorf("the error does not say what is missing: %v", err)
 	}
 }
+
+// A target asked for zero replicas is not serving while a scale-down drains, whatever it still counts as ready.
+//
+// Mutation that turns this red: drop the spec.replicas check in isServing.
+func TestIsServingRefusesATargetAskedForZeroReplicas(t *testing.T) {
+	two := int64(2)
+	draining := targetWith("Ready", &two)
+	draining.Object["spec"] = map[string]any{"replicas": int64(0)}
+	got, err := isServing("InferenceDeployment", "Ready", draining)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Fatal("a target asked for zero replicas was read as serving because two were still ready")
+	}
+	serving := targetWith("Ready", &two)
+	serving.Object["spec"] = map[string]any{"replicas": int64(2)}
+	if got, _ := isServing("InferenceDeployment", "Ready", serving); !got {
+		t.Fatal("a target asked for two replicas with two ready was not serving")
+	}
+}

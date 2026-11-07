@@ -59,10 +59,12 @@ spec:
                 type: array
               completions:
                 default: 1
-                description: completions is the batch/v1 Job completions (successful
-                  pods required).
+                description: |-
+                  completions is the batch/v1 Job completions (successful pods required).
+
+                  At least 1, for the reason parallelism is.
                 format: int32
-                minimum: 0
+                minimum: 1
                 type: integer
               distributed:
                 description: |-
@@ -124,10 +126,13 @@ spec:
                 type: string
               parallelism:
                 default: 1
-                description: parallelism is the batch/v1 Job parallelism (concurrent
-                  pods).
+                description: |-
+                  parallelism is the batch/v1 Job parallelism (concurrent pods).
+
+                  At least 1: the field omits a zero and the controller renders at least one Pod, so a 0 written to pause the
+                  job would start one instead; it is refused rather than misread.
                 format: int32
-                minimum: 0
+                minimum: 1
                 type: integer
               queue:
                 description: queue is the Kueue LocalQueue name (same namespace) this

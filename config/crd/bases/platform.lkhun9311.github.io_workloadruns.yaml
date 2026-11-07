@@ -74,10 +74,16 @@ spec:
 
                   The window bounds the CLAIM as much as the work: a verdict says what happened inside it and nothing
                   about after, and a run that recovers one second late is a fail rather than a slow pass.
+
+                  Immutable, with the deadline: both are the registration a verdict is judged against, and one edited after
+                  the verdict would leave status contradicting its own spec (codex review r8).
                 format: int32
                 maximum: 3600
                 minimum: 5
                 type: integer
+                x-kubernetes-validations:
+                - message: observationWindowSeconds is immutable
+                  rule: self == oldSelf
               recoversWithinSeconds:
                 description: |-
                   recoversWithinSeconds is the deadline the target must be observed healthy by, measured from the run's
@@ -86,6 +92,9 @@ spec:
                 format: int32
                 minimum: 1
                 type: integer
+                x-kubernetes-validations:
+                - message: recoversWithinSeconds is immutable
+                  rule: self == oldSelf
               scenario:
                 description: |-
                   scenario is the failure to inject. Immutable: a run is evidence about one injection, and editing it
