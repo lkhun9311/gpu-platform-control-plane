@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Renders one tenant's boundary from config/tenant/bundle.yaml.tmpl.
-#   hack/tenant/render.sh <tenant> <namespace>           # writes config/tenants/<tenant>/bundle.yaml
+#   hack/tenant/render.sh <tenant> <namespace>           # writes config/tenants/<tenant>/bundle.yaml and kustomization.yaml
 #   hack/tenant/render.sh <tenant> <namespace> --stdout  # prints it
 # The rendered file is committed and reviewed like any other manifest; Argo CD applies it.
 set -euo pipefail
@@ -18,4 +18,7 @@ if grep -q '__[A-Z]*__' <<<"$out"; then echo "refuse: a placeholder survived the
 if [ "${3:-}" = --stdout ]; then printf '%s\n' "$out"; exit 0; fi
 mkdir -p "$REPO/config/tenants/$tenant"
 printf '%s\n' "$out" > "$REPO/config/tenants/$tenant/bundle.yaml"
-echo "wrote config/tenants/$tenant/bundle.yaml"
+# A kustomization beside it is what lets an Argo CD Application name the directory as its path.
+printf '%s\n' "# Rendered by hack/tenant/render.sh; edit config/tenant/bundle.yaml.tmpl and re-render." \
+  "resources:" "- bundle.yaml" > "$REPO/config/tenants/$tenant/kustomization.yaml"
+echo "wrote config/tenants/$tenant/{bundle,kustomization}.yaml"
