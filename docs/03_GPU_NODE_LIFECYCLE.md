@@ -12,6 +12,9 @@
 > check failed because the platform's own taint kept the exporter from coming back (`hack/gpu-fault/2026-10-27-run2/`).
 > The faults were values injected into DCGM's cache on that card, not induced hardware failures.
 >
+> Run 3, on 2026-11-01, passed the stale-latched and recovery checks after the toleration fix (`hack/gpu-fault/2026-11-01-run3/verdict.txt`).
+> The 2026-08-07 status below is historical: its "Xid and ECC have no code at all" was true then and is not now. Current state: `docs/00_PORTFOLIO_OVERVIEW.md`, "Current state".
+>
 > **Status (2026-08-07): built** — but the CR is hand-created (no automated intake pipeline creates it),
 > and there is **no GPU-specific fault detection in the health path**: nothing DCGM, Xid or ECC reports
 > reaches `NodeHealth`. Xid and ECC have no code at all. DCGM does — a utilisation reader and an exporter
