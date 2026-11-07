@@ -27,6 +27,19 @@ done
 hack/tenant/render.sh 'Not_A_Label' x >"$work/refuse.out" 2>&1 && bad "the renderer accepted a tenant name that is not a DNS-1123 label" ||
   ok "the renderer refuses a tenant name that is not a DNS-1123 label"
 
+# YAML reads an unquoted null, true or 0123 as something other than a string, and all three are DNS-1123 labels the
+# renderer must accept (codex, review of the branch).
+if hack/tenant/render.sh null 0123 --stdout | python3 -c '
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(sys.stdin) if d]
+names = [d["metadata"]["name"] for d in docs if d["kind"] == "Namespace"] + [d["metadata"].get("namespace") for d in docs if d["kind"] != "Namespace"]
+tenant = docs[0]["metadata"]["labels"]["platform.lkhun9311.github.io/tenant"]
+sys.exit(0 if names and all(n == "0123" for n in names) and tenant == "null" else 1)'; then
+  ok "names YAML would read as null or a number render as strings"
+else
+  bad "a tenant named null or a namespace named 0123 rendered as something other than a string"
+fi
+
 # Orphaned children outlive their parent's count, so each kind the controllers create must be counted itself.
 for key in pods count/services count/deployments.apps count/replicasets.apps count/jobs.batch count/workloads.kueue.x-k8s.io limits.ephemeral-storage; do
   if grep -Fq "    $key: " config/tenant/bundle.yaml.tmpl; then ok "the baseline quota sets $key"; else bad "the baseline quota does not set $key"; fi
