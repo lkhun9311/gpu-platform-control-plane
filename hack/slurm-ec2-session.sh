@@ -45,7 +45,24 @@ SWEEPER_MIN_RUNS=4
 # The termination wait's end plus 30 minutes of headroom, and the build, in minutes.
 CRED_MIN_MINUTES=135
 
-OUT="${OUT:-hack/slurm-ec2-$(date -u +%Y%m%dT%H%M%SZ)}"
+# SLURMEC2_MODE=nfs-rehearsal is the t3 real-NFS rehearsal (registration, "The t3 real-NFS rehearsal"): three
+# t3.medium on the head's Ubuntu image, a stand-in for the GPU, a 40-minute clock and only B4 among the checks, with
+# the old NFS barrier probed first. Every value it changes is set here and nowhere else.
+MODE=${SLURMEC2_MODE:-session}
+EXTRA_ENV=""
+CLUSTER_EXTRA=""
+case "$MODE" in
+  session) ;;
+  nfs-rehearsal)
+    GPU_TYPE=t3.medium GPU_CAP=0.06 GPU_VOLUME_GB=30
+    GPU_AMI_NAME=$HEAD_AMI_NAME GPU_AMI_OWNER=$HEAD_AMI_OWNER
+    STUDY_ID=slurm-ec2-nfs-rehearsal-2026-11-08
+    TAG_AT_REQUEST_S=2370 TAG_FROM_T0_S=2370 STOP_S=2400 TERMINATION_S=2550 LAUNCH_SKEW_S=300 CRED_MIN_MINUTES=75
+    EXTRA_ENV="SLURMEC2_FAKE_GPU=1 SLURMEC2_NFS_PROBE=1"
+    CLUSTER_EXTRA=$'BRINGUP_END_S=1200\nCHECKS_END_S=2100\nEVIDENCE_S=2250\nSLURMEC2_CHECKS=b4\nB4_ADMIT_S=600\nB4_MEM_MB=1024\n' ;;
+  *) echo "SESSION REFUSED: SLURMEC2_MODE is '$MODE', not session or nfs-rehearsal" >&2; exit 1 ;;
+esac
+OUT="${OUT:-hack/slurm-ec2-$([ "$MODE" = session ] || echo "$MODE-")$(date -u +%Y%m%dT%H%M%SZ)}"
 say() { echo "== $*" | { if [ -d "$OUT" ]; then tee -a "$OUT/session.log"; else cat; fi; }; }
 fail() { echo "SESSION REFUSED: $*" | { if [ -d "$OUT" ]; then tee -a "$OUT/session.log"; else cat; fi; } >&2; exit 1; }
 spot_say() { say "$@"; }
@@ -151,6 +168,7 @@ ZONES=${routed# }
 [ -n "$ZONES" ] || fail "no zone with both types under their caps has a default subnet routing 0.0.0.0/0 to an internet gateway"
 say "zones whose subnet reaches the internet: $ZONES"
 
+if [ "$MODE" = session ]; then
 quota=$(aws service-quotas get-service-quota --region "$REGION" --service-code ec2 --quota-code L-3819A6DF \
   --query 'Quota.Value' --output text 2>&1) || fail "could not read the G and VT Spot quota: $quota"
 # The limit is shared with every G and VT Spot instance in the Region, running or pending, whatever its purpose;
@@ -172,6 +190,7 @@ PY
 ) || fail "could not compute the free G and VT Spot vCPUs"
 [ "$free" -ge 8 ] || fail "the G and VT Spot quota is $quota vCPU with $(( ${quota%.*} - free )) in use; two $GPU_TYPE need 8 and $free are free"
 say "G and VT Spot vCPUs: $quota, $free free"
+fi
 
 sw_state=$(aws lambda get-function --region "$REGION" --function-name gpu-platform-study-sweeper \
   --query 'Configuration.State' --output text 2>&1) || fail "the termination sweeper could not be read: $sw_state"
@@ -253,7 +272,7 @@ dd if=/dev/urandom of="$SECRETS/munge.key" bs=1024 count=1 status=none || fail "
 for role in head gpu1 gpu2; do
   # The boot-relative backstop is the precise T0 one plus the launch skew, so it never fires first on an instance that
   # booted before T0; an instance that never learns T0 stops itself within 900 s of boot anyway (instance.sh).
-  slurmec2_render_userdata "$role" "$OUT/user-data-$role.sh" "$BUCKET" "$RUN_ID" "$SOURCE_SHA" "$STOP_S" $(( STOP_S + LAUNCH_SKEW_S )) || fail "render $role"
+  slurmec2_render_userdata "$role" "$OUT/user-data-$role.sh" "$BUCKET" "$RUN_ID" "$SOURCE_SHA" "$STOP_S" $(( STOP_S + LAUNCH_SKEW_S )) "$EXTRA_ENV" || fail "render $role"
   bash -n "$OUT/user-data-$role.sh" || fail "the $role user-data does not parse"
   [ "$(head -c 2 "$OUT/user-data-$role.sh")" = '#!' ] || fail "the $role user-data has no shebang"
   [ "$(wc -c <"$OUT/user-data-$role.sh")" -lt 16384 ] || fail "the $role user-data is over EC2's 16 KB"
@@ -484,7 +503,7 @@ for role in head gpu1 gpu2; do
   IP_OF[$role]=$ip
   echo "$role ${IID_OF[$role]} $lt $img $ip" >>"$OUT/instances.txt"
 done
-printf 'T0=%s\nHEAD_IP=%s\nGPU1_IP=%s\nGPU2_IP=%s\n' "$T0" "${IP_OF[head]}" "${IP_OF[gpu1]}" "${IP_OF[gpu2]}" >"$OUT/cluster.env"
+{ printf 'T0=%s\nHEAD_IP=%s\nGPU1_IP=%s\nGPU2_IP=%s\n' "$T0" "${IP_OF[head]}" "${IP_OF[gpu1]}" "${IP_OF[gpu2]}"; printf '%s' "$CLUSTER_EXTRA"; } >"$OUT/cluster.env"
 aws s3 cp --only-show-errors "$OUT/cluster.env" "s3://$BUCKET/$RUN_ID/cluster.env" ||
   fail "could not hand cluster.env to the instances; they will stop themselves, and this session terminates them"
 TAG_T0=$(date -u -d "@$(( T0 + TAG_FROM_T0_S ))" +%Y-%m-%dT%H:%M:%SZ)
@@ -526,7 +545,14 @@ if [ "$TERMINATION" = confirmed ] && [ -s "$OUT/volumes.txt" ]; then
     echo "VOLUMES STILL PRESENT after termination: $left_vols -- delete them by hand" | tee -a "$OUT/termination.txt" >&2
   fi
 fi
-for k in evidence.latest DONE log-head.txt log-gpu1.txt log-gpu2.txt stopped-gpu1 stopped-gpu2; do
+# Each host's own diagnostics, final or else the last periodic one, independent of head's evidence archive.
+mkdir -p "$OUT/diag"
+for r in head gpu1 gpu2; do
+  aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/diag-$r-final.tgz" "$OUT/diag/$r.tgz" 2>>"$OUT/download-errors.txt" ||
+    aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/diag-$r-periodic.tgz" "$OUT/diag/$r.tgz" 2>>"$OUT/download-errors.txt" ||
+    echo "no diagnostics from $r" >>"$OUT/download-errors.txt"
+done
+for k in nfsprobe-gpu1 nfsprobe-gpu2 nfsprobe-head evidence.latest DONE log-head.txt log-gpu1.txt log-gpu2.txt stopped-gpu1 stopped-gpu2; do
   aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" 2>>"$OUT/download-errors.txt" || echo "not downloaded: $k" >>"$OUT/download-errors.txt"
 done
 # evidence.latest names the last archive head verified in S3, and is there even when head died before DONE.

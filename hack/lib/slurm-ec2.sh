@@ -15,21 +15,21 @@
 # instance down, which terminates it (instance-initiated-shutdown-behavior=terminate); the rehearsal, which marks itself
 # with SLURMEC2_REHEARSAL=1 in the environment it runs this with, does not shut its container down.
 slurmec2_render_userdata() {
-  local role="$1" file="$2" bucket="$3" prefix="$4" source_sha="$5" stop_s="$6" boot_stop_s="${7:-}"
+  local role="$1" file="$2" bucket="$3" prefix="$4" source_sha="$5" stop_s="$6" boot_stop_s="${7:-}" extra="${8:-}"
   case "$role" in head|gpu1|gpu2) ;; *) printf 'slurmec2_render_userdata: role %s\n' "$role" >&2; return 1 ;; esac
   # Every value is written into the script unquoted, so each must be one shell word with no metacharacter.
   [[ "$stop_s" =~ ^[0-9]+$ ]] && [[ "$boot_stop_s" =~ ^[0-9]+$ ]] && [ "$boot_stop_s" -ge "$stop_s" ] && [[ "$source_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$bucket" =~ ^[a-z0-9.-]+$ ]] &&
-    [[ "$prefix" =~ ^[A-Za-z0-9._-]+$ ]] || {
+    [[ "$prefix" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$extra" =~ ^([A-Z][A-Z0-9_]*=[0-9]+( [A-Z][A-Z0-9_]*=[0-9]+)*)?$ ]] || {
     printf 'slurmec2_render_userdata: bad arguments\n' >&2
     return 1
   }
   cat >"$file" <<EOF
 #!/bin/bash
 exec > >(tee -a /var/log/slurmec2.log) 2>&1
-export ROLE=$role BUCKET=$bucket PREFIX=$prefix STOP_S=$stop_s
+export ROLE=$role BUCKET=$bucket PREFIX=$prefix STOP_S=$stop_s${extra:+ $extra}
 export BOOT=\$(date +%s)
-( sleep $boot_stop_s; [ "\${SLURMEC2_REHEARSAL:-0}" = 1 ] || shutdown -h now ) &
-trap 'aws s3 cp --only-show-errors /var/log/slurmec2.log "s3://\$BUCKET/\$PREFIX/log-\$ROLE.txt"; [ "\${SLURMEC2_REHEARSAL:-0}" = 1 ] || shutdown -h now' EXIT
+( sleep $boot_stop_s; [ "\${SLURMEC2_REHEARSAL:-0}\${SLURMEC2_NO_SHUTDOWN:-0}" = 00 ] && shutdown -h now ) &
+trap 'timeout 60 aws s3 cp --only-show-errors /var/log/slurmec2.log "s3://\$BUCKET/\$PREFIX/log-\$ROLE.txt"; [ "\${SLURMEC2_REHEARSAL:-0}\${SLURMEC2_NO_SHUTDOWN:-0}" = 00 ] && shutdown -h now' EXIT
 # The Canonical AMI head runs on has no AWS CLI; the Deep Learning AMI the workers run on has one.
 if ! command -v aws >/dev/null; then
   # snapd refuses installs until its first-boot seeding is done.

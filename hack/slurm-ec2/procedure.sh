@@ -13,12 +13,14 @@ BIN=$SHARED/bin
 PY=$SHARED/venv/bin/python
 # Only the local rehearsal trains on the CPU; it has no GPU behind /dev/nvidia0.
 TRAIN_DEVICE=cuda
-[ "${SLURMEC2_REHEARSAL:-0}" = 1 ] && TRAIN_DEVICE=cpu
+[ "$SLURMEC2_FAKE_GPU" = 1 ] && TRAIN_DEVICE=cpu
 
 mkdir -p "$BIN" && cp hack/slurm-ec2/probe_cuda.py hack/slurm-ec2/alloc.py hack/slurm-ec2/train_gpu.py "$BIN/" && chmod 755 "$BIN"/*
 
 as_tenant() { runuser -u "$TENANT" -- "$@"; }
 now() { date +%s.%N | cut -c1-14; }
+# wanted CHECK: whether CHECK runs; only the t3 rehearsal narrows the set (SLURMEC2_CHECKS), the session runs all four.
+wanted() { [ -z "${SLURMEC2_CHECKS:-}" ] || [[ " $SLURMEC2_CHECKS " == *" $1 "* ]]; }
 notrun() { mkdir -p "$EVID/$1" && echo "$2" >"$EVID/$1/NOTRUN"; log "$1 NOTRUN: $2"; }
 
 # job_done ID END: waits until the job has left the queue, or END; returns 1 on END.
@@ -67,6 +69,7 @@ b1() {
 }
 for spec in 1:gpu1 2:gpu1 3:gpu1 4:gpu2; do
   # Each check is admitted only with its own worst case left, so none is cut short; one that is not is NOTRUN.
+  if ! wanted b1; then notrun "b1/rep-${spec%%:*}" "not among this rehearsal's checks"; continue; fi
   if [ "$(left "$CHECKS_END")" -lt 480 ]; then notrun "b1/rep-${spec%%:*}" "fewer than 480 s left for the checks"; continue; fi
   b1 "${spec%%:*}" "${spec##*:}"
 done
@@ -90,6 +93,7 @@ root_on gpu2 "$EVID/b2-slurmd-pid-before.txt" systemctl show -p MainPID --value 
 for rep in 1 2 3; do
   d=$EVID/b2/rep-$rep
   # 240 s for the job and up to 120 s for each of four node reads.
+  if ! wanted b2; then notrun "b2/rep-$rep" "not among this rehearsal's checks"; continue; fi
   if [ "$(left "$CHECKS_END")" -lt 720 ]; then notrun "b2/rep-$rep" "fewer than 720 s left for the checks"; continue; fi
   mkdir -p "$d" && chmod 777 "$d"
   # The node's own journal cursor, so the window is the node's records between the two reads, whatever its clock.
@@ -149,8 +153,11 @@ b3() {
   poll_pair "$d" "$i1" "$i2" 200
 }
 # Each pair waits up to 60 s for its first job, 200 s polling and 60 s for accounting, and is admitted on its own.
-if [ "$(left "$CHECKS_END")" -ge 340 ]; then b3 a -A acct-a --gres=gpu:1 --mem=1G; else notrun b3/a "fewer than 340 s left for the checks"; fi
-if [ "$(left "$CHECKS_END")" -ge 340 ]; then b3 b -q qone --mem=500M; else notrun b3/b "fewer than 340 s left for the checks"; fi
+if ! wanted b3; then notrun b3/a "not among this rehearsal's checks"; notrun b3/b "not among this rehearsal's checks"
+else
+  if [ "$(left "$CHECKS_END")" -ge 340 ]; then b3 a -A acct-a --gres=gpu:1 --mem=1G; else notrun b3/a "fewer than 340 s left for the checks"; fi
+  if [ "$(left "$CHECKS_END")" -ge 340 ]; then b3 b -q qone --mem=500M; else notrun b3/b "fewer than 340 s left for the checks"; fi
+fi
 echo "b3_done=$(now)" >>"$EVID/timeline.env"
 ship || log "the evidence after b3 could not be shipped"
 
@@ -158,14 +165,14 @@ ship || log "the evidence after b3 could not be shipped"
 b4() {
   local d=$EVID/b4 ref run t_fault
   mkdir -p "$d" && chmod 777 "$d"
-  ref=$(as_tenant sbatch --parsable -w gpu2 --gres=gpu:1 --mem=4G -t 10 -o "$d/reference.jsonl" -e "$d/reference.err" \
+  ref=$(as_tenant sbatch --parsable -w gpu2 --gres=gpu:1 --mem="${B4_MEM_MB:-4096}M" -t 10 -o "$d/reference.jsonl" -e "$d/reference.err" \
     --export=ALL,TRAIN_DIR=$SHARED/ckpt/reference,TRAIN_STEPS=60,TRAIN_STEP_SLEEP=0,TRAIN_DEVICE=$TRAIN_DEVICE \
     --wrap "$PY $BIN/train_gpu.py") || { echo "reference sbatch failed" >"$d/sbatch-error"; return; }
   echo "reference_job=$ref" >"$d/jobs.env"
   job_done "$ref" $(( $(date +%s) + 600 )) || { echo "reference did not end in 600 s" >"$d/reference.timeout"; return; }
 
   scontrol update nodename=gpu2 state=drain reason=b4-hold || { echo "the drain of gpu2 exited $?" >"$d/setup-failed"; return; }
-  run=$(as_tenant sbatch --parsable --requeue --gres=gpu:1 --mem=4G -t 15 --open-mode=append -o "$d/run.jsonl" -e "$d/run.err" \
+  run=$(as_tenant sbatch --parsable --requeue --gres=gpu:1 --mem="${B4_MEM_MB:-4096}M" -t 15 --open-mode=append -o "$d/run.jsonl" -e "$d/run.err" \
     --export=ALL,TRAIN_DIR=$SHARED/ckpt/run,TRAIN_STEPS=60,TRAIN_STEP_SLEEP=1,TRAIN_DEVICE=$TRAIN_DEVICE \
     --wrap "$PY $BIN/train_gpu.py") || { echo "run sbatch failed" >"$d/sbatch-error"; scontrol update nodename=gpu2 state=resume; return; }
   echo "run_job=$run" >>"$d/jobs.env"
@@ -179,7 +186,7 @@ b4() {
   scontrol show node gpu2 | grep -qE 'State=\S*DRAIN' && echo "gpu2 still drained after the resume" >>"$d/setup-failed"
   echo "gpu2_resumed=$(now)" >>"$d/events.env"
   uuid=$(grep -oE 'UUID="[^"]+"' "$SHARED/gpuhc/gpu1.prom" | head -1)
-  printf 'DCGM_FI_DEV_XID_ERRORS{gpu="0",%s} 79\nDCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",%s} 0\n' "$uuid" "$uuid" >"$SHARED/gpuhc/gpu1.prom.tmp"
+  printf '# generation 1\nDCGM_FI_DEV_XID_ERRORS{gpu="0",%s} 79\nDCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",%s} 0\n' "$uuid" "$uuid" >"$SHARED/gpuhc/gpu1.prom.tmp"
   mv "$SHARED/gpuhc/gpu1.prom.tmp" "$SHARED/gpuhc/gpu1.prom" || echo "the fault signal could not be written" >>"$d/setup-failed"
   grep -q '^DCGM_FI_DEV_XID_ERRORS{.*UUID=.*} 79$' "$SHARED/gpuhc/gpu1.prom" || echo "gpu1's signal does not carry Xid 79" >>"$d/setup-failed"
   t_fault=$(now)
@@ -203,13 +210,14 @@ EOF
   cp "$SHARED/gpuhc/gpu1.log" "$SHARED/gpuhc/gpu2.log" "$d/" 2>>"$d/copy-errors.txt"
   # gpu1 back in service, because collect.sh reads its journal through a job: the healthy signal first, or gpuhc would
   # drain it again on its next run.
-  printf 'DCGM_FI_DEV_XID_ERRORS{gpu="0",%s} 0\nDCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",%s} 0\n' "$uuid" "$uuid" >"$SHARED/gpuhc/gpu1.prom.tmp"
+  printf '# generation 2\nDCGM_FI_DEV_XID_ERRORS{gpu="0",%s} 0\nDCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",%s} 0\n' "$uuid" "$uuid" >"$SHARED/gpuhc/gpu1.prom.tmp"
   mv "$SHARED/gpuhc/gpu1.prom.tmp" "$SHARED/gpuhc/gpu1.prom"
   sleep 10
   scontrol update nodename=gpu1 state=resume
   echo "gpu1_resumed=$(now)" >>"$d/events.env"
 }
 # B4 waits at most 600 + 300 + 60 + 600 + 10 s, and the margin is collection's.
-if [ "$(left "$CHECKS_END")" -ge 1700 ]; then b4; else notrun b4 "fewer than 1,700 s left for the checks"; fi
+if ! wanted b4; then notrun b4 "not among this rehearsal's checks"
+elif [ "$(left "$CHECKS_END")" -ge "${B4_ADMIT_S:-1700}" ]; then b4; else notrun b4 "fewer than ${B4_ADMIT_S:-1700} s left for the checks"; fi
 echo "b4_done=$(now)" >>"$EVID/timeline.env"
 ship || log "the evidence after b4 could not be shipped"

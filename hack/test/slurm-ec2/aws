@@ -5,7 +5,17 @@ import shutil
 import sys
 
 ROOT = "/fakes3"
-args = [a for a in sys.argv[1:] if a != "--only-show-errors"]
+args = []
+skip = False
+for a in sys.argv[1:]:
+    if skip:
+        skip = False
+        continue
+    if a in ("--cli-connect-timeout", "--cli-read-timeout"):
+        skip = True
+        continue
+    if a != "--only-show-errors":
+        args.append(a)
 
 
 def path(url):
@@ -31,6 +41,25 @@ if args[:2] == ["s3", "cp"] and len(args) == 4:
         shutil.copyfile(src, p + ".tmp")
         os.rename(p + ".tmp", p)
         sys.exit(0)
+def opt(name):
+    return args[args.index(name) + 1] if name in args else None
+
+
+if args[:2] == ["s3api", "put-object"]:
+    p = path(f"s3://{opt('--bucket')}/{opt('--key')}")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    shutil.copyfile(opt("--body"), p + ".tmp")
+    os.rename(p + ".tmp", p)
+    print('{"ETag": "stub"}')
+    sys.exit(0)
+if args[:2] == ["s3api", "get-object"]:
+    p = path(f"s3://{opt('--bucket')}/{opt('--key')}")
+    if not os.path.isfile(p):
+        sys.stderr.write("An error occurred (NoSuchKey) when calling the GetObject operation: The specified key does not exist.\n")
+        sys.exit(254)
+    shutil.copyfile(p, [a for a in args[2:] if not a.startswith("--") and a not in (opt("--bucket"), opt("--key"))][-1])
+    print('{"ContentLength": %d}' % os.path.getsize(p))
+    sys.exit(0)
 if args[:2] == ["s3api", "head-object"]:
     bucket = args[args.index("--bucket") + 1]
     key = args[args.index("--key") + 1]

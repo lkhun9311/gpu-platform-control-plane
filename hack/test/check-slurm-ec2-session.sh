@@ -344,6 +344,21 @@ session "a root volume left after termination"
   grep -q "^ec2 describe-volumes .*Values=vol-0h,vol-01,vol-02" "$STUB/calls.log" &&
   ok "a volume left after termination fails the teardown, and all three root volumes are asked about" || bad "a left volume: exit $rc, $(paste -sd';' "$STUB/out/termination.txt")"
 
+# The t3 real-NFS rehearsal: three t3.medium on the Ubuntu image, the GPU stand-in, the old barrier probe, a 40-minute
+# clock and only B4, set by the mode and nowhere else; the G and VT quota is not read.
+scene; put d1 "$LT_G	$HAMI	172.31.0.11	vol-01"; put d2 "$LT_H	$HAMI	172.31.0.12	vol-02"; rule "ec2 run-instances*" "ih|i1|i2"; base_rules; void_evidence
+session "the t3 real-NFS rehearsal" SLURMEC2_MODE=nfs-rehearsal SLURMEC2_GPU_AMI_ID=$HAMI
+runs=$(grep '^ec2 run-instances' "$STUB/calls.log")
+[ "$(grep -c -- "--image-id $HAMI --instance-type t3.medium" <<<"$runs")" = 3 ] && ! grep -q g5.xlarge <<<"$runs" &&
+  ok "the rehearsal buys three t3.medium on the Ubuntu image" || bad "the rehearsal launches: $(cut -c1-200 <<<"$runs")"
+grep -q "service-quotas get-service-quota" "$STUB/calls.log" && bad "the rehearsal read the G and VT quota" || ok "the rehearsal does not read the G and VT quota"
+ud="$STUB/out/user-data-gpu1.sh"
+grep -q " STOP_S=2400 SLURMEC2_FAKE_GPU=1 SLURMEC2_NFS_PROBE=1$" "$ud" && grep -q '( sleep 2700; ' "$ud" &&
+  ok "the rehearsal's instances stop at T0 + 2,400 s, boot + 2,700 s at the latest, and carry the stand-in and the probe" || bad "the rehearsal user-data: $(grep -E 'STOP_S|sleep' "$ud")"
+grep -qx "CHECKS_END_S=2100" "$STUB/uploaded/cluster.env" && grep -qx "SLURMEC2_CHECKS=b4" "$STUB/uploaded/cluster.env" && grep -qx "B4_MEM_MB=1024" "$STUB/uploaded/cluster.env" &&
+  ok "cluster.env carries the rehearsal's clock and its one check" || bad "the rehearsal cluster.env: $(paste -sd' ' "$STUB/uploaded/cluster.env")"
+scene; base_rules; refused "an unknown mode" "SLURMEC2_MODE is 'other'" SLURMEC2_MODE=other
+
 # --- the ways the purchase and the end can go wrong ---------------------------------------------------------------
 # A scene's own rule goes before base_rules, because the first matching rule answers.
 scene; rule "ec2 run-instances*" "ih|capacity|ih|i1|i2" "0|1|0|0|0"; base_rules; void_evidence
