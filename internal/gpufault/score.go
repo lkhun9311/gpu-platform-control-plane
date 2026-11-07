@@ -112,6 +112,8 @@ type CellResult struct {
 	Actions []string `json:"actions,omitempty"`
 	// AllocatableChanged is P5's reading: whether the target's allocatable GPUs moved across the injection.
 	AllocatableChanged bool `json:"allocatableChanged"`
+	// AllocatableRead is whether both allocatable readings exist; P5 is judged only on repetitions where they do.
+	AllocatableRead bool `json:"allocatableRead"`
 	// Cut is true when the session ran out of time inside this repetition.
 	Cut bool `json:"cut,omitempty"`
 }
@@ -346,7 +348,9 @@ func ScoreCell(dir string) (CellResult, error) {
 	if env["field"] != fieldID(inj.field) {
 		invalid("V1: field %q, want %s", env["field"], fieldID(inj.field))
 	}
-	res.AllocatableChanged = env["alloc_before"] != env["alloc_after"]
+	// Two missing readings are equal strings, so a comparison alone would call an unread allocatable unchanged.
+	res.AllocatableRead = env["alloc_before"] != "" && env["alloc_after"] != ""
+	res.AllocatableChanged = res.AllocatableRead && env["alloc_before"] != env["alloc_after"]
 
 	// V5: the exporter served the injected value, for every arm that injected.
 	if res.Arm != armNone {
@@ -770,7 +774,15 @@ func Judge(cells []CellResult, notRun map[string]bool) Report {
 	}
 	// P5's failure is an unexpected change with its cause unresolved, never by itself proof that injection
 	// reached NVML: the device plugin also marks devices unhealthy on its own NVML errors.
-	rep.P5 = "held"
+	// "held" needs at least one valid repetition that injected and read allocatable on both sides: with none, nothing
+	// was observed, and run 1, which had no repetition at all, printed "held" until this rule existed.
+	rep.P5 = "NOT-OBSERVED: no valid repetition injected and read allocatable before and after"
+	for _, c := range cells {
+		if c.Valid() && c.AllocatableRead && c.Arm != armNone {
+			rep.P5 = "held"
+			break
+		}
+	}
 	for _, c := range cells {
 		if c.Valid() && c.AllocatableChanged {
 			rep.P5 = "FAILED: allocatable changed across an injection in " + filepath.Base(c.Dir) + "; cause unresolved"

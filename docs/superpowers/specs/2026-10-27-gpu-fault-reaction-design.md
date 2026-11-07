@@ -312,6 +312,7 @@ A static review: it did not establish that anything runs, and the tests below ar
 ## Result, 2026-10-26: run 1 is REFUSED, because the job image's archive could not be imported onto the kind node
 
 **Verdict: `GPU FAULT REACTION: REFUSED`.** The scorer refused it for "no repetition directory was found" and "no smoke.env: the session never recorded whether injection reaches the exporter"; every arm is UNJUDGED with 0 valid repetitions, and P5 held only because no injection ran.
+The scorer printed that as "P5 (allocatable unchanged by injection): held", which `verdict.txt` keeps as it was printed; since 2026-11-07 (astra review r3, finding 7) the scorer prints `NOT-OBSERVED` when no valid repetition injected and read allocatable on both sides, and re-scoring this archive gives that, with nothing else in the verdict changed.
 This says nothing about DCGM, the exporter, the A10G or the platform's reaction: the instance stopped before the platform was installed.
 
 **The purchase.** One g5.2xlarge Spot instance, `i-09c64e59ffb24d702`, in ap-northeast-2a, from `6d9d087f`, the commit that froze this page, on the pinned AMI `ami-097edab977037f65f`.
