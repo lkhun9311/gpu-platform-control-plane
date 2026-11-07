@@ -116,6 +116,9 @@ head_bringup() {
   sed "s|@STORAGE_PASS@|$pw|" hack/slurm-ec2/slurmdbd.conf >/etc/slurm/slurmdbd.conf
   chown slurm:slurm /etc/slurm/slurmdbd.conf && chmod 600 /etc/slurm/slurmdbd.conf
   systemctl restart slurmdbd || die "slurmdbd"
+  # sacctmgr reads slurm.conf to find slurmdbd, so the cluster-wide part is in place before the nodes are known;
+  # the full file, with the nodes, replaces it before slurmctld starts.
+  cp hack/slurm-ec2/slurm.conf /etc/slurm/slurm.conf
   until_true $(( $(date +%s) + 60 )) 2 sacctmgr -n show cluster >>/var/log/slurmec2-setup.log 2>&1 || die "slurmdbd never answered sacctmgr"
 
   # Each worker's own slurmd -C, so a declared node never exceeds its machine.
