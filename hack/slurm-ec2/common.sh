@@ -97,7 +97,10 @@ sig_get() {
   if err=$(awsb s3api get-object --bucket "$BUCKET" --key "$PREFIX/control/$name" "$out" 2>&1 >/dev/null); then
     python3 - "$out" "$PREFIX" "${T0:-0}" "$producer" "$ph" <<'PY' && return 0
 import json, sys
-d = json.load(open(sys.argv[1]))
+try:
+    d = json.load(open(sys.argv[1]))
+except ValueError:
+    sys.exit(1)
 ok = d.get("schema") == 1 and d.get("run") == sys.argv[2] and d.get("t0") == int(sys.argv[3]) \
     and d.get("producer") == sys.argv[4] and d.get("phase") == sys.argv[5]
 sys.exit(0 if ok else 1)
@@ -169,7 +172,7 @@ ship() {
   sha=$(sha256sum "/tmp/evidence-$n.tgz" | cut -d' ' -f1)
   for i in 1 2 3 4 5; do
     if s3put "/tmp/evidence-$n.tgz" "evidence-$n.tgz"; then
-      got=$(aws s3api head-object --bucket "$BUCKET" --key "$PREFIX/evidence-$n.tgz" --query ContentLength --output text) &&
+      got=$(awsb s3api head-object --bucket "$BUCKET" --key "$PREFIX/evidence-$n.tgz" --query ContentLength --output text) &&
         [ "$got" = "$size" ] && {
           echo "n=$n sha256=$sha" >/tmp/evidence.latest
           s3put /tmp/evidence.latest evidence.latest || return 1
