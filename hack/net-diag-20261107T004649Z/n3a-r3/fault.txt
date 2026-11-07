@@ -1,0 +1,1 @@
+server_endpoints=0 reject_rules=1

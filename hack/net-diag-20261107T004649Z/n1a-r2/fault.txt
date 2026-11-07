@@ -1,0 +1,1 @@
+kube_dns_endpoints=0 kube_dns_pods=0 reject_rules=1

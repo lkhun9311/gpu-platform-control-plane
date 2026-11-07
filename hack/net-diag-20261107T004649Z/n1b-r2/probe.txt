@@ -1,0 +1,15 @@
+capture_ready=1
+curl_exit=6
+http=000 t_total=11.172877 t_dns=0.000000 t_connect=0.000000 local_port=-1
+curl_error=curl: (6) Could not resolve host: server 
+retrans_before=46 retrans_after=46
+kernel_dropped=0
+tcpdump_read_exit=0
+--- capture
+00:49:26.515657 IP 10.244.0.6.46260 > 10.96.0.10.53: 27195+ [1au] A? server.default.svc.cluster.local. (73)
+00:49:26.515690 IP 10.244.0.6.46260 > 10.96.0.10.53: 53276+ [1au] AAAA? server.default.svc.cluster.local. (73)
+00:49:28.516709 IP 10.244.0.6.46260 > 10.96.0.10.53: 27195+ [1au] A? server.default.svc.cluster.local. (73)
+00:49:28.516740 IP 10.244.0.6.46260 > 10.96.0.10.53: 53276+ [1au] AAAA? server.default.svc.cluster.local. (73)
+00:49:30.551709 IP 10.244.0.6.46260 > 10.96.0.10.53: 53276+ [1au] AAAA? server.default.svc.cluster.local. (73)
+00:49:31.252478 IP 10.244.0.6.46260 > 10.96.0.10.53: 27195+ [1au] A? server.default.svc.cluster.local. (73)
+--- end
