@@ -19,6 +19,7 @@ package bench
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -68,12 +69,12 @@ func TestATruncatedStreamIsDistinguishableFromACompleteOne(t *testing.T) {
 	if cut.StreamTerminated {
 		t.Fatal("a stream that ended without [DONE] was recorded as terminated")
 	}
-	// And the fields that CANNOT tell them apart are asserted equal, so this test says what the new field
-	// is for rather than merely that it exists. If a later change made ErrorKind differ here, the comment
-	// above would be stale and this would say so.
-	if clean.ErrorKind != cut.ErrorKind {
-		t.Errorf("ErrorKind now differs (%q vs %q); the truncation is detectable without StreamTerminated and this test's premise has changed",
-			clean.ErrorKind, cut.ErrorKind)
+	// Since 2026-11-07 the sender also names the truncation where every reader buckets failures: StreamTerminated
+	// alone left the decision to readers, and the report never made it (review r7).
+	// Mutation that turns this red: drop the no-[DONE] branch at the end of readStream.
+	if clean.ErrorKind != "" || cut.ErrorKind != errorKindStream || cut.StreamError != streamErrorNoEndMarker {
+		t.Errorf("clean ErrorKind %q; truncated ErrorKind %q, StreamError %q: a truncated stream must be a stream failure",
+			clean.ErrorKind, cut.ErrorKind, cut.StreamError)
 	}
 	if (clean.FirstTokenUnixNanos != 0) != (cut.FirstTokenUnixNanos != 0) {
 		t.Error("one of the two carries a first token and the other does not; the premise has changed")
@@ -191,4 +192,94 @@ func TestEvidenceWrittenBeforeTheseFieldsStillReads(t *testing.T) {
 	if rows[0].StreamError != "" {
 		t.Errorf("an absent field read as %q", rows[0].StreamError)
 	}
+}
+
+// terminationRows is a file of premium rows as the harness wrote them between 2026-10-04 and 2026-11-07: the key
+// present only on rows whose stream ended, so `ended` decides which rows carry it.
+func terminationRows(t *testing.T, ended []bool) []RawRow {
+	t.Helper()
+	var b strings.Builder
+	for i, e := range ended {
+		term := ""
+		if e {
+			term = `,"streamTerminated":true`
+		}
+		fmt.Fprintf(&b, `{"index":%d,"arm":"shared","tenant":"premium-1","sendUnixNanos":%d,"firstTokenUnixNanos":%d,"endUnixNanos":%d,"estInputTokens":10,"outputTokens":3,"httpStatus":200%s}`+"\n",
+			i, int64(i+1)*1e9, int64(i+1)*1e9+int64(10+i)*1e6, int64(i+1)*1e9+int64(20+i)*1e6, term)
+	}
+	rows, err := ReadRawRows(strings.NewReader(b.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
+// In a file that recorded termination, a stream that did not end is a failure, never a completion in the tail.
+//
+// Mutations that turn this red: drop classifyTermination's reclassification, or infer the record per row
+// instead of per file (an absent key then reads as unrecorded and the row stays a completion).
+func TestTheReportCountsAStreamThatDidNotEndAsAFailure(t *testing.T) {
+	rows := terminationRows(t, []bool{true, true, false, true})
+	if !rows[2].TerminationRecorded || rows[2].StreamTerminated {
+		t.Fatalf("the file recorded termination and row 2 did not end, but it reads recorded=%t ended=%t",
+			rows[2].TerminationRecorded, rows[2].StreamTerminated)
+	}
+	s := Summarize("shared", rows)
+	if s.Completed != 3 || s.Failed != 1 || s.TruncatedStreams != 1 || s.TailSampleSize != 3 {
+		t.Errorf("completed %d, failed %d, truncated %d, tail %d; want 3, 1, 1, 3", s.Completed, s.Failed, s.TruncatedStreams, s.TailSampleSize)
+	}
+	if rows[2].ErrorKind != "" {
+		t.Error("Summarize changed its caller's rows")
+	}
+	if !strings.Contains(FormatReport([]ArmSummary{s}, nil, 0), "1 stream(s) ended without [DONE] and count as failures") {
+		t.Error("the report does not say that a stream ended without [DONE]")
+	}
+}
+
+// A file that never recorded termination leaves its completions standing and says they rest on that silence.
+//
+// Mutation that turns this red: stop counting TerminationUnknown, or treat an unrecorded file as truncated.
+func TestTheReportNamesCompletionsWhoseTerminationWasNeverRecorded(t *testing.T) {
+	rows := terminationRows(t, []bool{false, false, false})
+	s := Summarize("shared", rows)
+	if s.Completed != 3 || s.TruncatedStreams != 0 || s.TerminationUnknown != 3 {
+		t.Errorf("completed %d, truncated %d, unknown %d; want 3, 0, 3", s.Completed, s.TruncatedStreams, s.TerminationUnknown)
+	}
+	if !strings.Contains(FormatReport([]ArmSummary{s}, nil, 0), "3 completion(s) come from rows that never recorded") {
+		t.Error("the report does not name the completions whose termination is unknown")
+	}
+}
+
+// A truncation the sender itself names reaches the report's count, not only its failures (bare review of r7).
+//
+// Mutation that turns this red: drop the first branch of classifyTermination.
+func TestATruncationTheSenderNamedIsCountedByTheReport(t *testing.T) {
+	ok := readOneStream(t, streamChunk+streamChunk+"data: [DONE]\n\n")
+	cut := readOneStream(t, streamChunk+streamChunk)
+	rows := Replay(context.Background(), sequenceSender{results: []SendResult{ok, cut}}, evenTrace(2, 1), ReplayOptions{Arm: ArmShared})
+	var buf bytes.Buffer
+	if err := WriteRawRows(&buf, rows); err != nil {
+		t.Fatal(err)
+	}
+	back, err := ReadRawRows(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := Summarize(ArmShared, back)
+	if s.TruncatedStreams != 1 || s.Failed != 1 {
+		t.Errorf("truncated %d, failed %d; want 1, 1", s.TruncatedStreams, s.Failed)
+	}
+	if !strings.Contains(FormatReport([]ArmSummary{s}, nil, 0), "1 stream(s) ended without [DONE]") {
+		t.Error("the report does not name the truncation the sender recorded")
+	}
+}
+
+// sequenceSender returns its results in order, stamped on the scheduler's clock.
+type sequenceSender struct{ results []SendResult }
+
+func (s sequenceSender) Send(_ context.Context, row TraceRow, sendUnixNanos int64) SendResult {
+	out := s.results[row.Index%len(s.results)]
+	out.FirstTokenUnixNanos = sendUnixNanos + 1
+	out.EndUnixNanos = sendUnixNanos + 2
+	return out
 }

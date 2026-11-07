@@ -12,3 +12,4 @@
 12-whitespace-only           ok|yes
 13-only-schedule ok+left|no
 14-only-logs ok+left|no
+15-only-efs ok+left|no

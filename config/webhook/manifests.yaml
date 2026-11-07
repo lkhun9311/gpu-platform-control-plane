@@ -82,10 +82,13 @@ webhooks:
           - ""
         apiVersions:
           - v1
-        # CREATE only. A Pod's resource requests are immutable, so no UPDATE can introduce a device request
-        # that CREATE did not already see, and refusing a DELETE could strand a Pod nobody can remove.
+        # CREATE, and UPDATE since 2026-11-07. A Pod's resource requests are immutable, so no UPDATE can
+        # introduce a device request; but an UPDATE can strip Kueue's admission gate or managed label from a
+        # queued GPU Pod and run it with no Workload, so UPDATE is read for that alone. Status writes go to
+        # pods/status and do not pass through here. Refusing a DELETE could strand a Pod nobody can remove.
         operations:
           - CREATE
+          - UPDATE
         resources:
           - pods
   - name: vgpujob.kb.io

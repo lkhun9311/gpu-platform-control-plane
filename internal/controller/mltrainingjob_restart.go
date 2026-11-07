@@ -566,6 +566,13 @@ func (r *MLTrainingJobReconciler) recordActive(ctx context.Context, mltj *platfo
 // trigger moves the current attempt to Stopping, once.
 func (r *MLTrainingJobReconciler) trigger(ctx context.Context, mltj *platformv1.MLTrainingJob, why string) (ctrl.Result, error) {
 	now := metav1.Now()
+	// An attempt that ends admitted but never seen running leaves an admission stamp the next attempt's Running would
+	// be measured from, a window holding the failure, the stop barrier and the requeue (codex review r8).
+	// Cleared in the same write, so the admission-to-running window is always one attempt's; the first attempt
+	// seen running is the one the fields report.
+	if mltj.Status.RunningObservedAt == nil {
+		mltj.Status.AdmittedAt = nil
+	}
 	if err := r.writeAttempts(ctx, mltj, func(a []platformv1.TrainingAttempt) []platformv1.TrainingAttempt {
 		last := &a[len(a)-1]
 		last.State, last.Trigger, last.FailureObservedAt = attemptStopping, why, &now
