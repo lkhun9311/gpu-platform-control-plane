@@ -557,6 +557,41 @@ class ReapTest(unittest.TestCase):
         self.assertIn(reaper.LEASE_PATH + "gpu-platform", a.leases)
         self.assertEqual(a.calls, [])
 
+    # Before reaping: a lease replaced since the run's listing stops the reaping of the old session's copy.
+    # Mutation that turns it red: skip the identity check before reaping.
+    def test_a_lease_replaced_before_reaping_reaps_nothing(self):
+        a = Account()
+        a.clusters["gpu-platform"] = {"status": "ACTIVE", "tags": TAGS, "nodegroups": {"gpu": nodegroup(1)}}
+        lease(a, deadline=PAST, session="A")
+        stale = [{"Name": n, "Value": v} for n, v in a.leases.items()]
+        lease(a, deadline=FUTURE, session="B")
+
+        class Stale(SSM):
+            def get_paginator(self, _):
+                class P:
+                    def paginate(self, **_):
+                        return [{"Parameters": stale}]
+                return P()
+        failures = reaper.run(Stale(a), EKS(a), EC2(a), EFS(a), ASG(a), Logs(a), KMS(a), NOW, lambda _: None)
+        self.assertEqual(failures, [])
+        self.assertEqual(a.calls, [], "the old copy's deadline deleted the new session's node group")
+
+    # Before removing: a lease replaced while the run reaped is kept.
+    # Mutation that turns it red: skip the identity check before removing the lease.
+    def test_a_lease_replaced_while_reaping_is_kept(self):
+        a = Account()
+        lease(a, deadline=PAST, session="A", vpc_id="vpc-1")
+        eks = EKS(a)
+
+        def gone_and_replaced(name):
+            lease(a, deadline=FUTURE, session="B", vpc_id="vpc-1")
+            raise AWSError("ResourceNotFoundException")
+        eks.describe_cluster = gone_and_replaced
+        failures = reaper.run(SSM(a), eks, EC2(a), EFS(a), ASG(a), Logs(a), KMS(a), NOW, lambda _: None)
+        self.assertEqual(failures, [])
+        self.assertIn(reaper.LEASE_PATH + "gpu-platform", a.leases)
+        self.assertNotIn(("delete_parameter", reaper.LEASE_PATH + "gpu-platform"), a.calls)
+
     # An EFS step that is refused does not keep the NAT gateway billing; the run still fails so it is seen.
     # Mutation that turns it red: let the EFS failure end the step before the network.
     def test_a_refused_efs_step_does_not_stop_the_network_step(self):
