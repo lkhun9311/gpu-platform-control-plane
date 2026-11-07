@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -174,6 +175,12 @@ type ArmSummary struct {
 	Total int
 	// Completed counts requests that produced a full response (a first token and an end).
 	Completed int
+	// TruncatedStreams counts responses whose stream stopped before [DONE] in a file that recorded termination;
+	// they count as failures, not completions.
+	TruncatedStreams int
+	// TerminationUnknown counts completions from rows that never recorded whether their stream ended: every row
+	// written before 2026-10-04. They stay in Completed, and the report prints how many rest on that silence.
+	TerminationUnknown int
 	// OfferedExactTokens and AdmittedExactTokens are the admitted-work fraction in the units the design
 	// actually specifies: the served tokenizer's own count, not ceil(chars/4).
 	//
@@ -493,6 +500,8 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		threshold = rows[0].LongThreshold
 	}
 
+	rows, s.TruncatedStreams, s.TerminationUnknown = classifyTermination(rows)
+
 	var ttft, e2e, tpot []float64
 	tpotByTenant := map[string][]float64{}
 	var premiumTotal, premiumTimedOut, premiumLost int
@@ -670,6 +679,57 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		s.Censored = true
 	}
 	return s
+}
+
+// classifyTermination returns the rows with every truncated stream marked as the stream failure it is, how many it
+// marked, and how many otherwise-completed rows come from a file that never recorded whether the stream ended.
+//
+// A row whose file recorded termination and whose stream did not end is a response that stopped arriving: the
+// sender has called it a stream failure since 2026-11-07, and rows written before then said so only in
+// StreamTerminated, which nothing here read, so they counted as completions with their latency in the tail.
+// A row from a file that never recorded termination cannot be classified either way; it stays where its other
+// fields put it, and the count says how many completions rest on that silence.
+// The input slice is not modified; a copy is made only when a row changes.
+func classifyTermination(rows []RawRow) ([]RawRow, int, int) {
+	var truncated, unknown int
+	out := rows
+	for i, r := range rows {
+		if r.ErrorKind != "" || r.HTTPStatus != httpStatusOK || r.StreamTerminated {
+			continue
+		}
+		if !r.TerminationRecorded {
+			if _, ok := r.TTFTNanos(); ok {
+				unknown++
+			}
+			continue
+		}
+		if truncated == 0 {
+			out = slices.Clone(rows)
+		}
+		truncated++
+		out[i].ErrorKind = errorKindStream
+		if out[i].StreamError == "" {
+			out[i].StreamError = streamErrorNoEndMarker
+		}
+	}
+	return out, truncated, unknown
+}
+
+// formatTermination is the report's line on streams that did not end, empty when there were none to name.
+func formatTermination(summaries []ArmSummary) string {
+	var b strings.Builder
+	for _, s := range summaries {
+		if s.TruncatedStreams == 0 && s.TerminationUnknown == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "%s: %d stream(s) ended without [DONE] and count as failures; %d completion(s) come from rows that "+
+			"never recorded whether their stream ended, so their completion is unknown, not established\n",
+			s.Arm, s.TruncatedStreams, s.TerminationUnknown)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\nStream termination\n" + b.String()
 }
 
 // nanosToMs converts a nanosecond duration to fractional milliseconds.
@@ -1300,6 +1360,7 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 		fmt.Fprintf(&b, "%-*s %8d %8d %8d %8d %8.1f %8.1f %8.1f %8d %8d%s%s\n",
 			ArmColumnWidth, s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, s.RepetitionCount, censored, thin)
 	}
+	b.WriteString(formatTermination(summaries))
 	// What the protection cost, printed beside what it bought.
 	//
 	// Every check below is a TTFT ratio, and the paid run showed that is half an answer: the arm that held
