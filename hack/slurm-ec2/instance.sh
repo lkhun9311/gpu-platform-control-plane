@@ -140,12 +140,15 @@ head_bringup() {
   sacctmgr -i add account acct-a,acct-b Cluster=ec2lab >>/var/log/slurmec2-setup.log 2>&1 || die "accounts"
   sacctmgr -i add user "$TENANT" Account=acct-b DefaultAccount=acct-b >>/var/log/slurmec2-setup.log 2>&1 || die "tenant in acct-b"
   sacctmgr -i add user "$TENANT" Account=acct-a >>/var/log/slurmec2-setup.log 2>&1 || die "tenant in acct-a"
-  sacctmgr -i modify account acct-a set GrpTRES=gres/gpu=1 >>/var/log/slurmec2-setup.log 2>&1 || die "acct-a GrpTRES"
   sacctmgr -i add qos qone MaxJobsPerUser=1 >>/var/log/slurmec2-setup.log 2>&1 || die "qos qone"
   sacctmgr -i modify user "$TENANT" set QOS+=qone >>/var/log/slurmec2-setup.log 2>&1 || die "tenant qos"
-  sacctmgr -n -P show assoc format=account,user,grptres,qos >"$EVID/associations.txt"
 
   systemctl restart slurmctld || die "slurmctld"
+  # The gres/gpu TRES exists in accounting only once slurmctld, configured with AccountingStorageTRES=gres/gpu, has
+  # registered with slurmdbd, so the GPU limit is set after it starts.
+  until_true $(( $(date +%s) + 60 )) 3 sacctmgr -i modify account acct-a set GrpTRES=gres/gpu=1 >>/var/log/slurmec2-setup.log 2>&1 ||
+    die "acct-a GrpTRES"
+  sacctmgr -n -P show assoc format=account,user,grptres,qos >"$EVID/associations.txt"
   touch "$SHARED/control/CONF_READY"
   head_wait "$BRINGUP_END" bash -c '[ "$(sinfo -h -N -o "%N %t" | grep -cE "^gpu[12] (idle|mix)")" = 2 ]' ||
     die "both workers did not register idle: $(sinfo -h -N -o '%N %t %E' | paste -sd';')"
