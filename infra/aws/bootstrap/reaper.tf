@@ -95,6 +95,19 @@ data "aws_iam_policy_document" "reaper" {
       values   = [local.reaper_project]
     }
   }
+  # A GPU instance still in its group a grace after the GPU deadline with the group at zero (scale-in protection, or a
+  # stuck termination). EKS does not carry a node group's tags onto its Auto Scaling group, so the group is matched by
+  # the eks:cluster-name tag EKS itself puts there; the code names only groups of the leased cluster's leased node groups.
+  statement {
+    effect    = "Allow"
+    actions   = ["autoscaling:TerminateInstanceInAutoScalingGroup"]
+    resources = ["arn:aws:autoscaling:${var.region}:${data.aws_caller_identity.current.account_id}:autoScalingGroup:*:autoScalingGroupName/eks-*"]
+    condition {
+      test     = "Null"
+      variable = "autoscaling:ResourceTag/eks:cluster-name"
+      values   = ["false"]
+    }
+  }
   statement {
     effect    = "Allow"
     actions   = ["eks:DeleteCluster"]

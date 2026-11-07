@@ -15,6 +15,7 @@ terraform owns them.
 """
 
 import datetime
+import hashlib
 import json
 import os
 
@@ -22,10 +23,24 @@ LEASE_PATH = os.environ.get("LEASE_PATH", "/gpu-platform/session-lease/")
 PROJECT_KEY = "project"
 PROJECT_VALUE = os.environ.get("PROJECT_TAG", "gpu-platform-control-plane")
 HEARTBEAT = os.environ.get("HEARTBEAT", "/gpu-platform/session-reaper/last-ok")
+# A lease is not started with less than this left in the invocation; each client call is bounded well below it.
+MIN_SECONDS_PER_LEASE = 30
 
 
 class LeaseError(Exception):
     """A lease that cannot be read well enough to act on."""
+
+
+class Handover(Exception):
+    """The lease changed since this run read it; the run stops acting on it, which is not a failure."""
+
+
+class Partial(Exception):
+    """Some steps of a lease failed after the others were asked for; carries the failures."""
+
+# How long instances may stay in a GPU group held at zero before the reaper terminates them itself: a group whose
+# instances are protected from scale-in keeps them billing at desiredSize 0 (round 3 of the adversarial review).
+GPU_STRAGGLER_GRACE = datetime.timedelta(minutes=int(os.environ.get("GPU_STRAGGLER_GRACE_MINUTES", "15")))
 
 
 def parse_time(value):
@@ -121,7 +136,7 @@ def same_lease(ssm, lease_name, lease):
     return cur.get("session") == lease.get("session") and cur["deadline"] == lease["deadline"]
 
 
-def hold_gpu_at_zero(eks, asg, ssm, lease_name, cluster, groups, now, log):
+def hold_gpu_at_zero(eks, asg, ssm, lease_name, cluster, groups, gpu_deadline, now, log):
     """P2: each named group at minSize 0, desiredSize 0, and with no instance left; returns the groups not yet there."""
     pending = []
     for name in groups:
@@ -151,13 +166,24 @@ def hold_gpu_at_zero(eks, asg, ssm, lease_name, cluster, groups, now, log):
             pending.append(name)
             continue
         names = [g["name"] for g in ng.get("resources", {}).get("autoScalingGroups", [])]
-        left = 0
+        stragglers = []
         if names:
             for g in asg.describe_auto_scaling_groups(AutoScalingGroupNames=names).get("AutoScalingGroups", []):
-                left += len(g.get("Instances", []))
-        if left:
-            log(f"{cluster}/{name}: desiredSize 0, {left} instance(s) still in its groups")
-            pending.append(name)
+                stragglers += [i["InstanceId"] for i in g.get("Instances", [])]
+        if not stragglers:
+            continue
+        pending.append(name)
+        if now < gpu_deadline + GPU_STRAGGLER_GRACE:
+            log(f"{cluster}/{name}: desiredSize 0, {len(stragglers)} instance(s) still in its groups")
+            continue
+        if not still_gpu_phase(ssm, lease_name, name, now):
+            log(f"{cluster}/{name}: the lease was renewed since this run read it; left alone")
+            continue
+        # Still there a grace after the deadline with desiredSize 0: scale-in protection, or a stuck termination. Ended
+        # here, without decrementing the group, which is already at zero.
+        for iid in stragglers:
+            asg.terminate_instance_in_auto_scaling_group(InstanceId=iid, ShouldDecrementDesiredCapacity=False)
+            log(f"{cluster}/{name}: instance {iid} still running {GPU_STRAGGLER_GRACE} after the GPU deadline; terminated")
     return pending
 
 
@@ -209,10 +235,16 @@ def session_file_systems(lease, efs):
     return matches
 
 
-def reap(lease, eks, ec2, efs, logs, kms, log):
-    """P1: one step of deleting the session's billing resources; returns what is still left, empty when done."""
+def reap(lease, eks, ec2, efs, logs, kms, log, guard=lambda: None):
+    """P1: one step of deleting the session's billing resources; returns what is still left, empty when done.
+
+    GUARD runs before every deletion and raises Handover when the lease is no longer the one this run read, so a run that
+    outlived its session's teardown cannot delete what a new session of the same name has begun to build.
+    A deletion that fails does not stop the others; the failures are raised together as Partial once all were asked.
+    """
     cluster = lease["cluster"]
     left = []
+    failed = []
     desc = None
     try:
         desc = eks.describe_cluster(name=cluster)["cluster"]
@@ -225,38 +257,58 @@ def reap(lease, eks, ec2, efs, logs, kms, log):
     if desc is not None:
         for name in eks.list_nodegroups(clusterName=cluster).get("nodegroups", []):
             groups_gone = False
-            ng = eks.describe_nodegroup(clusterName=cluster, nodegroupName=name)["nodegroup"]
-            if ng.get("status") != "DELETING":
-                eks.delete_nodegroup(clusterName=cluster, nodegroupName=name)
-                log(f"{cluster}/{name}: node group deletion asked")
             left.append(f"nodegroup/{name}")
+            try:
+                ng = eks.describe_nodegroup(clusterName=cluster, nodegroupName=name)["nodegroup"]
+                if ng.get("status") != "DELETING":
+                    guard()
+                    eks.delete_nodegroup(clusterName=cluster, nodegroupName=name)
+                    log(f"{cluster}/{name}: node group deletion asked")
+            except Handover:
+                raise
+            except Exception as e:  # noqa: BLE001 -- one refused group must not keep the others billing
+                failed.append(f"nodegroup/{name}: {type(e).__name__}: {e}")
         if groups_gone:
             if desc.get("status") != "DELETING":
+                guard()
                 eks.delete_cluster(name=cluster)
                 log(f"{cluster}: cluster deletion asked")
             left.append(f"cluster/{cluster}")
     # Nothing else goes while a node can still be using it: the NAT carries their traffic and the EFS their checkpoints.
     if not groups_gone:
+        if failed:
+            raise Partial(failed)
         return left
 
     # A failed EFS step (its mount targets need an ENI deletion the reaper may be refused) must not keep the NAT and the
     # addresses billing: it is raised after the rest has been asked for.
-    efs_error = None
     try:
-        efs_left = reap_efs(lease, efs, log)
+        left.extend(reap_efs(lease, efs, log, guard))
+    except Handover:
+        raise
     except Exception as e:  # noqa: BLE001
-        efs_error, efs_left = e, ["efs (failed)"]
-    left.extend(efs_left)
-    nats_busy = reap_network(lease, desc, ec2, left, log)
-    if efs_error is not None:
-        raise efs_error
-    if desc is not None:
-        return left
-    reap_cluster_leftovers(cluster, logs, kms, log)
+        left.append("efs (failed)")
+        failed.append(f"efs: {type(e).__name__}: {e}")
+    try:
+        reap_network(lease, desc, ec2, left, log, guard)
+    except Handover:
+        raise
+    except Exception as e:  # noqa: BLE001
+        left.append("network (failed)")
+        failed.append(f"network: {type(e).__name__}: {e}")
+    if desc is None:
+        try:
+            reap_cluster_leftovers(cluster, logs, kms, log, guard)
+        except Handover:
+            raise
+        except Exception as e:  # noqa: BLE001
+            failed.append(f"log group or key: {type(e).__name__}: {e}")
+    if failed:
+        raise Partial(failed)
     return left
 
 
-def reap_efs(lease, efs, log):
+def reap_efs(lease, efs, log, guard):
     """The session's EFS: mount targets, then the file system; returns what is left."""
     cluster = lease["cluster"]
     left = []
@@ -264,9 +316,11 @@ def reap_efs(lease, efs, log):
         mts = efs.describe_mount_targets(FileSystemId=fs["FileSystemId"]).get("MountTargets", [])
         for mt in mts:
             if mt.get("LifeCycleState") not in ("deleting", "deleted"):
+                guard()
                 efs.delete_mount_target(MountTargetId=mt["MountTargetId"])
                 log(f"{cluster}: EFS mount target {mt['MountTargetId']} deletion asked")
         if not mts and fs.get("LifeCycleState") not in ("deleting", "deleted"):
+            guard()
             efs.delete_file_system(FileSystemId=fs["FileSystemId"])
             log(f"{cluster}: EFS {fs['FileSystemId']} deletion asked")
         if fs.get("LifeCycleState") != "deleted":
@@ -274,7 +328,7 @@ def reap_efs(lease, efs, log):
     return left
 
 
-def reap_network(lease, desc, ec2, left, log):
+def reap_network(lease, desc, ec2, left, log, guard):
     """The NAT gateways of the session's VPC, then its addresses; appends what is left to LEFT and returns whether a
     gateway is still being deleted."""
     cluster = lease["cluster"]
@@ -286,6 +340,7 @@ def reap_network(lease, desc, ec2, left, log):
         for nat in nats:
             state = nat.get("State")
             if state in ("pending", "available", "failed"):
+                guard()
                 ec2.delete_nat_gateway(NatGatewayId=nat["NatGatewayId"])
                 log(f"{cluster}: NAT gateway {nat['NatGatewayId']} deletion asked")
             if state != "deleted":
@@ -306,13 +361,14 @@ def reap_network(lease, desc, ec2, left, log):
         if addr.get("AssociationId") or nats_busy:
             left.append(f"eip/{addr['AllocationId']} (waiting for its gateway)")
             continue
+        guard()
         ec2.release_address(AllocationId=addr["AllocationId"])
         log(f"{cluster}: address {addr['AllocationId']} released")
         left.append(f"eip/{addr['AllocationId']} (released, confirmed next run)")
     return nats_busy
 
 
-def reap_cluster_leftovers(cluster, logs, kms, log):
+def reap_cluster_leftovers(cluster, logs, kms, log, guard):
     """The cluster's log group and encryption key, only once the cluster is gone: it writes to the one and decrypts with
     the other while it is deleted."""
     group = f"/aws/eks/{cluster}/cluster"
@@ -322,12 +378,13 @@ def reap_cluster_leftovers(cluster, logs, kms, log):
         arn = lg["arn"][:-2] if lg["arn"].endswith(":*") else lg["arn"]
         if not owned(logs.list_tags_for_resource(resourceArn=arn).get("tags", {})):
             continue
+        guard()
         logs.delete_log_group(logGroupName=group)
         log(f"{cluster}: log group {group} deleted")
     # The key the EKS module makes for this cluster: by its alias, or, when the alias is gone (an apply that died before
     # it, or a destroy that removed it first), by the module's exact description among the account's customer keys.
     # Only with the project tag; the state bucket's key has another description, and the role denies it by ARN as well.
-    for key_id in cluster_keys(kms, cluster):
+    for key_id in cluster_keys(kms, cluster, log):
         meta = kms.describe_key(KeyId=key_id)["KeyMetadata"]
         if meta.get("KeyState") in ("PendingDeletion", "PendingReplicaDeletion"):
             continue
@@ -335,31 +392,38 @@ def reap_cluster_leftovers(cluster, logs, kms, log):
         if not owned(tags):
             log(f"{cluster}: key {key_id} carries no project tag; left alone")
             continue
+        guard()
         kms.schedule_key_deletion(KeyId=key_id, PendingWindowInDays=7)
         log(f"{cluster}: key {key_id} scheduled for deletion in 7 days")
 
 
-def cluster_keys(kms, cluster):
-    """The ids of the customer keys made for this cluster: the one aliased alias/eks/<cluster>, and any whose description
-    is exactly the EKS module's "<cluster> cluster encryption key"."""
-    found = []
+def cluster_keys(kms, cluster, log):
+    """The ids of the customer keys made for this cluster: the one aliased alias/eks/<cluster>, or, only when the alias
+    is gone, any whose description is exactly the EKS module's "<cluster> cluster encryption key".
+
+    A key whose description cannot be read (another application's key policy can refuse it) is skipped with a line, not
+    allowed to stop the search (round 3 of the adversarial review).
+    """
     try:
-        found.append(kms.describe_key(KeyId=f"alias/eks/{cluster}")["KeyMetadata"]["KeyId"])
+        return [kms.describe_key(KeyId=f"alias/eks/{cluster}")["KeyMetadata"]["KeyId"]]
     except Exception as e:  # noqa: BLE001
         if _code(e) != "NotFoundException":
             raise
     want = f"{cluster} cluster encryption key"
+    found = []
     for page in kms.get_paginator("list_keys").paginate():
         for k in page.get("Keys", []):
-            if k["KeyId"] in found:
+            try:
+                meta = kms.describe_key(KeyId=k["KeyId"])["KeyMetadata"]
+            except Exception as e:  # noqa: BLE001
+                log(f"{cluster}: key {k['KeyId']} could not be described ({_code(e) or type(e).__name__}); skipped")
                 continue
-            meta = kms.describe_key(KeyId=k["KeyId"])["KeyMetadata"]
             if meta.get("KeyManager") == "CUSTOMER" and meta.get("Description") == want:
                 found.append(k["KeyId"])
     return found
 
 
-def run(ssm, eks, ec2, efs, asg, logs, kms, now, log):
+def run(ssm, eks, ec2, efs, asg, logs, kms, now, log, time_left=lambda: 1e9):
     """One pass over every lease; returns a list of failures, each a string, after trying every lease.
 
     A pass with no failure writes HEARTBEAT, which a session reads before it arms a lease: a reaper that is Active and
@@ -369,19 +433,35 @@ def run(ssm, eks, ec2, efs, asg, logs, kms, now, log):
     params = []
     for page in ssm.get_paginator("get_parameters_by_path").paginate(Path=LEASE_PATH.rstrip("/"), Recursive=False):
         params.extend(page.get("Parameters", []))
+    # The leases in a different order each run, so one that always runs out the budget cannot starve the ones after it.
+    params.sort(key=lambda p: hashlib.sha256((p["Name"] + now.strftime("%Y%m%d%H%M")).encode()).hexdigest())
     for p in params:
         name = p["Name"]
+        if time_left() < MIN_SECONDS_PER_LEASE:
+            failures.append(f"{name}: not reached, {time_left():.0f} s left in the invocation")
+            continue
         try:
             lease = parse_lease(name, p["Value"])
             ph = phase(lease, now)
             if ph == "gpu":
-                pending = hold_gpu_at_zero(eks, asg, ssm, name, lease["cluster"], lease["gpu_nodegroups"], now, log)
+                pending = hold_gpu_at_zero(eks, asg, ssm, name, lease["cluster"], lease["gpu_nodegroups"],
+                                           parse_time(lease["gpu_deadline"]), now, log)
                 log(f"{name}: GPU deadline passed; {'held at zero' if not pending else 'not yet: ' + ', '.join(pending)}")
             elif ph == "reap":
                 if not same_lease(ssm, name, lease):
                     log(f"{name}: replaced or removed since this run read it; left to the next run")
                     continue
-                left = reap(lease, eks, ec2, efs, logs, kms, log)
+
+                def guard(name=name, lease=lease):
+                    if not same_lease(ssm, name, lease):
+                        raise Handover(name)
+                try:
+                    left = reap(lease, eks, ec2, efs, logs, kms, log, guard)
+                except Handover:
+                    log(f"{name}: replaced or removed during this run; stopped acting on it")
+                    continue
+                except Partial as e:
+                    raise LeaseError("; ".join(e.args[0])) from e
                 if left:
                     log(f"{name}: session deadline passed; still left: {', '.join(left)}")
                 elif same_lease(ssm, name, lease):
@@ -400,10 +480,15 @@ def run(ssm, eks, ec2, efs, asg, logs, kms, now, log):
 def handler(event, context):  # pragma: no cover -- the AWS wiring; run() is what the tests drive
     import boto3
 
+    from botocore.config import Config
+
     region = os.environ.get("AWS_REGION", "ap-northeast-2")
-    c = {s: boto3.client(s, region_name=region) for s in ("ssm", "eks", "ec2", "efs", "autoscaling", "logs", "kms")}
+    # Bounded calls, so one stalled endpoint costs seconds of the invocation rather than its whole timeout.
+    cfg = Config(connect_timeout=5, read_timeout=15, retries={"max_attempts": 2, "mode": "standard"})
+    c = {s: boto3.client(s, region_name=region, config=cfg) for s in ("ssm", "eks", "ec2", "efs", "autoscaling", "logs", "kms")}
     failures = run(c["ssm"], c["eks"], c["ec2"], c["efs"], c["autoscaling"], c["logs"], c["kms"],
-                   datetime.datetime.now(datetime.timezone.utc), print)
+                   datetime.datetime.now(datetime.timezone.utc), print,
+                   lambda: context.get_remaining_time_in_millis() / 1000.0)
     if failures:
         # Raised, so Lambda's Errors metric counts the run and the next session's gate can see it.
         raise RuntimeError("; ".join(failures))

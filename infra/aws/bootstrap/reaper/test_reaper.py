@@ -114,8 +114,13 @@ class ASG:
         self.a = a
 
     def describe_auto_scaling_groups(self, AutoScalingGroupNames):
-        return {"AutoScalingGroups": [{"AutoScalingGroupName": n, "Instances": [{}] * self.a.asg_instances.get(n, 0)}
+        return {"AutoScalingGroups": [{"AutoScalingGroupName": n,
+                                       "Instances": [{"InstanceId": f"i-{n}-{k}"} for k in range(self.a.asg_instances.get(n, 0))]}
                                       for n in AutoScalingGroupNames]}
+
+    def terminate_instance_in_auto_scaling_group(self, InstanceId, ShouldDecrementDesiredCapacity):
+        assert ShouldDecrementDesiredCapacity is False
+        self.a.calls.append(("terminate", InstanceId))
 
 
 class EFS:
@@ -321,13 +326,21 @@ class GPUPhaseTest(unittest.TestCase):
         run(a)
         self.assertEqual(a.calls, [("update_nodegroup_config", "gpu", 0, 0)])
 
-    # Accepted is not done: desired 0 with an instance still in the group is still pending, and asked again next run.
-    # Mutation that turns it red: treat desiredSize 0 as done without reading the instances.
+    # Accepted is not done: desired 0 with an instance still in the group is still pending, and asked again next run;
+    # within the grace after the deadline nothing more is done, after it the stragglers are terminated.
+    # Mutations that turn it red: treat desiredSize 0 as done, never terminate, or terminate within the grace.
     def test_desired_zero_with_instances_left_is_pending(self):
         a = self.account(desired=0, instances=1)
+        a.leases[reaper.LEASE_PATH + "gpu-platform"] = json.dumps(
+            {"cluster": "gpu-platform", "deadline": FUTURE, "gpu_deadline": "2026-11-07T11:50:00Z", "gpu_nodegroups": ["gpu"]})
         failures, logs = run(a)
         self.assertEqual((failures, a.calls), ([], []))
         self.assertTrue(any("not yet: gpu" in line for line in logs), logs)
+        a.leases[reaper.LEASE_PATH + "gpu-platform"] = json.dumps(
+            {"cluster": "gpu-platform", "deadline": FUTURE, "gpu_deadline": "2026-11-07T11:40:00Z", "gpu_nodegroups": ["gpu"]})
+        failures, logs = run(a)
+        self.assertEqual(failures, [])
+        self.assertEqual(a.calls, [("terminate", "i-asg-gpu-0")], "only the GPU group's straggler is terminated")
 
     # An update already running is retried next run, not a failure.
     def test_an_update_in_progress_is_retried_not_failed(self):
@@ -591,6 +604,70 @@ class ReapTest(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertIn(reaper.LEASE_PATH + "gpu-platform", a.leases)
         self.assertNotIn(("delete_parameter", reaper.LEASE_PATH + "gpu-platform"), a.calls)
+
+    # A lease removed and replaced in the middle of a step stops the step before its next deletion.
+    # Mutation that turns it red: drop the guard before a deletion.
+    def test_a_handover_in_the_middle_of_a_step_stops_the_next_deletion(self):
+        a = self.account()
+        a.clusters.pop("gpu-platform")
+        a.efs.pop("fs-1")
+        a.nats[0]["State"] = "deleted"
+        lease(a, deadline=PAST, session="A", vpc_id="vpc-1")
+        ec2 = EC2(a)
+        real = ec2.describe_addresses
+
+        def replaced(Filters):
+            lease(a, deadline=FUTURE, session="B", vpc_id="vpc-1")
+            return real(Filters)
+        ec2.describe_addresses = replaced
+        failures = reaper.run(SSM(a), EKS(a), ec2, EFS(a), ASG(a), Logs(a), KMS(a), NOW, lambda _: None)
+        self.assertEqual(failures, [])
+        self.assertNotIn(("release_address", "eipalloc-1"), a.calls, "an address was released after the lease changed")
+
+    # One node group refused does not stop the deletion of the others; the run fails so it is seen.
+    # Mutation that turns it red: let the first failure end the step.
+    def test_a_refused_node_group_does_not_keep_the_others(self):
+        a = self.account()
+        eks = EKS(a)
+        real = eks.delete_nodegroup
+
+        def refuse_cpu(clusterName, nodegroupName):
+            if nodegroupName == "cpu":
+                raise AWSError("AccessDeniedException")
+            return real(clusterName=clusterName, nodegroupName=nodegroupName)
+        eks.delete_nodegroup = refuse_cpu
+        failures = reaper.run(SSM(a), eks, EC2(a), EFS(a), ASG(a), Logs(a), KMS(a), NOW, lambda _: None)
+        self.assertEqual(len(failures), 1)
+        self.assertIn(("delete_nodegroup", "gpu"), a.calls)
+        self.assertIn(reaper.LEASE_PATH + "gpu-platform", a.leases)
+
+    # A key that cannot be described does not stop the search for the session's key.
+    # Mutation that turns it red: let one describe failure end the search.
+    def test_an_undescribable_key_does_not_hide_the_sessions_key(self):
+        a = self.account()
+        a.clusters.pop("gpu-platform")
+        a.keys["alias/eks/gpu-platform"]["unaliased"] = True
+        a.keys["k-locked"] = {"id": "k-locked", "state": "Enabled", "tags": {}, "description": "other", "locked": True}
+        kms = KMS(a)
+        real = kms.describe_key
+
+        def locked(KeyId):
+            if KeyId == "k-locked":
+                raise AWSError("AccessDeniedException")
+            return real(KeyId)
+        kms.describe_key = locked
+        failures = reaper.run(SSM(a), EKS(a), EC2(a), EFS(a), ASG(a), Logs(a), kms, NOW, lambda _: None)
+        self.assertEqual(failures, [])
+        self.assertIn(("schedule_key_deletion", "k-eks"), a.calls)
+
+    # A lease not started for lack of time is a failure, so the heartbeat is not written over unfinished work.
+    # Mutation that turns it red: start every lease whatever the time left.
+    def test_a_lease_left_for_lack_of_time_is_a_failure(self):
+        a = self.account()
+        failures = reaper.run(SSM(a), EKS(a), EC2(a), EFS(a), ASG(a), Logs(a), KMS(a), NOW, lambda _: None, lambda: 10)
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(a.calls, [])
+        self.assertIsNone(a.heartbeat)
 
     # An EFS step that is refused does not keep the NAT gateway billing; the run still fails so it is seen.
     # Mutation that turns it red: let the EFS failure end the step before the network.
