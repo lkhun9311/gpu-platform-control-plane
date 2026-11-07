@@ -71,4 +71,4 @@ All three are the same lesson an operator meets: the API object and the dataplan
 
 The captures hold only the throwaway cluster's Pod, Service and bridge addresses.
 gpt-6-astra read the design before the run and returned twelve findings; all were taken, two of them (3 and 10) only in part, as the design records.
-The checker's fifteen rules were each broken once and its test went red each time (2026-11-07).
+The checker's fifteen rules were each broken once and its test went red each time (2026-11-07). A bare astra review of the branch then found three ways the checker mishandled incomplete evidence (a repetition with no `case.json` dropped from the count, unreadable evidence aborting the whole verdict, an empty REJECT read-back accepted); all three were fixed, pinned and broken once, and the committed verdict is unchanged.
