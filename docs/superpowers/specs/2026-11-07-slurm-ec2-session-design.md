@@ -164,6 +164,17 @@ Each finding was checked against the code by Claude before it was fixed.
 | 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
 | 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
 
+**Round 8 (commit `4539aa63`): NO-GO, two P1 and two P2, all confirmed and fixed in `b9d860e4`.**
+
+| # | finding | fix |
+|---|---|---|
+| 1 P1 | the quota gate read the G and VT Spot limit, not what other Spot instances in the Region already use | the vCPUs of every running or pending g* and vt* Spot instance are subtracted, and two `g5.xlarge` must fit in what is left |
+| 2 P1 | an instance whose bootstrap reached T0 more than 900 s after it was VOIDed, inside the registered 1,500 s bring-up window | T0 must be a number not in the future; past the bring-up window the instance goes through `late` (NOTRUN) |
+| 3 P2 | a worker timing out on the NFS mount or `CONF_READY` died VOID | both go through `late` |
+| 4 P2 | B3 submitted the second job though the first was never seen RUNNING | the pair stops there, and the scorer makes it INVALID with that reason |
+
+The owner narrowed the launch gate on 2026-11-07, after round 8: only a finding by which billed resources could outlive the session, the cap could be exceeded, or something outside the session's own resources could be touched blocks the purchase; a finding about the validity of a result is recorded here as a known limitation, and the scorer's VOID or INVALID is its backstop.
+
 **Round 7 (commit `dc1c3d23`): NO-GO, two P1 and three P2, all confirmed and fixed in `5d07c00b`.**
 
 | # | finding | fix |
