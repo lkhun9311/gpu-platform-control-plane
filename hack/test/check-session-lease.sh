@@ -24,6 +24,7 @@ source hack/lib/session-lease.sh
 REAPER_STATE=Active
 PUT_CORRUPT=0
 GET_FAIL=0
+DELETE_NOOP=0
 aws() {
   echo "$*" >>"$work/calls"
   local name="" value="" over=0 a
@@ -52,6 +53,7 @@ aws() {
       echo '{"Version": 1}'
       ;;
     "ssm delete-parameter")
+      if ((DELETE_NOOP)); then echo '{}'; return 0; fi
       if [[ -f "$f" ]]; then rm -f "$f"; else echo "An error occurred (ParameterNotFound)" >&2; return 254; fi
       ;;
     *) echo "unexpected aws $*" >&2; return 99 ;;
@@ -60,7 +62,7 @@ aws() {
 
 reset() {
   rm -rf "$work/ssm" "$work/calls"
-  REAPER_STATE=Active PUT_CORRUPT=0 GET_FAIL=0
+  REAPER_STATE=Active PUT_CORRUPT=0 GET_FAIL=0 DELETE_NOOP=0
 }
 field() { python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2], ""))' "$1" "$2"; }
 
@@ -80,13 +82,18 @@ first="$(lease_get c1 ap-northeast-2)"
   ok "the lease holds the cluster and the deadline in UTC with its zone" || bad "the lease reads $first"
 if lease_arm c1 ap-northeast-2 1900000000 s2 2>"$work/err"; then bad "a second session armed over a live lease"; else
   [[ "$(lease_get c1 ap-northeast-2)" == "$first" ]] && ok "a lease already there is refused and left as it was" || bad "a refused arm changed the lease"
+  # Refused for this reason, before any write: put-parameter would refuse too, and that second refusal is not the check.
+  grep -q 'already exists' "$work/err" && [[ "$(grep -c 'put-parameter' "$work/calls")" == 1 ]] &&
+    ok "the refusal names the existing lease and writes nothing" || bad "the refusal said: $(cat "$work/err"); puts: $(grep -c put-parameter "$work/calls")"
 fi
 
 # A read that fails is not "no lease".
 # Mutation that turns it red: read any get-parameter failure as not found.
 reset
 GET_FAIL=1
-if lease_arm c1 ap-northeast-2 1800000000 s1 2>"$work/err"; then bad "armed though the lease could not be read"; else ok "an unreadable lease store refuses the arm"; fi
+if lease_arm c1 ap-northeast-2 1800000000 s1 2>"$work/err"; then bad "armed though the lease could not be read"; elif grep -q put-parameter "$work/calls"; then
+  bad "an unreadable store was read as no lease and a lease was written"
+else ok "an unreadable lease store refuses the arm before writing"; fi
 
 # Mutation that turns it red: skip the read-back comparison.
 reset
@@ -114,6 +121,11 @@ reset
 lease_arm c1 ap-northeast-2 1800000000 s1 2>/dev/null
 if lease_disarm c1 ap-northeast-2 2>"$work/err" && ! lease_get c1 ap-northeast-2 >/dev/null 2>&1; then ok "disarm removes the lease"; else bad "disarm: $(cat "$work/err")"; fi
 if lease_disarm c1 ap-northeast-2 2>"$work/err"; then ok "disarming a lease already gone is not a failure"; else bad "disarming nothing failed: $(cat "$work/err")"; fi
+# A delete that answers success and leaves the lease is not a disarm.
+reset
+lease_arm c1 ap-northeast-2 1800000000 s1 2>/dev/null
+DELETE_NOOP=1
+if lease_disarm c1 ap-northeast-2 2>"$work/err"; then bad "disarm reported success while the lease is still there"; else ok "a lease still readable after its delete fails the disarm"; fi
 
 # The runner arms the lease before its first apply and removes it only beside the verified disarm.
 # Mutation that turns it red: move lease_arm after the cluster apply, or lease_disarm outside the verified branch.

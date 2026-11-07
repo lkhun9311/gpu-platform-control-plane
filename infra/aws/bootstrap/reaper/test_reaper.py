@@ -365,6 +365,24 @@ class ReapTest(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertIn(("delete_nat_gateway", "nat-1"), a.calls)
 
+    # An AWS error on one lease does not stop the next lease either, not only a lease that cannot be read.
+    # Mutation that turns it red: catch only LeaseError.
+    def test_an_aws_error_on_one_lease_does_not_stop_another(self):
+        a = self.account()
+        a.clusters["aaa-denied"] = {"status": "ACTIVE", "tags": TAGS, "nodegroups": {}}
+        lease(a, cluster="aaa-denied", deadline=PAST)
+        eks = EKS(a)
+        real = eks.describe_cluster
+
+        def denied(name):
+            if name == "aaa-denied":
+                raise AWSError("AccessDeniedException")
+            return real(name)
+        eks.describe_cluster = denied
+        failures = reaper.run(SSM(a), eks, EC2(a), EFS(a), ASG(a), NOW, lambda _: None)
+        self.assertEqual(len(failures), 1)
+        self.assertIn(("delete_nodegroup", "gpu"), a.calls)
+
     # One lease's failure does not stop the next lease's reaping.
     def test_one_failing_lease_does_not_stop_another(self):
         a = self.account()
