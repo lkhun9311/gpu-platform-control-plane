@@ -256,8 +256,12 @@ func TestScoreCellValidityRulesEachFire(t *testing.T) {
 		"V3: no-injection window shorter than registered": {"none", func(f *cellFixture) {
 			f.env["t_window_end"] = ep(at(119 * time.Second))
 		}},
-		"V7: sentinel injected inside the window": {"none", func(f *cellFixture) { f.env["t_sentinel_start"] = ep(at(60 * time.Second)) }},
-		"V7: sentinel never read":                 {"none", func(f *cellFixture) { f.nhs = f.nhs[:1] }},
+		// The reading moves with the sentinel, so only the order of sentinel and window end can refuse it.
+		"V7: sentinel injected inside the window": {"none", func(f *cellFixture) {
+			f.env["t_sentinel_start"] = ep(at(60 * time.Second))
+			f.nhs[1].Annotations[annReadingAt] = ns(at(61 * time.Second))
+		}},
+		"V7: sentinel never read": {"none", func(f *cellFixture) { f.nhs = f.nhs[:1] }},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
