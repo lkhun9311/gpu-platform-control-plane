@@ -144,7 +144,7 @@ bindings rather than a missing afternoon of work.
 **$0.25** and bought one cell, not a comparison. The afternoon run, after the deadline and the credential
 guard were both derived from the matrix's own stopping rule, completed **10 of 10 cells** in about 126
 minutes for **$1.44** — commit `7b69214`, and the table at the top of this file is that run. Total spend for
-the pair: **$1.69**.
+the pair: **$1.69**. *(These are estimates from the runs' durations and list prices; no billing reconciliation is archived for either run, so "spend" means estimated spend. Labelled 2026-11-07.)*
 
 Both commits are the tree the evidence was **collected** from, which each run's archive records in its own
 `commit.txt`. Neither is the version that **analysed** it: the figures quoted here were recomputed later,

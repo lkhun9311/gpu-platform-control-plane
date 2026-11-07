@@ -77,8 +77,19 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Handle deletion: the owned Job carries a controller owner reference, so garbage collection removes it.
 	//
 	// The reconciler only needs to drop the finalizer once that has had a chance to happen.
+	// A restartable job first retires its ranks, whose Pods hold finRankStopped until they are known to have stopped,
+	// so its deletion is not a way around the stop barrier.
 	if !mltj.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&mltj, mlTrainingJobFinalizer) {
+			if restartable(&mltj) {
+				done, err := r.retireOnDelete(ctx, &mltj)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				if !done {
+					return ctrl.Result{RequeueAfter: stopPoll}, nil
+				}
+			}
 			controllerutil.RemoveFinalizer(&mltj, mlTrainingJobFinalizer)
 			if err := r.Update(ctx, &mltj); err != nil {
 				return ctrl.Result{}, fmt.Errorf("remove finalizer from mltrainingjob %s: %w", mltj.Name, err)
@@ -108,6 +119,13 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// A job that may restart runs its attempts through their own lifecycle; every other job keeps the path below.
 	if restartable(&mltj) {
 		return r.reconcileRestartable(ctx, &mltj)
+	}
+
+	// A job whose Job finished stays finished when that Job is cleaned up: recreating it here would run the training
+	// again, on paid devices and over its own outputs, after status already said it ended (codex review r8).
+	// A Failed from a name conflict is not this; it recovers once the name is free.
+	if !jobExists && mltjFinished(&mltj) {
+		return ctrl.Result{}, nil
 	}
 
 	// A distributed job's ranks resolve rank 0 through its Service as soon as they start, so the Service comes first.
@@ -317,6 +335,11 @@ func buildJob(mltj *platformv1.MLTrainingJob, attempt int32) *batchv1.Job {
 	if mltj.Spec.Distributed != nil {
 		applyDistributed(job, mltj, attempt)
 	}
+	if attempt > 0 {
+		// The Job controller copies a template's finalizers onto every Pod it creates (checked on kind v1.31), so no
+		// rank Pod exists without it, even one the controller never sees before it is lost; attempt 0 is untouched.
+		job.Spec.Template.Finalizers = []string{finRankStopped}
+	}
 	return job
 }
 
@@ -465,6 +488,16 @@ func isJobConditionTrue(job *batchv1.Job, condType batchv1.JobConditionType) boo
 // admittedCondition builds the MLTrainingJob Admitted condition for a phase transition.
 //
 // The message is left empty; the reason and the phase it is paired with already say what happened.
+// mltjFinished reports whether the job's own Job completed or failed, as computeMLTJPhase recorded it.
+func mltjFinished(mltj *platformv1.MLTrainingJob) bool {
+	c := meta.FindStatusCondition(mltj.Status.Conditions, mltjCondAdmitted)
+	if c == nil {
+		return false
+	}
+	return (mltj.Status.Phase == mltjPhaseSucceeded && c.Reason == "JobComplete") ||
+		(mltj.Status.Phase == mltjPhaseFailed && c.Reason == "JobFailed")
+}
+
 func admittedCondition(status metav1.ConditionStatus, reason string) metav1.Condition {
 	return metav1.Condition{Type: mltjCondAdmitted, Status: status, Reason: reason}
 }

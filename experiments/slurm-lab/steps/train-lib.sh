@@ -91,11 +91,14 @@ requeue_case() {
 	wait_until 90 "sinfo -h -n $victim -o %T | grep -qx idle"
 	at slurmctld "sinfo -N -o '%N %T %E'"
 	note "Score: reference against this case."
+	# The load-none mutation is scored as the control it is, so the scorer says whether it failed for that reason alone.
+	local mode=()
+	[ "$load" = none ] && mode=(--load-none-control)
 	{
 		echo
-		echo "host\$ python3 score_requeue.py $REF_LOGS $EVID/$PREFIX-$name-logs $EVID/$PREFIX-$name-scontrol.txt $STEPS"
+		echo "host\$ python3 score_requeue.py ${mode[*]} $REF_LOGS $EVID/$PREFIX-$name-logs $EVID/$PREFIX-$name-scontrol.txt $STEPS"
 	} >>"$OUT"
-	python3 "$LAB/score_requeue.py" "$REF_LOGS" "$EVID/$PREFIX-$name-logs" "$EVID/$PREFIX-$name-scontrol.txt" "$STEPS" >>"$OUT" 2>&1
+	python3 "$LAB/score_requeue.py" "${mode[@]}" "$REF_LOGS" "$EVID/$PREFIX-$name-logs" "$EVID/$PREFIX-$name-scontrol.txt" "$STEPS" >>"$OUT" 2>&1
 	rc=$?
 	echo "# exit $rc" >>"$OUT"
 	return $rc

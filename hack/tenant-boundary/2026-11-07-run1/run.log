@@ -1,0 +1,185 @@
+== cluster
+Creating cluster "tenantlab" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-tenantlab"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-tenantlab
+
+Thanks for using kind! 😊
+/tmp/tmp.Ya74zViAJF/calico.yaml: OK
+poddisruptionbudget.policy/calico-kube-controllers created
+serviceaccount/calico-kube-controllers created
+serviceaccount/calico-node created
+serviceaccount/calico-cni-plugin created
+configmap/calico-config created
+customresourcedefinition.apiextensions.k8s.io/bgpconfigurations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/bgpfilters.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/bgppeers.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/blockaffinities.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/caliconodestatuses.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/clusterinformations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/felixconfigurations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/globalnetworkpolicies.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/globalnetworksets.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/hostendpoints.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipamblocks.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipamconfigs.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipamhandles.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ippools.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipreservations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/kubecontrollersconfigurations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/networkpolicies.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/networksets.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/stagedglobalnetworkpolicies.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/stagedkubernetesnetworkpolicies.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/stagednetworkpolicies.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/tiers.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/clusternetworkpolicies.policy.networking.k8s.io created
+clusterrole.rbac.authorization.k8s.io/calico-kube-controllers created
+clusterrole.rbac.authorization.k8s.io/calico-node created
+clusterrole.rbac.authorization.k8s.io/calico-cni-plugin created
+clusterrole.rbac.authorization.k8s.io/calico-tier-getter created
+clusterrolebinding.rbac.authorization.k8s.io/calico-kube-controllers created
+clusterrolebinding.rbac.authorization.k8s.io/calico-node created
+clusterrolebinding.rbac.authorization.k8s.io/calico-cni-plugin created
+clusterrolebinding.rbac.authorization.k8s.io/calico-tier-getter created
+daemonset.apps/calico-node created
+deployment.apps/calico-kube-controllers created
+Waiting for daemon set "calico-node" rollout to finish: 0 of 3 updated pods are available...
+Waiting for daemon set "calico-node" rollout to finish: 1 of 3 updated pods are available...
+Waiting for daemon set "calico-node" rollout to finish: 2 of 3 updated pods are available...
+daemon set "calico-node" successfully rolled out
+deployment "calico-kube-controllers" successfully rolled out
+node/tenantlab-control-plane condition met
+node/tenantlab-worker condition met
+node/tenantlab-worker2 condition met
+deployment "coredns" successfully rolled out
+== platform
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+validatingadmissionpolicy.admissionregistration.k8s.io/gpu-workload-static created
+validatingadmissionpolicy.admissionregistration.k8s.io/tenant-claim-binding created
+validatingadmissionpolicy.admissionregistration.k8s.io/tenant-reserved-metadata created
+validatingadmissionpolicybinding.admissionregistration.k8s.io/gpu-workload-static created
+validatingadmissionpolicybinding.admissionregistration.k8s.io/tenant-claim-binding created
+validatingadmissionpolicybinding.admissionregistration.k8s.io/tenant-reserved-metadata created
+namespace/gpu-platform-control-plane-system created
+namespace/monitoring created
+namespace/monitoring labeled
+namespace/train-a created
+resourcequota/tenant-baseline created
+Warning: resource serviceaccounts/default is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+serviceaccount/default configured
+role.rbac.authorization.k8s.io/tenant created
+rolebinding.rbac.authorization.k8s.io/tenant created
+limitrange/tenant-defaults created
+networkpolicy.networking.k8s.io/allow-dns created
+networkpolicy.networking.k8s.io/allow-engine-egress created
+networkpolicy.networking.k8s.io/allow-gateway-to-engines created
+networkpolicy.networking.k8s.io/allow-monitoring created
+networkpolicy.networking.k8s.io/allow-same-namespace created
+networkpolicy.networking.k8s.io/default-deny created
+namespace/serve-a created
+resourcequota/tenant-baseline created
+Warning: resource serviceaccounts/default is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+serviceaccount/default configured
+role.rbac.authorization.k8s.io/tenant created
+rolebinding.rbac.authorization.k8s.io/tenant created
+limitrange/tenant-defaults created
+networkpolicy.networking.k8s.io/allow-dns created
+networkpolicy.networking.k8s.io/allow-engine-egress created
+networkpolicy.networking.k8s.io/allow-gateway-to-engines created
+networkpolicy.networking.k8s.io/allow-monitoring created
+networkpolicy.networking.k8s.io/allow-same-namespace created
+networkpolicy.networking.k8s.io/default-deny created
+Warning: would violate PodSecurity "restricted:v1.31": allowPrivilegeEscalation != false (container "c" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "c" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "c" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "c" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/rank-0 created
+Warning: would violate PodSecurity "restricted:v1.31": allowPrivilegeEscalation != false (container "c" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "c" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "c" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "c" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/rank-1 created
+Warning: would violate PodSecurity "restricted:v1.31": allowPrivilegeEscalation != false (container "c" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "c" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "c" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "c" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/engine-a created
+Warning: would violate PodSecurity "restricted:v1.31": allowPrivilegeEscalation != false (container "c" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "c" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "c" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "c" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/engine-b created
+pod/gateway created
+pod/prometheus created
+pod/rank-0 condition met
+pod/rank-1 condition met
+pod/engine-a condition met
+pod/engine-b condition met
+pod/gateway condition met
+pod/prometheus condition met
+== api checks
+own-namespace-job exit=0
+other-namespace-job exit=1
+create-pod exit=1
+create-job exit=1
+create-resourcequota exit=1
+create-localqueue exit=1
+create-networkpolicy exit=1
+tenant-fences exit=1
+admin-fences exit=0
+mltrainingjob.platform.lkhun9311.github.io/job-a patched
+tenant-strips-finalizer exit=1
+mltrainingjob.platform.lkhun9311.github.io/job-a patched
+tenant-binds-staged-volume exit=1
+gpuquotapolicy.platform.lkhun9311.github.io/train-a created
+tenant-raises-tier exit=1
+tenant-labels-namespace exit=1
+privileged-pod exit=1
+== network checks
+rank-to-rank exit=0
+dns exit=0
+gateway-to-own-engine exit=0
+gateway-to-other-engine exit=0
+monitoring-to-gateway exit=0
+monitoring-to-rank exit=0
+tenant-to-other-engine exit=1
+tenant-to-gateway-metrics exit=1
+trainer-to-own-engine exit=1
+== verdict
+ok   own-namespace-job: exit 0
+ok   other-namespace-job: RBAC refused it
+ok   create-pod: RBAC refused it
+ok   create-job: RBAC refused it
+ok   create-resourcequota: RBAC refused it
+ok   create-localqueue: RBAC refused it
+ok   create-networkpolicy: RBAC refused it
+ok   tenant-fences: tenant-reserved-metadata refused it
+ok   admin-fences: exit 0
+ok   tenant-strips-finalizer: tenant-reserved-metadata refused it
+ok   tenant-binds-staged-volume: tenant-claim-binding refused it
+ok   tenant-raises-tier: RBAC refused it
+ok   tenant-labels-namespace: RBAC refused it
+ok   privileged-pod: Pod Security refused it
+ok   rank-to-rank: rank-1 answered
+ok   dns: resolved to 10.96.0.1
+ok   gateway-to-own-engine: engine-a answered
+ok   gateway-to-other-engine: engine-b answered
+ok   monitoring-to-gateway: gateway answered
+ok   monitoring-to-rank: rank-0 answered
+ok   tenant-to-other-engine: timed out
+ok   tenant-to-gateway-metrics: timed out
+ok   trainer-to-own-engine: timed out
+tenant boundary: PASS
+Deleting cluster "tenantlab" ...
+Deleted nodes: ["tenantlab-worker" "tenantlab-worker2" "tenantlab-control-plane"]

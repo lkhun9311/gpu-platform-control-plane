@@ -61,13 +61,18 @@ type MLTrainingJobSpec struct {
 	GPUCount int32 `json:"gpuCount"`
 
 	// parallelism is the batch/v1 Job parallelism (concurrent pods).
-	// +kubebuilder:validation:Minimum=0
+	//
+	// At least 1: the field omits a zero and the controller renders at least one Pod, so a 0 written to pause the
+	// job would start one instead; it is refused rather than misread.
+	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1
 	// +optional
 	Parallelism int32 `json:"parallelism,omitempty"`
 
 	// completions is the batch/v1 Job completions (successful pods required).
-	// +kubebuilder:validation:Minimum=0
+	//
+	// At least 1, for the reason parallelism is.
+	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1
 	// +optional
 	Completions int32 `json:"completions,omitempty"`
@@ -278,8 +283,9 @@ type TrainingAttempt struct {
 	NodeUIDs map[string]string `json:"nodeUIDs,omitempty"`
 
 	// trigger is why the attempt ended: RankFailed (the Job failed), NodeFault (the platform's GPU fault path
-	// handed its Workload over), or JobDeleted (its Job went away while it was running).
-	// +kubebuilder:validation:Enum=RankFailed;NodeFault;JobDeleted
+	// handed its Workload over), Evicted (Kueue evicted its Workload for a reason other than an operator's
+	// deactivation, such as preemption), or JobDeleted (its Job went away while it was running).
+	// +kubebuilder:validation:Enum=RankFailed;NodeFault;Evicted;JobDeleted
 	// +optional
 	Trigger string `json:"trigger,omitempty"`
 
@@ -302,6 +308,16 @@ type TrainingAttempt struct {
 	// stopConfirmedAt is when every condition for starting the next attempt was confirmed.
 	// +optional
 	StopConfirmedAt *metav1.Time `json:"stopConfirmedAt,omitempty"`
+
+	// fencedBy lists the fenced-nodes entries this attempt's stop relied on.
+	//
+	// An entry is spent once an attempt has stopped on it: a machine acknowledged as off for one attempt may boot,
+	// run a later attempt and be lost again, and the old acknowledgement says nothing of that.
+	// Acknowledging the same machine for a later attempt takes an entry scoped to it, name#N or name@id#N.
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	FencedBy []string `json:"fencedBy,omitempty"`
 }
 
 // +kubebuilder:object:root=true

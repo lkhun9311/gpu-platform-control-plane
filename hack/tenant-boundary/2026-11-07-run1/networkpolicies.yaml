@@ -1,0 +1,329 @@
+apiVersion: v1
+items:
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-dns","namespace":"serve-a"},"spec":{"egress":[{"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}],"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}]}],"podSelector":{},"policyTypes":["Egress"]}}
+    creationTimestamp: "2026-11-07T07:47:28Z"
+    generation: 1
+    name: allow-dns
+    namespace: serve-a
+    resourceVersion: "1363"
+    uid: 0db1f9b5-0a0f-40e8-b54c-017718550844
+  spec:
+    egress:
+    - ports:
+      - port: 53
+        protocol: UDP
+      - port: 53
+        protocol: TCP
+      to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            k8s-app: kube-dns
+    podSelector: {}
+    policyTypes:
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-engine-egress","namespace":"serve-a"},"spec":{"egress":[{"ports":[{"port":443,"protocol":"TCP"}],"to":[{"ipBlock":{"cidr":"0.0.0.0/0","except":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16","100.64.0.0/10"]}}]}],"podSelector":{"matchLabels":{"app.kubernetes.io/name":"inferencedeployment"}},"policyTypes":["Egress"]}}
+    creationTimestamp: "2026-11-07T07:47:28Z"
+    generation: 1
+    name: allow-engine-egress
+    namespace: serve-a
+    resourceVersion: "1364"
+    uid: 72c45248-f318-455f-ac6a-d0a0a117d9a1
+  spec:
+    egress:
+    - ports:
+      - port: 443
+        protocol: TCP
+      to:
+      - ipBlock:
+          cidr: 0.0.0.0/0
+          except:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+          - 169.254.0.0/16
+          - 100.64.0.0/10
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: inferencedeployment
+    policyTypes:
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-gateway-to-engines","namespace":"serve-a"},"spec":{"ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"platform.lkhun9311.github.io/role":"platform"}},"podSelector":{"matchLabels":{"app.kubernetes.io/component":"gateway"}}}]}],"podSelector":{"matchLabels":{"app.kubernetes.io/name":"inferencedeployment"}},"policyTypes":["Ingress"]}}
+    creationTimestamp: "2026-11-07T07:47:28Z"
+    generation: 1
+    name: allow-gateway-to-engines
+    namespace: serve-a
+    resourceVersion: "1365"
+    uid: 7dfce0f4-240d-4bb6-88e5-ea002375814e
+  spec:
+    ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            platform.lkhun9311.github.io/role: platform
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/component: gateway
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: inferencedeployment
+    policyTypes:
+    - Ingress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-monitoring","namespace":"serve-a"},"spec":{"ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"platform.lkhun9311.github.io/role":"monitoring"}}}]}],"podSelector":{},"policyTypes":["Ingress"]}}
+    creationTimestamp: "2026-11-07T07:47:28Z"
+    generation: 1
+    name: allow-monitoring
+    namespace: serve-a
+    resourceVersion: "1366"
+    uid: 1c9fff80-b193-403b-ac7f-89d3a70b6194
+  spec:
+    ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            platform.lkhun9311.github.io/role: monitoring
+    podSelector: {}
+    policyTypes:
+    - Ingress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-same-namespace","namespace":"serve-a"},"spec":{"egress":[{"to":[{"podSelector":{"matchExpressions":[{"key":"app.kubernetes.io/name","operator":"NotIn","values":["inferencedeployment"]}]}}]}],"ingress":[{"from":[{"podSelector":{"matchExpressions":[{"key":"app.kubernetes.io/name","operator":"NotIn","values":["inferencedeployment"]}]}}]}],"podSelector":{"matchExpressions":[{"key":"app.kubernetes.io/name","operator":"NotIn","values":["inferencedeployment"]}]},"policyTypes":["Ingress","Egress"]}}
+    creationTimestamp: "2026-11-07T07:47:28Z"
+    generation: 1
+    name: allow-same-namespace
+    namespace: serve-a
+    resourceVersion: "1367"
+    uid: 05a1274c-52d2-4541-93a6-d7f962be6cb5
+  spec:
+    egress:
+    - to:
+      - podSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: NotIn
+            values:
+            - inferencedeployment
+    ingress:
+    - from:
+      - podSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: NotIn
+            values:
+            - inferencedeployment
+    podSelector:
+      matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: NotIn
+        values:
+        - inferencedeployment
+    policyTypes:
+    - Ingress
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"default-deny","namespace":"serve-a"},"spec":{"podSelector":{},"policyTypes":["Ingress","Egress"]}}
+    creationTimestamp: "2026-11-07T07:47:28Z"
+    generation: 1
+    name: default-deny
+    namespace: serve-a
+    resourceVersion: "1368"
+    uid: 425fb8d5-a772-49da-8cd1-3d6ba53f97e5
+  spec:
+    podSelector: {}
+    policyTypes:
+    - Ingress
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-dns","namespace":"train-a"},"spec":{"egress":[{"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}],"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}]}],"podSelector":{},"policyTypes":["Egress"]}}
+    creationTimestamp: "2026-11-07T07:44:10Z"
+    generation: 1
+    name: allow-dns
+    namespace: train-a
+    resourceVersion: "1030"
+    uid: eaeda4be-f661-4f6e-8c7d-54c9a9911af3
+  spec:
+    egress:
+    - ports:
+      - port: 53
+        protocol: UDP
+      - port: 53
+        protocol: TCP
+      to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            k8s-app: kube-dns
+    podSelector: {}
+    policyTypes:
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-engine-egress","namespace":"train-a"},"spec":{"egress":[{"ports":[{"port":443,"protocol":"TCP"}],"to":[{"ipBlock":{"cidr":"0.0.0.0/0","except":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16","100.64.0.0/10"]}}]}],"podSelector":{"matchLabels":{"app.kubernetes.io/name":"inferencedeployment"}},"policyTypes":["Egress"]}}
+    creationTimestamp: "2026-11-07T07:44:10Z"
+    generation: 1
+    name: allow-engine-egress
+    namespace: train-a
+    resourceVersion: "1031"
+    uid: 38bff692-31da-4ac3-b1cb-6bc9160bb184
+  spec:
+    egress:
+    - ports:
+      - port: 443
+        protocol: TCP
+      to:
+      - ipBlock:
+          cidr: 0.0.0.0/0
+          except:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+          - 169.254.0.0/16
+          - 100.64.0.0/10
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: inferencedeployment
+    policyTypes:
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-gateway-to-engines","namespace":"train-a"},"spec":{"ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"platform.lkhun9311.github.io/role":"platform"}},"podSelector":{"matchLabels":{"app.kubernetes.io/component":"gateway"}}}]}],"podSelector":{"matchLabels":{"app.kubernetes.io/name":"inferencedeployment"}},"policyTypes":["Ingress"]}}
+    creationTimestamp: "2026-11-07T07:44:10Z"
+    generation: 1
+    name: allow-gateway-to-engines
+    namespace: train-a
+    resourceVersion: "1032"
+    uid: 7f8a19f8-7d7d-4647-ba27-a7a881aaea6f
+  spec:
+    ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            platform.lkhun9311.github.io/role: platform
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/component: gateway
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: inferencedeployment
+    policyTypes:
+    - Ingress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-monitoring","namespace":"train-a"},"spec":{"ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"platform.lkhun9311.github.io/role":"monitoring"}}}]}],"podSelector":{},"policyTypes":["Ingress"]}}
+    creationTimestamp: "2026-11-07T07:44:10Z"
+    generation: 1
+    name: allow-monitoring
+    namespace: train-a
+    resourceVersion: "1033"
+    uid: 1173be69-c4f5-4bd4-93fa-4173484b3935
+  spec:
+    ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            platform.lkhun9311.github.io/role: monitoring
+    podSelector: {}
+    policyTypes:
+    - Ingress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"allow-same-namespace","namespace":"train-a"},"spec":{"egress":[{"to":[{"podSelector":{"matchExpressions":[{"key":"app.kubernetes.io/name","operator":"NotIn","values":["inferencedeployment"]}]}}]}],"ingress":[{"from":[{"podSelector":{"matchExpressions":[{"key":"app.kubernetes.io/name","operator":"NotIn","values":["inferencedeployment"]}]}}]}],"podSelector":{"matchExpressions":[{"key":"app.kubernetes.io/name","operator":"NotIn","values":["inferencedeployment"]}]},"policyTypes":["Ingress","Egress"]}}
+    creationTimestamp: "2026-11-07T07:44:10Z"
+    generation: 1
+    name: allow-same-namespace
+    namespace: train-a
+    resourceVersion: "1034"
+    uid: bc31da49-9f2c-4565-a84b-da865d7f8ac0
+  spec:
+    egress:
+    - to:
+      - podSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: NotIn
+            values:
+            - inferencedeployment
+    ingress:
+    - from:
+      - podSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: NotIn
+            values:
+            - inferencedeployment
+    podSelector:
+      matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: NotIn
+        values:
+        - inferencedeployment
+    policyTypes:
+    - Ingress
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"name":"default-deny","namespace":"train-a"},"spec":{"podSelector":{},"policyTypes":["Ingress","Egress"]}}
+    creationTimestamp: "2026-11-07T07:44:10Z"
+    generation: 1
+    name: default-deny
+    namespace: train-a
+    resourceVersion: "1035"
+    uid: a258bbed-ae3a-4a31-98f9-9d68c2c313af
+  spec:
+    podSelector: {}
+    policyTypes:
+    - Ingress
+    - Egress
+kind: List
+metadata:
+  resourceVersion: ""

@@ -1,0 +1,68 @@
+Creating cluster "lddiag-group" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Waiting ≤ 3m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 3m0s for control-plane = Ready ⏳
+ • Ready after 17s 💚
+Set kubectl context to "kind-lddiag-group"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-lddiag-group
+
+Have a question, bug, or feature request? Let us know! https://kind.sigs.k8s.io/#community 🙂
+Creating cluster "lddiag-single" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Waiting ≤ 3m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 3m0s for control-plane = Ready ⏳
+ • Ready after 17s 💚
+Set kubectl context to "kind-lddiag-single"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-lddiag-single
+
+Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
+case c1-r1: phase=Failed journal_exit=0
+case c2a-r1: phase=Failed journal_exit=0
+case c2b-r1: phase=Succeeded journal_exit=0
+case c3-r1: phase=Failed journal_exit=0
+case c4-r1: phase=Succeeded journal_exit=0
+case c1-r2: phase=Failed journal_exit=0
+case c2a-r2: phase=Failed journal_exit=0
+case c2b-r2: phase=Succeeded journal_exit=0
+case c3-r2: phase=Failed journal_exit=0
+case c4-r2: phase=Succeeded journal_exit=0
+case c1-r3: phase=Failed journal_exit=0
+case c2a-r3: phase=Failed journal_exit=0
+case c2b-r3: phase=Succeeded journal_exit=0
+case c3-r3: phase=Failed journal_exit=0
+case c4-r3: phase=Succeeded journal_exit=0
+c1: held in 3 of 3 (0 invalid)
+c2a: held in 3 of 3 (0 invalid)
+c2b: held in 3 of 3 (0 invalid)
+c3: held in 3 of 3 (0 invalid)
+c4: held in 3 of 3 (0 invalid)
+Deleting cluster "lddiag-group" ...
+Deleted nodes: ["lddiag-group-control-plane"]
+Deleting cluster "lddiag-single" ...
+Deleted nodes: ["lddiag-single-control-plane"]

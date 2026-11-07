@@ -22,7 +22,7 @@ Five repetitions give a median and a range, not a rate [GF:102-103].
 
 | # | failure mode | injected or found | where | headline | recovered automatically |
 |---|---|---|---|---|---|
-| 1 | Xid 79 reported by DCGM [GF:96] | injected into DCGM's cache | one g5.2xlarge, real A10G, kind on the instance | end to end median 2.502 s [V:5] | job re-admitted on a simulated device; work lost |
+| 1 | Xid 79 reported by DCGM [GF:96] | injected into DCGM's cache | one g5.2xlarge, real A10G, kind on the instance | end to end median 2.502 s [V:5]; 3.405 s counting only placements that started a container (noted 2026-11-07, see the gpu-fault registration's run 2 result) | job re-admitted on a simulated device; work lost |
 | 2 | double-bit ECC reported by DCGM | injected into DCGM's cache | same session | end to end median 2.324 s [V:18] | as row 1 |
 | 3 | corrected (single-bit) ECC, and no change | injected / nothing (controls) | same session | QUIET in 5 of 5 each [V:29] [V:31] | nothing to recover |
 | 4 | the GPU exporter disappears, nothing latched | injected (DaemonSet selector) | same session | PASS [V:33] | yes |
@@ -143,7 +143,7 @@ Five repetitions give a median and a range, not a rate [GF:102-103].
 | where | kind, one simulated GPU per rank; eight registered 600 s runs [W:448-449] |
 | detection signal | before the fix, none: the phase rule counted one Ready rank as `Running` [W:447] |
 | platform reaction, before the fixes | with Kueue's `waitForPodsReady` off, the CR said `Running` for 598.1 of 598.1 s and the 2-GPU quota was held 599 s, to the window's end [W:453]; with a 120 s timeout and 2 retries, three admissions at 0, 150 and 330 s, each about 121 s [W:455]. The quota came back about 1.1 s after each eviction, but the evicted rank kept its device for 28.9 s more and ended with exit 137, in all ten evictions [W:461] |
-| recovered | two fixes, each re-measured. The phase now needs every rank Ready [W:469]; the trainer now runs its SIGTERM handler during rendezvous [W:471]. On 2026-10-23, ten valid runs [W:473]: never `Running` with a rank unplaced [W:475]; in all sixteen evictions the rank ended with exit 143 and `finishedAt` 1.1 s before the recorded release [W:476]; a second tenant was admitted 1.0 s after the first release [W:477] |
+| recovered | two fixes, each re-measured. The phase now needs every rank Ready [W:469]; the trainer now runs its SIGTERM handler during rendezvous [W:471]. On 2026-10-23, ten valid runs [W:473]: never `Running` with a rank unplaced [W:475]; in all sixteen evictions the rank ended with exit 143 and `finishedAt` 1.1 s before the recorded release [W:476]; a second workload in the same queue (`gpu-partial`, namespace `partial`) was admitted 1.0 s after the first release [W:477], which shows the released quota reused inside one tenant's queue, not borrowed or reclaimed across tenants (corrected 2026-11-07: this cell said "a second tenant"; astra review r4) |
 | did not change | the hold itself: 599 s without the timeout, admissions at 0, 150 and 330 s with it [W:475] |
 | known gaps | nothing about GPUs, NCCL, more than two ranks, gang placement [W:467]; a workload that blocks SIGTERM as the old trainer did still holds its device to the grace period [W:471] [W:481] |
 | evidence | `hack/distributed-partial-placement-20261023T011849Z/` and the pages named at [W:483] |

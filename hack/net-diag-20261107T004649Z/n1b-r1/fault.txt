@@ -1,0 +1,3 @@
+policy=client-only-to-server
+policy_enforced=1
+direct_server_http=200

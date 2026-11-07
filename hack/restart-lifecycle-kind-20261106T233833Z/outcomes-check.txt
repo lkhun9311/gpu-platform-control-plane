@@ -1,0 +1,14 @@
+OK   no injection failed
+OK   run-a: the scorer exited 0
+OK   run-a/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-a/no-rng-control: ACCEPTED, allowed ['ACCEPTED']
+OK   run-a/dcgm-1: ACCEPTED, allowed ['ACCEPTED']
+OK   run-a/terminate-wait-1: ACCEPTED, allowed ['ACCEPTED'] with '"class": "replacement"'
+OK   run-a: no injection
+OK   run-c: the scorer exited 1
+OK   run-c/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-c/rank-kill-1: ACCEPTED, allowed ['ACCEPTED', 'FAILED']
+OK   run-c/rank-kill-2: NOTRUN, allowed ['NOTRUN'] with 'could not be retired'
+OK   run-c: the finalizer was put on pod/rst-rank-kill-1-235239-0-8k4ps
+0 FAIL(s)
+exit=0

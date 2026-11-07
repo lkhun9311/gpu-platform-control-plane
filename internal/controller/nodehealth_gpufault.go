@@ -274,10 +274,16 @@ func applyGPUFaultToStatus(status *platformv1.NodeHealthStatus, d gpuFaultDecisi
 	meta.SetStatusCondition(&status.Conditions, d.healthy)
 }
 
+// displacedPodPoll is how often a NodeHealth looks again while a displaced Workload waits for its old Pods to leave the
+// faulted node: nothing it watches announces a Pod's departure.
+const displacedPodPoll = 2 * time.Second
+
 // recordGPUFault writes the platform's timestamps, displaces GPU work from a faulted node and brings back
 // what it displaced. It runs after the Node patch, so that tainted-at is a time the taint existed.
+// It returns how soon to look again: displacedPodPoll while a displaced Workload waits for its Pods to leave the
+// node, otherwise zero.
 func (r *NodeHealthReconciler) recordGPUFault(ctx context.Context, nh *platformv1.NodeHealth, d gpuFaultDecision,
-	node *corev1.Node) error {
+	node *corev1.Node) (time.Duration, error) {
 	cfg := r.GPUFault
 	base := nh.DeepCopy()
 	if nh.Annotations == nil {
@@ -313,15 +319,19 @@ func (r *NodeHealthReconciler) recordGPUFault(ctx context.Context, nh *platformv
 	}
 	if !equalStringMaps(base.Annotations, nh.Annotations) {
 		if err := r.Patch(ctx, nh, client.MergeFrom(base)); err != nil {
-			return fmt.Errorf("record gpu fault on nodehealth %s: %w", nh.Name, err)
+			return 0, fmt.Errorf("record gpu fault on nodehealth %s: %w", nh.Name, err)
 		}
 	}
 	if cfg.EvictWorkloads && d.latch != "" {
 		if err := r.displaceGPUWork(ctx, nh, d.latch); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return r.reactivateDisplaced(ctx, nh)
+	waiting, err := r.reactivateDisplaced(ctx, nh)
+	if err != nil || !waiting {
+		return 0, err
+	}
+	return displacedPodPoll, nil
 }
 
 func equalStringMaps(a, b map[string]string) bool {
@@ -335,6 +345,9 @@ func equalStringMaps(a, b map[string]string) bool {
 	}
 	return true
 }
+
+// ownerKindJob is the controller kind of a Pod whose Kueue Workload the fault path can displace and requeue.
+const ownerKindJob = "Job"
 
 // displaceGPUWork deactivates the Kueue Workload of every GPU Pod still on the faulted node.
 //
@@ -355,7 +368,7 @@ func (r *NodeHealthReconciler) displaceGPUWork(ctx context.Context, nh *platform
 			continue
 		}
 		owner := metav1.GetControllerOf(p)
-		if owner == nil || owner.Kind != "Job" {
+		if owner == nil || owner.Kind != ownerKindJob {
 			cfg.event(nh, corev1.EventTypeWarning, "GPUFaultPodNotDisplaced", "Displace",
 				"pod %s/%s uses a GPU on the faulted node and has no Job owner, so no Kueue Workload to evict", p.Namespace, p.Name)
 			continue
@@ -393,7 +406,10 @@ func (r *NodeHealthReconciler) displaceGPUWork(ctx context.Context, nh *platform
 			if handoff {
 				wl.Annotations[AnnRestartHandoff] = fp
 			}
-			if err := r.Patch(ctx, wl, client.MergeFrom(base)); err != nil {
+			// Conditioned on the version the active check above read: an operator who deactivated the Workload since then
+			// stopped the job, and an unconditioned patch would add the handoff and have the restart lifecycle start it again.
+			// On a conflict the pass fails and the next one reads the Workload anew.
+			if err := r.Patch(ctx, wl, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
 				return fmt.Errorf("deactivate workload %s/%s: %w", wl.Namespace, wl.Name, err)
 			}
 			gpuFaultWorkloadActionsTotal.WithLabelValues("deactivated").Inc()
@@ -449,11 +465,35 @@ func requestsGPU(p *corev1.Pod) bool {
 // Waiting for Evicted and for the quota to be gone is what makes the requeue a new admission: reactivating
 // while the old one is still being torn down would race Kueue's own eviction.
 // Only Workloads carrying deactivated-node are touched, so a Workload a person deactivated stays deactivated.
-func (r *NodeHealthReconciler) reactivateDisplaced(ctx context.Context, nh *platformv1.NodeHealth) error {
+//
+// It also waits for the Job's Pods to leave the faulted node: Kueue releases the quota before the old Pod finishes
+// terminating, and a Workload reactivated then is admitted while that Pod still holds the faulted card, after which
+// the next pass finds the Pod on the faulted node and deactivates the Workload again (the 2026-11-07 drill counted
+// about 18 such rounds).
+// Waiting here rather than skipping terminating Pods in displaceGPUWork is what also keeps the quota from being
+// handed out while the device is still held.
+func (r *NodeHealthReconciler) reactivateDisplaced(ctx context.Context, nh *platformv1.NodeHealth) (bool, error) {
 	cfg := r.GPUFault
 	var wls kueuev1beta1.WorkloadList
 	if err := r.List(ctx, &wls); err != nil {
-		return fmt.Errorf("list workloads to reactivate: %w", err)
+		return false, fmt.Errorf("list workloads to reactivate: %w", err)
+	}
+	// The Job UIDs that still have a Pod running or terminating on the faulted node, read past the cache.
+	// A Pod its kubelet reported Succeeded or Failed holds no device, and a Job may keep such Pods for good.
+	var onNode corev1.PodList
+	if err := cfg.APIReader.List(ctx, &onNode, client.MatchingFields{"spec.nodeName": nh.Spec.NodeName}); err != nil {
+		return false, fmt.Errorf("list pods on faulted node %s: %w", nh.Spec.NodeName, err)
+	}
+	stillThere := map[string]bool{}
+	waiting := false
+	for i := range onNode.Items {
+		p := &onNode.Items[i]
+		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
+			continue
+		}
+		if owner := metav1.GetControllerOf(p); owner != nil && owner.Kind == ownerKindJob {
+			stillThere[string(owner.UID)] = true
+		}
 	}
 	for i := range wls.Items {
 		wl := &wls.Items[i]
@@ -465,18 +505,22 @@ func (r *NodeHealthReconciler) reactivateDisplaced(ctx context.Context, nh *plat
 			meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadQuotaReserved) {
 			continue
 		}
+		if stillThere[wl.Labels[kueueJobUIDLabel]] {
+			waiting = true
+			continue
+		}
 		base := wl.DeepCopy()
 		wl.Spec.Active = new(true)
 		wl.Annotations[annWorkloadReactivatedAt] = cfg.now().UTC().Format(time.RFC3339Nano)
 		// Optimistic, so a Workload changed since this pass read it (by Kueue, or handed over) is reread, not overwritten.
 		if err := r.Patch(ctx, wl, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
-			return fmt.Errorf("reactivate workload %s/%s: %w", wl.Namespace, wl.Name, err)
+			return false, fmt.Errorf("reactivate workload %s/%s: %w", wl.Namespace, wl.Name, err)
 		}
 		gpuFaultWorkloadActionsTotal.WithLabelValues("reactivated").Inc()
 		cfg.event(wl, corev1.EventTypeNormal, "GPUFaultReactivated", "Requeue",
 			"evicted from faulted node %s; requeued so Kueue can admit it again", nh.Spec.NodeName)
 	}
-	return nil
+	return waiting, nil
 }
 
 // mapWorkloadToNodeHealth wakes the NodeHealth of the node a displaced Workload was taken from, so that its

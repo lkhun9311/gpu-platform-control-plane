@@ -151,7 +151,7 @@ to keep the quota low that has nothing to do with the axis: **at 52 vCPU the acc
 `g4dn.12xlarge` and one `g5.xlarge` can run concurrently at $6.05/hr. What it forbids is the second big one.)
 A Budgets alarm is detection after spend has accrued; a service quota is prevention at the API. Until the
 axis is scheduled, the unraised quota is the cheapest spending control in this account, and raising it
-removes that. AWS publishes no approval-time SLA and no rule that prior usage eases an On-Demand G/VT
+removes that. *(Superseded 2026-11-01: the quota was raised to 128 vCPU for the distributed-restart and EFA work (`docs/superpowers/specs/2026-11-01-distributed-restart-design.md:203`), so it no longer refuses a second 48-vCPU node; each paid session's price gate, TTL watchdog and GPU deadline schedule bound its spend.)* AWS publishes no approval-time SLA and no rule that prior usage eases an On-Demand G/VT
 request — the documented usage-based auto-adjustment applies to **Spot** quotas only — so "ask after a
 session and it is easier" was an assumption, not a fact.
 
@@ -380,7 +380,7 @@ The repo is public, so Argo CD reads it anonymously — no deploy credential to 
 | EKS version       | Pinned recent at provisioning. Ephemeral clusters are **recreated, not upgraded** — which is also how the $0.10/hr standard-support rate stays true (extended support is $0.60/hr; this design never reaches it) |
 | Idle cost         | $0.263/hr — EKS control plane $0.100 + `t3.large` $0.104 + NAT gateway $0.059. All figures `ap-northeast-2`, AWS Pricing API, 2026-08-27                                                                          |
 | GPU cost          | `g5.xlarge` **Spot $0.357–0.424** (On-Demand $1.237) for M5-b/M5-c; `g4dn.12xlarge` **On-Demand $4.812** for queuelab. Existing only during a session — see the Spot split below                                  |
-| Budget alarm      | $10/day with escalation; hard review at $30 cumulative                                                                                                                                                           |
+| Budget alarm      | A monthly AWS Budget of $30 that emails at 10, 80 and 100 percent (`infra/aws/bootstrap/budget.tf`); a notification, not enforcement. *(Corrected 2026-11-07: this row said "$10/day with escalation; hard review at $30 cumulative"; no daily budget and no escalation exist)* |
 | Scheduled destroy | `destroy.yml` nightly cron at `0 18 * * *` (03:00 Asia/Seoul), with observed drift of hours. Failure path: **no retry**; the residue check runs regardless and fails the job on anything surviving. It looks at EC2, EBS, NAT, unassociated EIPs, ELBv2 and ENIs — **not** ECR, CloudWatch or orphaned TF state |
 | Residue controls  | TTL/owner tags, PVC/PV + LoadBalancer audit, ECR lifecycle (untagged/PR images only), CloudWatch log retention, snapshot cleanup                                                                                 |
 
@@ -466,6 +466,14 @@ Option B: no NAT, nine interface endpoints in one AZ
                                               $0.712     <- 1.7x Option A
 ```
 
+*(Recomputed 2026-11-07, astra review r9: the block above kept the arithmetic its own correction had
+invalidated. With this cluster's sources the 12 GB of public image layers cross the NAT in option A, so A is
+6 × $0.059 + (12 + 1) GB × $0.059 = **$1.121**, not $0.413, and option B cannot fetch those images at all, so it
+is not an equivalent alternative. On equal terms — the three public images mirrored into ECR, so their layers
+come through the free S3 gateway endpoint in both options — A is 6 × $0.059 + 1 GB × $0.059 = $0.413 and B
+$0.712, each plus the mirroring work. The "cancels out" note above is also wrong: option B has no NAT to cancel
+against.)*
+
 And Option B does not merely cost more — **it does not work with this repository's artifact sources.** There
 is no VPC endpoint that reaches public `github.com`, and Argo CD pulls a public GitHub repository as its
 source of truth. The same applies to Helm chart repositories, model downloads, and any `curl` in a bootstrap
@@ -484,9 +492,8 @@ Endpoints bill for every cluster hour, so a longer-lived cluster shifts the rati
 **Option C, the mixed case, is the one the reference architecture actually meant.** Keep the NAT, and add an
 interface endpoint only for a service whose traffic exceeds the 6.4 GB/day line. In this cluster the largest
 flow is image layers, and those already cost $0 through the free S3 gateway endpoint — so nothing else comes
-close to the line. The nine-endpoint configuration is what you build to remove the NAT, and that is a
-*security* posture (no internet route at all), not a cost optimisation. This lab does not need it, because
-the security it buys is already bought by the private subnets.
+close to the line. *(Corrected 2026-11-07: only the ECR-hosted operator and gateway layers do; the public engine and NVIDIA images cross the NAT at $0.059/GB, per the correction above.)* The nine-endpoint configuration is what you build to remove the NAT, and that is a
+*security* posture (no internet route at all), not a cost optimisation. This lab does not have that posture: the private subnets give nodes no public address, so nothing on the internet can open a connection to them, but every workload can open one outward through the NAT. *(Corrected 2026-11-07: this sentence said the security of no internet route "is already bought by the private subnets"; it is not, and no egress restriction is configured.)*
 
 ## Execution boundary (what exists today)
 
@@ -494,9 +501,9 @@ the security it buys is already bought by the private subnets.
 |-------------------------------|----------------------------------------------------------------------------------------------------|
 | Terraform code (`infra/aws/`) | **Written** (`bootstrap`, `cluster`, `argo-bootstrap` states) and offline-validated. All three have been applied: `bootstrap` still is, `argo-bootstrap` holds one `helm_release.argocd`, and `cluster` held resources until 2026-09-03. This row said "never `terraform apply`'d" until 2026-09-18 |
 | GitHub workflows              | **Three of the six use real AWS credentials, and have for weeks.** `ci.yml` (637 runs) authenticates by OIDC, logs in to ECR and pushes both images — its only failing step is the digest-bump PR, which this repository's settings forbid. `infra.yml` (46 runs) has run `terraform plan` against the real account on pull requests since at least 2026-09-03; its **apply** job has never run, and is deliberately left unarmed. `destroy.yml` destroyed 96 real resources on 2026-09-18. `lint.yml`, `test.yml` and `test-e2e.yml` configure no AWS credentials at all. This row said "never run against real AWS credentials or infrastructure" until 2026-09-18, and a first correction that day replaced it with a claim that only `destroy.yml` had run — also wrong, and written from inference rather than from the run records. `gpu.yml`, the GPU node-group switch this document describes, is **designed only and does not exist** |
-| Gateway image                 | **Built and pushed by `ci.yml`** to its own ECR repository, with the digest pinned into `config/gateway/kustomization.yaml` in the same PR as the operator's. The gateway itself has run **on kind**, never on EKS — see `README.md` and `docs/05` |
+| Gateway image                 | **Built and pushed by `ci.yml`** to its own ECR repository, with the digest pinned into `config/gateway/kustomization.yaml` in the same PR as the operator's. The gateway itself has run **on kind**, never on EKS — see `README.md` and `docs/05` *(historical: on EKS since 2026-10-12)* |
 | Operator custom metrics       | **Implemented** (`internal/controller/metrics.go` — taints, degraded transitions, quota drift)     |
-| Everything in this doc        | Code written per this design (v3.2) and offline-validated. **`bootstrap` is applied**; `cluster` is planned at 96 resources (2026-09-18) and is not applied now, having held resources until 2026-09-03. The status line at the top of this document is the authority — this row contradicted it until 2026-08-29 on one point and until 2026-09-18 on another |
+| Everything in this doc        | Code written per this design (v3.2) and offline-validated. **`bootstrap` is applied**; `cluster` is planned at 96 resources (2026-09-18) and is not applied now, having held resources until 2026-09-03 *(2026-11-07: since then each paid session has applied it and destroyed it at its end; it is not held between sessions)*. The status line at the top of this document is the authority — this row contradicted it until 2026-08-29 on one point and until 2026-09-18 on another |
 
 ## Build order (M5-a → M5-b)
 

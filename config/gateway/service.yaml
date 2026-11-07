@@ -25,6 +25,10 @@ spec:
   # Putting it on the Service would let anyone in the cluster scrape per-tenant usage
   # and infer other tenants' activity from it.
   # Prometheus scrapes Pod IPs directly, so collection works fine without a Service entry.
+  # Leaving it off the Service hides the port, it does not close it: any Pod that learns the gateway's Pod IP can
+  # still reach 8081 unless a NetworkPolicy stops it.
+  # A tenant namespace's default-deny egress (config/tenant/) is what stops its Pods, on a CNI that enforces it; a
+  # namespace without the bundle can still scrape the port.
   - name: http
     port: 8080
     targetPort: http

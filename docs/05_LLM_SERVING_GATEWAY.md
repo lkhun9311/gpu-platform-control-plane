@@ -113,7 +113,7 @@ The rendering itself was checked on a real engine on 2026-10-11 (`hack/holdcap-c
 The engine the controller started reported the measured arguments with the cap, status turned HoldCap only once that engine was ready and Off 0.1 s after HoldCap was turned off, and Recreate rolled to an engine without the cap.
 That session ran no gateway and measured no latency.
 
-Known gaps, none of which holds requests for an engine without the cap:
+Known gaps *(corrected 2026-11-07: this line said none of them holds requests for an engine without the cap; the second one does, for up to the cache lag plus `maxHold`)*:
 
 - Editing the object, `maxHold` included, moves its generation, so the backend gets the process-wide mode until the controller reports HoldCap again.
 - When HoldCap is turned off and the gateway's cache lags the new engine becoming ready, requests can be held briefly for the uncapped engine: no protection, and holds bounded by `maxHold`. The window is the cache lag plus up to `maxHold`, not the cache lag alone, because a request keeps the admission it was routed with while it waits. It has not been measured.
@@ -142,6 +142,12 @@ The index and the outstanding counts live in one gateway process, so a second re
 > Open WebUI must not connect directly to vLLM. It always uses the gateway as its OpenAI-compatible base URL.
 
 This single rule is what makes it "a platform boundary" rather than "a UI bolted onto vLLM."
+
+Until 2026-11-07 the rule was a convention: nothing in the cluster stopped a Pod from calling an engine's Pod IP directly, around the gateway's authentication, rate limits and priority binding.
+The tenant bundle (`config/tenant/`, rendered per tenant by `hack/tenant/render.sh`) makes it a NetworkPolicy: an engine Pod accepts traffic only from gateway Pods in a namespace labelled `platform.lkhun9311.github.io/role: platform` and from a namespace labelled `platform.lkhun9311.github.io/role: monitoring`, and a tenant's own trainer in the same namespace is refused too.
+It holds only where two things are true: the namespace is enrolled with the bundle, and the CNI enforces NetworkPolicy.
+The kind proof runs Calico (`hack/tenant-boundary/run.sh`); on EKS, enforcement is the VPC CNI switch `network_policy_enabled` in `infra/aws/cluster`, which is off by default and has not been applied.
+The demo and session namespaces this page's runs used are not enrolled, so for them the rule is still a convention.
 
 ## Minimum metrics (M4-b)
 

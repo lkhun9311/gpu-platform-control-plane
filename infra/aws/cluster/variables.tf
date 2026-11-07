@@ -274,3 +274,13 @@ variable "efs_enabled" {
   # unpinned group would spread the ranks over zones the restart session promises not to cross.
   default = false
 }
+
+variable "network_policy_enabled" {
+  description = "Enforce NetworkPolicy in the VPC CNI add-on, in strict mode, so the tenant bundle's network isolation applies. Off unless the tenants are enrolled."
+  type        = bool
+  nullable    = false
+
+  # Off, so every existing session plans exactly the add-on it planned before this variable existed.
+  # The runner namespaces carry no policies, and strict mode would cut their Pods off; see local.vpc_cni_addon.
+  default = false
+}

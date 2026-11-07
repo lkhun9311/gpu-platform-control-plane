@@ -247,6 +247,34 @@ def observed_window(case: Case, start: str, end: str) -> tuple[list[dict], str]:
     return inside, detail
 
 
+def held_window(case: Case, start: str, end: str, seconds: float) -> tuple[list[dict], str]:
+    """The samples of a hold the harness kept for SECONDS, or none unless it was observed throughout and lasted that long.
+
+    The holds of stale-workload, deactivated and node-lost were once read with Case.window, which asks neither: one early
+    sample and a stalled sampler passed "no second attempt" for a minute nobody watched (gpt-6-astra review of 116092ef).
+    """
+    a, b = case.at(start), case.at(end)
+    legacy = a is not None and b is not None and not any(
+        "started" in s for s in case.timeline if a <= ts(s["observed"]) <= b)
+    if legacy:
+        # Runs before the sampler change of f43df078 (2026-11-01) recorded neither when a sample's reads began nor whether
+        # they failed.
+        # Their samples are still held to the gap and the duration.
+        # A read that failed there left an empty status or empty lists, which every predicate over a hold already refuses:
+        # no_second_attempt wants exactly one attempt, and the others want the held Workload or the barrier's words.
+        inside = [s for s in case.timeline if a <= ts(s["observed"]) <= b]
+        times = [a] + [ts(s["observed"]) for s in inside] + [b]
+        gap = max(y - x for x, y in zip(times, times[1:]))
+        detail = (f"{len(inside)} samples over {b - a:.1f} s, longest unobserved {gap:.1f} s; "
+                  f"this run's sampler recorded no read errors")
+        held = inside if inside and gap <= MAX_SAMPLE_GAP else []
+    else:
+        held, detail = observed_window(case, start, end)
+    if a is None or b is None or b - a < seconds - 1:
+        return [], f"{detail}; the hold lasted {None if a is None or b is None else round(b - a, 1)} s of {seconds:.0f} s"
+    return held, detail
+
+
 def heartbeats(case: Case, attempt: int) -> dict[int, list[dict]]:
     """Every rank's heartbeat records of one attempt, as copied from the shared volume, by rank, in file order."""
     out: dict[int, list[dict]] = {}
@@ -624,6 +652,29 @@ def a2_exits(case: Case) -> list[tuple[str, dict]]:
     return [(p.get("rank"), exits.get(p.get("uid"), {})) for p in pods]
 
 
+def ended_at(case: Case, phase: str) -> float | None:
+    """When the job reached PHASE, its terminal phase, from the status the controller wrote; None if it did not."""
+    if case.status.get("phase") != phase:
+        return None
+    return ts(case.status.get("lastTransitionTime"))
+
+
+def inside_budget(case: Case, provenance: dict, phase: str, what: str, at: float | None) -> None:
+    """The case budget holds the whole job, counted to the phase it ended in, and not to a step or an exit inside it.
+
+    A last step or a lone rank's exit comes before the save, the peer's shutdown and the controller's stop barrier, and
+    any of those can carry a job past the budget a paid session censors it at (gpt-6-astra review of 116092ef).
+    """
+    c = case.name
+    born = ts(((case.final.get("metadata") or {}).get("creationTimestamp")))
+    end = ended_at(case, phase)
+    budget = float(provenance.get("paid_budget", "nan"))
+    check(f"{c} the job was {phase} inside the paid session's {budget:.0f} s case budget from its creation",
+          born is not None and end is not None and end - born < budget,
+          f"created {iso(born)}, {phase} {iso(end)}: {(end - born) if born is not None and end is not None else None} s; "
+          f"{what} {iso(at)}: {(at - born) if born is not None and at is not None else None} s")
+
+
 def never_joined(case: Case, provenance: dict, created: float | None) -> None:
     """Attempt 2's lone rank waited for its peer for as long as the case's settings bound the join, and then failed."""
     c = case.name
@@ -655,12 +706,7 @@ def never_joined(case: Case, provenance: dict, created: float | None) -> None:
               f"the lone rank ended {iso(ended)}")
     trained = [r for r in case.records if r.get("event") in ("start", "resume", "step") and r.get("attempt") == 2]
     check(f"{c} attempt 2 never trained", not trained, f"{len(trained)} start, resume or step records in attempt 2")
-    born = ts(((case.final.get("metadata") or {}).get("creationTimestamp")))
-    budget = float(provenance.get("paid_budget", "nan"))
-    check(f"{c} attempt 2 failed inside the paid session's {budget:.0f} s case budget from the job's creation",
-          born is not None and ended is not None and ended - born < budget,
-          f"the job created {iso(born)}, attempt 2's Job {iso(created)}, its rank ended {iso(ended)}: "
-          f"{(ended - born) if born is not None and ended is not None else None} s")
+    inside_budget(case, provenance, "Failed", f"attempt 2's Job created {iso(created)}, its lone rank ended", ended)
     said = [line.strip() for f in sorted(case.dir.glob("log-*.txt")) for line in f.read_text(errors="replace").splitlines()
             if "clients joined" in line or "did not all join" in line or "Timed out" in line]
     info(f"{c} what the lone rank said", "; ".join(sorted(set(s[-160:] for s in said))) or "nothing matched")
@@ -677,12 +723,8 @@ def joined_late(case: Case, provenance: dict) -> None:
           f"{coll:.0f} s collective timeout",
           gap is not None and late - 2 <= gap < rdzv and gap > coll and let_in is not None and starts_at[-1] >= math.floor(let_in),
           f"attempt 2's containers started {[iso(t) for t in starts_at]}, {gap} s apart; uncordoned {iso(let_in)}")
-    born = ts(((case.final.get("metadata") or {}).get("creationTimestamp")))
     last = max((ts(r.get("ts")) or 0 for r in case.records if r.get("event") == "step" and r.get("attempt") == 2), default=None)
-    budget = float(provenance.get("paid_budget", "nan"))
-    check(f"{c} the job finished inside the paid session's {budget:.0f} s case budget from its creation",
-          born is not None and last is not None and last - born < budget,
-          f"created {iso(born)}, last step of attempt 2 {iso(last)}: {(last - born) if born and last else None} s")
+    inside_budget(case, provenance, "Succeeded", "attempt 2's last step", last)
 
 
 def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> None:
@@ -918,9 +960,9 @@ def main() -> int:
     case = Case(root, "stale-workload")
     if "stale-workload" in scope and present(case):
         restarted(case, reference, None)
-        held = case.window("hold-start", "hold-end")
+        held, detail = held_window(case, "hold-start", "hold-end", 60)
         check("stale-workload no second attempt while the Workload was held", bool(held) and no_second_attempt(held),
-              f"{len(held)} samples in the hold")
+              detail)
         wl = (case.mark("finalizer-added") and next(m for m in case.marks if m["mark"].startswith("finalizer-added"))["mark"].split()[1])
         alive = [s for s in held if any(w["name"] == wl for w in s["workloads"])]
         check("stale-workload the held Workload existed through the hold", bool(held) and len(alive) == len(held),
@@ -930,12 +972,12 @@ def main() -> int:
 
     case = Case(root, "deactivated")
     if "deactivated" in scope and present(case):
-        after = case.window("deactivated", "hold-end")
+        after, detail = held_window(case, "deactivated", "hold-end", 60)
         # The fault itself is checked first: a job never deactivated also shows one attempt and no trigger.
         wl = next((m["mark"].split()[1] for m in case.marks if m["mark"].startswith("deactivated ")), None)
         inactive = [s for s in after if any(w["name"] == wl and w["active"] is False for w in s["workloads"])]
         check("deactivated the Workload was inactive through the minute after", bool(after) and len(inactive) == len(after),
-              f"{len(inactive)} of {len(after)} samples show {wl} with active false")
+              f"{len(inactive)} of {len(after)} samples show {wl} with active false; {detail}")
         # Stopped is read from what the cluster reported, not from step records going quiet: a log stream that broke
         # would go quiet too. Kueue evicts by suspending the Job, and the Job controller then reports no active Pod.
         at = case.mark("deactivated")
@@ -961,11 +1003,11 @@ def main() -> int:
         if len(case.attempts) > 1:
             check("node-lost attempt 2 ran without the lost node", victim not in (case.attempts[1].get("nodes") or []),
                   f"attempt 2 nodes {case.attempts[1].get('nodes')}")
-        for start, end, what in (("pods-hold-start", "pods-hold-end", "while the lost node's Pods remained"),
-                                 ("fence-hold-start", "fence-hold-end", "until the node was fenced")):
-            held = case.window(start, end)
-            check(f"node-lost no second attempt {what}", bool(held) and no_second_attempt(held), f"{len(held)} samples")
-        fenced = case.window("fence-hold-start", "fence-hold-end")
+        for start, end, seconds, what in (("pods-hold-start", "pods-hold-end", 20, "while the lost node's Pods remained"),
+                                          ("fence-hold-start", "fence-hold-end", 30, "until the node was fenced")):
+            held, detail = held_window(case, start, end, seconds)
+            check(f"node-lost no second attempt {what}", bool(held) and no_second_attempt(held), detail)
+        fenced, _ = held_window(case, "fence-hold-start", "fence-hold-end", 30)
         says = {((s.get("status") or {}).get("attempts") or [{}])[0].get("waitingFor") for s in fenced}
         check("node-lost the barrier named the unfenced node", bool(fenced) and all(victim and victim in unfenced(w) for w in says),
               f"{sorted(w or '' for w in says)}")

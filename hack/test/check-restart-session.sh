@@ -970,6 +970,28 @@ if [[ "$streams" == 3 && "$states" == "unread running gone" ]]; then
 else
   bad "the status blip: $streams stream(s) of rp0, want 3 (one before the failed read, one while running, one at the end), containers '$states': $out"
 fi
+# A stream that failed is read again even when the container has ended by then, since an ended container's log is still
+# there; one failed read once ended a terminated rank's records for good (gpt-6-astra review of 116092ef).
+mkdir -p "$work/rules/term-blip"
+cat >"$work/rules/term-blip/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"terminated": {"exitCode": 1}}}]}}]}' ;;
+  *"logs -f rp0"*)
+    n=1; [ -f "$STUB_RULES/logs-n" ] && n=$(($(cat "$STUB_RULES/logs-n") + 1)); echo "$n" >"$STUB_RULES/logs-n"
+    if [ "$n" = 1 ]; then echo "error: unexpected EOF" >&2; exit 1; fi
+    echo '{"ts": "t", "event": "step", "step": 30}' ;;
+  *"get pod rp0"*) echo '{"metadata": {}, "status": {"containerStatuses": [{"state": {"terminated": {"exitCode": 1, "reason": "Error"}}}]}}' ;;
+esac
+EOF
+out="$(lib term-blip 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 8; kill $c; wait $c; echo "rc=$?"')"
+exits="$(python3 -c 'import json, sys; print(" ".join("%s/%s" % (r["exit"], r["container"]) for r in map(json.loads, open(sys.argv[1]))))' "$work/out/term-blip/streams.jsonl" 2>&1)"
+if [[ "$exits" == "1/terminated 0/terminated" ]] && grep -q '"step": 30' "$work/out/term-blip/log-u0.2.txt"; then
+  ok "a failed stream of an ended container is read again, and a clean read of it ends the follows"
+else
+  bad "the failed stream of an ended container: streams '$exits', second log: $(cat "$work/out/term-blip/log-u0.2.txt" 2>&1 | head -c 200)"
+fi
+
 # A container that ended leaves its exit and times, and a Pod being deleted its deletion's, in its stream's record: the
 # paid run's 38 s rank-kill stop could not be divided without them (gpt-6-astra's defect review of #505).
 mkdir -p "$work/rules/pod-ended"
@@ -1212,6 +1234,21 @@ if [[ -z "$missing" && "$(cat "$work/out/run-retire/no-rng-control/NOTRUN" 2>&1)
 else
   bad "the unretired case: missing${missing:- nothing}; no-rng-control: $(cat "$work/out/run-retire/no-rng-control/NOTRUN" 2>&1)"
 fi
+
+# A case worker killed by a signal never reached its retirement, so it is VOID and nothing more starts, whatever the
+# scorer would have said (gpt-6-astra review of 116092ef: a 137 or 143 used to be scored, and one VOID let the next case run).
+for sig in KILL TERM; do
+  mkdir -p "$work/rules/killed-$sig"
+  out="$(lib "killed-$sig" "REAL_CASE=none; $RUNNER_PRELUDE"$'\n'"restart_run_case() { [[ \"\$1\" != no-rng-control ]] || kill -$sig \$BASHPID; return 0; }
+restart_run \"\$RESTART_OUT/warmed.txt\"; echo \"rc=\$?\"" 2>&1)"
+  if [[ "$(cat "$work/out/killed-$sig/no-rng-control/VOID" 2>&1)" == *"worker ended with status"*"retirement unconfirmed"* &&
+    "$(cat "$work/out/killed-$sig/dcgm-1/NOTRUN" 2>&1)" == "no-rng-control's worker ended with status"* &&
+    "$out" == *"no-rng-control: VOID"* ]]; then
+    ok "a case worker killed by SIG$sig is VOID and stops every later case"
+  else
+    bad "the case worker killed by SIG$sig: VOID '$(cat "$work/out/killed-$sig/no-rng-control/VOID" 2>&1)', dcgm-1 '$(cat "$work/out/killed-$sig/dcgm-1/NOTRUN" 2>&1)'; $(tail -6 <<<"$out")"
+  fi
+done
 
 # An unretired case's NCCL logs are still copied, read-only, as its listing is: on the kind rehearsal they were not, and
 # score_eks.py voided a case that had recovered for "no NCCL log", which said the transport was unknown when it was

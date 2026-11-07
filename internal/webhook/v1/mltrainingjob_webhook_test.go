@@ -381,6 +381,19 @@ func claim(modes ...corev1.PersistentVolumeAccessMode) *corev1.PersistentVolumeC
 		Spec: corev1.PersistentVolumeClaimSpec{AccessModes: modes}}
 }
 
+// claimIn is a ReadWriteMany claim "ckpt" in the given phase, and, with deleting, one whose deletion has begun.
+func claimIn(phase corev1.PersistentVolumeClaimPhase, deleting bool) *corev1.PersistentVolumeClaim {
+	c := claim(corev1.ReadWriteMany)
+	c.Status.Phase = phase
+	if deleting {
+		now := metav1.Now()
+		c.DeletionTimestamp = &now
+		// The fake client keeps an object with a deletion stamp only while a finalizer holds it, as the API server does.
+		c.Finalizers = []string{"kubernetes.io/pvc-protection"}
+	}
+	return c
+}
+
 // distributedWithClaim is a distributed job that restarts and keeps its checkpoints on claim "ckpt".
 func distributedWithClaim(m *platformv1.MLTrainingJob) {
 	m.Spec.Distributed = &platformv1.Distributed{WorldSize: 2, MaxRestarts: 1}
@@ -401,8 +414,14 @@ func TestADistributedStateVolumeMustBeReadWriteMany(t *testing.T) {
 		{"ReadWriteOnce", []runtime.Object{claim(corev1.ReadWriteOnce)}, "ReadWriteMany"},
 		{"ReadWriteOncePod", []runtime.Object{claim(corev1.ReadWriteOncePod)}, "ReadWriteMany"},
 		{"no claim", nil, "not found"},
+		// Mutation that turns this red: drop the volumeMode check.
+		{"Block mode", []runtime.Object{blockClaim()}, "volumeMode Block"},
 		{"ReadWriteMany", []runtime.Object{claim(corev1.ReadWriteMany)}, ""},
 		{"ReadWriteMany among others", []runtime.Object{claim(corev1.ReadWriteOnce, corev1.ReadWriteMany)}, ""},
+		// Mutations that turn these red: drop the Lost check, or the deletion check, or require Bound.
+		{"Pending, as a WaitForFirstConsumer claim is until a rank mounts it", []runtime.Object{claimIn(corev1.ClaimPending, false)}, ""},
+		{"Lost", []runtime.Object{claimIn(corev1.ClaimLost, false)}, "Lost"},
+		{"being deleted", []runtime.Object{claimIn(corev1.ClaimBound, true)}, "being deleted"},
 	}
 	for _, row := range rows {
 		t.Run(row.label, func(t *testing.T) {
@@ -530,4 +549,12 @@ func TestAnOrdinaryStateVolumeIsNotLookedUp(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("an ordinary job's claim was read: %v", err)
 	}
+}
+
+// blockClaim is a ReadWriteMany claim "ckpt" asking for a raw block device.
+func blockClaim() *corev1.PersistentVolumeClaim {
+	c := claim(corev1.ReadWriteMany)
+	block := corev1.PersistentVolumeBlock
+	c.Spec.VolumeMode = &block
+	return c
 }
