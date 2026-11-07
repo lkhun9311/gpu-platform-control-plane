@@ -21,9 +21,10 @@ Three EC2 Spot instances in one zone of `ap-northeast-2`, account `gpu-lab` (007
 
 | role | type | AMI | Slurm role |
 |---|---|---|---|
-| `head` | `t3.medium` | Canonical Ubuntu 24.04 (gp3), pinned by ID | `slurmctld` (configless server), `slurmdbd` with MariaDB, NFS server of `/shared`, the procedure |
+| `head` | `t3.medium` | Canonical Ubuntu 24.04 (`ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*`, owner 099720109477), pinned by ID | `slurmctld` (configless server), `slurmdbd` with MariaDB, NFS server of `/shared`, the procedure |
 | `gpu1`, `gpu2` | `g5.xlarge` (1 A10G each) | AWS Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04), pinned by ID | `slurmd`, configless from `head`, `/shared` over NFS |
 
+The Deep Learning AMI lists only GPU instance families as supported, which is why `head` runs Canonical's image; that image has no AWS CLI, so its user-data installs it from snap.
 Every Slurm package is installed from the Ubuntu 24.04 archive at its exact version (`slurmctld`, `slurmd`, `slurmdbd`, `slurm-client` `23.11.4-1.2ubuntu5`, `munge` `0.5.15-4ubuntu0.1`, `mariadb-server` `1:10.11.14-0ubuntu0.24.04.1`), so a rebuild either reproduces this or fails at install.
 All daemons are the packages' systemd units.
 `cgroup.conf`: `CgroupPlugin=cgroup/v2`, `ConstrainCores`, `ConstrainDevices`, `ConstrainRAMSpace`, `ConstrainSwapSpace` all `yes`; `slurm.conf`: `ProctrackType=proctrack/cgroup`, `TaskPlugin=task/cgroup,task/affinity`, `JobAcctGatherType=jobacct_gather/cgroup`, `SelectType=select/cons_tres` with `CR_Core_Memory`, accounting enforced (`associations,limits,qos`).
@@ -78,7 +79,7 @@ Holds when all of: `sacct` reports the step `<id>.0` `OUT_OF_MEMORY`; the job's 
 - `/shared` not written and read back from each worker before the checks: every check VOID.
 - Bring-up not complete by its deadline: every check NOTRUN, and the session records why.
 - A check that cannot reach its deadline is NOTRUN, never shortened.
-- Head-to-worker clock offset above 2 s (`chronyc tracking` on each, recorded): the timing rules of B3 and B4a are INVALID, the others stand.
+- Every time a rule compares is read on `head`: its own polls and `slurmctld`'s accounting. No worker clock enters a rule, so no clock offset is checked.
 
 ## Cost, read by the price gate before anything is bought
 
@@ -96,7 +97,7 @@ The runner refuses a launch when no zone offers both types under their caps, and
 
 ## Before anything is bought (refusals)
 
-A dirty tree; `SESSION_CONFIRM` not `yes`; either AMI ID not pinned or not the named image; credentials not for `gpu-lab`, or expiring within 120 minutes; the termination sweeper not `Active` with its rule `ENABLED rate(5 minutes)` and at least 4 clean runs in the last 30 minutes; an earlier instance of this purpose still live; a caller-set override of any registered constant.
+A dirty tree; `SESSION_CONFIRM` not `yes`; `SLURMEC2_REHEARSAL` set; either AMI ID not pinned or not the named image; credentials not for `gpu-lab`, or expiring within 120 minutes (read again after the uploads, when at least 91 minutes must remain); the termination sweeper not `Active` with its rule `ENABLED rate(5 minutes)` and at least 4 runs and no error summed over every 5-minute datapoint of the last 30 minutes; an earlier instance of this purpose still live; a caller-set override of any registered constant.
 The nightly EKS destroy workflow does not touch these instances (they are not in any Terraform state), so its window does not apply.
 
 ## Termination chain
@@ -109,6 +110,13 @@ The nightly EKS destroy workflow does not touch these instances (they are not in
 
 It licenses statements about Slurm 23.11.4 as Ubuntu 24.04 packages it, on two A10G nodes and a CPU head, under cgroup v2: what confinement, limits, drain and requeue did there.
 Not: Slurm 24.x or a source build, scale, fair-share or backfill under load, `slurmctld` failover, multi-node NCCL jobs, a real hardware fault (the signal is written), or how long a real fleet takes to drain.
+
+## The free rehearsal
+
+`hack/slurm-ec2-rehearsal.sh` runs the same user-data, rendered by the same function (`hack/lib/slurm-ec2.sh`), in three local systemd containers named `head`, `gpu1` and `gpu2`, against an S3 stub, and scores what comes back with the same scorer; `hack/slurm-ec2/check_rehearsal.py` states what it must show.
+What differs is set only by `SLURMEC2_REHEARSAL=1` in the instance side's environment: no GPU (a device node with no driver and an `nvidia-smi` stand-in, so B1a cannot hold and B1b is INVALID, and the trainer runs on the CPU), no NFS (`/shared` is one Docker volume, because the workstation has no `nfsd` module), no shutdown, and S3 is a directory.
+So the rehearsal shows the packages, the configuration, accounting, configless `slurmd`, cgroup v2 memory and device confinement, the health check, the drain and the requeue; it does not show the NFS export, the GPU, or EC2.
+`hack/test/check-slurm-ec2-session.sh` runs the paid runner against a stub `aws` for every refusal, the purchase, the zone fallback and the end.
 
 ## Revisions before the run
 
