@@ -32,13 +32,13 @@
 > `NodeHealth` (`--gpu-fault-source=dcgm`, `internal/gpufault/`, 2026-10-27), rehearsed on kind against a fake
 > exporter, and taken through a real card by run 2 of its registered session on 2026-10-27, with values injected
 > into DCGM's cache rather than induced hardware faults: both fault arms reacted in 5 of 5 repetitions and the
-> stale-latched check failed (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`). Until 2026-10-27 this
+> stale-latched check failed (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`); run 3 on 2026-11-01 passed it and the recovery check (`hack/gpu-fault/2026-11-01-run3/verdict.txt`). Until 2026-10-27 this
 > line said nothing Xid or ECC was in the Go tree, which was true then. The DCGM exporter layer is NOT in this
 > category and the claim that it was is corrected here: `config/dcgm-exporter/` deploys it and
 > `internal/queuelab/dcgm.go` reads `DCGM_FI_DEV_GPU_UTIL` from it. It has now been pointed at real cards:
 > session `qlgpu-20260906-032038` ran eight runs on four A10Gs and every one carries
 > `deviceEvidence: device-work-observed`. Also designed only:
-> eBPF layer, Nsight profiling, the SQLite/Postgres operations ledger, FR-001, FR-003, FR-005, and the
+> eBPF layer, Nsight profiling, the SQLite/Postgres operations ledger *(historical: 2 of its 6 tables were built and projected from a cluster on 2026-09-30, `docs/07_OPERATIONS_LEDGER_AND_EVIDENCE.md`)*, FR-001, FR-003, FR-005, and the
 > `evidence/` report tree shown below.
 >
 > **Which GPUs were real, and which were not.** Every kind cluster here advertises simulated
