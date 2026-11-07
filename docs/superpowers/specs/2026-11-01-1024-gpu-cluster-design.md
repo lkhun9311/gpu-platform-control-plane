@@ -24,7 +24,7 @@ A row marked ASSUMPTION is a value I chose for the design; changing it changes t
 | inter-node fabric per node | 8 × 400 Gb/s RDMA (InfiniBand NDR or EFA-class), one NIC per GPU, rail-optimised | ASSUMPTION; the only multi-GPU node used here supported one EFA interface (`docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:42`), and its result licenses nothing about EFA (`docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:582`) |
 | scalable unit (SU) | 32 nodes, 256 GPUs, under one set of 8 rail leaf switches | ASSUMPTION |
 | rack | 4 nodes, one power feed pair, one management switch | ASSUMPTION, set by power density |
-| site interconnect (DCI) | 2 × 100 Gb/s, 25 GB/s usable | ASSUMPTION |
+| site interconnect (DCI) | 2 × 100 Gb/s, 25 GB/s usable in each direction | ASSUMPTION |
 | per-GPU interruption rate λ | 5 × 10⁻⁴ per GPU-day, every cause that takes a node out of a job | ASSUMPTION, of the order Meta reports for Llama 3 pre-training (419 unexpected interruptions in 54 days on 16,384 GPUs, about 4.7 × 10⁻⁴); that paper is not re-read for this note |
 | repair: soft | 50% of failures, back in 4 h after reset and burn-in | ASSUMPTION |
 | repair: hardware | 50% of failures, back in 5 days after part swap and burn-in | ASSUMPTION |
@@ -57,7 +57,10 @@ What changes with the domain is how many jobs, how many spare nodes it consumes,
 | rack | power feed, management switch | 4 nodes (ASSUMPTION) | at most 4 jobs, usually one | 4 nodes, 32 GPUs: this exceeds the spare budget of one SU, see "Spare capacity" | facilities; the nodes come back only through burn-in |
 | rail leaf switch | one of 8 leaves in an SU | one rail of 32 nodes: every node keeps 7 of 8 NICs | every multi-node job in the SU slows; NCCL may route the rail's traffic through PXN or fail the communicator, depending on configuration | bandwidth, not nodes | swap the switch; the jobs are not drained unless they fail |
 | spine | inter-SU links | cross-SU bandwidth | jobs spanning both SUs of a site | bandwidth | placement keeps a job inside one SU where it fits; a job larger than an SU, or one given a replacement node from the other SU, is the job a spine fault hits |
-| site | power, cooling, DCI loss | 64 nodes, 512 GPUs | every job at the site | half the fleet | jobs restart at the other site from the replicated checkpoint, within that site's quota and capacity |
+| site | power or cooling, the site confirmed down | 64 nodes, 512 GPUs | every job at the site | half the fleet | jobs restart at the other site from the replicated checkpoint, within that site's quota and capacity, once the lost site is confirmed down or its jobs fenced |
+| DCI | the interconnect between the sites; both sites still run | checkpoint replication, dataset sync, cross-site accounting and telemetry | none: no collective crosses the DCI, so every job keeps training at its own site | none | keep operating each site locally; replication lag grows and is caught up when the link returns. Moving a job to the other site needs the same confirmation as a site loss, because from the far side an isolated site and a dead one look alike, and restarting a job still running at home makes two writers of one checkpoint |
+
+*Corrected 2026-11-07:* the site row read "power, cooling, DCI loss" and sent every job to the other site, which for a DCI loss would have started a second copy of jobs that were still running (astra review r4).
 
 Two consequences shape the rest of the design.
 A rail-leaf fault degrades 32 nodes at once rather than removing any, so a health system that only counts dead nodes misses it; step-time per job is the signal that sees it.
@@ -153,8 +156,10 @@ Slurm allocates the gang whole or not at all, so it has no equivalent hold.
 
 **Why collectives never cross the DCI, in arithmetic.**
 The reference model's bf16 gradient is 10 × 10⁹ × 2 bytes = 20 GB.
-A ring all-reduce moves about 2 × 20 = 40 GB per rank per step; even a hierarchical scheme that reduces inside each site first must still exchange that order of bytes across the DCI.
-At 25 GB/s (ASSUMPTION) that is at least 1.6 s of DCI time per step, against one node's 8 × 400 Gb/s = 400 GB/s into its own fabric (ASSUMPTION), sixteen times the whole DCI.
+A ring all-reduce over many ranks moves about 2 × 20 = 40 GB per rank per step.
+The least a two-site job could do is reduce inside each site first and then exchange the two sites' sums: an all-reduce between two parties moves 2(n − 1)/n × 20 GB = 20 GB each way, both directions at once.
+At 25 GB/s each way (ASSUMPTION) that is at least 0.8 s of DCI time per step, before reduction and protocol overhead, against one node's 8 × 400 Gb/s = 400 GB/s into its own fabric (ASSUMPTION), sixteen times the whole DCI.
+*Corrected 2026-11-07:* this said "at least 1.6 s", which applied the many-rank factor 2 to a two-party exchange; the conclusion below does not change (astra review r4, recomputed).
 A job that spanned sites would run at the speed of the DCI and share its fate with both sites.
 
 **What measurement here contributes.** Only the direction, as in the scheduler section: on the A10G node, rank layout alone changed the synchronisation cost from 130.02 ms to 245.02 ms (`docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:567`).
@@ -202,7 +207,7 @@ The stages, and which of them this repository has measured:
 |---|---|---|---|
 | 1. detect | DCGM exporter on each node; the operator scrapes each one every 1 s, and a reading older than 5 s is not fresh (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:47`) | Xid 79 injected into DCGM's cache: detect median 1.627 s; uncorrectable ECC: 1.448 s; both upper ends of truncation intervals, five injections each (`hack/gpu-fault/2026-10-27-run2/verdict.txt:4`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:17`) | the same per node; 128 scrapes a second from one operator is not measured |
 | 2. quarantine | the node is tainted so nothing new lands on it; Slurm drains it with a reason | latch to taint 0.008 s (`hack/gpu-fault/2026-10-27-run2/verdict.txt:15`) | identical mechanism |
-| 3. drain the job | the workload is evicted and its quota released | taint to eviction request 0.093 s, to quota release 0.774 s (`hack/gpu-fault/2026-10-27-run2/verdict.txt:6`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:11`) | a real trainer must stop; before this repository's trainer fix a rank blocked in rendezvous held its device 28.9 s past the quota release (`docs/11_WHAT_THIS_MEASURED.md:461`), and after it, released within the same second (`docs/11_WHAT_THIS_MEASURED.md:476`) |
+| 3. drain the job | the workload is evicted and its quota released | taint to eviction request 0.093 s, to quota release 0.867 s: the scorer's `quota_release` (0.774 s) starts at the Workload's deactivation, not at the taint, so the taint-to-release figure is each Xid repetition's eviction request plus its release interval's upper end, median 0.867357 s (`hack/gpu-fault/2026-10-27-run2/verdict.txt:6`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:11`, recomputed from `hack/gpu-fault/2026-10-27-run2/verdict.json` on 2026-11-07; this cell said 0.774 s until then) | a real trainer must stop; before this repository's trainer fix a rank blocked in rendezvous held its device 28.9 s past the quota release (`docs/11_WHAT_THIS_MEASURED.md:461`), and after it, released within the same second (`docs/11_WHAT_THIS_MEASURED.md:476`) |
 | 4. requeue from checkpoint | Kueue re-admits; Slurm requeues the job on spare nodes | re-admission 1.000 s (the upper end of an interval between two whole-second times, so anywhere from 0 to 1 s), value-to-placement 2.502 s (an upper end too) (`hack/gpu-fault/2026-10-27-run2/verdict.txt:12`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:5`), for a one-GPU `busybox` job with no checkpoint (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:108`) that re-landed on a simulated device (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:192`) | dominated by R, 10 min (ASSUMPTION), not by detection |
 | 5. repair | reset the GPU or reboot; if the fault recurs, swap the part | not measured | soft 4 h, hardware 5 days (ASSUMPTION) |
 | 6. burn-in | DCGM diagnostic at its longest level, a single-node NCCL all-reduce against a floor, a multi-node test beside known-good nodes, a short training-like stress | not measured | the gate for stage 7 |
@@ -269,11 +274,13 @@ Shrinking instead of waiting is allowed only for jobs whose training code change
 | exporter frozen but answering | a collection-timestamp check, not built here: the exporter carries no collection timestamp, so a frozen cache reads fresh (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:237`) | Unknown | ticket |
 | RDMA port errors, link down, a rail leaf down | fabric counters | none | page: it degrades 32 nodes |
 | step time per job above its own rolling median by 10% (ASSUMPTION) | the training loop's metrics | none | the job owner and on-call; one slow rank slows a synchronous job, which no node-level check reports |
-| NCCL timeout or communicator abort | job logs | Slurm or Kueue requeues | ticket naming the ranks' nodes for burn-in |
+| NCCL timeout or communicator abort | job logs | none by default: the job exits nonzero with every node still responding, which is not the node failure Slurm requeues on. Retry is configured, not automatic: Slurm requeues it only for exit codes listed in `RequeueExit`, and the platform restarts the whole job only with `distributed.maxRestarts` above 0 (default 0); Kueue itself does not retry a failed Job | ticket naming the ranks' nodes for burn-in |
 | quarantines per site per hour ≥ 3 | the operator | automation stops | page |
 | checkpoint write longer than 2 × C | the training loop | none | ticket for storage |
 | etcd fsync latency, API latency, Kueue pending and admission latency, `slurmctld` responsiveness | control plane | none | page on sustained breach |
 | quota: GPU-hours per team against entitlement, Kueue borrowing, Slurm fair-share | both schedulers | none | weekly report |
+
+*Corrected 2026-11-07:* the NCCL row's reaction said "Slurm or Kueue requeues"; the Slurm lab demonstrated requeue only for a lost node (astra review r4).
 
 ## What this design borrows from measurement here and what it only assumes
 
@@ -286,7 +293,7 @@ Shrinking instead of waiting is allowed only for jobs whose training code change
 | bus bandwidth about 3.06 GB/s (one Pod) and 1.67 GB/s (four Pods) at 256 MiB | `docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:559` | to say what the cards measured were, and why they are not this design's nodes | any bandwidth figure for an NVSwitch node or an RDMA fabric |
 | every card pair PHB, no peer reads | `docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:547` | the same | the same |
 | detect 1.627 s (Xid), 1.448 s (ECC), medians of interval upper ends, faults injected into DCGM's cache | `hack/gpu-fault/2026-10-27-run2/verdict.txt:4`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:17` | that detection is seconds and R is not set by it | a real fault through NVML; 128 nodes scraped by one operator; fault storms |
-| value to job placed 2.502 s; taint 0.008 s; eviction request 0.093 s; quota release 0.774 s; re-admission 1.000 s; all medians of interval upper ends, re-admission between whole-second stamps | `hack/gpu-fault/2026-10-27-run2/verdict.txt:5`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:15`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:6`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:11`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:12` | the shape of stages 2 to 4 | a 32-node job's stop, pull, rendezvous and checkpoint load, which are the 10 min |
+| value to job placed 2.502 s; taint 0.008 s; eviction request 0.093 s; quota release 0.774 s after the deactivation, 0.867 s after the taint; re-admission 1.000 s; all medians of interval upper ends, re-admission between whole-second stamps | `hack/gpu-fault/2026-10-27-run2/verdict.txt:5`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:15`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:6`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:11`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:12` | the shape of stages 2 to 4 | a 32-node job's stop, pull, rendezvous and checkpoint load, which are the 10 min |
 | lost work 15 s with no checkpoint | `hack/gpu-fault/2026-10-27-run2/verdict.txt:10` | that without a checkpoint the loss is the runtime | anything about a checkpointed job's loss |
 | benign and no-change arms quiet, 5 of 5 each | `hack/gpu-fault/2026-10-27-run2/verdict.txt:29-32` | that the latch distinguishes a correctable from an uncorrectable ECC value | a false-positive rate |
 | stale-healthy PASS; stale-latched FAIL from the taint toleration | `hack/gpu-fault/2026-10-27-run2/verdict.txt:33-34` | the rule that missing data neither sets nor clears, and that diagnostic agents tolerate the quarantine taint | — |

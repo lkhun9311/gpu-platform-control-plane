@@ -393,7 +393,10 @@ func (r *NodeHealthReconciler) displaceGPUWork(ctx context.Context, nh *platform
 			if handoff {
 				wl.Annotations[AnnRestartHandoff] = fp
 			}
-			if err := r.Patch(ctx, wl, client.MergeFrom(base)); err != nil {
+			// Conditioned on the version the active check above read: an operator who deactivated the Workload since then
+			// stopped the job, and an unconditioned patch would add the handoff and have the restart lifecycle start it again.
+			// On a conflict the pass fails and the next one reads the Workload anew.
+			if err := r.Patch(ctx, wl, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
 				return fmt.Errorf("deactivate workload %s/%s: %w", wl.Namespace, wl.Name, err)
 			}
 			gpuFaultWorkloadActionsTotal.WithLabelValues("deactivated").Inc()
