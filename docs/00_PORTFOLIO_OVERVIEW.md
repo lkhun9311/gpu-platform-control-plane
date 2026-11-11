@@ -1,6 +1,6 @@
 # Kubernetes-native GPUaaS Control Plane
 
-## Current state (2026-11-07)
+## Current state (2026-11-11)
 
 This is the one current summary; the other entry documents link here instead of restating it, and every older
 status banner below and elsewhere is historical unless it says otherwise. Each row names its latest evidence.
@@ -8,11 +8,12 @@ status banner below and elsewhere is historical unless it says otherwise. Each r
 | area | state | latest evidence |
 |---|---|---|
 | GPU fault path (`--gpu-fault-source=dcgm`) | built; scored on a real A10G with values injected into DCGM's cache (not induced hardware faults). Run 2 (2026-10-27): Xid 79 and double-bit ECC each reacted 5 of 5, the stale-latched check failed. Run 3 (2026-11-01): both arms 5 of 5, stale-latched and recovery PASS, one CUDA job on the card after recovery. Ran on kind on one EC2 instance, not EKS | `hack/gpu-fault/2026-11-01-run3/verdict.txt` |
-| NodeHealth objects | hand-created or written by the session runners; nothing in this tree creates them by default | `docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md`, "GPU alerts" |
+| NodeHealth objects | `--provision-nodehealth` gives every node that advertises `nvidia.com/gpu` a `NodeHealth` and removes the ones it made when the node is gone; the flag is off by default, so without it they are hand-created or written by the session runners | `internal/controller/nodehealth_provision.go`, `docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md` |
 | Distributed training restart (`distributed.maxRestarts`) | built; whole-job restart with a stop barrier and fencing. EKS, three `g5.xlarge`, two ranks: `full` (2026-11-04), `retarget` (2026-11-05, H1 REFUTED), `corelimit` (2026-11-06, H2 SUPPORTED). The full-stage medians are that revision's; later stages changed the recovery | `hack/distributed-restart-eks/2026-11-06-corelimit/README.md` |
 | Multi-Pod distributed jobs (`distributed.worldSize`) | built; ranks as Pods of an Indexed Job with a headless Service, two nodes on EKS | `experiments/multi-pod-ddp/README.md` |
 | Gateway | built; on EKS since 2026-10-12, serving one tenant through HoldCap to a controller-rendered vLLM engine; the HoldCap product path ran three registered times | `hack/eks-serve/holdcap-study/runs/20261021T021149Z/README.md` |
-| Slurm | a container lab on one host (declared GPUs, cgroups off); no real-GPU Slurm | `experiments/slurm-lab/README.md` |
+| Slurm | on EC2 since 2026-11-07: one t3.medium head and two g5.xlarge workers, Slurm 23.11. Run 2 held every registered check: GPU isolation (4 of 4), memory-limit OOM confined to the job (3 of 3), an account GPU limit (2 of 2), and a GPU fault written into the health signal that drained the node and requeued the job onto the other worker. One run of each check, no multi-node jobs, no Pyxis/Enroot. The earlier container lab on one host (declared GPUs, cgroups off) is kept as it was | `hack/slurm-ec2-20261107T190644Z/README.md`, `experiments/slurm-lab/README.md` |
+| Tenant boundary | per-tenant RBAC, default-deny NetworkPolicy, Pod Security baseline, LimitRange and a ClusterQueue `namespaceSelector`, rendered from `config/tenant/bundle.yaml.tmpl`. On kind with Calico: 23 of 23 checks; not on EKS | `hack/tenant-boundary/2026-11-07-run1/results.jsonl` |
 | Alerts | six rules; four delivered firing and resolved to a test webhook on kind with a fake exporter | `docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md` |
 | Operations ledger | 2 of 6 tables, projected from a cluster once | `docs/07_OPERATIONS_LEDGER_AND_EVIDENCE.md` |
 | AWS `cluster` state | applied and destroyed by each paid session, not held between them | the session archives under `hack/` |
@@ -26,7 +27,7 @@ kept in the gitignored `ex/` directory and are not in this repository; their pag
 > banner below carried facts from September and October; the 2026-10-22 revision changed the gateway's EKS
 > line and the number of cluster cycles, and left the rest as it was. This document surveys the whole project; the areas it covers are at different
 > stages, matched here to the README's evidence table — this banner does not upgrade or soften any of them.
-> **Built:** `NodeHealth` (node readiness — but the CR is hand-created, and by default no GPU fault signal
+> **Built:** `NodeHealth` (node readiness — but the CR is hand-created *(historical: an opt-in provisioner since 2026-11-07, see "Current state" above)*, and by default no GPU fault signal
 > reaches it; since 2026-10-27 an opt-in path, `--gpu-fault-source=dcgm`, reads Xid and double-bit ECC from
 > the DCGM exporter into it and can displace Kueue work from the node, built, unit-tested and rehearsed on a
 > fake exporter, its paid run registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md` and not yet scored on a card *(historical: scored on a card on 2026-10-27 and 2026-11-01, see "Current state" above)*), `GPUQuotaPolicy` (quota), `InferenceDeployment` (serving), `MLTrainingJob` +
