@@ -721,27 +721,24 @@ func TestAnImpossibleDutyIsRefusedRatherThanClamped(t *testing.T) {
 	}
 }
 
-// TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself runs the embedded script and guards its counts.
+// TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself runs the embedded script and reads back the idle it reports.
 //
 // The knob is only worth having if it changes what the workload does, and the two tests above check the
 // spelling rather than the behaviour: a script that read the argument and ignored it would pass both. This runs
-// the real embedded source and compares the iteration counts it reports at three duties.
+// the real embedded source and compares the fraction of its window it reports spending in time.sleep against
+// the fraction the declared duty leaves idle.
 //
-// WHAT IT IS NOT. It does not check that halving the duty halves the work, and it cannot: the three counts come
-// from three separate runs whose iterations per second differ, because the run that never rests is throttled
-// and descheduled more than the one that rests half the time. This is an operational regression guard on
-// reported counts, not a measurement of idle time. Its device-path counterpart carries the same caveat and the
-// same integer cutoff.
+// It used to compare iteration counts across three runs, and that was a flake rather than a guard. Iterations per
+// second differ between a run that never rests and one that rests half the time, and differ again with whatever
+// else the host is running, so a busy CI runner pushed half/full past the cutoff with nothing wrong. The sleep is
+// measured in wall time around the call, so contention moves it by scheduling latency, not by a ratio.
 //
 // NOR IS IT A CPU-PATH TEST, whatever the fallback in its name once suggested. It inherits the ambient
-// environment and reads only `iters=`, so on a host carrying libcuda.so.1 the workload takes the DEVICE path
-// and this measures that instead. Nothing here forces or verifies the fallback; the device path has its own
-// test, which does verify the path it names.
+// environment, so on a host carrying libcuda.so.1 the workload takes the DEVICE path and this measures that
+// instead. The window opens before the device probe, which is why the band below is wider on the low side.
 //
-// Observed discrimination: with the workload's `time.sleep` replaced by `pass` -- a workload that reads the duty
-// and discards it -- the margin here failed in each of two runs on this host, the half/full ratio landing at
-// 0.85 and then 1.07. The spread between those two is the point: the counts are not a figure to compare
-// against, and the ordering check failed in one of the runs and passed in the other.
+// Mutation that turns it red: replace the workload's time.sleep with pass, a workload that reads the duty and
+// discards it.
 func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -750,43 +747,40 @@ func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
 	script := strings.Replace(workloadScript, "EXITCODE", strconv.Itoa(termExitCode), 1)
 
 	// Two whole periods, for the reason the device-path version of this records: a window that is not a
-	// multiple of the workload's period truncates its last segment, and the ratio then measures the
+	// multiple of the workload's period truncates its last segment, and the fraction then measures the
 	// truncation rather than the duty.
 	seconds := strconv.FormatFloat(2*workloadPeriod(t), 'f', -1, 64)
+	finished := regexp.MustCompile(`(?m)^finished iters=(\d+) .* sleptns=(\d+) windowns=(\d+)$`)
 
-	iters := func(duty string) int {
-		t.Helper()
-		out, err := exec.Command(python, "-c", script, seconds, "ignore", duty).CombinedOutput()
+	for _, c := range []struct {
+		duty string
+		idle float64
+	}{{"1", 0}, {"0.5", 0.5}, {"0.25", 0.75}} {
+		out, err := exec.Command(python, "-c", script, seconds, "ignore", c.duty).CombinedOutput()
 		if err != nil {
-			t.Fatalf("duty %s: the workload did not finish: %v\n%s", duty, err, out)
+			t.Fatalf("duty %s: the workload did not finish: %v\n%s", c.duty, err, out)
 		}
-		m := regexp.MustCompile(`iters=(\d+)`).FindAllStringSubmatch(string(out), -1)
-		if len(m) == 0 {
-			t.Fatalf("duty %s: the workload reported no iteration count:\n%s", duty, out)
+		m := finished.FindSubmatch(out)
+		if m == nil {
+			t.Fatalf("duty %s: the workload reported no finished line with its sleep and window:\n%s", c.duty, out)
 		}
-		n, _ := strconv.Atoi(m[len(m)-1][1])
-		return n
-	}
-
-	// Ordering plus a margin, for the reason the device-path version records: iterations per second is not
-	// constant between a run that never rests and one that rests half the time, so a ratio drifts for reasons
-	// the knob has nothing to do with. An ignored argument produces three counts close together, which this has
-	// been observed to reject rather than being guaranteed to.
-	full := iters("1")
-	half := iters("0.5")
-	quarter := iters("0.25")
-	if full == 0 {
-		t.Fatal("the workload did nothing at full duty, so nothing below means anything")
-	}
-	// full*4/5 truncates, so the cutoff is an integer rather than exactly 0.8 of full, and the message reports
-	// the integer the code actually compares against.
-	if cutoff := full * 4 / 5; half >= cutoff {
-		t.Errorf("half/full reported-iteration ratio = %.4f (half=%d, full=%d); this guard requires half < %d",
-			float64(half)/float64(full), half, full, cutoff)
-	}
-	if quarter >= half {
-		t.Errorf("reported iterations are not ordered by declared duty: quarter=%d, half=%d, full=%d",
-			quarter, half, full)
+		iters, _ := strconv.Atoi(string(m[1]))
+		slept, _ := strconv.ParseInt(string(m[2]), 10, 64)
+		window, _ := strconv.ParseInt(string(m[3]), 10, 64)
+		if iters == 0 || window == 0 {
+			t.Fatalf("duty %s: the workload did nothing (iters=%d, windowns=%d), so its idle means nothing", c.duty, iters, window)
+		}
+		if c.duty == "1" {
+			if slept != 0 {
+				t.Errorf("full duty slept %d ns; a workload that never rests must report none", slept)
+			}
+			continue
+		}
+		// Oversleeping costs milliseconds; startup and the last compute step's overrun are what pull the fraction low.
+		if got := float64(slept) / float64(window); got < c.idle-0.15 || got > c.idle+0.05 {
+			t.Errorf("duty %s reported idle %.3f of its window (slept %d ns of %d), want within [%.2f, %.2f] of the declared %.2f",
+				c.duty, got, slept, window, c.idle-0.15, c.idle+0.05, c.idle)
+		}
 	}
 }
 
