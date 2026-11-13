@@ -378,6 +378,9 @@ func errorCode(status int) string {
 		// reused here -- the design document promised that name for 400 and the code has always answered
 		// `bad_request`, so reviving it for a third meaning would make the record worse.
 		return "profile_violation"
+	case http.StatusRequestTimeout:
+		// A body the client did not finish sending before the server's read deadline.
+		return "request_timeout"
 	case http.StatusRequestEntityTooLarge:
 		// Added with the two 413 paths and missed at the time, so both of them — an oversized body and an
 		// estimate larger than the bucket can ever hold — were answering internal_error. A client branching on
