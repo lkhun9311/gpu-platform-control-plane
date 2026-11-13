@@ -285,3 +285,5 @@ infra/aws/bootstrap/.build/
 !docs/runbook/
 !/docs/runbook/*.md
 !/hack/drill/README.md
+# Each drill's result write-up, which the runbook cites as the source of its known-defects list.
+!/hack/drill/results-*/README.md
