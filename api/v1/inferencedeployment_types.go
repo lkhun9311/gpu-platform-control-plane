@@ -41,7 +41,8 @@ type InferenceDeploymentSpec struct {
 	// +required
 	Model InferenceModel `json:"model"`
 
-	// image is the serving runtime container image (e.g. "vllm/vllm-openai:v0.6.0").
+	// image is the serving runtime container image (e.g. "vllm/vllm-openai:v0.27.1").
+	// Pin it by digest so every replica of a rollout runs the same engine build.
 	// +required
 	Image string `json:"image"`
 
