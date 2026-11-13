@@ -446,18 +446,19 @@ var devicePluginOverlays = []string{
 // two of them against EACH OTHER: they were identically wrong, and agreement is not correctness. This test
 // compares them against the cluster instead.
 func TestEveryDevicePluginOverlayRendersIntoTheOperatorsNamespace(t *testing.T) {
-	def, err := os.ReadFile("../../config/default/kustomization.yaml")
+	// config/default layers the admission guards over config/default-no-webhook, which is where the namespace is set.
+	def, err := os.ReadFile("../../config/default-no-webhook/kustomization.yaml")
 	if err != nil {
-		t.Fatalf("read config/default/kustomization.yaml: %v", err)
+		t.Fatalf("read config/default-no-webhook/kustomization.yaml: %v", err)
 	}
 	nsLine := regexp.MustCompile(`(?m)^namespace:\s*(\S+)\s*$`)
 	m := nsLine.FindStringSubmatch(string(def))
 	if m == nil {
-		t.Fatal("config/default declares no namespace, so there is nothing to hold the overlays to")
+		t.Fatal("config/default-no-webhook declares no namespace, so there is nothing to hold the overlays to")
 	}
 	want := m[1]
 	if want == "system" {
-		t.Fatal("config/default declares the literal namespace `system`; this test's whole premise is that it does not")
+		t.Fatal("config/default-no-webhook declares the literal namespace `system`; this test's whole premise is that it does not")
 	}
 
 	for _, o := range devicePluginOverlays {

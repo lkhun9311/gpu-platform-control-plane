@@ -12,9 +12,9 @@
 # holds this file to them.
 # Names and namespace are written out in full rather than left to kustomize.
 #
-# config/default sets namePrefix and namespace, but those apply only to ITS OWN resources. This file is
-# pulled in as a SIBLING of ../default by config/webhook-enabled, so a transformer there would not reach it,
-# and adding one at the parent level would prefix ../default a second time. The first version of this overlay
+# config/default-no-webhook sets namePrefix and namespace, but those apply only to ITS OWN resources. This file
+# is pulled in as a SIBLING of ../default-no-webhook by config/default, so a transformer there would not reach
+# it, and adding one at the parent level would prefix ../default-no-webhook a second time. The first version of this overlay
 # built cleanly with a webhook pointing at a Service named "webhook-service" in a namespace called "system" —
 # neither of which exists. Spelling the final names out is what makes that unrepresentable.
 ---

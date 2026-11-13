@@ -341,6 +341,10 @@ make test
 kubectl apply -k config/kueue
 ```
 
+`make deploy` applies `config/default`, which includes the admission webhooks and therefore needs
+cert-manager installed first.
+`config/default-no-webhook` is the same operator with admission validation off, for a cluster that cannot run cert-manager.
+
 `config/kueue` is deliberately outside `config/default`. Its resources are cluster-scoped and referenced by
 name — the ClusterQueue the policy controller writes points at a ResourceFlavor called exactly `gpu` — and
 `config/default` applies a `namePrefix`, which would rename the flavor out from under that reference.
