@@ -128,3 +128,9 @@ ConstrainRAMSpace	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.co
 ConstrainSwapSpace	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.conf and named by the slurm on ec2 registration
 InvalidGroup.NotFound	an EC2 error code the slurm on ec2 registration quotes as the read-back that the t3 rehearsal's security group was gone
 InvalidVolume.NotFound	an EC2 error code the slurm on ec2 registration quotes as the read-back that the t3 rehearsal's root volumes were gone
+_test.go	a file-name suffix the M4-B gateway spec uses for "the test file of each", not a file
+hack/m5b-run-*/	a glob the M5-B spec quotes from .gitignore to say the run output is deliberately untracked
+hack/m5c-2026*	a glob naming the untracked paid-run output directories the MPS spec counts; the committed record is under docs/evidence
+hack/m5c-20261001-*/log.txt:312	an untracked paid-run log the portfolio overview quotes inline; its checksum is in docs/evidence/m5c-20261001-023515-ten-cell-complete.SHA256SUMS
+internal/plugin/server.go:89-90	a file in the NVIDIA k8s-device-plugin v0.16.2 tag, not in this repository
+job_controller.go	a file in the Kueue v0.18.3 and v0.20.1 tags, not in this repository
