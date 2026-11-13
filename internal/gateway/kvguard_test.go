@@ -540,6 +540,27 @@ var _ = Describe("kvAwareAdmitter.Admit", func() {
 		Expect(reason).To(Equal(reasonBackendUnregistered))
 	})
 
+	// Behind a Service with two engines the scrape reads whichever one answered, so an engaged reading may belong to the
+	// other engine and refusing on it would refuse for pressure this request never meets.
+	// Mutation that must turn this red: drop the Engines check from Admit, Observed or RegisterBackend.
+	It("does not judge a backend with more than one engine, and says so", func() {
+		multi := &BackendRef{Namespace: backend.Namespace, Name: backend.Name, Engines: 2}
+		m := managerWithSnapshot(backendKey(multi), &backendSnapshot{engaged: true, fresh: true})
+		a := newKVAwareAdmitter(m, 4096)
+		ok, reason := a.Admit(ctx, longMeta, multi, "t", tierStandard)
+		Expect(ok).To(BeTrue())
+		Expect(reason).To(Equal(reasonMultipleEngines))
+		Expect(guardBypassed(reason)).To(BeTrue(), "a backend the guard did not judge must count as a bypass")
+		_, observed := a.Observed(multi)
+		Expect(observed).To(BeFalse(), "a request must not record a reading its decision did not use")
+
+		fresh := newScraperManager(scraperConfig{clock: time.Now})
+		DeferCleanup(fresh.Stop)
+		newKVAwareAdmitter(fresh, 4096).RegisterBackend(multi)
+		_, registered := fresh.snapshotFor(backendKey(multi))
+		Expect(registered).To(BeFalse(), "a scraper would publish a reading nothing may use")
+	})
+
 	It("admits when telemetry is stale, even if the backend was previously engaged (fail-open bypass, not fail-closed retain)", func() {
 		m := managerWithSnapshot(backendKey(backend), &backendSnapshot{engaged: true, fresh: false})
 		a := newKVAwareAdmitter(m, 4096)

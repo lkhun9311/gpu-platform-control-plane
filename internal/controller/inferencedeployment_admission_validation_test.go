@@ -162,6 +162,22 @@ var _ = Describe("InferenceDeployment HoldCap validation", func() {
 		refused(o, "spec.routing.policy")
 	})
 
+	// The prefix the gateway remembers is cached on whichever engine the Service picked, so a second engine halves what it buys.
+	It("refuses PrefixAffinity on more than one replica and keeps the other policies there", func() {
+		o := holdCap("affinity-two")
+		o.Spec.Admission = nil
+		o.Spec.Replicas = 2
+		o.Spec.Routing = &platformv1.InferenceRouting{Policy: platformv1.RoutingPolicyPrefixAffinity}
+		refused(o, "PrefixAffinity requires replicas at most 1")
+		for _, p := range []string{platformv1.RoutingPolicyRoundRobin, platformv1.RoutingPolicyLeastQueue} {
+			o := holdCap("two-" + strings.ToLower(p))
+			o.Spec.Admission = nil
+			o.Spec.Replicas = 2
+			o.Spec.Routing = &platformv1.InferenceRouting{Policy: p}
+			Expect(k8sClient.Create(ctx, o)).To(Succeed())
+		}
+	})
+
 	It("still accepts the committed legacy sample unchanged", func() {
 		Expect(createSample("platform_v1_inferencedeployment.yaml", "legacy-sample")).To(Succeed())
 	})

@@ -172,6 +172,7 @@ spec:
                       LeastQueue picks the deployment with the fewest requests the gateway has outstanding on it.
                       PrefixAffinity picks the deployment the gateway last sent the longest run of this prompt's leading text to, an approximation of the engine's prefix cache, and falls back to LeastQueue when that deployment is busier by more than the matched prefix would save.
                       None of them was measured before docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md registered a study of all three.
+                      PrefixAffinity requires replicas at most 1, because the Service behind a deployment picks among its engines and the prefix lands on only one.
                     enum:
                     - RoundRobin
                     - LeastQueue
@@ -199,6 +200,11 @@ spec:
                 as one'
               rule: '!has(self.admission) || self.admission.mode != ''HoldCap'' ||
                 self.replicas <= 1'
+            - message: 'routing.policy PrefixAffinity requires replicas at most 1:
+                the Service spreads a deployment''s requests over its engines, so
+                the prefix the gateway remembers is cached on only one of them'
+              rule: '!has(self.routing) || self.routing.policy != ''PrefixAffinity''
+                || self.replicas <= 1'
             - message: 'spec.engine requires gpuCount 1: its only profile is one engine
                 on one A10G'
               rule: '!has(self.engine) || self.gpuCount == 1'

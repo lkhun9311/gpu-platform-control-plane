@@ -32,6 +32,7 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(self.admission) || self.admission.mode != 'HoldCap' || has(self.engine)",message="admission.mode HoldCap requires spec.engine: the cap is guaranteed only on an engine this controller renders"
 // +kubebuilder:validation:XValidation:rule="!has(self.admission) || has(self.admission.maxHold) == (self.admission.mode == 'HoldCap')",message="admission.maxHold is set exactly when admission.mode is HoldCap"
 // +kubebuilder:validation:XValidation:rule="!has(self.admission) || self.admission.mode != 'HoldCap' || self.replicas <= 1",message="admission.mode HoldCap requires replicas at most 1: serial-prefill keys on the Service, so two engines behind it would be serialized as one"
+// +kubebuilder:validation:XValidation:rule="!has(self.routing) || self.routing.policy != 'PrefixAffinity' || self.replicas <= 1",message="routing.policy PrefixAffinity requires replicas at most 1: the Service spreads a deployment's requests over its engines, so the prefix the gateway remembers is cached on only one of them"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.gpuCount == 1",message="spec.engine requires gpuCount 1: its only profile is one engine on one A10G"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.model.storageUri.matches('^hf://[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$')",message="spec.engine requires model.storageUri of the form hf://<org>/<repo>"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967')",message="spec.engine requires spec.image pinned to the vLLM v0.27.1 digest the profile was measured on, from any registry"
@@ -103,6 +104,7 @@ type InferenceRouting struct {
 	// LeastQueue picks the deployment with the fewest requests the gateway has outstanding on it.
 	// PrefixAffinity picks the deployment the gateway last sent the longest run of this prompt's leading text to, an approximation of the engine's prefix cache, and falls back to LeastQueue when that deployment is busier by more than the matched prefix would save.
 	// None of them was measured before docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md registered a study of all three.
+	// PrefixAffinity requires replicas at most 1, because the Service behind a deployment picks among its engines and the prefix lands on only one.
 	// +kubebuilder:validation:Enum=RoundRobin;LeastQueue;PrefixAffinity
 	// +required
 	Policy string `json:"policy"`

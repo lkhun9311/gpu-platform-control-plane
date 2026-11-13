@@ -1027,5 +1027,5 @@ func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
 
 // guardBypassed reports whether an admit reason means the guard did not judge the backend at all.
 func guardBypassed(reason string) bool {
-	return reason == reasonBackendUnregistered || reason == reasonTelemetryStale
+	return reason == reasonBackendUnregistered || reason == reasonTelemetryStale || reason == reasonMultipleEngines
 }
