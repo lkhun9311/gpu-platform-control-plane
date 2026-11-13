@@ -26,6 +26,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -508,6 +509,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		// fine. MaxBytesReader reports the case as a distinguishable type precisely so it can be separated.
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			s.fail(w, tenant, "", http.StatusRequestEntityTooLarge)
+			return
+		}
+		// A body still arriving at the server's read deadline is not malformed either; it never finished.
+		// 400 would send the caller after a syntax bug, where the fix is to send the body faster or smaller.
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			s.fail(w, tenant, "", http.StatusRequestTimeout)
 			return
 		}
 		s.fail(w, tenant, "", http.StatusBadRequest)
