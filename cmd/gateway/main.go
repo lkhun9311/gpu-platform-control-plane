@@ -263,7 +263,9 @@ func main() {
 	//
 	// Deriving both from one variable makes that mismatch impossible.
 	namespace := envOr("GATEWAY_NAMESPACE", "default")
-	ca, cl, err := gateway.NewCache(ctx, cfg, scheme, namespace)
+	// The Secret's name is settled here for the same reason: the cache watches that one Secret and nothing else.
+	apiKeySecret := envOr("GATEWAY_API_KEY_SECRET", "gateway-api-keys")
+	ca, cl, err := gateway.NewCache(ctx, cfg, scheme, namespace, apiKeySecret)
 	if err != nil {
 		log.Error(err, "build cache")
 		os.Exit(1)
@@ -272,7 +274,7 @@ func main() {
 	s := &gateway.Server{
 		Client:       cl,
 		Namespace:    namespace,
-		APIKeySecret: envOr("GATEWAY_API_KEY_SECRET", "gateway-api-keys"),
+		APIKeySecret: apiKeySecret,
 	}
 	if err := s.SetRoutingConfig(routing); err != nil {
 		log.Error(err, "configure routing")
