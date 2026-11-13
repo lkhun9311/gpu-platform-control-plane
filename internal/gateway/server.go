@@ -34,6 +34,7 @@ import (
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -870,7 +871,7 @@ func (s *Server) MetricsHandler() http.Handler {
 // NewCache builds a scoped cache over the gateway's read set plus a delegating client that reads the cache and writes the apiserver.
 //
 // It registers the model-name field indexer used for routing.
-func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, namespace string) (cache.Cache, client.Client, error) {
+func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, namespace, secretName string) (cache.Cache, client.Client, error) {
 	ca, err := cache.New(cfg, cache.Options{
 		Scheme:           scheme,
 		DefaultTransform: cache.TransformStripManagedFields(),
@@ -889,13 +890,18 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 		//
 		// It is the one component taking external traffic directly, so a compromise would leak all of it.
 		//
-		// It needs exactly one Secret, so the watch is confined to that Secret's namespace.
+		// It needs exactly one Secret, so the watch is confined to that Secret's namespace and, by a field selector, to its name.
+		//
+		// The namespace alone was not enough: the webhook's serving certificate can live beside the api-keys Secret, and the
+		// gateway cached its private key for no reason.
 		//
 		// This must stay in step with RBAC.
 		//
-		// config/gateway/rbac.yaml grants secrets reads through a Role in the gateway namespace only.
+		// config/gateway/rbac.yaml grants secrets reads through a Role in the gateway namespace, limited by resourceNames to this
+		// one Secret. The apiserver authorizes a list or watch against resourceNames only when it carries this metadata.name
+		// selector, so the selector is what lets the narrower Role sync at all.
 		//
-		// Without this scope the cache tries to list/watch secrets in every namespace, is denied, and never syncs, so readiness never opens.
+		// Without this scope the cache tries to list/watch secrets it may not read, is denied, and never syncs, so readiness never opens.
 		//
 		// The gateway then serves nothing.
 		//
@@ -907,7 +913,7 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 		ByObject: map[client.Object]cache.ByObject{
 			&corev1.Secret{}: {
 				Namespaces: map[string]cache.Config{
-					namespace: {},
+					namespace: {FieldSelector: fields.OneTermEqualSelector("metadata.name", secretName)},
 				},
 			},
 		},
