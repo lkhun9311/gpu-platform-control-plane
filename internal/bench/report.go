@@ -267,6 +267,27 @@ type ArmSummary struct {
 	// number.
 	TPOTMsP50ByTenant map[string]float64
 	TPOTMsP99ByTenant map[string]float64
+	// OutputCount is the contract OutputTokens, the shares and TPOT above were counted under.
+	//
+	// Empty means the rows belonged to studies with different contracts, so no count in one unit exists:
+	// every delivered row is then in OutputUnmeasuredRows rather than summed across two units.
+	OutputCount OutputCountContract
+	// OutputUnmeasuredRows counts delivered rows whose output the contract cannot count: under
+	// OutputCountEngineTokens, a row that carried no engine usage.
+	//
+	// They are in neither OutputTokens nor TPOT, and while any exist OutputTokensPerSecond stays zero and the
+	// report prints the throughput and the shares as not measurable, because a total missing rows is a
+	// plausible number that is wrong by an amount the reader cannot see.
+	OutputUnmeasuredRows         int
+	OutputUnmeasuredRowsByTenant map[string]int
+	// InterContentFrameMsP50 and InterContentFrameMsP99 are (end - first content) / (content frames - 1).
+	//
+	// That is the per-request value TPOT used to be, kept under its own name because it measures frames, not
+	// tokens. Under OutputCountContentFrames it equals TPOT by construction; under OutputCountEngineTokens the
+	// two differ whenever a frame carries more than one token.
+	InterContentFrameMsP50         float64
+	InterContentFrameMsP99         float64
+	InterContentFrameMsP99ByTenant map[string]float64
 	// AdmissionLost is how many ELIGIBLE requests got no admission verdict at all, so the guard's behaviour
 	// toward them is unknown.
 	//
@@ -528,8 +549,13 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 
 	rows, s.TruncatedStreams, s.TerminationUnknown = classifyTermination(rows)
 
-	var ttft, e2e, tpot []float64
-	tpotByTenant := map[string][]float64{}
+	var ttft, e2e []float64
+	s.OutputCount = outputCountOf(rows)
+	delivered := deliveredSamples{
+		contract:           s.OutputCount,
+		tpotByTenant:       map[string][]float64{},
+		interFrameByTenant: map[string][]float64{},
+	}
 	var premiumTotal, premiumTimedOut, premiumLost int
 	var firstSend, lastEnd int64
 	for _, r := range rows {
@@ -541,7 +567,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		if r.EndUnixNanos > lastEnd {
 			lastEnd = r.EndUnixNanos
 		}
-		tpot = s.tallyDelivered(r, tpot, tpotByTenant)
+		s.tallyDelivered(r, &delivered)
 		s.tallyPromptLen(r)
 		// The declared-load gate's population is every offered request, so this call carries no condition.
 		s.tallyEngineInputTokens(r)
@@ -683,24 +709,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// quantile mass the statistic is made of, and the ones that vanish are the ones that were slow enough to
 	// die. The reported p99 then is a p98 wearing the other name.
 	s.SetActiveSeconds(nanosToMs(lastEnd-firstSend) / 1000)
-	// Sorted here for the same reason ttft and e2e are sorted above: percentile is nearest-rank over an
-	// ORDERED slice, and handing it arrival order returns whichever sample happens to sit at that index.
-	//
-	// This shipped unsorted. The metric's own test used a single observation, and with one sample every
-	// ordering is the same ordering, so nothing failed. Three samples arriving as 100, 1, 2 ms reported a
-	// p99 of 2 -- not a tail, and not even the second largest value.
-	sort.Float64s(tpot)
-	s.TPOTMsP50 = percentile(tpot, 0.50)
-	s.TPOTMsP99 = percentile(tpot, 0.99)
-	if len(tpotByTenant) > 0 {
-		s.TPOTMsP50ByTenant = map[string]float64{}
-		s.TPOTMsP99ByTenant = map[string]float64{}
-		for tenant, samples := range tpotByTenant {
-			sort.Float64s(samples)
-			s.TPOTMsP50ByTenant[tenant] = percentile(samples, 0.50)
-			s.TPOTMsP99ByTenant[tenant] = percentile(samples, 0.99)
-		}
-	}
+	delivered.finish(&s)
 
 	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) >= 0.01 {
 		s.Censored = true
@@ -1234,21 +1243,103 @@ func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
 	s.EngineInputTokensUnreportedByTenant[r.Tenant]++
 }
 
-// tallyDelivered adds one row's delivered output to the arm's totals, appending its inter-token time.
+// deliveredSamples accumulates the per-request stream samples Summarize turns into percentiles.
+type deliveredSamples struct {
+	contract                         OutputCountContract
+	tpot, interFrame                 []float64
+	tpotByTenant, interFrameByTenant map[string][]float64
+}
+
+// outputCountOf is the one contract every row's study names, or empty when they name more than one.
+//
+// Per arm rather than per row, because a sum is only a quantity when every term is in the same unit.
+func outputCountOf(rows []RawRow) OutputCountContract {
+	if len(rows) == 0 {
+		return OutputCountContentFrames
+	}
+	c := OutputCountForStudy(rows[0].Study)
+	for _, r := range rows[1:] {
+		if OutputCountForStudy(r.Study) != c {
+			return ""
+		}
+	}
+	return c
+}
+
+// count is how much output the row delivered under the contract, and whether the contract can say.
+func (c OutputCountContract) count(r RawRow) (int64, bool) {
+	switch c {
+	case OutputCountContentFrames:
+		return int64(r.OutputTokens), true
+	case OutputCountEngineTokens:
+		if r.EngineOutputTokens <= 0 {
+			return 0, false
+		}
+		return int64(r.EngineOutputTokens), true
+	}
+	return 0, false
+}
+
+// finish sorts the samples and writes their percentiles into the summary.
+func (d *deliveredSamples) finish(s *ArmSummary) {
+	// Sorted here for the same reason ttft and e2e are sorted in Summarize: percentile is nearest-rank over an
+	// ORDERED slice, and handing it arrival order returns whichever sample happens to sit at that index.
+	//
+	// This shipped unsorted. The metric's own test used a single observation, and with one sample every
+	// ordering is the same ordering, so nothing failed. Three samples arriving as 100, 1, 2 ms reported a
+	// p99 of 2 -- not a tail, and not even the second largest value.
+	sort.Float64s(d.tpot)
+	s.TPOTMsP50 = percentile(d.tpot, 0.50)
+	s.TPOTMsP99 = percentile(d.tpot, 0.99)
+	if len(d.tpotByTenant) > 0 {
+		s.TPOTMsP50ByTenant = map[string]float64{}
+		s.TPOTMsP99ByTenant = map[string]float64{}
+		for tenant, samples := range d.tpotByTenant {
+			sort.Float64s(samples)
+			s.TPOTMsP50ByTenant[tenant] = percentile(samples, 0.50)
+			s.TPOTMsP99ByTenant[tenant] = percentile(samples, 0.99)
+		}
+	}
+	sort.Float64s(d.interFrame)
+	s.InterContentFrameMsP50 = percentile(d.interFrame, 0.50)
+	s.InterContentFrameMsP99 = percentile(d.interFrame, 0.99)
+	if len(d.interFrameByTenant) > 0 {
+		s.InterContentFrameMsP99ByTenant = map[string]float64{}
+		for tenant, samples := range d.interFrameByTenant {
+			sort.Float64s(samples)
+			s.InterContentFrameMsP99ByTenant[tenant] = percentile(samples, 0.99)
+		}
+	}
+}
+
+// tallyDelivered adds one row's delivered output to the arm's totals, appending its TPOT and inter-content-frame time.
 //
 // Split out of Summarize only to keep that function under the complexity limit; it is one step of the same
-// loop and holds no state of its own.
-func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64, byTenant map[string][]float64) []float64 {
-	// Tokens count only where a response actually produced them; a refusal carries none, and a stream that
-	// died partway delivered nothing the client could use.
-	if r.OutputTokens <= 0 || r.HTTPStatus != httpStatusOK {
-		return tpot
+// loop and its state lives in d.
+func (s *ArmSummary) tallyDelivered(r RawRow, d *deliveredSamples) {
+	// Output counts only where a response actually produced it; a refusal carries none.
+	// Either count opens the gate so a row with engine usage and no content frame is still seen; under the
+	// frame contract such a row counts zero and leaves below, exactly as it did before contracts existed.
+	if r.HTTPStatus != httpStatusOK || (r.OutputTokens <= 0 && r.EngineOutputTokens <= 0) {
+		return
 	}
-	s.OutputTokens += int64(r.OutputTokens)
-	if s.OutputTokensByTenant == nil {
-		s.OutputTokensByTenant = map[string]int64{}
+	n, measurable := d.contract.count(r)
+	switch {
+	case !measurable:
+		s.OutputUnmeasuredRows++
+		if s.OutputUnmeasuredRowsByTenant == nil {
+			s.OutputUnmeasuredRowsByTenant = map[string]int{}
+		}
+		s.OutputUnmeasuredRowsByTenant[r.Tenant]++
+	case n <= 0:
+		return
+	default:
+		s.OutputTokens += n
+		if s.OutputTokensByTenant == nil {
+			s.OutputTokensByTenant = map[string]int64{}
+		}
+		s.OutputTokensByTenant[r.Tenant] += n
 	}
-	s.OutputTokensByTenant[r.Tenant] += int64(r.OutputTokens)
 	// A stream that broke partway is not a measurement of inter-token time.
 	//
 	// The sender keeps HTTPStatus at 200 for these, because the response headers did arrive, and records
@@ -1260,30 +1351,100 @@ func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64, byTenant map[strin
 	// admitting deadlines would fail whichever arm timed out most on a statistic that never described its
 	// streams.
 	if r.ErrorKind != "" {
-		s.OutputTokensFromFailedStreams += int64(r.OutputTokens)
-		if s.OutputTokensFromFailedStreamsByTenant == nil {
-			s.OutputTokensFromFailedStreamsByTenant = map[string]int64{}
+		// An unmeasurable row is already counted above, and adding nothing here keeps this a subset of OutputTokens.
+		if measurable {
+			s.OutputTokensFromFailedStreams += n
+			if s.OutputTokensFromFailedStreamsByTenant == nil {
+				s.OutputTokensFromFailedStreamsByTenant = map[string]int64{}
+			}
+			s.OutputTokensFromFailedStreamsByTenant[r.Tenant] += n
 		}
-		s.OutputTokensFromFailedStreamsByTenant[r.Tenant] += int64(r.OutputTokens)
-		return tpot
+		return
 	}
-	// Inter-token time needs at least two tokens to have a gap between them.
-	if r.OutputTokens > 1 && r.FirstTokenUnixNanos > 0 && r.EndUnixNanos > r.FirstTokenUnixNanos {
-		v := nanosToMs(r.EndUnixNanos-r.FirstTokenUnixNanos) / float64(r.OutputTokens-1)
-		tpot = append(tpot, v)
-		byTenant[r.Tenant] = append(byTenant[r.Tenant], v)
+	if r.FirstTokenUnixNanos <= 0 || r.EndUnixNanos <= r.FirstTokenUnixNanos {
+		return
 	}
-	return tpot
+	span := nanosToMs(r.EndUnixNanos - r.FirstTokenUnixNanos)
+	// The frame gap is kept for every row, measurable or not, because frames are what the client observed.
+	// It needs at least two frames to have a gap between them.
+	if r.OutputTokens > 1 {
+		v := span / float64(r.OutputTokens-1)
+		d.interFrame = append(d.interFrame, v)
+		d.interFrameByTenant[r.Tenant] = append(d.interFrameByTenant[r.Tenant], v)
+	}
+	// TPOT divides by the contract's count, so it is a token latency only where the count is tokens.
+	// The first token arrives with the first content frame, so the span covers the n-1 tokens after it.
+	if measurable && n > 1 {
+		v := span / float64(n-1)
+		d.tpot = append(d.tpot, v)
+		d.tpotByTenant[r.Tenant] = append(d.tpotByTenant[r.Tenant], v)
+	}
+}
+
+// formatTenantShares renders each tenant's share of the arm's output, or why there is none.
+func formatTenantShares(s ArmSummary) string {
+	if s.OutputUnmeasuredRows > 0 {
+		return fmt.Sprintf("not measurable: %d delivered row(s) carried no engine usage", s.OutputUnmeasuredRows)
+	}
+	names := make([]string, 0, len(s.OutputTokensByTenant))
+	for n := range s.OutputTokensByTenant {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	shares := make([]string, 0, len(names))
+	for _, n := range names {
+		if s.OutputTokens > 0 {
+			shares = append(shares, fmt.Sprintf("%s %.0f%%", n, 100*float64(s.OutputTokensByTenant[n])/float64(s.OutputTokens)))
+		}
+	}
+	return strings.Join(shares, " · ")
+}
+
+// formatOutputCount names the output contract and prints the frame gap beside TPOT, for any arm not on frames.
+//
+// It prints nothing when every arm is on OutputCountContentFrames, so a report of a study registered before
+// the token contract renders byte for byte as it did: there TPOT is the frame gap and saying it twice adds nothing.
+func formatOutputCount(summaries []ArmSummary) string {
+	framesOnly := true
+	for _, s := range summaries {
+		if s.OutputCount != OutputCountContentFrames {
+			framesOnly = false
+		}
+	}
+	if framesOnly {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nOutput counted per contract; inter-content-frame time is frames, not tokens\n")
+	fmt.Fprintf(&b, "%-*s %-18s %10s %10s %10s %10s\n", ArmColumnWidth,
+		"arm", "contract", "icfP50", "icfP99", "premICF99", "unmeasured")
+	for _, s := range summaries {
+		contract := string(s.OutputCount)
+		if contract == "" {
+			contract = "mixed: refused"
+		}
+		prem := "—"
+		if v, ok := s.InterContentFrameMsP99ByTenant[PremiumTenant]; ok {
+			prem = fmt.Sprintf("%.1f", v)
+		}
+		fmt.Fprintf(&b, "%-*s %-18s %10.1f %10.1f %10s %10d\n", ArmColumnWidth,
+			s.Arm, contract, s.InterContentFrameMsP50, s.InterContentFrameMsP99, prem, s.OutputUnmeasuredRows)
+	}
+	b.WriteString("  Under engine-tokens-v2, out tok/s, TPOT and shares use the engine's usage.completion_tokens.\n")
+	b.WriteString("  A delivered row without it is unmeasured: excluded from TPOT, and while any exist the\n")
+	b.WriteString("  arm's out tok/s and shares are printed as not measurable rather than as a partial sum.\n")
+	return b.String()
 }
 
 // SetActiveSeconds records the arm's active wall clock and derives the throughput from it.
 //
 // The division lives here and nowhere else so that a caller correcting the span for pooled repetitions
 // cannot end up with a rate computed from one number and a span printed from another.
+// It stays zero while any delivered row was not measurable, because OutputTokens is then missing those rows.
 func (s *ArmSummary) SetActiveSeconds(seconds float64) {
 	s.ActiveSeconds = seconds
 	s.OutputTokensPerSecond = 0
-	if seconds > 0 {
+	if seconds > 0 && s.OutputUnmeasuredRows == 0 {
 		s.OutputTokensPerSecond = float64(s.OutputTokens) / seconds
 	}
 }
@@ -1456,25 +1617,19 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	fmt.Fprintf(&b, "%-*s %10s %10s %10s %10s %10s\n", ArmColumnWidth,
 		"arm", "out tok/s", "tpotP50", "tpotP99", "premTPOT99", "tenant shares")
 	for _, s := range summaries {
-		shares := make([]string, 0, len(s.OutputTokensByTenant))
-		names := make([]string, 0, len(s.OutputTokensByTenant))
-		for n := range s.OutputTokensByTenant {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		for _, n := range names {
-			if s.OutputTokens > 0 {
-				shares = append(shares, fmt.Sprintf("%s %.0f%%", n, 100*float64(s.OutputTokensByTenant[n])/float64(s.OutputTokens)))
-			}
-		}
 		prem := "—"
 		if v, ok := s.TPOTMsP99ByTenant[PremiumTenant]; ok {
 			prem = fmt.Sprintf("%.1f", v)
 		}
-		fmt.Fprintf(&b, "%-*s %10.1f %10.1f %10.1f %10s  %s\n",
+		rate := fmt.Sprintf("%.1f", s.OutputTokensPerSecond)
+		if s.OutputUnmeasuredRows > 0 {
+			rate = "n/m"
+		}
+		fmt.Fprintf(&b, "%-*s %10s %10.1f %10.1f %10s  %s\n",
 			ArmColumnWidth,
-			s.Arm, s.OutputTokensPerSecond, s.TPOTMsP50, s.TPOTMsP99, prem, strings.Join(shares, " · "))
+			s.Arm, rate, s.TPOTMsP50, s.TPOTMsP99, prem, formatTenantShares(s))
 	}
+	b.WriteString(formatOutputCount(summaries))
 
 	// The threshold's own evidence, printed before the checks because it qualifies them: the checks compare
 	// arms, and this says whether the number those arms were configured with did any work at all.
