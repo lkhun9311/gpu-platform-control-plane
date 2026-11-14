@@ -116,6 +116,8 @@ func (s terminationSender) Send(_ context.Context, _ TraceRow, sendUnixNanos int
 	out := s.res
 	out.FirstTokenUnixNanos = sendUnixNanos + 1
 	out.EndUnixNanos = sendUnixNanos + 2
+	// The recorded stream's own monotonic stamps belong to an earlier read, so they are dropped with the unix ones they no longer match.
+	out.FirstContentAt, out.LastContentAt, out.EndAt, out.ContentAt = time.Time{}, time.Time{}, time.Time{}, nil
 	return out
 }
 
@@ -281,5 +283,7 @@ func (s sequenceSender) Send(_ context.Context, row TraceRow, sendUnixNanos int6
 	out := s.results[row.Index%len(s.results)]
 	out.FirstTokenUnixNanos = sendUnixNanos + 1
 	out.EndUnixNanos = sendUnixNanos + 2
+	// The recorded stream's own monotonic stamps belong to an earlier read, so they are dropped with the unix ones they no longer match.
+	out.FirstContentAt, out.LastContentAt, out.EndAt, out.ContentAt = time.Time{}, time.Time{}, time.Time{}, nil
 	return out
 }

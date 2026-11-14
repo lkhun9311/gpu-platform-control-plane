@@ -420,7 +420,7 @@ print(json.dumps({"t": int(t), "engineAUID": a[1], "engineARestarts": a[3], "eng
     metrics_of "$A_IP:8000" >"$D/metrics-engine-a-after.prom" || fail_cell "engine a metrics after"
     metrics_of "$B_IP:8000" >"$D/metrics-engine-b-after.prom" || fail_cell "engine b metrics after"
     metrics_of "$G_IP:8081" >"$D/metrics-gateway-after.prom" || fail_cell "gateway metrics after"
-    for f in "raw-$name.jsonl:raw.jsonl" "raw-$name.jsonl.sender.json:raw.jsonl.sender.json" "replay-$name.log:replay.log"; do
+    for f in "raw-$name.jsonl:raw.jsonl" "raw-$name.jsonl.sender.json:raw.jsonl.sender.json" "raw-$name.jsonl.status.json:raw.jsonl.status.json" "replay-$name.log:replay.log"; do
       k -n "$COLLECTOR_NS" cp "collector:/study/${f%%:*}" "$D/${f##*:}" >>"$OUT/run.log" 2>&1 || fail_cell "copy ${f%%:*}"
     done
     [[ "$(in_collector sha256sum "/study/raw-$name.jsonl" | cut -d' ' -f1)" == "$(sha256sum "$D/raw.jsonl" | cut -d' ' -f1)" ]] ||
@@ -428,7 +428,7 @@ print(json.dumps({"t": int(t), "engineAUID": a[1], "engineARestarts": a[3], "eng
     identity >"$D/identity-after.json" || fail_cell "identity after"
     python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["outcome"]="complete"; d["endedUnixNanos"]=int(sys.argv[2]); json.dump(d, open(sys.argv[1],"w"), indent=1, sort_keys=True)' \
       "$D/cell.json" "$(date +%s%N)"
-    (cd "$D" && sha256sum raw.jsonl raw.jsonl.sender.json samples.jsonl metrics-*.prom engine-*-args.txt manifest.yaml trace.jsonl identity-after.json cell.json >SHA256SUMS)
+    (cd "$D" && sha256sum raw.jsonl raw.jsonl.sender.json raw.jsonl.status.json samples.jsonl metrics-*.prom engine-*-args.txt manifest.yaml trace.jsonl identity-after.json cell.json >SHA256SUMS)
     log "cell $name complete: $(wc -l <"$D/raw.jsonl") rows, $(wc -l <"$D/samples.jsonl") samples"
     if ! cmp -s <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps({k: d[k] for k in ("argo","images","gatewayArgs","gpuNodes")}, sort_keys=True))' "$D/identity-after.json") \
       <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps({k: d[k] for k in ("argo","images","gatewayArgs","gpuNodes")}, sort_keys=True))' "$OUT/identity-start.json"); then

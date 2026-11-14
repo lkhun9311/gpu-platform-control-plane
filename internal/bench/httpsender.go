@@ -373,6 +373,10 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		if errors.Is(reqCtx.Err(), context.DeadlineExceeded) {
 			return SendResult{ErrorKind: "timeout"}
 		}
+		// The replay itself was stopped, which says nothing about the system under test.
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return SendResult{ErrorKind: errKindCancelled}
+		}
 		return SendResult{ErrorKind: "transport"}
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -505,7 +509,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			// A malformed chunk mid-stream is a stream error, but any first token already observed still stands.
 			res.ErrorKind = errorKindStream
-			res.EndUnixNanos = h.now().UnixNano()
+			res.stampEnd(h.now())
 			return res
 		}
 		// An in-band error ends the stream and is kept verbatim, because the vocabulary is the engine's.
@@ -517,15 +521,15 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		if chunk.Error != nil {
 			res.ErrorKind = errorKindStream
 			res.StreamError = strings.TrimSpace(chunk.Error.Type + ": " + chunk.Error.Message)
-			res.EndUnixNanos = h.now().UnixNano()
+			res.stampEnd(h.now())
 			return res
 		}
 		if chunk.Usage != nil {
+			// Presence is recorded on its own, and the output count verbatim, so a zero or negative count stays visible instead of reading as no count.
+			res.UsageReported = true
+			res.EngineOutputTokens = chunk.Usage.CompletionTokens
 			if chunk.Usage.PromptTokens > 0 {
 				res.PromptTokens = chunk.Usage.PromptTokens
-			}
-			if chunk.Usage.CompletionTokens > 0 {
-				res.EngineOutputTokens = chunk.Usage.CompletionTokens
 			}
 		}
 		// The LAST non-empty reason wins, because every content chunk carries null and only the final one
@@ -534,20 +538,26 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 			res.FinishReason = chunk.Choices[0].FinishReason
 		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
-			now := h.now().UnixNano()
+			// One reading serves every stamp of this frame, so the unix and the monotonic records are the same instant.
+			now := h.now()
 			if res.FirstTokenUnixNanos == 0 {
-				res.FirstTokenUnixNanos = now
+				res.FirstTokenUnixNanos = now.UnixNano()
+				res.FirstContentAt = now
 			}
+			res.LastContentAt = now
 			if h.recordContentTimes {
-				res.ContentUnixNanos = append(res.ContentUnixNanos, now)
+				res.ContentAt = append(res.ContentAt, now)
 			}
 			res.OutputTokens++
 		}
 	}
 	if err := sc.Err(); err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			res.ErrorKind = "timeout"
-		} else {
+		case errors.Is(ctx.Err(), context.Canceled):
+			res.ErrorKind = errKindCancelled
+		default:
 			res.ErrorKind = errorKindStream
 		}
 	} else if !res.StreamTerminated {
@@ -557,8 +567,14 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		res.ErrorKind = errorKindStream
 		res.StreamError = streamErrorNoEndMarker
 	}
-	res.EndUnixNanos = h.now().UnixNano()
+	res.stampEnd(h.now())
 	return res
+}
+
+// stampEnd records the stream's end on both clocks from one reading.
+func (r *SendResult) stampEnd(now time.Time) {
+	r.EndUnixNanos = now.UnixNano()
+	r.EndAt = now
 }
 
 // streamErrorNoEndMarker is the StreamError of a stream that ended without its [DONE] marker.

@@ -1213,6 +1213,8 @@ send "$out/warmup-manifest-$arm-$rep.yaml" "warmup-manifest-$arm-$rep.yaml"
 # the instance has rows nothing can time or join (review of 20cbf33).
 send "$out/gateway-record-$arm-$rep.jsonl" "gateway-record-$arm-$rep.jsonl"
 send "$out/raw-$arm-$rep.jsonl.sender.json" "raw-$arm-$rep.jsonl.sender.json"
+# The replay's completion record; the report refuses current rows without it.
+send "$out/raw-$arm-$rep.jsonl.status.json" "raw-$arm-$rep.jsonl.status.json"
 send "$out/fence-$arm-$rep.json" "fence-$arm-$rep.json"
 send "$out/ineligible-$arm-$rep.txt" "ineligible-$arm-$rep.txt"
 # Its engine samples during the replay: running and waiting requests, KV usage and preemptions, one line a second.

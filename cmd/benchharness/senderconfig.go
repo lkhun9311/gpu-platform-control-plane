@@ -51,7 +51,8 @@ func writeSenderConfig(path string, c senderConfig) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, append(b, '\n'), 0o644); err != nil {
+	// Written exclusively, because it describes the evidence beside it and must never be replaced by a later run's.
+	if err := writeExclusive(path, append(b, '\n')); err != nil {
 		return fmt.Errorf("write sender configuration %s: %w", path, err)
 	}
 	return nil

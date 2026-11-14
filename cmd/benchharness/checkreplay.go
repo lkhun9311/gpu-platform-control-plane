@@ -19,7 +19,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -59,13 +58,8 @@ func checkReplay(args []string) error {
 		name = *rawPath
 	}
 
-	f, err := os.Open(*rawPath)
-	if err != nil {
-		return fmt.Errorf("open replay evidence: %w", err)
-	}
-	defer f.Close() //nolint:errcheck // read-only
-
-	rows, err := bench.ReadRawRows(f)
+	// The same reader the report uses, so a preflight cannot accept a recording the report would refuse.
+	rows, err := readRawEvidence(*rawPath)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", name, err)
 	}

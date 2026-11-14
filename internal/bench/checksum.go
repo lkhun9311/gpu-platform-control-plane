@@ -17,6 +17,7 @@ limitations under the License.
 package bench
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -41,6 +42,26 @@ func ChecksumFile(path string) (string, error) {
 		return "", fmt.Errorf("hash %s: %w", path, err)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// ReadTraceFileVerified reads the trace at path once, checks those bytes against want, and parses the same bytes.
+//
+// LoadManifest verifies the checksum by streaming the file and closing it, and a replay that then opened the file again could send a trace replaced in between under the verified checksum.
+// Hashing and parsing one buffer closes that window, so the checksum stamped on every row describes the requests that were actually sent.
+// The whole file is held in memory, which is fine because a trace is bounded at maxTraceRows rows.
+func ReadTraceFileVerified(path, want string) ([]TraceRow, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read trace %s: %w", path, err)
+	}
+	if got := Checksum(b); got != want {
+		return nil, fmt.Errorf("trace checksum mismatch: expected %s but the bytes read from %s hash to %s, so the trace changed after it was verified", want, path, got)
+	}
+	rows, err := ReadTrace(bytes.NewReader(b))
+	if err != nil {
+		return nil, fmt.Errorf("parse trace %s: %w", path, err)
+	}
+	return rows, nil
 }
 
 // Checksum returns the hex-encoded sha256 of b.

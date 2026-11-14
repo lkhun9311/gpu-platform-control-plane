@@ -427,13 +427,13 @@ print(json.dumps({"t": int(t), "statusMode": st[0], "statusObservedGeneration": 
     engine_idle "$E_IP" 120 || log "cell $name: the engine was not idle 120 s after the replay; the after metrics are read anyway"
     metrics_of "$E_IP:8000" >"$D/metrics-engine-after.prom" || fail_cell "engine metrics after"
     metrics_of "$GW_IP:8081" >"$D/metrics-gateway-after.prom" || fail_cell "gateway metrics after"
-    for f in "raw-$name.jsonl:raw.jsonl" "raw-$name.jsonl.sender.json:raw.jsonl.sender.json" "replay-$name.log:replay.log"; do
+    for f in "raw-$name.jsonl:raw.jsonl" "raw-$name.jsonl.sender.json:raw.jsonl.sender.json" "raw-$name.jsonl.status.json:raw.jsonl.status.json" "replay-$name.log:replay.log"; do
       k -n "$COLLECTOR_NS" cp "collector:/study/${f%%:*}" "$D/${f##*:}" >>"$OUT/run.log" 2>&1 || fail_cell "copy ${f%%:*}"
     done
     [[ "$(in_collector sha256sum "/study/raw-$name.jsonl" | cut -d' ' -f1)" == "$(sha256sum "$D/raw.jsonl" | cut -d' ' -f1)" ]] || fail_cell "the copied raw rows differ from the collector's"
     identity "$E_NODE" >"$D/identity-after.json" || fail_cell "identity after"
     python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["outcome"]="complete"; d["endedUnixNanos"]=int(sys.argv[2]); json.dump(d, open(sys.argv[1],"w"), indent=1, sort_keys=True)' "$D/cell.json" "$(date +%s%N)"
-    (cd "$D" && sha256sum raw.jsonl raw.jsonl.sender.json samples.jsonl metrics-*.prom manifest.json identity-after.json cell.json >SHA256SUMS)
+    (cd "$D" && sha256sum raw.jsonl raw.jsonl.sender.json raw.jsonl.status.json samples.jsonl metrics-*.prom manifest.json identity-after.json cell.json >SHA256SUMS)
     log "cell $name complete: $(wc -l <"$D/raw.jsonl") rows, $(wc -l <"$D/samples.jsonl") samples"
     if ! cmp -s <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps({k: d[k] for k in ("argo","node")}, sort_keys=True))' "$D/identity-after.json") \
       <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps({k: d[k] for k in ("argo","node")}, sort_keys=True))' "$OUT/identity-start.json"); then

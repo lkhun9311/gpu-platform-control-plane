@@ -830,6 +830,15 @@ else
 	bad "unattributed reads ${z_unattr@Q} rather than '0 1'; a file matching no known name must be reported as itself, never counted into a class that could absorb it"
 fi
 rm -f "$OUT6Z/something-nobody-writes.txt"
+# A replay's completion record sits beside its raw rows; it is evidence the run expects, never an unknown file.
+: > "$OUT6Z/raw-R1-1.jsonl.status.json"
+z_status=$(class_of "$OUT6Z" unattributed)
+if [ "$z_status" = "0 0" ]; then
+	ok "a replay completion record is not unattributed (${z_status@Q})"
+else
+	bad "unattributed reads ${z_status@Q} rather than '0 0'; the completion record every current replay writes must be a known name, or every complete run reports disagreement"
+fi
+rm -f "$OUT6Z/raw-R1-1.jsonl.status.json"
 # The conditional outputs are expected because they exist, so a run that took the MPS path agrees.
 : > "$OUT6Z/mps-pod-lookup.err"
 z_cond=$(class_of "$OUT6Z" conditional)

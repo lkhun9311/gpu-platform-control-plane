@@ -280,6 +280,42 @@ type ArmSummary struct {
 	// plausible number that is wrong by an amount the reader cannot see.
 	OutputUnmeasuredRows         int
 	OutputUnmeasuredRowsByTenant map[string]int
+	// UsageReportedRows, UsageMissingRows, UsageInvalidRows and UsageNotRecordedRows split the answered (HTTP 200) rows by what the engine said about its own output.
+	//
+	// Reported rows carried a usage chunk, and Invalid counts those among them whose count is negative, or zero while content arrived.
+	// Missing rows recorded that no usage chunk came; NotRecorded rows predate the record, so nothing is known either way.
+	// They are counts only: nothing published above is changed by them, so a historical report renders as it did.
+	UsageReportedRows    int
+	UsageMissingRows     int
+	UsageInvalidRows     int
+	UsageNotRecordedRows int
+	// TPOTSamples and InterContentFrameSamples are how many per-request values TPOTMsP50/P99 and InterContentFrameMsP50/P99 rest on.
+	//
+	// Those fields print 0 for an empty population, and the count is what tells that 0 from a measured one.
+	TPOTSamples              int
+	InterContentFrameSamples int
+	// TTFTObserved is the premium TTFT of every request whose first token arrived, including streams that failed afterwards.
+	//
+	// TTFTMsP99 is over completed requests only, so an arm that loses its slow streams after their first token shows a better tail there.
+	// This is the population that cannot happen to, reported beside it rather than in place of it, so every published TTFT keeps its meaning.
+	TTFTObserved Distribution
+	// TPOTToLastContent is (last content - first content) / (count - 1) per completed response, on the monotonic clock.
+	//
+	// TPOTMsP50/P99 run to the end marker, so the usage chunk and [DONE] after the last token were charged to TPOT.
+	// It is invalid while any member of its population lacks the evidence, which under engine tokens includes a delivered row with no usage.
+	TPOTToLastContent Distribution
+	// ContentGaps is the distribution of individual gaps between content frames, from the gaps the replay recorded.
+	//
+	// InterContentFrameMsP99 is a p99 of per-request AVERAGE gaps, which averages a single stall away; this one is over the gaps themselves.
+	// Only a study that records replay timing keeps the gaps, so it is invalid for every other study.
+	ContentGaps Distribution
+	// DispatchLag is each sent request's send time minus its scheduled offset, on the monotonic clock.
+	DispatchLag Distribution
+	// ObservedSeconds is the span from the first send to the last terminal outcome of any kind, on one replay's monotonic clock.
+	//
+	// ActiveSeconds, which throughput divides by, ends at the last completed stream; this window also covers the failures, so a reader can see what that span left out.
+	ObservedSeconds     float64
+	ObservedWindowValid bool
 	// InterContentFrameMsP50 and InterContentFrameMsP99 are (end - first content) / (content frames - 1).
 	//
 	// That is the per-request value TPOT used to be, kept under its own name because it measures frames, not
@@ -557,16 +593,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		interFrameByTenant: map[string][]float64{},
 	}
 	var premiumTotal, premiumTimedOut, premiumLost int
-	var firstSend, lastEnd int64
 	for _, r := range rows {
-		// The wall clock the arm occupied, taken from the rows rather than from a timer the runner kept, so a
-		// re-scored evidence file yields the same throughput as the run that produced it.
-		if r.SendUnixNanos > 0 && (firstSend == 0 || r.SendUnixNanos < firstSend) {
-			firstSend = r.SendUnixNanos
-		}
-		if r.EndUnixNanos > lastEnd {
-			lastEnd = r.EndUnixNanos
-		}
 		s.tallyDelivered(r, &delivered)
 		s.tallyPromptLen(r)
 		// The declared-load gate's population is every offered request, so this call carries no condition.
@@ -574,6 +601,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		// Same population and the same reason it carries no condition: the loop is at the gocyclo ceiling,
 		// so the three-way split lives inside the method rather than as an `if` here.
 		s.tallyFinishReasons(r)
+		s.tallyUsage(r)
 		// Admitted-work accounting covers the eligible population, for the admission-match check.
 		//
 		// The gateway gates on tier == standard AND EstInputTokens >= threshold, and this applies the same
@@ -708,8 +736,10 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// Losing exactly that many -- 18 of 1,840, which the old boundary waved through -- can remove the entire
 	// quantile mass the statistic is made of, and the ones that vanish are the ones that were slow enough to
 	// die. The reported p99 then is a p98 wearing the other name.
-	s.SetActiveSeconds(nanosToMs(lastEnd-firstSend) / 1000)
+	// The time the arm occupied is taken from the rows rather than from a timer the runner kept, so a re-scored evidence file yields the same throughput as the run that produced it.
+	s.SetActiveSeconds(nanosToMs(activeSpanNanos(rows)) / 1000)
 	delivered.finish(&s)
+	s.summarizeTimeline(rows, s.OutputCount)
 
 	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) >= 0.01 {
 		s.Censored = true
@@ -797,6 +827,54 @@ func percentile(sorted []float64, q float64) float64 {
 	return sorted[rank]
 }
 
+// percentileOf is percentile for a caller that must not publish an empty or corrupt population as a number.
+//
+// percentile returns 0 for an empty slice, which every historical caller relies on and which is indistinguishable from a measured 0.
+// New quantities go through this one instead, so a missing sample is an error a report can name rather than an excellent latency.
+// The slice must already be sorted, exactly as for percentile.
+func percentileOf(sorted []float64, q float64) (float64, error) {
+	if math.IsNaN(q) || q < 0 || q > 1 {
+		return 0, fmt.Errorf("quantile %g is outside [0, 1]", q)
+	}
+	if len(sorted) == 0 {
+		return 0, fmt.Errorf("no samples")
+	}
+	for _, v := range sorted {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, fmt.Errorf("a sample is %g, so no quantile of the population is a measurement", v)
+		}
+	}
+	return percentile(sorted, q), nil
+}
+
+// validateBootstrapSettings refuses resampling settings no interval can come from.
+//
+// Zero iterations used to return the percentile of an empty slice, [0, 0], marked valid; a negative count panicked in make.
+// alpha outside (0, 1) names no two-sided interval at all.
+func validateBootstrapSettings(iterations int, alpha float64) error {
+	if iterations < 2 {
+		return fmt.Errorf("%d bootstrap iterations cannot give an interval; at least 2 are needed", iterations)
+	}
+	if math.IsNaN(alpha) || alpha <= 0 || alpha >= 1 {
+		return fmt.Errorf("alpha %g is outside (0, 1), so it names no two-sided interval", alpha)
+	}
+	return nil
+}
+
+// firstNonFinite returns the first NaN or infinite value in values, and whether there was one.
+//
+// A NaN breaks sort.Float64s's ordering, so every percentile taken after it would land on an arbitrary sample.
+func firstNonFinite(values ...[]float64) (float64, bool) {
+	for _, vs := range values {
+		for _, v := range vs {
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				return v, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // CI is a two-sided confidence interval.
 type CI struct {
 	Lo float64
@@ -825,7 +903,13 @@ type CI struct {
 // alpha is the two-sided error, so 0.05 yields a 95% interval; iterations sets the resample count; seed makes it reproducible.
 func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI {
 	if len(values) == 0 {
-		return CI{}
+		return CI{InvalidReason: "no values to resample"}
+	}
+	if err := validateBootstrapSettings(iterations, alpha); err != nil {
+		return CI{InvalidReason: err.Error()}
+	}
+	if v, bad := firstNonFinite(values); bad {
+		return CI{InvalidReason: fmt.Sprintf("a resampled value is %g, so no interval over the values is a measurement", v)}
 	}
 	if len(values) == 1 {
 		// A single repetition cannot bound its own variance, so the interval degenerates to the point estimate
@@ -1243,6 +1327,24 @@ func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
 	s.EngineInputTokensUnreportedByTenant[r.Tenant]++
 }
 
+// tallyUsage classifies an answered row by whether the engine reported its own output count, and whether that count can be one.
+func (s *ArmSummary) tallyUsage(r RawRow) {
+	if r.HTTPStatus != httpStatusOK {
+		return
+	}
+	switch {
+	case r.EngineUsageReported == nil:
+		s.UsageNotRecordedRows++
+	case !*r.EngineUsageReported:
+		s.UsageMissingRows++
+	default:
+		s.UsageReportedRows++
+		if r.EngineOutputTokens < 0 || (r.EngineOutputTokens == 0 && r.OutputTokens > 0) {
+			s.UsageInvalidRows++
+		}
+	}
+}
+
 // deliveredSamples accumulates the per-request stream samples Summarize turns into percentiles.
 type deliveredSamples struct {
 	contract                         OutputCountContract
@@ -1289,6 +1391,8 @@ func (d *deliveredSamples) finish(s *ArmSummary) {
 	// ordering is the same ordering, so nothing failed. Three samples arriving as 100, 1, 2 ms reported a
 	// p99 of 2 -- not a tail, and not even the second largest value.
 	sort.Float64s(d.tpot)
+	s.TPOTSamples = len(d.tpot)
+	s.InterContentFrameSamples = len(d.interFrame)
 	s.TPOTMsP50 = percentile(d.tpot, 0.50)
 	s.TPOTMsP99 = percentile(d.tpot, 0.99)
 	if len(d.tpotByTenant) > 0 {
@@ -1565,6 +1669,7 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 			ArmColumnWidth, s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, s.RepetitionCount, censored, thin)
 	}
 	b.WriteString(formatTermination(summaries))
+	b.WriteString(formatTimeline(summaries))
 	// What the protection cost, printed beside what it bought.
 	//
 	// Every check below is a TTFT ratio, and the paid run showed that is half an answer: the arm that held

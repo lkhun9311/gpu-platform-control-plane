@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -67,6 +68,15 @@ type RawRow struct {
 	// which a per-request average (end minus first, over frames minus one) cannot give; it is a token gap only at
 	// one token per frame.
 	ContentGapsMicros []int64 `json:"contentGapsMicros,omitempty"`
+	// Clock is this request's timeline on the monotonic clock, which every latency is computed from when present.
+	//
+	// Absent on rows written before it existed, and on rows from a sender that reports no time.Time values; those keep the wall-clock arithmetic they were scored with.
+	Clock *RequestClock `json:"clock,omitempty"`
+	// Disposition is how this request ended: DispositionCompleted, DispositionUnterminated, DispositionUnsent, or the ErrorKind it failed with.
+	//
+	// Replay writes one on every row, including a scheduled request it never sent, so a recording can be reconciled against its trace.
+	// Empty means the row predates it; such rows are read and scored exactly as they were.
+	Disposition string `json:"disposition,omitempty"`
 	// PromptLenChars is the prompt size in characters this request was generated at.
 	//
 	// It is on the ROW for the reason Study gives below: the report, the gates and the published documents
@@ -110,6 +120,7 @@ type RawRow struct {
 	StreamTerminated bool `json:"streamTerminated,omitempty"`
 	// TerminationRecorded says the file this row came from recorded StreamTerminated, so false means truncated.
 	// It is derived by ReadRawRows from the file, never stored, so a row round-trips through a file unchanged.
+	// Replay sets it on the rows it writes, which carry a disposition, so a row read back equals the row written.
 	TerminationRecorded bool `json:"-"`
 	// StreamError is the engine's in-band failure text, verbatim, empty when it sent none.
 	StreamError string `json:"streamError,omitempty"`
@@ -153,6 +164,11 @@ type RawRow struct {
 	// share this harness reports while the GPU did exactly the same work. Both are recorded so the
 	// disagreement is visible in the evidence rather than absent from it.
 	EngineOutputTokens int `json:"engineOutputTokens,omitempty"`
+	// EngineUsageReported says whether the response carried the engine's usage chunk, apart from the counts in it.
+	//
+	// Without it a missing usage chunk, a zero count and a dropped negative count were the same absent key.
+	// Nil means the row predates it or the request was never sent; Replay sets it on every sent row.
+	EngineUsageReported *bool `json:"engineUsageReported,omitempty"`
 	// EngineInputTokens is what the engine itself reported for this request, when it answered one.
 	//
 	// It exists to check ExactInputTokens rather than to replace it: the trace's value is measured once per
@@ -218,9 +234,14 @@ type RawRow struct {
 }
 
 // TTFTNanos returns the time to first token, or (0,false) when no first token was recorded.
+//
+// The unix stamps decide whether the events happened, as they always have; the monotonic clock, when the row carries it, decides how far apart they were.
 func (r RawRow) TTFTNanos() (int64, bool) {
 	if r.SendUnixNanos == 0 || r.FirstTokenUnixNanos == 0 {
 		return 0, false
+	}
+	if r.Clock != nil && r.Clock.FirstContentNanos != nil {
+		return clockSpan(r.Clock.SendNanos, r.Clock.FirstContentNanos)
 	}
 	return r.FirstTokenUnixNanos - r.SendUnixNanos, true
 }
@@ -229,6 +250,9 @@ func (r RawRow) TTFTNanos() (int64, bool) {
 func (r RawRow) E2ENanos() (int64, bool) {
 	if r.SendUnixNanos == 0 || r.EndUnixNanos == 0 {
 		return 0, false
+	}
+	if r.Clock != nil && r.Clock.EndNanos != nil {
+		return clockSpan(r.Clock.SendNanos, r.Clock.EndNanos)
 	}
 	return r.EndUnixNanos - r.SendUnixNanos, true
 }
@@ -239,14 +263,21 @@ type SendResult struct {
 	FirstTokenUnixNanos int64
 	// EndUnixNanos is when the response finished; zero if it never did.
 	EndUnixNanos int64
-	// ContentUnixNanos is every content frame's arrival time, kept only when the sender was asked to.
-	ContentUnixNanos []int64
+	// FirstContentAt, LastContentAt and EndAt are the same instants as the unix stamps, as values that keep Go's monotonic reading.
+	//
+	// Replay measures every elapsed time from them, so a sender must take them from time.Now and never rebuild them from unix nanoseconds.
+	// Zero means the event did not happen, or the sender does not report them, and the row then keeps the wall-clock arithmetic.
+	FirstContentAt, LastContentAt, EndAt time.Time
+	// ContentAt is every content frame's arrival, kept only when the sender was asked to.
+	ContentAt []time.Time
 	// OutputTokens is the number of SSE frames that carried content; EngineOutputTokens is the token count.
 	OutputTokens int
 	// PromptTokens is the engine's own count of the prompt, zero when it reported none.
 	PromptTokens int
 	// EngineOutputTokens is the engine's own count of what it generated, zero when it reported none.
 	EngineOutputTokens int
+	// UsageReported says the stream carried a usage chunk at all, whatever counts it held.
+	UsageReported bool
 	// FinishReason is why the engine stopped, empty when it reported none.
 	//
 	// Empty and "stop" are different facts: the first means nothing said, the second means the model
@@ -323,6 +354,18 @@ type ReplayOptions struct {
 	sleepUntil func(ctx context.Context, t time.Time)
 }
 
+// ValidateMatchTolerance refuses an admission-match tolerance the report could not apply.
+//
+// The tolerance is stamped on every row and the report reads it back from there, so it has to be checked before the first request rather than after.
+// A NaN parsed from the manifest survived until encoding/json refused to marshal the first row, which is after the paid replay had run.
+// It is a fraction of offered work, so a value outside [0, 1] names no tolerance either.
+func ValidateMatchTolerance(tol float64) error {
+	if math.IsNaN(tol) || math.IsInf(tol, 0) || tol < 0 || tol > 1 {
+		return fmt.Errorf("matchTolerance must be a finite fraction in [0, 1], got %g", tol)
+	}
+	return nil
+}
+
 // Replay sends every request in trace against sender at its scheduled offset and returns the raw evidence.
 //
 // The load is open-loop: the scheduler sleeps until each request's offset and then dispatches it on its own goroutine, never waiting for earlier responses to return.
@@ -345,86 +388,117 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 	rows := make([]RawRow, len(trace))
 	var wg sync.WaitGroup
 	var onRowMu sync.Mutex
+	emit := func(r RawRow) {
+		if opts.OnRow != nil {
+			onRowMu.Lock()
+			opts.OnRow(r)
+			onRowMu.Unlock()
+		}
+	}
 	start := clock()
+	scheduled := func(tr TraceRow) RawRow {
+		return RawRow{
+			Index:             tr.Index,
+			Study:             opts.Study,
+			Arm:               opts.Arm,
+			Priority:          priorityFor(opts.Priorities, tr.Tenant),
+			RequestID:         RequestIDFor(opts.RequestIDPrefix, tr.Index),
+			Tenant:            tr.Tenant,
+			IsNoisy:           tr.IsNoisy,
+			ScheduledOffsetMs: tr.OffsetMs,
+			PromptLenChars:    tr.PromptLenChars,
+			EstInputTokens:    estInput(tr.PromptLenChars),
+			ExactInputTokens:  tr.ExactInputTokens,
+			TraceChecksum:     opts.TraceChecksum,
+			LongThreshold:     opts.LongThreshold,
+			MatchTolerance:    opts.MatchTolerance,
+			// Every row this replay writes has a disposition, which records whether its stream ended.
+			TerminationRecorded: true,
+		}
+	}
 
+	dispatched := 0
 	for i, tr := range trace {
 		fireAt := start.Add(time.Duration(tr.OffsetMs) * time.Millisecond)
 		sleepUntil(ctx, fireAt)
 		if ctx.Err() != nil {
-			// The run was cancelled; leave the remaining rows as recorded so far.
+			// The run was cancelled; the requests not yet sent are recorded below as unsent.
 			break
 		}
+		dispatched++
 
 		wg.Add(1)
 		go func(i int, tr TraceRow) {
 			defer wg.Done()
-			sendNanos := clock().UnixNano()
+			sendAt := clock()
+			sendNanos := sendAt.UnixNano()
 			res := sender.Send(ctx, tr, sendNanos)
+			// Taken on every outcome, before anything else is done with the result, so recording cannot delay it.
+			returnedAt := clock()
 			var origin, returned int64
 			var gaps []int64
 			if opts.RecordTiming {
-				origin, returned = start.UnixNano(), clock().UnixNano()
-				for k := 1; k < len(res.ContentUnixNanos); k++ {
-					gaps = append(gaps, (res.ContentUnixNanos[k]-res.ContentUnixNanos[k-1])/1000)
+				origin, returned = start.UnixNano(), returnedAt.UnixNano()
+				// Sub on the frames' own time.Time values, so a wall step between two frames cannot become a gap.
+				for k := 1; k < len(res.ContentAt); k++ {
+					gaps = append(gaps, res.ContentAt[k].Sub(res.ContentAt[k-1]).Microseconds())
 				}
 			}
-			rows[i] = RawRow{
-				ReplayOriginUnixNanos: origin,
-				ReturnedUnixNanos:     returned,
-				ContentGapsMicros:     gaps,
-				Index:                 tr.Index,
-				Study:                 opts.Study,
-				Arm:                   opts.Arm,
-				Priority:              priorityFor(opts.Priorities, tr.Tenant),
-				RequestID:             RequestIDFor(opts.RequestIDPrefix, tr.Index),
-				Tenant:                tr.Tenant,
-				IsNoisy:               tr.IsNoisy,
-				ScheduledOffsetMs:     tr.OffsetMs,
-				SendUnixNanos:         sendNanos,
-				FirstTokenUnixNanos:   res.FirstTokenUnixNanos,
-				EndUnixNanos:          res.EndUnixNanos,
-				PromptLenChars:        tr.PromptLenChars,
-				EstInputTokens:        estInput(tr.PromptLenChars),
-				ExactInputTokens:      tr.ExactInputTokens,
-				EngineInputTokens:     res.PromptTokens,
-				EngineOutputTokens:    res.EngineOutputTokens,
-				FinishReason:          res.FinishReason,
-				BackendState:          res.BackendState,
-				OutputTokens:          res.OutputTokens,
-				HTTPStatus:            res.HTTPStatus,
-				ErrorKind:             res.ErrorKind,
-				StreamTerminated:      res.StreamTerminated,
-				StreamError:           res.StreamError,
-				Tier:                  res.Tier,
-				AdmissionReason:       res.AdmissionReason,
-				EnginePriority:        res.EnginePriority,
-				RoutingPolicy:         res.RoutingPolicy,
-				RoutedBackend:         res.RoutedBackend,
-				RoutingReason:         res.RoutingReason,
-				RoutingMatch:          res.RoutingMatch,
-				RoutingLoad:           res.RoutingLoad,
-				TraceChecksum:         opts.TraceChecksum,
-				LongThreshold:         opts.LongThreshold,
-				MatchTolerance:        opts.MatchTolerance,
+			r := scheduled(tr)
+			r.ReplayOriginUnixNanos = origin
+			r.ReturnedUnixNanos = returned
+			r.ContentGapsMicros = gaps
+			r.Clock = &RequestClock{
+				OriginUnixNanos:   start.UnixNano(),
+				SendNanos:         elapsedSince(start, sendAt),
+				FirstContentNanos: elapsedSince(start, res.FirstContentAt),
+				LastContentNanos:  elapsedSince(start, res.LastContentAt),
+				EndNanos:          elapsedSince(start, res.EndAt),
+				TerminalNanos:     elapsedSince(start, returnedAt),
 			}
-			if opts.OnRow != nil {
-				onRowMu.Lock()
-				opts.OnRow(rows[i])
-				onRowMu.Unlock()
-			}
+			r.Disposition = dispositionOf(res)
+			r.SendUnixNanos = sendNanos
+			r.FirstTokenUnixNanos = res.FirstTokenUnixNanos
+			r.EndUnixNanos = res.EndUnixNanos
+			r.EngineInputTokens = res.PromptTokens
+			r.EngineOutputTokens = res.EngineOutputTokens
+			r.EngineUsageReported = &res.UsageReported
+			r.FinishReason = res.FinishReason
+			r.BackendState = res.BackendState
+			r.OutputTokens = res.OutputTokens
+			r.HTTPStatus = res.HTTPStatus
+			r.ErrorKind = res.ErrorKind
+			r.StreamTerminated = res.StreamTerminated
+			r.StreamError = res.StreamError
+			r.Tier = res.Tier
+			r.AdmissionReason = res.AdmissionReason
+			r.EnginePriority = res.EnginePriority
+			r.RoutingPolicy = res.RoutingPolicy
+			r.RoutedBackend = res.RoutedBackend
+			r.RoutingReason = res.RoutingReason
+			r.RoutingMatch = res.RoutingMatch
+			r.RoutingLoad = res.RoutingLoad
+			rows[i] = r
+			emit(r)
 		}(i, tr)
 	}
 
-	wg.Wait()
-
-	// Rows are indexed by position, so a cancelled run leaves zero-value rows at the tail; drop those.
-	out := rows[:0]
-	for _, r := range rows {
-		if r.SendUnixNanos != 0 {
-			out = append(out, r)
+	// Every request the cancellation kept from being sent still gets its row, so the recording accounts for the whole trace.
+	// Dropping them made a run that stopped halfway indistinguishable from a shorter trace.
+	if dispatched < len(trace) {
+		stoppedAt := clock()
+		for i := dispatched; i < len(trace); i++ {
+			r := scheduled(trace[i])
+			r.ErrorKind = DispositionUnsent
+			r.Disposition = DispositionUnsent
+			r.Clock = &RequestClock{OriginUnixNanos: start.UnixNano(), TerminalNanos: elapsedSince(start, stoppedAt)}
+			rows[i] = r
+			emit(r)
 		}
 	}
-	return out
+
+	wg.Wait()
+	return rows
 }
 
 // wallSleepUntil blocks until t, or until ctx is done, using the real clock.
@@ -503,8 +577,12 @@ func ReadRawRows(r io.Reader) ([]RawRow, error) {
 	}
 	// One row carrying the key shows the harness recorded termination for the whole file, so on the rows of a
 	// file written with omitempty an absent key is false; a file with no such row predates the field.
+	// A row with a disposition was written by a sender whose outcome already says whether its stream ended, so it is recorded whatever the file says.
 	for i := range rows {
-		rows[i].TerminationRecorded = recorded
+		rows[i].TerminationRecorded = recorded || rows[i].Disposition != ""
+	}
+	if err := validateRecordedRows(rows); err != nil {
+		return nil, err
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Index < rows[j].Index })
 	return rows, nil
