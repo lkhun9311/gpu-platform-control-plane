@@ -45,6 +45,14 @@ import (
 // write the field and a string typed twice is a string that drifts once.
 const TimeoutScopeWholeRequest = "whole-request-including-stream"
 
+// The manifest schema versions LoadManifest accepts.
+const (
+	// ManifestSchemaV2 is the shape every manifest before 2026-11-15 was written in; all of them say "v2".
+	ManifestSchemaV2 = "v2"
+	// ManifestSchemaV3 adds typed engine settings, the sampling policy and the cell's campaign identity, and is required by a study that names it.
+	ManifestSchemaV3 = "v3"
+)
+
 // RunManifest freezes everything that must stay fixed for a benchmark comparison across arms to
 // be valid.
 //

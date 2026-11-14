@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -120,18 +121,69 @@ func TestEngineTokenContractCountsARowWithoutUsageAsNotMeasurable(t *testing.T) 
 	}
 }
 
-// TestRegisteredStudiesKeepTheFrameRule pins every published study to the contract it was scored under.
+// historicalFrameRuleStudies are the studies registered before 2026-11-14, each scored under the frame rule.
+//
+// Written out rather than derived from the registry, because the old test derived it and so demanded the frame rule of every study ever added, new ones included (audit finding 1).
+// The list is closed: a study added after it must state its contract, which TestNewStudiesStateTheirContract enforces.
+var historicalFrameRuleStudies = []string{
+	StudyM5BGateway,
+	StudyPriceOfProtection,
+	StudySharingMatrix,
+	StudyThroughputLadder,
+	StudyThroughputLadderDown,
+	StudyThroughputLadderIndependent,
+	StudyTailCrossingShortLC,
+	StudyTailCrossingLongLC,
+	StudyTailCrossingMidLC,
+	StudyInstrumentValidation,
+	StudyInstrumentValidationS2,
+	StudyInstrumentValidationS3,
+	StudyInstrumentValidationS4,
+	StudyStepBoundary,
+	StudyStepConfirm,
+	StudyProspectivePilot,
+	StudyAdmissionDiagnostic,
+	StudyHoldCapProductTransfer,
+	StudyHoldCapProductTransferR2,
+	StudyHoldCapProductTransferBoundOff,
+	StudyAdmissionFrontier,
+	StudyLengthCalibration,
+	StudyLengthRobustness,
+	StudyHeadroomCalibration,
+	StudyHeadroomMain,
+	StudyPrefixRoute,
+	StudyMPSCapability,
+}
+
+// TestHistoricalStudiesKeepTheFrameRule pins every published study to the contract it was scored under.
 //
 // Registering the token contract on an existing study would move numbers already published, so a new study
 // has to be the one that opts in.
-func TestRegisteredStudiesKeepTheFrameRule(t *testing.T) {
-	for _, id := range KnownStudyIDs() {
+func TestHistoricalStudiesKeepTheFrameRule(t *testing.T) {
+	for _, id := range historicalFrameRuleStudies {
+		if _, ok := LookupStudy(id); !ok {
+			t.Errorf("historical study %s is no longer registered, so rows filed under it cannot be read", id)
+		}
 		if got := OutputCountForStudy(id); got != OutputCountContentFrames {
 			t.Errorf("study %s counts output under %q, want %q", id, got, OutputCountContentFrames)
 		}
 	}
 	if got := OutputCountForStudy(""); got != OutputCountContentFrames {
 		t.Errorf("legacy unlabelled rows count under %q, want %q", got, OutputCountContentFrames)
+	}
+}
+
+// TestNewStudiesStateTheirContract refuses a study outside the historical list that leaves OutputCount unset.
+//
+// An unset field silently means frames, which is the default the version study had to escape; a new study has to choose in writing.
+func TestNewStudiesStateTheirContract(t *testing.T) {
+	for _, id := range KnownStudyIDs() {
+		if slices.Contains(historicalFrameRuleStudies, id) {
+			continue
+		}
+		if st, _ := LookupStudy(id); st.OutputCount == "" {
+			t.Errorf("study %s is not historical and leaves its output-count contract unset", id)
+		}
 	}
 }
 
