@@ -289,6 +289,33 @@ type ArmSummary struct {
 	UsageMissingRows     int
 	UsageInvalidRows     int
 	UsageNotRecordedRows int
+	// TPOTSamples and InterContentFrameSamples are how many per-request values TPOTMsP50/P99 and InterContentFrameMsP50/P99 rest on.
+	//
+	// Those fields print 0 for an empty population, and the count is what tells that 0 from a measured one.
+	TPOTSamples              int
+	InterContentFrameSamples int
+	// TTFTObserved is the premium TTFT of every request whose first token arrived, including streams that failed afterwards.
+	//
+	// TTFTMsP99 is over completed requests only, so an arm that loses its slow streams after their first token shows a better tail there.
+	// This is the population that cannot happen to, reported beside it rather than in place of it, so every published TTFT keeps its meaning.
+	TTFTObserved Distribution
+	// TPOTToLastContent is (last content - first content) / (count - 1) per completed response, on the monotonic clock.
+	//
+	// TPOTMsP50/P99 run to the end marker, so the usage chunk and [DONE] after the last token were charged to TPOT.
+	// It is invalid while any member of its population lacks the evidence, which under engine tokens includes a delivered row with no usage.
+	TPOTToLastContent Distribution
+	// ContentGaps is the distribution of individual gaps between content frames, from the gaps the replay recorded.
+	//
+	// InterContentFrameMsP99 is a p99 of per-request AVERAGE gaps, which averages a single stall away; this one is over the gaps themselves.
+	// Only a study that records replay timing keeps the gaps, so it is invalid for every other study.
+	ContentGaps Distribution
+	// DispatchLag is each sent request's send time minus its scheduled offset, on the monotonic clock.
+	DispatchLag Distribution
+	// ObservedSeconds is the span from the first send to the last terminal outcome of any kind, on one replay's monotonic clock.
+	//
+	// ActiveSeconds, which throughput divides by, ends at the last completed stream; this window also covers the failures, so a reader can see what that span left out.
+	ObservedSeconds     float64
+	ObservedWindowValid bool
 	// InterContentFrameMsP50 and InterContentFrameMsP99 are (end - first content) / (content frames - 1).
 	//
 	// That is the per-request value TPOT used to be, kept under its own name because it measures frames, not
@@ -712,6 +739,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// The time the arm occupied is taken from the rows rather than from a timer the runner kept, so a re-scored evidence file yields the same throughput as the run that produced it.
 	s.SetActiveSeconds(nanosToMs(activeSpanNanos(rows)) / 1000)
 	delivered.finish(&s)
+	s.summarizeTimeline(rows, s.OutputCount)
 
 	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) >= 0.01 {
 		s.Censored = true
@@ -1363,6 +1391,8 @@ func (d *deliveredSamples) finish(s *ArmSummary) {
 	// ordering is the same ordering, so nothing failed. Three samples arriving as 100, 1, 2 ms reported a
 	// p99 of 2 -- not a tail, and not even the second largest value.
 	sort.Float64s(d.tpot)
+	s.TPOTSamples = len(d.tpot)
+	s.InterContentFrameSamples = len(d.interFrame)
 	s.TPOTMsP50 = percentile(d.tpot, 0.50)
 	s.TPOTMsP99 = percentile(d.tpot, 0.99)
 	if len(d.tpotByTenant) > 0 {
@@ -1639,6 +1669,7 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 			ArmColumnWidth, s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, s.RepetitionCount, censored, thin)
 	}
 	b.WriteString(formatTermination(summaries))
+	b.WriteString(formatTimeline(summaries))
 	// What the protection cost, printed beside what it bought.
 	//
 	// Every check below is a TTFT ratio, and the paid run showed that is half an answer: the arm that held
