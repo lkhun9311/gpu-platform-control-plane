@@ -49,6 +49,7 @@ The model is Qwen2.5-1.5B-Instruct, revision `989aa7980e4cf806f80c7fef2b1adb7bc7
 ## Controls
 
 - **TF-IDF control.** `TfidfVectorizer(analyzer="word", ngram_range=(1, 2), sublinear_tf=True, lowercase=True)` and `LogisticRegression(solver="lbfgs", max_iter=5000)`; `C` from {0.1, 0.3, 1, 3, 10, 30, 100} by dev accuracy, ties to the smaller `C`; the vectorizer and classifier are fit on train only, for selection and for the final model alike. It is scored on test by the same evaluator. A weak control would make beating it meaningless, so this one is tuned; if the LoRA model does not beat it, that is the result.
+  **Measured 2026-11-14** (`experiments/mlops-w2/results/tfidf-control/`, the test evaluation logged in `test-ledger.jsonl`): dev accuracy by `C` was 0.701, 0.808, 0.870, 0.884, 0.890, 0.892, 0.899, so `C` = 100, the top of the registered grid. Because the choice sat on the grid's edge, `C` = 300 and 1,000 were then scored on dev only, as a diagnostic that changes nothing registered: 0.889 and 0.886, so 100 is the peak and the control is not under-tuned by the grid. On test: **accuracy 0.8886**, macro-F1 0.8890, no non-`ok` rows, lowest per-label recall 0.70 (`wrong_exchange_rate_for_cash_withdrawal`). This is the bar a LoRA candidate's paired interval must clear.
 - **Pretrained control.** As above (GPU).
 - **Fixed reference.** The first model this gate promotes becomes the fixed reference; later candidates are also compared with it, so small allowed losses cannot accumulate.
 

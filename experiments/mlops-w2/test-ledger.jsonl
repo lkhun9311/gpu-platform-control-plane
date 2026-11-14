@@ -1,0 +1,1 @@
+{"time": "2026-11-14T05:22:22Z", "candidate": "tfidf-control", "params_sha256": "661565f288d9295fbaed389a493ffc8ba6f39ac58e3146c5e793d47aa9ee3338", "purpose": "TF-IDF control, scored once on test after selecting C=100 on dev"}
