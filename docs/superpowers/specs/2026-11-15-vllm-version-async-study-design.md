@@ -264,7 +264,7 @@ The registered protocol is not executable at this head (attack item 1). Before a
   - `CheckVersionCampaign`, the exact bootstrap and the verdict.
 
   A two-block rehearsal must expect "incomplete pilot"; showing a verdict needs six blocks.
-- **The sender** (owned elsewhere) sends `RequestFields` and records the fields above. Today it sends no sampling parameter and computes latencies from wall-clock timestamps.
+- **The sender** (owned elsewhere) sends `RequestFields` and records the fields above. Since #587 it records every latency on the monotonic clock (`RequestClock`), with a terminal disposition and usage presence for every request. It still sends no sampling parameter, measures from dispatch (`SendNanos`) rather than from intended arrival, and records no transport-write or trailer stamp.
 - **Replay accepts v3:** `cmd/benchharness` parses `matchTolerance` as a number unconditionally before replay, so a valid v3 manifest, which must leave it empty, is refused there.
 - **A v3 manifest writer, the calibration runner, the trace generator and the bundle writer** exist; `gen-trace` and `prepare-traces` still write v2.
 - **An engine path** that runs v0.32.0 with the registered settings; the controller pins v0.27.1 and forces async off. The engine-path track fills the digests and flag reviews.
