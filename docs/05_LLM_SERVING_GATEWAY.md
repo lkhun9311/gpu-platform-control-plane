@@ -173,6 +173,10 @@ M5 adds the guard series (`gpuaas_gateway_admission_decisions_total`, backend pr
 Every series this component exposes carries the `gpuaas_gateway_` prefix (`internal/gateway/metrics.go`); this
 line named it `admission_guard_decisions_total`, which matches nothing a scrape would return.
 
+A response that had started and then ended before its upstream finished it is counted in `gpuaas_gateway_responses_cut_short_total{tenant,model,cause}`, with `cause` one of `upstream_aborted`, `client_gone` or `idle_timeout`, and the request record's done line carries the same value as `cutShort` (`internal/gateway/cutshort.go`).
+`requests_total` cannot say this: the status line had already gone out, so such a request counts there under the 200 it had.
+Until issue #571 a cut stream was missing from `requests_total` altogether and recorded as a complete 200, because `ReverseProxy` reports a failed body copy only by panicking with `http.ErrAbortHandler`; the client still sees the connection abort.
+
 ## Deployment
 
 `config/gateway/`: Deployment `replicas: 1` (in-memory bucket — scaling multiplies limits; documented ADR), Service, ServiceAccount, minimal RBAC (`get;list;watch` on the two CRDs + the api-keys Secret). Definition of done for M4-b includes the Makefile target, a gateway Dockerfile, and these manifests — `go run` is not a deployment story.

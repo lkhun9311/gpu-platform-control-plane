@@ -675,13 +675,17 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	onFirstBody, onBody := responseHooks(r, tr, res)
 	// The attempt runs under its own context so the idle bound can end it; cancelling it closes the upstream
 	// connection, the body copy fails, and every deferred release runs as for any other upstream failure.
-	attemptCtx, cancelAttempt := context.WithCancel(r.Context())
+	clientCtx := r.Context()
+	attemptCtx, cancelAttempt := context.WithCancel(clientCtx)
 	defer cancelAttempt()
 	r = r.WithContext(attemptCtx)
 	// Logged, because the client then sees its stream end with the 200 it already had, and nothing else says why.
+	// Flagged too, so a response it cut can be told apart from one its client or upstream cut.
+	var idleExpired atomic.Bool
 	idle := newIdleWatch(s.bodyIdleBound(), func() {
 		log.FromContext(ctx).Info("ending a response its upstream left silent past the idle bound",
 			"request_id", rid, "bound", s.bodyIdleBound().String())
+		idleExpired.Store(true)
 		cancelAttempt()
 	})
 	defer idle.stop()
@@ -711,13 +715,23 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// way out would miss a panic or a cancelled request and quietly shrink the denominator it exists to be.
 	backendAttempts.WithLabelValues(tenant, meta.Model).Inc()
 	tr.handedOff()
-	advanced := tryBackendsObserved(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
-		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
-		lastFailure = code
-		if final {
-			rec.code = code
-		}
-	}, func(i int) { routed.move(targets[i]) })
+	var advanced bool
+	// A stream that stops once it has started ends in ReverseProxy's abort panic under a real server, which used to unwind
+	// past every line below: the request was missing from requests_total and recorded as a complete 200 (issue #571).
+	// The panic is caught here, the bookkeeping runs, and it is raised again at the end so the client still sees an
+	// aborted connection rather than a clean end that would pass a truncated answer off as whole.
+	cut := cutShortCause(func() {
+		advanced = tryBackendsObserved(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
+			upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
+			lastFailure = code
+			if final {
+				rec.code = code
+			}
+		}, func(i int) { routed.move(targets[i]) })
+	}, clientCtx, &idleExpired)
+	defer abortIfCutShort(cut)
+	tr.cutShort(cut)
+	countCutShort(tenant, meta.Model, cut)
 	rec.code = publishedCode(rec.answered, rec.code, lastFailure)
 	tr.outcome(rec.code, rec.answered)
 	if servedByFallback(advanced, rec.code) {
