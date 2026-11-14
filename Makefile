@@ -451,7 +451,7 @@ scorer-tests: ## Run the study scorers' own tests, which pin what each published
 	python3 -m unittest experiments/gateway-replica-limit/test_score.py
 	python3 -m unittest experiments/mlops-lineage/test_score.py
 	@# W2's split rules, parser, metrics and gate need no third-party package, so they run here with the rest.
-	python3 -m unittest experiments/mlops-w2/test_data.py
+	python3 -m unittest experiments/mlops-w2/test_data.py experiments/mlops-w2/test_evaluate.py
 
 .PHONY: sweeper-tests
 sweeper-tests: ## Run the termination sweeper's tests, which pin what it terminates and that a refusal fails the invocation.
