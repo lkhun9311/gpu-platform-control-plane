@@ -9,7 +9,9 @@ reps=${3:-3}
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 log="$work/sim.log"
-port=18000
+# A fixed port lets a simulator left over from another run answer the readiness check, and then every row
+# would carry this run's commit while measuring that other process.
+port=$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 
 cleanup() {
   if [[ -n "${sim_pid:-}" ]]; then kill "$sim_pid" 2>/dev/null || true; wait "$sim_pid" 2>/dev/null || true; fi
@@ -30,6 +32,10 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 curl -sf "localhost:$port/metrics" >/dev/null || { echo "simulator did not start"; tail -20 "$log"; exit 1; }
+# Readiness alone does not say who answered; the process launched here has to be alive and own the port.
+kill -0 "$sim_pid" 2>/dev/null || { echo "simulator exited after start"; tail -20 "$log"; exit 1; }
+owner=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+[[ "$owner" == "$sim_pid" ]] || { echo "port $port is held by pid ${owner:-unknown}, not the simulator $sim_pid"; exit 1; }
 
 # The commit goes into every row so a result is never read against a different simulator.
 python3 -I "$here/abort.py" "$port" "$reps" | while read -r row; do
