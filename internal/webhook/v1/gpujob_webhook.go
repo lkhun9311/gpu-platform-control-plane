@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 
+	admissionv1 "k8s.io/api/admission/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// +kubebuilder:webhook:path=/validate-batch-v1-job,mutating=false,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=create,versions=v1,name=vgpujob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-batch-v1-job,mutating=false,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=create;update,versions=v1,name=vgpujob.kb.io,admissionReviewVersions=v1
 
 // GPUJobValidator refuses a Job whose Pods this platform would never admit.
 //
@@ -72,6 +73,19 @@ func (v *GPUJobValidator) Handle(ctx context.Context, req admission.Request) adm
 	devices := gpuRequestOf(spec)
 	if devices == 0 {
 		return admission.Allowed("")
+	}
+	// An update is judged again only when it changes what the rules below read and the apiserver lets change: a
+	// suspended Job's device count and its queue label (issue #568; its grace is part of the immutable template).
+	// Any other update passes untouched, so Kueue unsuspending a Job or setting its node selectors is never refused
+	// by a transient read of the namespace's ResourceQuota, which failurePolicy Fail would turn into a stuck Job.
+	if req.Operation == admissionv1.Update {
+		var old batchv1.Job
+		if err := v.decoder.DecodeRaw(req.OldObject, &old); err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if gpuRequestOf(&old.Spec.Template.Spec) == devices && old.Labels[kueueQueueLabel] == job.Labels[kueueQueueLabel] {
+			return admission.Allowed("")
+		}
 	}
 
 	// The queue label is checked HERE and not on the Pod, because here it is answerable. Kueue reads it from

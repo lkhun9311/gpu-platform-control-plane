@@ -112,8 +112,11 @@ webhooks:
           - batch
         apiVersions:
           - v1
-        # CREATE only. This exists to stop a reservation being made, and the reservation is made at create.
+        # CREATE and UPDATE. The reservation is made at create, but a suspended Job's template resources and its
+        # labels can still change afterwards, and adding a GPU or dropping the queue label then reached the state
+        # this guard refuses at create (issue #568). The handler re-checks an update only when one of those two changed.
         operations:
           - CREATE
+          - UPDATE
         resources:
           - jobs
