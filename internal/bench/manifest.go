@@ -315,8 +315,8 @@ func decodeManifest(data []byte) (*RunManifest, error) {
 // checkKeys refuses a key that is not exactly one of typ's JSON names and, when requireAll is set, a name that is absent.
 func checkKeys(obj string, present map[string]any, typ reflect.Type, requireAll bool) error {
 	names := map[string]bool{}
-	for i := range typ.NumField() {
-		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+	for f := range typ.Fields() {
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		names[name] = true
 	}
 	// Sorted, so the same manifest is refused with the same message every time.

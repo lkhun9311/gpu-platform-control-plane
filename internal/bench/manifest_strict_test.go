@@ -63,7 +63,7 @@ func TestCommittedManifestsLoadStrictly(t *testing.T) {
 		}
 		name := d.Name()
 		if d.IsDir() || !strings.HasPrefix(name, "manifest") ||
-			!(strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".yaml")) {
+			!strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, ".yaml") {
 			return nil
 		}
 		data, err := os.ReadFile(path)
