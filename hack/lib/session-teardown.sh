@@ -59,7 +59,13 @@ teardown_residue() {
 }
 
 # killswitch_program PIDFILE LOG WORKDIR TTL_SECONDS DESTROY_SECONDS PROFILE REGION CLUSTER_DIR CLUSTER TF_VARS EXDIR
-# [GRACE_SECONDS]: the detached watchdog's program.
+# [GRACE_SECONDS] [SESSION_PID] [LEASE_NAME]: the detached watchdog's program.
+#
+# With LEASE_NAME, the session's lease (hack/lib/session-lease.sh) is read when the TTL fires, and a lease that no longer
+# exists stops the watchdog before any terraform: its session has been reaped by the cloud side, and the shared state
+# may already hold another session's cluster, which a laptop resuming from suspend would otherwise destroy (round 4 of
+# the adversarial review of docs/superpowers/specs/2026-11-07-session-cloud-safety-design.md). A read that fails for
+# another reason does not stop it: while this session's lease could still exist no other session can have started.
 #
 # Every value is assigned with printf %q and the body is a quoted heredoc, so a path holding an apostrophe no longer
 # ends a single-quoted string inside the generated code and breaks the watchdog (codex census before the full stage).
@@ -88,14 +94,25 @@ teardown_residue() {
 killswitch_program() {
   printf 'KILL_PIDFILE=%q\nKILL_LOG=%q\nWORKDIR=%q\nTTL_SECONDS=%q\nDESTROY_SECONDS=%q\nPROFILE=%q\nREGION=%q\n' \
     "$1" "$2" "$3" "$4" "$5" "$6" "$7"
-  printf 'CLUSTER_DIR=%q\nCLUSTER=%q\nTF_VARS=%q\nEXDIR=%q\nGRACE_SECONDS=%q\nSESSION_PID=%q\n' "$8" "$9" "${10}" "${11}" \
-    "${12:-30}" "${13:-}"
+  printf 'CLUSTER_DIR=%q\nCLUSTER=%q\nTF_VARS=%q\nEXDIR=%q\nGRACE_SECONDS=%q\nSESSION_PID=%q\nLEASE_NAME=%q\n' "$8" "$9" \
+    "${10}" "${11}" "${12:-30}" "${13:-}" "${14:-}"
   declare -f teardown_residue
   cat <<'PROGRAM'
 # gpu-platform-killswitch-watchdog: killswitch_others finds an armed watchdog by this line.
 echo $$ >"$KILL_PIDFILE"
 sleep "$TTL_SECONDS"
 echo "[ttl] $(date -u +%H:%M:%SZ) TTL reached; force-destroying" >>"$KILL_LOG" 2>&1
+if [ -n "$LEASE_NAME" ]; then
+  if lease_out="$(AWS_PROFILE="$PROFILE" timeout 60 aws ssm get-parameter --region "$REGION" --name "$LEASE_NAME" \
+    --query Parameter.Name --output text 2>&1)"; then
+    echo "[ttl] the session lease $LEASE_NAME is still held; this session still owns the state" >>"$KILL_LOG"
+  elif printf '%s' "$lease_out" | grep -q ParameterNotFound; then
+    echo "[ttl] the session lease $LEASE_NAME is gone: the cloud side reaped this session, and the state may hold another session's cluster; not destroying" >>"$KILL_LOG"
+    exit 0
+  else
+    echo "[ttl] the session lease could not be read (${lease_out:0:200}); destroying, since no other session can start while it may exist" >>"$KILL_LOG"
+  fi
+fi
 cd "$WORKDIR" || { echo "[ttl] could not enter $WORKDIR" >>"$KILL_LOG"; exit 1; }
 mono() { local up rest; read -r up rest </proc/uptime; echo "${up%.*}"; }
 until=$(($(mono) + DESTROY_SECONDS))

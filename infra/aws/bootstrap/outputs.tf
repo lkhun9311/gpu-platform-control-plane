@@ -46,3 +46,8 @@ output "mirror_repository_urls" {
   description = "Mirror repository URLs, keyed by repository name."
   value       = { for k, r in aws_ecr_repository.mirror : k => r.repository_url }
 }
+
+output "reaper_function_name" {
+  description = "The session reaper Lambda; the session runner reads its last run's errors before it arms a lease."
+  value       = aws_lambda_function.reaper.function_name
+}

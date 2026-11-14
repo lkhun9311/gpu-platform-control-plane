@@ -13,6 +13,7 @@
         "budgets:*",
         "ce:*",
         "cloudfront:*",
+        "cloudtrail:LookupEvents",
         "consolidatedbilling:*",
         "cur:*",
         "freetier:*",
@@ -22,8 +23,8 @@
         "importexport:*",
         "invoicing:*",
         "kms:DescribeKey",
-        "notifications:*",
         "notifications-contacts:*",
+        "notifications:*",
         "organizations:*",
         "payments:*",
         "pricing:*",
@@ -33,8 +34,8 @@
         "s3:ListAllMyBuckets",
         "s3:PutAccountPublicAccessBlock",
         "shield:*",
-        "support:*",
         "sts:*",
+        "support:*",
         "tax:*",
         "trustedadvisor:*",
         "waf:*"
@@ -43,8 +44,7 @@
       "Condition": {
         "StringNotEquals": {
           "aws:RequestedRegion": [
-            "ap-northeast-2",
-            "us-east-1"
+            "ap-northeast-2"
           ]
         }
       }

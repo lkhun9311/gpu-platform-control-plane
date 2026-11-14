@@ -78,6 +78,13 @@ case "$1 $2" in
   "ec2 describe-instances") printf '%s' "${TTL_RESIDUE_EC2:-}" ;;
   "scheduler list-schedules") printf '%s' "${TTL_RESIDUE_SCHEDULE:-}" ;;
   "eks list-clusters") [[ -n "${TTL_RESIDUE_EKS_RC:-}" ]] && { echo "ExpiredTokenException" >&2; exit "$TTL_RESIDUE_EKS_RC"; } ;;
+  # The session lease the watchdog reads when its TTL fires: LEASE_STATE is held, gone or unreadable.
+  "ssm get-parameter")
+    case "${LEASE_STATE:-held}" in
+      held) echo "/gpu-platform/session-lease/s-1" ;;
+      gone) echo "An error occurred (ParameterNotFound) when calling the GetParameter operation" >&2; exit 254 ;;
+      *) echo "An error occurred (ExpiredTokenException)" >&2; exit 254 ;;
+    esac ;;
 esac
 exit 0
 EOF
@@ -86,6 +93,28 @@ program() {
   bash -c '. hack/lib/session-teardown.sh; killswitch_program "$1/ttl.pid" "$1/kill.log" "$1" "${3:-0}" "$2" gpu-lab ap-northeast-2 infra/aws/cluster gpu-platform "-var=gpu_max_nodes=3 -var=efs_enabled=true" "$1" 1' _ "$dir" "$1" "${2:-0}"
 }
 if program 3 | bash -n; then ok "the program parses with an apostrophe in its paths"; else bad "the program does not parse with an apostrophe in its paths"; fi
+
+# With the session's lease named, a lease gone when the TTL fires stops the watchdog before any terraform: the cloud side
+# reaped this session, and the shared state may hold another's cluster (round 4 of the session cloud safety review).
+# Mutations that turn it red: destroy whatever the lease reads, or stop on an unreadable lease.
+leased() {
+  bash -c '. hack/lib/session-teardown.sh; killswitch_program "$1/ttl.pid" "$1/kill.log" "$1" 0 3 gpu-lab ap-northeast-2 infra/aws/cluster gpu-platform "" "$1" 1 "" /gpu-platform/session-lease/s-1' _ "$dir"
+}
+for state in gone held unreadable; do
+  : >"$dir/kill.log"
+  LEASE_STATE=$state PATH="$dir/bin:$PATH" bash -c "$(leased)"
+  destroyed=no
+  grep -q '^terraform .*destroy' "$dir/kill.log" && destroyed=yes
+  case "$state:$destroyed" in
+    gone:no) ok "a watchdog whose lease is gone destroys nothing" ;;
+    held:yes) ok "a watchdog whose lease is held destroys as before" ;;
+    unreadable:yes) ok "a watchdog whose lease cannot be read still destroys" ;;
+    *) bad "lease $state: destroyed=$destroyed: $(tail -3 "$dir/kill.log" | tr '\n' ' ')" ;;
+  esac
+done
+if grep -q '"$(lease_name "$LEASE_KEY")")" >/dev/null 2>&1 &' hack/eks-gitops-session.sh; then ok "the session gives its watchdog its lease"; else
+  bad "the session does not pass its lease to the watchdog"
+fi
 # The allowance is counted on CLOCK_BOOTTIME, never on bash's SECONDS, which follows the wall clock: a step back once let
 # a destroy run 100 minutes against its 40 (gpt-6-astra's third attack before the corelimit run).
 wall="$(program 3 | grep -nP '(?<![A-Z_])SECONDS\b')"
@@ -381,7 +410,7 @@ fi
 
 # The session uses both, so a check of the library is a check of what the session runs.
 for f in 'teardown_residue "$REGION" "$CLUSTER" "$EXDIR"' 'killswitch_program "$KILL_PIDFILE"' '$((TTL_MINUTES + KILL_DESTROY_MINUTES))' \
-  '"$TF_TRAIN_VARS" "$EXDIR" "" $$)'; do
+  '"$TF_TRAIN_VARS" "$EXDIR" "" $$ \'; do
   if grep -qF -- "$f" hack/eks-gitops-session.sh; then ok "the session calls $f"; else bad "the session does not call $f"; fi
 done
 

@@ -21,6 +21,9 @@ terraform {
 
 provider "aws" {
   region = var.region
+  # Refuses to plan or apply with credentials for any other account (r5 finding 8, proposal P3): a profile name is not an
+  # account, and environment credentials outrank it.
+  allowed_account_ids = var.allowed_account_ids
 }
 
 # The helm and kubernetes providers authenticate to the cluster via the AWS CLI token helper.
