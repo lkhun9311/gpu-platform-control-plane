@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -321,6 +322,18 @@ type ReplayOptions struct {
 	// clock and sleepUntil are injected only by tests; production uses the wall clock.
 	clock      func() time.Time
 	sleepUntil func(ctx context.Context, t time.Time)
+}
+
+// ValidateMatchTolerance refuses an admission-match tolerance the report could not apply.
+//
+// The tolerance is stamped on every row and the report reads it back from there, so it has to be checked before the first request rather than after.
+// A NaN parsed from the manifest survived until encoding/json refused to marshal the first row, which is after the paid replay had run.
+// It is a fraction of offered work, so a value outside [0, 1] names no tolerance either.
+func ValidateMatchTolerance(tol float64) error {
+	if math.IsNaN(tol) || math.IsInf(tol, 0) || tol < 0 || tol > 1 {
+		return fmt.Errorf("matchTolerance must be a finite fraction in [0, 1], got %g", tol)
+	}
+	return nil
 }
 
 // Replay sends every request in trace against sender at its scheduled offset and returns the raw evidence.

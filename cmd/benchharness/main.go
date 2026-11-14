@@ -711,6 +711,10 @@ func replay(args []string) error {
 	if err != nil {
 		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
 	}
+	// ParseFloat accepts "NaN" and "Inf", and the manifest's own check only parses, so the range is enforced here before any request.
+	if err := bench.ValidateMatchTolerance(tol); err != nil {
+		return fmt.Errorf("manifest %s: %w", *manifestPath, err)
+	}
 	if studyKnown && study.FrozenExactTokens != nil {
 		// Refused before the first request: a row whose count is not the frozen one was not generated for this study.
 		if err := frozenTokenRefusal(rows, study, m.TracePath); err != nil {
