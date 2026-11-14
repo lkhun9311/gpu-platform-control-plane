@@ -107,6 +107,10 @@ type doneLine struct {
 	// the handler's end, the latest instant it can have reached the client by.
 	FirstContentAtEnd bool  `json:"firstContentAtEnd,omitempty"`
 	EndedUnixNanos    int64 `json:"endedUnixNanos"`
+	// CutShort names why a response that had started ended before its upstream finished it: upstream_aborted,
+	// client_gone or idle_timeout. Status stays the status line the client already had, so without this field a stream
+	// cut short read exactly as a complete one (issue #571). Absent for a response that ran to its end.
+	CutShort string `json:"cutShort,omitempty"`
 }
 
 // nanos keeps an unreached stage at zero rather than at the zero Time's large negative Unix value.
@@ -259,6 +263,13 @@ func (tr *requestTrace) releaseAtEnd(res *reservation) func() {
 func (tr *requestTrace) outcome(code int, answered bool) {
 	if tr != nil {
 		tr.final, tr.answered = code, answered
+	}
+}
+
+// cutShort records why a started response ended before its upstream finished it.
+func (tr *requestTrace) cutShort(cause string) {
+	if tr != nil {
+		tr.line.CutShort = cause
 	}
 }
 
