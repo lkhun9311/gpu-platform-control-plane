@@ -20,7 +20,8 @@ type liveRows struct {
 }
 
 func openLiveRows(path string) (*liveRows, error) {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	// Exclusive, never truncating: an existing live file is the surviving evidence of an earlier run.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open the live row file %s: %w", path, err)
 	}

@@ -731,17 +731,26 @@ func replay(args []string) error {
 		}
 		recordTiming = true
 		sender.SetRecordContentTimes(true)
+	}
+	// Reserved after every refusal that costs nothing and before every file that depends on the destination, so a bad or occupied destination is found before the first request.
+	evidence, err := reserveEvidence(*rawOut)
+	if err != nil {
+		return err
+	}
+	if recordTiming {
 		if err := writeSenderConfig(*rawOut+".sender.json", senderConfig{
 			Study: m.Study, Arm: m.Arm, ConnMode: *connMode,
 			MaxIdleConnsPerHost: conn.MaxIdleConnsPerHost, DrainForReuse: conn.DrainForReuse,
 			TimeoutMs: m.TimeoutMs, Model: m.Model, Target: url, Priorities: prio,
 			RequestIDPrefix: *requestIDPrefix,
 		}); err != nil {
+			evidence.abandon()
 			return err
 		}
 	}
 	live, err := openLiveRowsIf(recordTiming, *rawOut)
 	if err != nil {
+		evidence.abandon()
 		return err
 	}
 	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
@@ -755,23 +764,32 @@ func replay(args []string) error {
 		RecordTiming:    recordTiming,
 		OnRow:           live.write,
 	})
-	if live != nil {
-		// A live file that failed is reported, not fatal: the complete rows are written below either way, and the
-		// live file only matters to an instance that dies before they are.
-		if n, first := live.close(); n > 0 {
-			fmt.Fprintf(os.Stderr, "WARNING: %d row(s) could not be appended to the live file; the first error: %v\n", n, first)
-		}
-	}
-
-	f, err := os.Create(*rawOut)
-	if err != nil {
-		return fmt.Errorf("create raw file %s: %w", *rawOut, err)
-	}
-	defer func() { _ = f.Close() }()
-	if err := bench.WriteRawRows(f, raw); err != nil {
+	if err := finishReplay(evidence, live, rows, raw, m.TraceChecksum); err != nil {
 		return err
 	}
 	fmt.Printf("replayed %d rows against %s (arm=%s) to %s\n", len(raw), url, m.Arm, *rawOut)
+	return nil
+}
+
+// finishReplay finalizes the evidence and its completion record, and fails the run when the recording is incomplete.
+//
+// The rows are always finalized first, because they are the paid evidence whatever their status.
+// A lost live row used to be only a warning; it now makes the record incomplete and the command fail, since the live file is what survives an instance that dies.
+func finishReplay(evidence *evidenceFile, live *liveRows, trace []bench.TraceRow, raw []bench.RawRow, traceChecksum string) error {
+	var liveFailed int
+	var liveErr error
+	if live != nil {
+		liveFailed, liveErr = live.close()
+	}
+	st := completionFor(trace, raw, liveFailed, liveErr)
+	st.TraceChecksum = traceChecksum
+	if err := evidence.finalize(raw, st); err != nil {
+		return err
+	}
+	fmt.Printf("recording %s: %s\n", st.Status, formatDispositions(st.Dispositions))
+	if st.Status != statusComplete {
+		return fmt.Errorf("the recording at %s is incomplete and is marked so in %s: %v", evidence.final, evidence.final+statusSuffix, st.Reasons)
+	}
 	return nil
 }
 
@@ -1386,12 +1404,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		treatment: map[string]string{},
 	}
 	for _, path := range rawFiles {
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, fmt.Errorf("open %s: %w", path, err)
-		}
-		rows, err := bench.ReadRawRows(f)
-		_ = f.Close()
+		rows, err := readRawEvidence(path)
 		if err != nil {
 			return nil, err
 		}
