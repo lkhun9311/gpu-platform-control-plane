@@ -169,7 +169,7 @@ Thresholds on the oriented log effect (`DecisionRule`):
 | tolerated loss, 10% | lower bound ≥ −ln 1.1 = −0.0953 (at most a tenth more latency) | lower bound ≥ ln 0.9 = −0.1054 |
 | established material harm | upper bound < −0.0953 | upper bound < −0.1054 |
 
-The owner set 10% tolerated loss on the latency endpoints. This registration applies the same 10% to goodput, as an SLO-latency outcome.
+The owner set 10% tolerated loss on the latency endpoints, and confirmed (2026-11-15) that the same 10% applies to goodput, as an SLO-latency outcome. The owner also confirmed E2E p99 as the only designated benefit endpoint.
 
 **One load** (`AssessLoad`), in this order:
 1. **Harm** if the candidate's failure fraction exceeds 0.5% (or is unknown), or any voting endpoint shows established material harm. No ratio can buy back added failures.
@@ -206,14 +206,15 @@ Engine-caused failures, crashes and missed readiness deadlines are **outcomes**,
 ## Attempt ledger and reruns
 
 - Every block attempt is written to the ledger when it ends (`BlockAttempt`: block, status valid / invalid / stopped, reason, start and end, the block it replaces), and never edited. The ledger is archived (`Closed`) before anything is computed from it.
-- `AnalysisSet` refuses a ledger that is not archived; planned blocks out of order; a block attempted twice; an invalid or stopped attempt without a reason; overlapping attempts; anything after a stopped attempt; a replacement that names a valid block ("a valid block is never rerun"), no block, or an already replaced one; a replacement that starts before every planned block has ended; and more than 2 replacements. The analysed set is then exactly the valid blocks; since replacements exist only for invalid blocks, there is never a choice between valid blocks.
+- `AnalysisSet` refuses a ledger that is not archived; an attempt without a recorded start or end, or one that does not end after it starts; planned or replacement blocks out of order (a replacement must take the next block number, since the number fixes its workload seed and orders); a block attempted twice; an invalid or stopped attempt without a reason; overlapping attempts; anything after a stopped attempt; a replacement that names a valid block ("a valid block is never rerun"), no block, or an already replaced one; a replacement that starts before every planned block has ended; and more than 2 replacements. The analysed set is then exactly the valid blocks; since replacements exist only for invalid blocks, there is never a choice between valid blocks.
 - A replacement runs under the next block number with its own pre-generated trace, seeded order and load order.
 - `CheckVersionCampaign` pairs cells only through the bundle and the ledger. It refuses:
   - a cell of a block the ledger never attempted;
   - a cell run under another bundle, λ0, model or tokenizer;
   - a cell that replayed a trace other than the bundle's for its block and load;
   - a duplicate cell;
-  - a valid block missing any of its six cells.
+  - a valid block missing any of its six cells;
+  - an analysed set whose traces offer fewer than 1,000 measured requests at either load. W met the floor over the planned blocks, and a replacement's trace can offer fewer rows than the block it replaces.
 
 ## Frozen campaign bundle
 
@@ -249,7 +250,8 @@ Every phase has a ceiling the runner enforces (`PhaseBounds`):
 - `SessionBoundSeconds` at W = 300 is 55,680 s (15.5 h): about $19.13 at the $1.237/h g5.xlarge price recorded on 2026-10-22, before other charges and the $2 reserve.
 - The rule above therefore can stop the campaign after an expensive calibration, ending it as an incomplete pilot.
 - Most of the bound is engine readiness (600 s, counted twice per visit), which no session has measured on a warm instance; the only recorded figure is a 9 min 31 s cold start on EKS.
-- Narrowing the bounds needs that measurement (preflight timings from the free rehearsal or a first paid preflight) and an amendment of this page; until then the session can start only if the owner accepts that risk.
+- Narrowing the bounds needs that measurement and an amendment of this page.
+- **Owner decision (2026-11-15): measure, then amend.** Readiness is measured in the free rehearsal, and this page is amended with tighter bounds before any paid run. The owner did not accept running under the current bound. So a worst case that fits under $20 with the reserve is itself a release gate.
 
 ## Release gates (before any paid run)
 
@@ -284,7 +286,8 @@ The registered protocol is not executable at this head (attack item 1). Before a
 | attack 8, review a | frozen bundle, model and tokenizer pinned, artifact contents | `CampaignBundle`; `validateV3`; `CheckVersionCampaign` |
 | review b | null values | `checkKeys` refuses a null for any present key |
 | attack 9 | attempt ledger | `AttemptLedger`, `AnalysisSet` |
-| attack 10 | sample floor | `ChooseWindow` from the traces; realised denominators checked |
+| attack 10 | sample floor | `ChooseWindow` from the traces; realised denominators checked; the analysed set recounted in `CheckVersionCampaign` |
+| diff review 3 | replacement numbering, attempt times, analysed floor | `AnalysisSet`; `CheckVersionCampaign` |
 | attack 11 | carry-over, cache, readiness, drain, warm-up | `LoadOrder`; "Blocks, order and lifecycle"; warm-up qualification in the bundle check |
 | attack 12 | zero and infinity cases, Monte Carlo evaluability, chunking | `OrientedEffect`; `ExactBlockBootstrap`; `GoodRequest` |
 | attack 13 | phase bounds, preflight, remaining blocks, teardown deadline | "Budget"; the unresolved overrun stated |
