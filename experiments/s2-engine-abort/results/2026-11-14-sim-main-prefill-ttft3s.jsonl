@@ -1,3 +1,0 @@
-{"case": "prefill_cut", "probe_ttfb_s": 5.602, "idle_after_cut_s": 5.604, "released": false, "generated_tokens_incl_probe": 1.0, "success_delta": {"length": 1.0}, "sim_commit": "4361040faa234c656f0a7f34d083f206b80662ca"}
-{"case": "prefill_cut", "probe_ttfb_s": 5.601, "idle_after_cut_s": 5.602, "released": false, "generated_tokens_incl_probe": 1.0, "success_delta": {"length": 1.0}, "sim_commit": "4361040faa234c656f0a7f34d083f206b80662ca"}
-{"case": "prefill_cut", "probe_ttfb_s": 5.602, "idle_after_cut_s": 5.603, "released": false, "generated_tokens_incl_probe": 1.0, "success_delta": {"length": 1.0}, "sim_commit": "4361040faa234c656f0a7f34d083f206b80662ca"}

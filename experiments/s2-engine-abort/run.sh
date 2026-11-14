@@ -39,6 +39,15 @@ kill -0 "$sim_pid" 2>/dev/null || { echo "simulator exited after start"; tail -2
 owner=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
 [[ "$owner" == "$sim_pid" ]] || { echo "port $port is held by pid ${owner:-unknown}, not the simulator $sim_pid"; exit 1; }
 
+python3 -I - "$out.manifest.json" <<PY
+import json, subprocess, sys
+rev = subprocess.run(["git", "-C", "$here", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+dirty = bool(subprocess.run(["git", "-C", "$here", "status", "--porcelain", "."], capture_output=True, text=True).stdout.strip())
+json.dump({"engine": "llm-d-inference-sim", "sim_commit": "$resolved", "ttft": "${SIM_TTFT:-100ms}",
+           "engine_args": "--max-num-seqs 1 --inter-token-latency 100ms --max-model-len 4096",
+           "abort_args": "$*", "harness_commit": rev, "harness_dirty": dirty}, open(sys.argv[1], "w"), indent=1)
+PY
+
 # The commit goes into every row so a result is never read against a different simulator.
 python3 -I "$here/abort.py" --port "$port" --reps "$reps" "$@" | while read -r row; do
   printf '%s\n' "${row%\}}, \"sim_commit\": \"$resolved\"}"

@@ -37,12 +37,23 @@ for _ in 1 2 3; do
     -d '{"model":"m","messages":[{"role":"user","content":"warm"}],"max_tokens":32,"ignore_eos":true}' >/dev/null
 done
 
-# About 0.04 s per token here, so 300 tokens last about 12 s; a probe normally answers in under 0.1 s, and the
-# 2 s threshold sits far from both.
+# A row has to be re-checkable without this machine, so the run states what produced it.
+revision=$(cat "$HOME/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct/refs/main" 2>/dev/null || echo unknown)
+python3 -I - "$out.manifest.json" <<PY
+import json, subprocess, sys
+rev = subprocess.run(["git", "-C", "$here", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+dirty = bool(subprocess.run(["git", "-C", "$here", "status", "--porcelain", "."], capture_output=True, text=True).stdout.strip())
+json.dump({"engine": "vllm-cpu v0.27.1", "image": "$image", "model": "$model", "model_revision": "$revision",
+           "engine_args": "--max-num-seqs 1 --max-model-len 2048 --dtype bfloat16, VLLM_CPU_KVCACHE_SPACE=2, 8 cpus, 12g",
+           "harness_commit": rev, "harness_dirty": dirty}, open(sys.argv[1], "w"), indent=1)
+PY
+
+# About 0.04 s per token here (control rows record request_duration_s), so 300 tokens last about 12 s.
+# Release is judged as excess over the idle probe baseline that abort.py measures first.
 python3 -I "$here/abort.py" --port "$port" --reps "$reps" \
-  --cases control,stream_cut,plain_cut,prefill_cut,queued_cut \
+  --cases control,busy_control,stream_cut,plain_cut,prefill_baseline,prefill_cut,queued_cut \
   --max-tokens 300 --token-seconds 0.05 --release-threshold 2.0 \
-  --cut-after 1.0 --cut-after-prefill 0.2 --long-prompt-words 1500 | while read -r row; do
+  --cut-after 1.0 --long-prompt-words 1500 | while read -r row; do
   printf '%s\n' "${row%\}}, \"engine\": \"vllm-cpu v0.27.1\", \"image\": \"$image\", \"model\": \"$model\"}"
 done >"$out"
 status=${PIPESTATUS[0]}
