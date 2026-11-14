@@ -652,7 +652,8 @@ func replay(args []string) error {
 			return fmt.Errorf("manifest %s: %w", *manifestPath, perr)
 		}
 	}
-	rows, err := readTraceFile(m.TracePath)
+	// Read once and checked against the manifest's checksum here, because LoadManifest hashed a file it then closed.
+	rows, err := bench.ReadTraceFileVerified(m.TracePath, m.TraceChecksum)
 	if err == nil && *requireExactTokens {
 		// Refused BEFORE the first request, not after the run.
 		//
