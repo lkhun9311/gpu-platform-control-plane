@@ -43,7 +43,7 @@ revision=$(cat "$HOME/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct
 python3 -I - "$out.manifest.json" <<PY
 import json, subprocess, sys
 rev = subprocess.run(["git", "-C", "$here", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-dirty = bool(subprocess.run(["git", "-C", "$here", "status", "--porcelain", "."], capture_output=True, text=True).stdout.strip())
+dirty = bool(subprocess.run(["git", "-C", "$here", "status", "--porcelain", "--", ".", ":!results"], capture_output=True, text=True).stdout.strip())
 json.dump({"engine": "vllm-cpu v0.27.1", "image": "$image", "model": "$model", "model_revision": "$revision",
            "engine_args": "--max-num-seqs 1 --max-model-len 2048 --dtype bfloat16, VLLM_CPU_KVCACHE_SPACE=2, 8 cpus, 12g",
            "harness_commit": rev, "harness_dirty": dirty}, open(sys.argv[1], "w"), indent=1)

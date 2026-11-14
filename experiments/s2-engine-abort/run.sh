@@ -43,7 +43,7 @@ owner=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 
 python3 -I - "$out.manifest.json" <<PY
 import json, subprocess, sys
 rev = subprocess.run(["git", "-C", "$here", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-dirty = bool(subprocess.run(["git", "-C", "$here", "status", "--porcelain", "."], capture_output=True, text=True).stdout.strip())
+dirty = bool(subprocess.run(["git", "-C", "$here", "status", "--porcelain", "--", ".", ":!results"], capture_output=True, text=True).stdout.strip())
 json.dump({"engine": "llm-d-inference-sim", "sim_commit": "$resolved", "ttft": "${SIM_TTFT:-100ms}",
            "engine_args": "--max-num-seqs 1 --inter-token-latency 100ms --max-model-len 4096",
            "abort_args": "$*", "harness_commit": rev, "harness_dirty": dirty}, open(sys.argv[1], "w"), indent=1)
