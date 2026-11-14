@@ -87,11 +87,12 @@ while read -r name want; do
       v=ok
       [ -n "${unasked// /}" ] && v=unasked
       [ -n "${billing_left// /}" ] && v="${v}+left"
-      disarmed=no; KILL_PID=0; CLUSTER=x; REGION=ap-northeast-2
+      disarmed=no; KILL_PID=0; CLUSTER=x; LEASE_KEY=s-x; REGION=ap-northeast-2
       disarm() { disarmed=yes; }
       # The session lease is removed in the same branch as the disarm, and in no other (session cloud safety design).
+      # Leases are named for the session, not the cluster, so a removal by any other name leaves the lease in place.
       leased=kept
-      lease_disarm() { leased=removed; }
+      lease_disarm() { [ "$1" = "$LEASE_KEY" ] && leased=removed; }
       lease_name() { printf "%s" "$1"; }
       bad() { :; }
       log() { :; }
