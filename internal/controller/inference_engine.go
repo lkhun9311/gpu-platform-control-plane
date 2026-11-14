@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -25,12 +26,23 @@ const (
 	// It lives on the Deployment's metadata, not the template, so a change that does not touch the engine does not restart it.
 	renderedGenerationAnnotation = "platform.lkhun9311.github.io/rendered-generation"
 
+	// renderedEngineAnnotation records on the Pod template the image and the full argument list the engine was rendered with, as JSON.
+	// It is on the template so every Pod carries the engine it runs, and a benchmark row read off a Pod is traced to its flags without knowing the profile table.
+	// It changes only when the container's image or args change, which restart the engine anyway.
+	renderedEngineAnnotation = "platform.lkhun9311.github.io/rendered-engine"
+
 	// holdCapPrefillThreshold is the only prefill cap measured; a field would ship an unmeasured setting.
 	holdCapPrefillThreshold = 384
 
 	// exclusiveGPULabel marks a node whose GPUs are not shared; see the node groups in infra/aws/cluster/eks.tf.
 	exclusiveGPULabel = "platform.lkhun9311.github.io/gpu"
 )
+
+// renderedEngine is the value of renderedEngineAnnotation.
+type renderedEngine struct {
+	Image string   `json:"image"`
+	Args  []string `json:"args"`
+}
 
 // vllmProfile is one measured engine configuration.
 type vllmProfile struct {
@@ -186,13 +198,17 @@ func mutateEngineDeployment(infd *platformv1.InferenceDeployment, dep *appsv1.De
 		dep.Spec.Template.Annotations = map[string]string{}
 	}
 	dep.Spec.Template.Annotations[admissionAnnotation] = admissionLabel(infd)
+	args := vllmArgs(infd, p)
+	// A struct of strings cannot fail to marshal, so the error carries nothing.
+	rendered, _ := json.Marshal(renderedEngine{Image: infd.Spec.Image, Args: args})
+	dep.Spec.Template.Annotations[renderedEngineAnnotation] = string(rendered)
 	health := corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")}}
 	gpu := *resource.NewQuantity(int64(infd.Spec.GPUCount), resource.DecimalSI)
 	dep.Spec.Template.Spec.Containers = []corev1.Container{{
 		Name: "server",
-		// spec.image, which the CEL rule pins to the measured digest, so a mirror of that digest is what runs.
+		// spec.image, which the CEL rules pin to a measured or reviewed digest, so a mirror of that digest is what runs.
 		Image: infd.Spec.Image,
-		Args:  vllmArgs(infd, p),
+		Args:  args,
 		Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: servingPort(infd)}},
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{nvidiaGPUResource: gpu},
@@ -236,6 +252,7 @@ func clearEngineResidue(dep *appsv1.Deployment) {
 		return
 	}
 	delete(dep.Spec.Template.Annotations, admissionAnnotation)
+	delete(dep.Spec.Template.Annotations, renderedEngineAnnotation)
 	delete(dep.Annotations, renderedGenerationAnnotation)
 	// The zero strategy is defaulted back to RollingUpdate, which a generic multi-replica service relies on.
 	dep.Spec.Strategy = appsv1.DeploymentStrategy{}

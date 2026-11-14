@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -663,11 +664,15 @@ var _ = Describe("InferenceDeployment Controller", func() {
 				Release: platformv1.VLLMReleaseV0271, AsyncScheduling: platformv1.AsyncSchedulingEnabled}
 			Expect(k8sClient.Create(ctx, o)).To(Succeed())
 			reconcileOK(reconciler())
-			c := getDep().Spec.Template.Spec.Containers[0]
+			dep := getDep()
+			c := dep.Spec.Template.Spec.Containers[0]
 			Expect(c.Image).To(Equal(platformv1.VLLMV0271Image))
 			Expect(c.Args).To(ContainElement("--async-scheduling"))
 			Expect(c.Args).NotTo(ContainElement("--no-async-scheduling"))
 			Expect(capArgs(c)).To(Equal(0))
+			var rendered renderedEngine
+			Expect(json.Unmarshal([]byte(dep.Spec.Template.Annotations[renderedEngineAnnotation]), &rendered)).To(Succeed())
+			Expect(rendered).To(Equal(renderedEngine{Image: c.Image, Args: c.Args}))
 		})
 
 		It("drops the cap and the annotation follows when HoldCap is turned off", func() {
@@ -696,6 +701,8 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			reconcileOK(r)
 			dep := getDep()
 			Expect(dep.Spec.Template.Annotations).NotTo(HaveKey(admissionAnnotation))
+			// A generic container left carrying it would trace a benchmark row to an engine that no longer runs.
+			Expect(dep.Spec.Template.Annotations).NotTo(HaveKey(renderedEngineAnnotation))
 			Expect(dep.Annotations).NotTo(HaveKey(renderedGenerationAnnotation))
 			Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RollingUpdateDeploymentStrategyType))
 			Expect(dep.Spec.Template.Spec.Volumes).To(BeEmpty())

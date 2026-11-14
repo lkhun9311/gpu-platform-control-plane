@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	appsv1 "k8s.io/api/apps/v1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -260,6 +263,35 @@ func TestEngineProfileRefusesCombinationsNobodyReviewed(t *testing.T) {
 		mutate(o)
 		if p, ok := engineProfile(o); ok {
 			t.Errorf("%s rendered %v", name, p.args)
+		}
+	}
+}
+
+// A benchmark row is traced to its engine through this annotation, so it must be exactly what the container runs, for every profile.
+// Mutation that turns this red: record the profile's args without the per-deployment ones, or omit the image.
+func TestRenderedEngineAnnotationIsWhatTheContainerRuns(t *testing.T) {
+	prefix := engineInfD("")
+	prefix.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileV0271A10GPrefixCache
+	for name, infd := range map[string]*platformv1.InferenceDeployment{
+		"holdcap":      engineInfD(platformv1.AdmissionModeHoldCap),
+		"prefix-cache": prefix,
+		"async-on":     experimentalInfD(platformv1.AsyncSchedulingEnabled),
+	} {
+		dep := &appsv1.Deployment{}
+		if !mutateEngineDeployment(infd, dep) {
+			t.Fatalf("%s has no rendering", name)
+		}
+		raw, ok := dep.Spec.Template.Annotations[renderedEngineAnnotation]
+		if !ok {
+			t.Fatalf("%s: no %s on the Pod template", name, renderedEngineAnnotation)
+		}
+		var got renderedEngine
+		if err := json.Unmarshal([]byte(raw), &got); err != nil {
+			t.Fatalf("%s: %s is not JSON: %v", name, raw, err)
+		}
+		c := dep.Spec.Template.Spec.Containers[0]
+		if got.Image != c.Image || !slices.Equal(got.Args, c.Args) {
+			t.Errorf("%s: annotation records %s %v, the container runs %s %v", name, got.Image, got.Args, c.Image, c.Args)
 		}
 	}
 }
