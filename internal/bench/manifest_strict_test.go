@@ -210,6 +210,7 @@ func TestVersionManifestRefusals(t *testing.T) {
 		"no engine settings":          {func(m *RunManifest) { m.Engine = nil }, "engine"},
 		"sampling temperature 0.7":    {func(m *RunManifest) { m.Sampling.Temperature = 0.7 }, "sampling"},
 		"no sampling":                 {func(m *RunManifest) { m.Sampling = nil }, "sampling"},
+		"valid unregistered penalty":  {func(m *RunManifest) { m.Sampling.RepetitionPenalty = 1.05 }, "not the registered"},
 		"no cell identity":            {func(m *RunManifest) { m.Cell = nil }, "cell"},
 		"empty campaign":              {func(m *RunManifest) { m.Cell.CampaignID = "" }, "campaignId"},
 		"block beyond replacements":   {func(m *RunManifest) { m.Cell.Block = 8 }, "block"},
