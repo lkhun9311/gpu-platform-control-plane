@@ -165,3 +165,16 @@ func TestFixedSpacingChargesOnlyWhileARequestWaits(t *testing.T) {
 	}
 	charged(t, b, holdUsage{})
 }
+
+// The HoldCap admitter a server builds for its first HoldCap backend charges the server's own budget.
+// Mutation that turns it red: build the HoldCap admitter without useHoldBudget in admissionFor.
+func TestServerGivesItsHoldCapAdmitterTheBudget(t *testing.T) {
+	s := &Server{}
+	a, mode, holdCap := s.admissionFor([]*BackendRef{{Admission: AdmissionHoldCap}})
+	if !holdCap || mode != AdmissionHoldCap {
+		t.Fatalf("a HoldCap head selected mode %q", mode)
+	}
+	if got := a.(holdCapAdmitter).s.budget; got != s.holds() {
+		t.Fatalf("the HoldCap admitter charges %p, not the server's budget %p", got, s.holds())
+	}
+}

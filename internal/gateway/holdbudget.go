@@ -75,6 +75,40 @@ func newHoldBudget(l HoldLimits) *holdBudget {
 	return &holdBudget{limits: l, tenants: map[string]holdUsage{}}
 }
 
+// holdBudgetUser is an admitter that holds requests and so must charge them to the gateway's budget.
+type holdBudgetUser interface {
+	useHoldBudget(*holdBudget)
+}
+
+// configure changes the limits for requests that start waiting after it; those already held keep their charge.
+func (b *holdBudget) configure(l HoldLimits) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.limits = l
+}
+
+// holds is the gateway's one hold budget, made with the defaults the first time anything asks for it.
+// A Server that is never configured still bounds what it holds, because an unbounded default is the failure this exists to stop.
+func (s *Server) holds() *holdBudget {
+	s.holdBudgetOnce.Do(func() { s.holdBudget = newHoldBudget(DefaultHoldLimits) })
+	return s.holdBudget
+}
+
+// SetHoldLimits replaces the hold limits, refusing ones that Validate rejects and leaving the previous limits in force.
+// It may be called before or after SetAdmitter, because every admitter shares the same budget and only its limits change.
+func (s *Server) SetHoldLimits(l HoldLimits) error {
+	if err := l.Validate(); err != nil {
+		return err
+	}
+	s.holds().configure(l)
+	return nil
+}
+
+// refusedForHold reports whether an admission reason is the hold budget's, which the server answers 503 rather than 429.
+func refusedForHold(reason string) bool {
+	return reason == reasonHoldFull || reason == reasonHoldTenantFull
+}
+
 // take charges one held request of n body bytes to tenant, or names the limit it would pass and charges nothing.
 // The tenant's share is checked first, because when both are reached the tenant's own excess is the cause it can act on.
 // A nil budget charges nothing, so an admitter built without one holds as it always did.

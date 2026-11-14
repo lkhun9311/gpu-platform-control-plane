@@ -101,7 +101,10 @@ func anyPriorityScheduled(targets []*BackendRef) bool {
 // A HoldCap backend replaces the process-wide mode for its requests, and the two never stack, because the cap was measured with serial-prefill alone.
 func (s *Server) admissionFor(targets []*BackendRef) (Admitter, AdmissionMode, bool) {
 	if len(targets) > 0 && targets[0].Admission == AdmissionHoldCap {
-		s.holdCapOnce.Do(func() { s.holdCap = newHoldCapAdmitter() })
+		s.holdCapOnce.Do(func() {
+			s.holdCap = newHoldCapAdmitter()
+			s.holdCap.useHoldBudget(s.holds())
+		})
 		return s.holdCap, AdmissionHoldCap, true
 	}
 	admitter := s.admitter
