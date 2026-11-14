@@ -60,7 +60,7 @@ var _ = Describe("the hold budget in the pipeline", func() {
 		refused := send()
 		defer func() { _ = refused.Body.Close() }()
 		Expect(refused.StatusCode).To(Equal(http.StatusServiceUnavailable))
-		Expect(refused.Header.Get(HeaderAdmissionReason)).To(Equal(reasonHoldTenantFull))
+		Expect(refused.Header.Get(HeaderAdmissionReason)).To(Equal(ReasonHoldTenantFull))
 		Expect(refused.Header.Get("Retry-After")).NotTo(BeEmpty())
 		var payload struct {
 			Error struct {
@@ -69,7 +69,7 @@ var _ = Describe("the hold budget in the pipeline", func() {
 		}
 		raw, _ := io.ReadAll(refused.Body)
 		Expect(json.Unmarshal(raw, &payload)).To(Succeed(), string(raw))
-		Expect(payload.Error.Code).To(Equal(reasonHoldTenantFull))
+		Expect(payload.Error.Code).To(Equal(ReasonHoldTenantFull))
 
 		open()
 		for _, ch := range []chan *http.Response{inPrefill, held} {

@@ -16,10 +16,12 @@ import (
 // Design: docs/superpowers/specs/2026-11-14-gateway-hold-capacity-design.md.
 
 const (
-	// reasonHoldFull refuses a request that would have waited when the gateway already holds as many requests or bytes as it may.
-	reasonHoldFull = "hold_full"
-	// reasonHoldTenantFull refuses one whose tenant already holds its share, so one tenant cannot take every slot the gateway has.
-	reasonHoldTenantFull = "hold_tenant_full"
+	// The two reasons are exported because internal/bench must recognise them on a recorded 503 and keep them out of the policy's refusals.
+
+	// ReasonHoldFull refuses a request that would have waited when the gateway already holds as many requests or bytes as it may.
+	ReasonHoldFull = "hold_full"
+	// ReasonHoldTenantFull refuses one whose tenant already holds its share, so one tenant cannot take every slot the gateway has.
+	ReasonHoldTenantFull = "hold_tenant_full"
 )
 
 // HoldLimits bounds the requests the gateway holds at once and the body bytes they keep, in total and per tenant.
@@ -106,7 +108,7 @@ func (s *Server) SetHoldLimits(l HoldLimits) error {
 
 // refusedForHold reports whether an admission reason is the hold budget's, which the server answers 503 rather than 429.
 func refusedForHold(reason string) bool {
-	return reason == reasonHoldFull || reason == reasonHoldTenantFull
+	return reason == ReasonHoldFull || reason == ReasonHoldTenantFull
 }
 
 // take charges one held request of n body bytes to tenant, or names the limit it would pass and charges nothing.
@@ -120,10 +122,10 @@ func (b *holdBudget) take(tenant string, n int64) (bool, string) {
 	defer b.mu.Unlock()
 	t := b.tenants[tenant]
 	if t.requests+1 > b.limits.TenantRequests || t.bytes+n > b.limits.TenantBytes {
-		return false, reasonHoldTenantFull
+		return false, ReasonHoldTenantFull
 	}
 	if b.total.requests+1 > b.limits.Requests || b.total.bytes+n > b.limits.Bytes {
-		return false, reasonHoldFull
+		return false, ReasonHoldFull
 	}
 	b.tenants[tenant] = holdUsage{requests: t.requests + 1, bytes: t.bytes + n}
 	b.total = holdUsage{requests: b.total.requests + 1, bytes: b.total.bytes + n}

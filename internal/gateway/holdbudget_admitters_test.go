@@ -62,8 +62,8 @@ func TestSerialPrefillChargesOnlyWhileARequestWaits(t *testing.T) {
 	})
 	charged(t, b, holdUsage{requests: 1, bytes: 400})
 
-	if _, ok, reason := s.Reserve(ctx, heldBody, serialBackend(), "a", tierStandard); ok || reason != reasonHoldTenantFull {
-		t.Fatalf("a tenant past its share: admitted %v, reason %q; want refused for %q", ok, reason, reasonHoldTenantFull)
+	if _, ok, reason := s.Reserve(ctx, heldBody, serialBackend(), "a", tierStandard); ok || reason != ReasonHoldTenantFull {
+		t.Fatalf("a tenant past its share: admitted %v, reason %q; want refused for %q", ok, reason, ReasonHoldTenantFull)
 	}
 	if _, waiting := s.state(serialBackend()); waiting != 1 {
 		t.Fatalf("the refused request joined the line: %d waiting", waiting)
@@ -157,7 +157,7 @@ func TestFixedSpacingChargesOnlyWhileARequestWaits(t *testing.T) {
 		return f.Reserve(ctx, heldBody, serialBackend(), "a", tierStandard)
 	})
 	charged(t, b, holdUsage{requests: 1, bytes: 400})
-	if _, ok, reason := f.Reserve(ctx, heldBody, serialBackend(), "a", tierStandard); ok || reason != reasonHoldTenantFull {
+	if _, ok, reason := f.Reserve(ctx, heldBody, serialBackend(), "a", tierStandard); ok || reason != ReasonHoldTenantFull {
 		t.Fatalf("a tenant past its share: admitted %v, reason %q", ok, reason)
 	}
 	if r := <-second; r.ok || r.reason != reasonFixedSpacingHoldTimeout {

@@ -14,8 +14,8 @@ func TestHoldBudgetRefusesATenantPastItsShareAndNotTheOthers(t *testing.T) {
 			t.Fatal("a tenant within its share was refused")
 		}
 	}
-	if ok, reason := b.take("a", 10); ok || reason != reasonHoldTenantFull {
-		t.Fatalf("a tenant's third held request: got ok=%v reason=%q, want refused for %q", ok, reason, reasonHoldTenantFull)
+	if ok, reason := b.take("a", 10); ok || reason != ReasonHoldTenantFull {
+		t.Fatalf("a tenant's third held request: got ok=%v reason=%q, want refused for %q", ok, reason, ReasonHoldTenantFull)
 	}
 	if ok, reason := b.take("b", 10); !ok {
 		t.Fatalf("another tenant was refused with %q while the gateway still had room", reason)
@@ -31,8 +31,8 @@ func TestHoldBudgetRefusesAtTheTotalWhenEveryTenantIsWithinItsShare(t *testing.T
 			t.Fatalf("tenant %s was refused below the total", tenant)
 		}
 	}
-	if ok, reason := b.take("d", 10); ok || reason != reasonHoldFull {
-		t.Fatalf("the fourth held request: got ok=%v reason=%q, want refused for %q", ok, reason, reasonHoldFull)
+	if ok, reason := b.take("d", 10); ok || reason != ReasonHoldFull {
+		t.Fatalf("the fourth held request: got ok=%v reason=%q, want refused for %q", ok, reason, ReasonHoldFull)
 	}
 }
 
@@ -40,12 +40,12 @@ func TestHoldBudgetRefusesAtTheTotalWhenEveryTenantIsWithinItsShare(t *testing.T
 // Mutation that turns it red: compare requests only.
 func TestHoldBudgetLimitsBytesAsWellAsRequests(t *testing.T) {
 	b := newHoldBudget(small)
-	if ok, reason := b.take("a", 201); ok || reason != reasonHoldTenantFull {
-		t.Fatalf("a body over the tenant's bytes: got ok=%v reason=%q, want %q", ok, reason, reasonHoldTenantFull)
+	if ok, reason := b.take("a", 201); ok || reason != ReasonHoldTenantFull {
+		t.Fatalf("a body over the tenant's bytes: got ok=%v reason=%q, want %q", ok, reason, ReasonHoldTenantFull)
 	}
 	b.take("a", 200)
-	if ok, reason := b.take("b", 101); ok || reason != reasonHoldFull {
-		t.Fatalf("bytes past the total: got ok=%v reason=%q, want %q", ok, reason, reasonHoldFull)
+	if ok, reason := b.take("b", 101); ok || reason != ReasonHoldFull {
+		t.Fatalf("bytes past the total: got ok=%v reason=%q, want %q", ok, reason, ReasonHoldFull)
 	}
 }
 
