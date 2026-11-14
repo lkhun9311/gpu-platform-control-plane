@@ -505,7 +505,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			// A malformed chunk mid-stream is a stream error, but any first token already observed still stands.
 			res.ErrorKind = errorKindStream
-			res.EndUnixNanos = h.now().UnixNano()
+			res.stampEnd(h.now())
 			return res
 		}
 		// An in-band error ends the stream and is kept verbatim, because the vocabulary is the engine's.
@@ -517,7 +517,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		if chunk.Error != nil {
 			res.ErrorKind = errorKindStream
 			res.StreamError = strings.TrimSpace(chunk.Error.Type + ": " + chunk.Error.Message)
-			res.EndUnixNanos = h.now().UnixNano()
+			res.stampEnd(h.now())
 			return res
 		}
 		if chunk.Usage != nil {
@@ -534,12 +534,15 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 			res.FinishReason = chunk.Choices[0].FinishReason
 		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
-			now := h.now().UnixNano()
+			// One reading serves every stamp of this frame, so the unix and the monotonic records are the same instant.
+			now := h.now()
 			if res.FirstTokenUnixNanos == 0 {
-				res.FirstTokenUnixNanos = now
+				res.FirstTokenUnixNanos = now.UnixNano()
+				res.FirstContentAt = now
 			}
+			res.LastContentAt = now
 			if h.recordContentTimes {
-				res.ContentUnixNanos = append(res.ContentUnixNanos, now)
+				res.ContentAt = append(res.ContentAt, now)
 			}
 			res.OutputTokens++
 		}
@@ -557,8 +560,14 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		res.ErrorKind = errorKindStream
 		res.StreamError = streamErrorNoEndMarker
 	}
-	res.EndUnixNanos = h.now().UnixNano()
+	res.stampEnd(h.now())
 	return res
+}
+
+// stampEnd records the stream's end on both clocks from one reading.
+func (r *SendResult) stampEnd(now time.Time) {
+	r.EndUnixNanos = now.UnixNano()
+	r.EndAt = now
 }
 
 // streamErrorNoEndMarker is the StreamError of a stream that ended without its [DONE] marker.

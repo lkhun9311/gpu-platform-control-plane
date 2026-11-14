@@ -557,16 +557,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		interFrameByTenant: map[string][]float64{},
 	}
 	var premiumTotal, premiumTimedOut, premiumLost int
-	var firstSend, lastEnd int64
 	for _, r := range rows {
-		// The wall clock the arm occupied, taken from the rows rather than from a timer the runner kept, so a
-		// re-scored evidence file yields the same throughput as the run that produced it.
-		if r.SendUnixNanos > 0 && (firstSend == 0 || r.SendUnixNanos < firstSend) {
-			firstSend = r.SendUnixNanos
-		}
-		if r.EndUnixNanos > lastEnd {
-			lastEnd = r.EndUnixNanos
-		}
 		s.tallyDelivered(r, &delivered)
 		s.tallyPromptLen(r)
 		// The declared-load gate's population is every offered request, so this call carries no condition.
@@ -708,7 +699,8 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// Losing exactly that many -- 18 of 1,840, which the old boundary waved through -- can remove the entire
 	// quantile mass the statistic is made of, and the ones that vanish are the ones that were slow enough to
 	// die. The reported p99 then is a p98 wearing the other name.
-	s.SetActiveSeconds(nanosToMs(lastEnd-firstSend) / 1000)
+	// The time the arm occupied is taken from the rows rather than from a timer the runner kept, so a re-scored evidence file yields the same throughput as the run that produced it.
+	s.SetActiveSeconds(nanosToMs(activeSpanNanos(rows)) / 1000)
 	delivered.finish(&s)
 
 	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) >= 0.01 {

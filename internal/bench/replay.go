@@ -68,6 +68,10 @@ type RawRow struct {
 	// which a per-request average (end minus first, over frames minus one) cannot give; it is a token gap only at
 	// one token per frame.
 	ContentGapsMicros []int64 `json:"contentGapsMicros,omitempty"`
+	// Clock is this request's timeline on the monotonic clock, which every latency is computed from when present.
+	//
+	// Absent on rows written before it existed, and on rows from a sender that reports no time.Time values; those keep the wall-clock arithmetic they were scored with.
+	Clock *RequestClock `json:"clock,omitempty"`
 	// PromptLenChars is the prompt size in characters this request was generated at.
 	//
 	// It is on the ROW for the reason Study gives below: the report, the gates and the published documents
@@ -219,9 +223,14 @@ type RawRow struct {
 }
 
 // TTFTNanos returns the time to first token, or (0,false) when no first token was recorded.
+//
+// The unix stamps decide whether the events happened, as they always have; the monotonic clock, when the row carries it, decides how far apart they were.
 func (r RawRow) TTFTNanos() (int64, bool) {
 	if r.SendUnixNanos == 0 || r.FirstTokenUnixNanos == 0 {
 		return 0, false
+	}
+	if r.Clock != nil && r.Clock.FirstContentNanos != nil {
+		return clockSpan(r.Clock.SendNanos, r.Clock.FirstContentNanos)
 	}
 	return r.FirstTokenUnixNanos - r.SendUnixNanos, true
 }
@@ -230,6 +239,9 @@ func (r RawRow) TTFTNanos() (int64, bool) {
 func (r RawRow) E2ENanos() (int64, bool) {
 	if r.SendUnixNanos == 0 || r.EndUnixNanos == 0 {
 		return 0, false
+	}
+	if r.Clock != nil && r.Clock.EndNanos != nil {
+		return clockSpan(r.Clock.SendNanos, r.Clock.EndNanos)
 	}
 	return r.EndUnixNanos - r.SendUnixNanos, true
 }
@@ -240,8 +252,13 @@ type SendResult struct {
 	FirstTokenUnixNanos int64
 	// EndUnixNanos is when the response finished; zero if it never did.
 	EndUnixNanos int64
-	// ContentUnixNanos is every content frame's arrival time, kept only when the sender was asked to.
-	ContentUnixNanos []int64
+	// FirstContentAt, LastContentAt and EndAt are the same instants as the unix stamps, as values that keep Go's monotonic reading.
+	//
+	// Replay measures every elapsed time from them, so a sender must take them from time.Now and never rebuild them from unix nanoseconds.
+	// Zero means the event did not happen, or the sender does not report them, and the row then keeps the wall-clock arithmetic.
+	FirstContentAt, LastContentAt, EndAt time.Time
+	// ContentAt is every content frame's arrival, kept only when the sender was asked to.
+	ContentAt []time.Time
 	// OutputTokens is the number of SSE frames that carried content; EngineOutputTokens is the token count.
 	OutputTokens int
 	// PromptTokens is the engine's own count of the prompt, zero when it reported none.
@@ -371,54 +388,63 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 		wg.Add(1)
 		go func(i int, tr TraceRow) {
 			defer wg.Done()
-			sendNanos := clock().UnixNano()
+			sendAt := clock()
+			sendNanos := sendAt.UnixNano()
 			res := sender.Send(ctx, tr, sendNanos)
 			var origin, returned int64
 			var gaps []int64
 			if opts.RecordTiming {
 				origin, returned = start.UnixNano(), clock().UnixNano()
-				for k := 1; k < len(res.ContentUnixNanos); k++ {
-					gaps = append(gaps, (res.ContentUnixNanos[k]-res.ContentUnixNanos[k-1])/1000)
+				// Sub on the frames' own time.Time values, so a wall step between two frames cannot become a gap.
+				for k := 1; k < len(res.ContentAt); k++ {
+					gaps = append(gaps, res.ContentAt[k].Sub(res.ContentAt[k-1]).Microseconds())
 				}
 			}
 			rows[i] = RawRow{
 				ReplayOriginUnixNanos: origin,
 				ReturnedUnixNanos:     returned,
 				ContentGapsMicros:     gaps,
-				Index:                 tr.Index,
-				Study:                 opts.Study,
-				Arm:                   opts.Arm,
-				Priority:              priorityFor(opts.Priorities, tr.Tenant),
-				RequestID:             RequestIDFor(opts.RequestIDPrefix, tr.Index),
-				Tenant:                tr.Tenant,
-				IsNoisy:               tr.IsNoisy,
-				ScheduledOffsetMs:     tr.OffsetMs,
-				SendUnixNanos:         sendNanos,
-				FirstTokenUnixNanos:   res.FirstTokenUnixNanos,
-				EndUnixNanos:          res.EndUnixNanos,
-				PromptLenChars:        tr.PromptLenChars,
-				EstInputTokens:        estInput(tr.PromptLenChars),
-				ExactInputTokens:      tr.ExactInputTokens,
-				EngineInputTokens:     res.PromptTokens,
-				EngineOutputTokens:    res.EngineOutputTokens,
-				FinishReason:          res.FinishReason,
-				BackendState:          res.BackendState,
-				OutputTokens:          res.OutputTokens,
-				HTTPStatus:            res.HTTPStatus,
-				ErrorKind:             res.ErrorKind,
-				StreamTerminated:      res.StreamTerminated,
-				StreamError:           res.StreamError,
-				Tier:                  res.Tier,
-				AdmissionReason:       res.AdmissionReason,
-				EnginePriority:        res.EnginePriority,
-				RoutingPolicy:         res.RoutingPolicy,
-				RoutedBackend:         res.RoutedBackend,
-				RoutingReason:         res.RoutingReason,
-				RoutingMatch:          res.RoutingMatch,
-				RoutingLoad:           res.RoutingLoad,
-				TraceChecksum:         opts.TraceChecksum,
-				LongThreshold:         opts.LongThreshold,
-				MatchTolerance:        opts.MatchTolerance,
+				Clock: &RequestClock{
+					OriginUnixNanos:   start.UnixNano(),
+					SendNanos:         elapsedSince(start, sendAt),
+					FirstContentNanos: elapsedSince(start, res.FirstContentAt),
+					LastContentNanos:  elapsedSince(start, res.LastContentAt),
+					EndNanos:          elapsedSince(start, res.EndAt),
+				},
+				Index:               tr.Index,
+				Study:               opts.Study,
+				Arm:                 opts.Arm,
+				Priority:            priorityFor(opts.Priorities, tr.Tenant),
+				RequestID:           RequestIDFor(opts.RequestIDPrefix, tr.Index),
+				Tenant:              tr.Tenant,
+				IsNoisy:             tr.IsNoisy,
+				ScheduledOffsetMs:   tr.OffsetMs,
+				SendUnixNanos:       sendNanos,
+				FirstTokenUnixNanos: res.FirstTokenUnixNanos,
+				EndUnixNanos:        res.EndUnixNanos,
+				PromptLenChars:      tr.PromptLenChars,
+				EstInputTokens:      estInput(tr.PromptLenChars),
+				ExactInputTokens:    tr.ExactInputTokens,
+				EngineInputTokens:   res.PromptTokens,
+				EngineOutputTokens:  res.EngineOutputTokens,
+				FinishReason:        res.FinishReason,
+				BackendState:        res.BackendState,
+				OutputTokens:        res.OutputTokens,
+				HTTPStatus:          res.HTTPStatus,
+				ErrorKind:           res.ErrorKind,
+				StreamTerminated:    res.StreamTerminated,
+				StreamError:         res.StreamError,
+				Tier:                res.Tier,
+				AdmissionReason:     res.AdmissionReason,
+				EnginePriority:      res.EnginePriority,
+				RoutingPolicy:       res.RoutingPolicy,
+				RoutedBackend:       res.RoutedBackend,
+				RoutingReason:       res.RoutingReason,
+				RoutingMatch:        res.RoutingMatch,
+				RoutingLoad:         res.RoutingLoad,
+				TraceChecksum:       opts.TraceChecksum,
+				LongThreshold:       opts.LongThreshold,
+				MatchTolerance:      opts.MatchTolerance,
 			}
 			if opts.OnRow != nil {
 				onRowMu.Lock()
