@@ -86,10 +86,12 @@ def metrics(port: int) -> dict:
     # vLLM puts `engine` before `finished_reason` and the simulator does not, so the label is found anywhere.
     out["success"] = {}
     found = re.findall(r"^vllm:request_success_total\{([^}]*)\} (%s)(?: -?\d+)?$" % NUMBER, text, re.M)
-    if len(found) != len(re.findall(r"^vllm:request_success_total\{", text, re.M)):
+    if len(found) != len(re.findall(r"^vllm:request_success_total[{ ]", text, re.M)):
         raise Invalid("unparsed sample for vllm:request_success_total")
     for labels, value in found:
         reason = re.search(r'finished_reason="([^"]+)"', labels)
+        if not reason:
+            raise Invalid("a vllm:request_success_total sample has no finished_reason")
         if reason:
             if reason.group(1) in out["success"]:
                 raise Invalid("several series for finished_reason=%s; one engine is assumed" % reason.group(1))
@@ -272,8 +274,8 @@ def check_complete(s: Stream, tokens: int, what: str) -> None:
                       (what, s.finishes(), s.usage().get("completion_tokens"), tokens))
 
 
-def probe(port: int, limit: float) -> float:
-    """Time to the probe's first SSE event; the probe has to finish with exactly one generated token."""
+def probe(port: int, limit: float) -> tuple[float, float]:
+    """Times to the probe's first SSE event and to its [DONE]; it has to finish with exactly one generated token."""
     started = time.monotonic()
     s = Stream(send(port, True, 1), started)
     try:
@@ -281,7 +283,7 @@ def probe(port: int, limit: float) -> float:
     finally:
         s.sock.close()
     check_complete(s, 1, "the probe")
-    return s.first_event_at - started
+    return s.first_event_at - started, time.monotonic() - started
 
 
 def wait_for(port: int, done, limit: float) -> float | None:
@@ -300,7 +302,7 @@ def idle(m: dict) -> bool:
 def baseline_probe(port: int, limit: float) -> float:
     if wait_for(port, idle, limit) is None:
         raise Invalid("engine not idle before the baseline")
-    return max(probe(port, limit) for _ in range(3))
+    return max(probe(port, limit)[0] for _ in range(3))
 
 
 def long_prompt(words: int) -> str:
@@ -309,14 +311,18 @@ def long_prompt(words: int) -> str:
 
 
 def finish_with_probe(port: int, row: dict, a: argparse.Namespace, limit: float) -> None:
-    ttfb = probe(port, limit)
+    ttfb, done = probe(port, limit)
     settled = wait_for(port, idle, limit)
     row["probe_ttfb_s"] = round(ttfb, 3)
     row["probe_excess_s"] = round(ttfb - a.baseline, 3)
-    row["idle_after_probe_s"] = None if settled is None else round(settled, 3)
-    # Prompt service and prompt idle are both required; an engine that answers fast but stays busy is not free.
+    row["probe_done_s"] = round(done, 3)
+    # Measured from the probe's [DONE], not from its first event.
+    row["idle_after_probe_done_s"] = None if settled is None else round(settled, 3)
+    # Prompt service, prompt completion and prompt idle are all required; an engine that answers fast but stays
+    # busy, or holds the probe open, is not free.
     row["released"] = (settled is not None and settled < a.release_threshold
-                       and ttfb - a.baseline < a.release_threshold)
+                       and ttfb - a.baseline < a.release_threshold
+                       and done - a.baseline < a.release_threshold)
 
 
 def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
@@ -493,6 +499,8 @@ def main() -> int:
           flush=True)
     failures = []
     for rep in range(a.reps):
+        # The prefill cut is timed from this rep's own baseline, never a stale one.
+        a.prefill_first_event = None
         for name in cases:
             try:
                 row = run_case(a.port, name, a)
@@ -504,8 +512,10 @@ def main() -> int:
             print(json.dumps(row), flush=True)
             if row.get("valid") and name == "control" and not row["released"]:
                 failures.append("control rep %d did not release" % rep)
-            if row.get("valid") and name == "busy_control" and row["released"]:
-                failures.append("busy_control rep %d released, so the probe can overtake a running request" % rep)
+            # Judged on the probe delay alone, so a probe that overtook cannot pass on a slow idle.
+            if row.get("valid") and name == "busy_control" and row["probe_excess_s"] < a.release_threshold:
+                failures.append("busy_control rep %d answered the probe early, so it can overtake a running request"
+                                % rep)
             time.sleep(0.5)
     for f in failures:
         print("FAIL: " + f, file=sys.stderr)
