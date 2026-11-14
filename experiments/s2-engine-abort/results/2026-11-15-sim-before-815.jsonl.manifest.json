@@ -1,0 +1,9 @@
+{
+ "engine": "llm-d-inference-sim",
+ "sim_commit": "ee5597e682c484787eeb59752fcd70ccba3ab104",
+ "ttft": "100ms",
+ "engine_args": "--max-num-seqs 1 --inter-token-latency 100ms --max-model-len 4096",
+ "abort_args": "--cases control,busy_control,stream_cut",
+ "harness_commit": "4e453979fb5c2df54db6756fdf085e47a7258f47",
+ "harness_dirty": false
+}
