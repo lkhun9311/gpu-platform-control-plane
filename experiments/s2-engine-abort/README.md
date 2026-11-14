@@ -6,51 +6,54 @@ This page asks what the engine does next, measured directly against the engine, 
 ## Setup
 
 - One sequence at a time (`--max-num-seqs 1`), so a one-token probe can only be answered from a free slot.
-  Each run starts with three idle probes; a probe's time to first SSE event in excess of that idle baseline is the release measure, with a 2 s threshold in every run, and the engine also has to reach idle afterwards.
-- The probe must answer HTTP 200 with no SSE error and exactly one generated token; metrics need HTTP 200, both gauges and one engine; counters are read once five scrapes over one second agree.
+  Each run starts with three idle probes. The measure is a probe's time to first SSE event in excess of that idle baseline, so it is a delay relative to an idle engine, not a time from the cut to release.
+  A row counts as released when that excess and the time from the probe's answer to idle are both under 2 s, the same threshold in every run.
+- The probe must answer HTTP 200 with no SSE error and exactly one generated token; metrics need HTTP 200, both gauges, one engine and every sample parsed; counters are read once five scrapes over one second agree, a heuristic window rather than a guarantee that no later update exists.
 - Cases (`abort.py`); each row is valid with its preconditions checked, or invalid with the reason, and a run with an invalid row exits non-zero:
   - `control` streams to `[DONE]` and must produce the full token count;
   - `busy_control` probes while a stream still runs and must not count as released, so a probe cannot overtake a running request; a run where it does fails;
-  - `stream_cut` closes after five SSE events, valid only while the stream is still open;
-  - `plain_cut` closes a non-streamed request one second in, valid only if it was running and no response had arrived;
+  - `stream_cut` closes after five SSE events, valid only if the stream is open with no finish reason yet;
+  - `plain_cut` closes a non-streamed request one second in, valid only if it was running and not a byte of response had arrived;
   - `prefill_baseline` sends a long prompt (1,500 words behind a nonce, so never a prefix-cache hit) uncut and records its prompt tokens and time to first SSE event;
-  - `prefill_cut` sends it again and closes at 0.4 of that time, valid only if no SSE event had arrived and the probe then waited at least 0.1 s past the baseline, which shows the engine was occupied by the request;
-  - `queued_cut` queues a request behind a holder, closes it while it waits, and counts as released only if the holder still delivered at least five events after the queue cleared, since the waiting gauge also falls when a queued request starts.
+  - `prefill_cut` sends it again and closes at 0.4 of that time, valid only if no SSE event had arrived and the probe then waited at least 0.1 s past the baseline;
+  - `queued_cut` queues a request behind a holder and closes it while it waits; it counts as removed only if the queue cleared within 2 s and the holder still delivered at least five events afterwards, since the waiting gauge also falls when a queued request starts.
 - Simulator: `run.sh <sim-commit> <out.jsonl> [reps [abort.py options]]`, 100 ms per token, 100 ms to first token unless `SIM_TTFT` sets it, 50 tokens.
 - vLLM: `run-vllm-cpu.sh <out.jsonl> [reps]`, `vllm/vllm-openai-cpu` pinned by digest, the vLLM version read inside the container (0.27.1), `Qwen/Qwen2.5-0.5B-Instruct` at a pinned revision, 300 tokens; the server log is kept beside the rows.
-- Both pick a free port, refuse a port answered by anything but the engine they started, and write `<out>.manifest.json`; all four manifests name harness commit `ceec7bb3`, clean.
+- Both pick a free port, refuse a port answered by anything but the engine they started, and write `<out>.manifest.json`; all four manifests name harness commit `f11bc1f2`, clean.
 
-## Result (2026-11-15, three repetitions per cell, 54 rows, all valid)
+## Result (2026-11-15, three repetitions per cell)
 
-| engine | case | probe excess over idle | released | generation counter delta | success counter delta |
-|---|---|---:|---|---:|---|
-| vLLM 0.27.1 CPU | control (11.3 to 12.1 s) | −0.047 to 0.008 s | 3 of 3 | 301 | 2 × `length` |
-| vLLM 0.27.1 CPU | busy_control | 11.16 to 11.50 s | 0 of 3, as required | 301 | 2 × `length` |
-| vLLM 0.27.1 CPU | stream_cut | 0.021 to 0.023 s | 3 of 3 | 5 | 1 × `length` |
-| vLLM 0.27.1 CPU | plain_cut | −0.045 to 0.018 s | 3 of 3 | 24, 28, 29 | 1 × `length` |
-| vLLM 0.27.1 CPU | prefill_cut (cut 0.19 to 0.21 s; uncut first event 0.47 to 0.52 s; 1,548 prompt tokens) | 0.278 to 0.290 s | 3 of 3 | 1 | 1 × `length` |
-| vLLM 0.27.1 CPU | queued_cut | queue cleared 0.035 to 0.089 s after the cut; holder then sent 295 to 297 more events | 3 of 3 | 301 | 2 × `length` |
-| simulator main `4361040` | stream_cut | 0.300 to 0.301 s | 3 of 3 | 1 | 1 × `length` |
-| simulator main | plain_cut | 4.008 to 4.009 s | 0 of 3 | 51 | 2 × `length` |
-| simulator main | prefill_cut (cut 0.04 s, first event at 0.10 s) | 0.160 s | 3 of 3 | 1 | 1 × `length` |
-| simulator main | queued_cut | queue cleared 4.93 s, with no holder event after it | 0 of 3 | 51 | 2 × `length` |
-| simulator main, 5 s to first token | prefill_cut (cut 2.0 s) | 3.099 to 3.100 s | 0 of 3 | 1 | 1 × `length` |
-| simulator before #815, `ee5597e` | stream_cut | 4.609 s | 0 of 3 | 51 | 2 × `length` |
+63 case rows, all valid, plus one idle-baseline record per run.
 
-Deltas include the probe (1 token, 1 `length`) and, for `control`, `busy_control` and `queued_cut`, the uncut request (300 or 50 tokens, 1 `length`).
-In every run every `control` released and every `busy_control` did not, with the same 2 s threshold.
+| engine | case | measured | released / removed | generation counter delta | success counter delta |
+|---|---|---|---|---:|---|
+| vLLM 0.27.1 CPU | control (12.0 s) | probe excess 0.000 to 0.052 s | 3 of 3 | 301 | 2 × `length` |
+| vLLM 0.27.1 CPU | busy_control | probe excess 11.88 to 11.94 s | 0 of 3, as required | 301 | 2 × `length` |
+| vLLM 0.27.1 CPU | stream_cut | probe excess 0.065 to 0.069 s | 3 of 3 | 5 | 1 × `length` |
+| vLLM 0.27.1 CPU | plain_cut | probe excess 0.005 to 0.071 s | 3 of 3 | 26 to 28 | 1 × `length` |
+| vLLM 0.27.1 CPU | prefill_cut (cut 0.19 s; uncut first event 0.48 s; 1,548 prompt tokens) | probe excess 0.337 to 0.338 s | 3 of 3 | 1 | 1 × `length` |
+| vLLM 0.27.1 CPU | queued_cut | queue cleared 0.070 to 0.086 s after the cut; holder then sent 296 more events and finished 11.8 to 12.0 s after the cut | 3 of 3 removed | 301 | 2 × `length` |
+| simulator main `4361040` | stream_cut | probe excess 0.300 to 0.301 s | 3 of 3 | 1 | 1 × `length` |
+| simulator main | plain_cut | probe excess 4.008 to 4.009 s | 0 of 3 | 51 | 2 × `length` |
+| simulator main | prefill_cut (cut 0.04 s, first event at 0.10 s) | probe excess 0.160 s | 3 of 3 | 1 | 1 × `length` |
+| simulator main | queued_cut | queue cleared 4.93 to 4.94 s, with no holder event after it | 0 of 3 removed | 51 | 2 × `length` |
+| simulator main, 5 s to first token | prefill_cut (cut 2.0 s) | probe excess 3.100 s | 0 of 3 | 1 | 1 × `length` |
+| simulator before #815, `ee5597e` | stream_cut | probe excess 4.609 s | 0 of 3 | 51 | 2 × `length` |
 
-- On vLLM 0.27.1 on CPU, closing the connection stopped the request in every case tried: a running stream, a running non-streamed request, a request cut before its first SSE event, and a queued one. A probe sent right after the cut was answered within 0.023 s of an idle engine's time for the running cuts and within 0.290 s for the cut before the first event; a queued request left the queue within 0.089 s while the request ahead of it kept running.
-- The cut before the first event delayed the probe by about the rest of the uncut time to first event (0.47 to 0.52 s less the 0.19 to 0.21 s already spent). That fits the engine finishing the work it had started for the request and then stopping; which phase that work was in is not something these rows show.
-- On vLLM no cut added to `vllm:request_success_total`, `finished_reason="abort"` included; every success delta is the probe's and the holder's. Tokens produced before the cut did reach `vllm:generation_tokens_total` (4 for `stream_cut`; 23, 27 and 28 for `plain_cut`), so the generation counter shows what was reported, not a complete count of the work done. In the v0.27.1 source the output processor drops an aborted request's state before the statistics that feed the success counter, which explains this; that part is reading, not measurement.
-- The simulator behaves like vLLM only for a running streamed cut, and notices it about three tokens late. It keeps a non-streamed request to the end, keeps a queued one in the queue until it would start, and notices a cut before the first event only after its first output, about the rest of the time to first token later; llm-d/llm-d-inference-sim#815 documents the same limits. A streamed request it aborts adds no tokens to its counters; one it runs to the end adds all of them.
-- Each case was seen not to release where the engine keeps the request, with the same script and threshold: the simulator before #815 for `stream_cut`, current main for `plain_cut` and `queued_cut`, and a 5 s first token for `prefill_cut`.
+Deltas are over the whole row and include the probe (1 token, 1 `length`) and, for `control`, `busy_control` and `queued_cut`, the uncut request (300 or 50 tokens, 1 `length`).
+In every run every `control` released and every `busy_control` did not, with the same thresholds.
+
+- On vLLM 0.27.1 on CPU, closing the connection ended the request in every case tried. After a running stream or a running non-streamed request was cut, a probe was answered within 0.071 s of an idle engine's time and the engine went idle within 0.06 s of that. After a cut before the first SSE event, the probe was 0.337 to 0.338 s slower than idle. A queued request left the queue within 0.086 s of its cut while the request ahead of it kept running for another 12 s; that shows the cancelled request was removed, not that the engine was free sooner.
+- For the cut before the first event, the uncut time to first event less the time of the cut was 0.287 to 0.290 s in the same rep, close to the 0.337 to 0.338 s excess. That is consistent with the engine finishing work it had already started for the request and then stopping; the rows do not identify the engine phase, and an SSE event not yet seen by the client does not rule out a token already computed.
+- On the vLLM CPU runs no cut added to `vllm:request_success_total`, `finished_reason="abort"` included; every success delta there is the probe's and the holder's. The cut requests did add to `vllm:generation_tokens_total` over the row (4 for `stream_cut`; 27, 25 and 27 for `plain_cut`), which is what the engine reported, not a count of work split at the moment of the cut. In the v0.27.1 source the output processor drops an aborted request's state before the statistics that feed the success counter, which fits this; that part is reading, not measurement.
+- The simulator behaves like vLLM only for a running streamed cut, which it ends about three tokens late. It runs a non-streamed request to the end, keeps a queued one in the queue until it would start, and reacts to a cut before the first event only after its first output; llm-d/llm-d-inference-sim#815 documents the same limits. A streamed request it aborts adds no tokens to its counters; one it runs to the end adds all of them and a `length`.
+- Each case was seen not to release, or not to remove, where the engine keeps the request, with the same script and thresholds: the simulator before #815 for `stream_cut`, current main for `plain_cut` and `queued_cut`. For `prefill_cut` the 5 s first token shows the threshold failing on lateness: that simulator still ended the request, 3.1 s later than idle.
 
 ## What this licenses and what it does not
 
-- It licenses, for vLLM 0.27.1 on CPU with one sequence: when the client connection closes, which is what the gateway does on `client_gone` and `idle_timeout`, the engine was free for the next request within the times above in every case tried.
-- It does not measure a GPU. The cancellation path is the engine's frontend and scheduler code and is expected to carry over, but GPU builds differ in async scheduling, batching and step length, which can change how much is produced after a cut and how long release takes; a time promised for production needs the production configuration measured.
+- It licenses, for vLLM 0.27.1 on CPU with one sequence: when the client connection closes, which is what the gateway does on `client_gone` and `idle_timeout`, the engine ended the request in every case tried, a running request's slot served a new probe within 0.071 s of idle, and a queued request left the queue within 0.086 s.
+- It does not measure a GPU. The cancellation path is the engine's frontend and scheduler code and is expected to carry over, but v0.27.1 turns async scheduling off on CPU and GPU builds differ in batching and step length, which can change how much is produced after a cut and how long release takes; a time promised for production needs the production configuration measured.
 - It does not go through the gateway; requests went straight to the engine on fresh HTTP/1.1 sockets.
 - One model and one sequence: with several sequences a cut frees one seat in a batch, not the engine.
-- On counting: a request cut by its client did not appear in `vllm:request_success_total` in any run here, so that counter cannot show how many were cut. The gateway's `gpuaas_gateway_responses_cut_short_total{tenant,model,cause}` (#572, `docs/05_LLM_SERVING_GATEWAY.md`) counts responses that had started and then ended early, including `upstream_aborted`. Because vLLM can send a streamed response's headers before its first token, whether a given cut is in that counter depends on whether the response had started at the gateway, not on the engine phase; that was not measured here.
+- On counting: on these vLLM CPU runs a request cut by its client never appeared in `vllm:request_success_total`, so that counter cannot show how many were cut. The gateway's `gpuaas_gateway_responses_cut_short_total{tenant,model,cause}` (#572, `docs/05_LLM_SERVING_GATEWAY.md`) counts responses that had started and then ended early, including `upstream_aborted`. vLLM can send a streamed response's headers before its first token, so whether a given cut is in that counter depends on whether the response had started at the gateway, not on the engine phase; that was not measured here.
 - The simulator stands in for vLLM only for a running streamed cut; anything that cuts non-streamed, queued or pre-first-event requests needs vLLM.

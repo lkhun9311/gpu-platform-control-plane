@@ -1,0 +1,11 @@
+{
+ "engine": "vllm-cpu",
+ "vllm_version": "0.27.1",
+ "image": "vllm/vllm-openai-cpu@sha256:0314b8a7594a3fc54e8a0c3ca1ba0c9257302bfb546abfb49a2d6107d2d0767f",
+ "model": "Qwen/Qwen2.5-0.5B-Instruct",
+ "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+ "engine_args": "--max-num-seqs 1 --max-model-len 2048 --dtype bfloat16, VLLM_CPU_KVCACHE_SPACE=2, 8 cpus, 12g",
+ "abort_args": "--max-tokens 300 --token-seconds 0.05 --release-threshold 2.0 --cut-after 1.0 --long-prompt-words 1500",
+ "harness_commit": "f11bc1f2cd2d7af4c8b605be22cee67f81347522",
+ "harness_dirty": false
+}
