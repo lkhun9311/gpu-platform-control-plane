@@ -652,7 +652,8 @@ func replay(args []string) error {
 			return fmt.Errorf("manifest %s: %w", *manifestPath, perr)
 		}
 	}
-	rows, err := readTraceFile(m.TracePath)
+	// Read once and checked against the manifest's checksum here, because LoadManifest hashed a file it then closed.
+	rows, err := bench.ReadTraceFileVerified(m.TracePath, m.TraceChecksum)
 	if err == nil && *requireExactTokens {
 		// Refused BEFORE the first request, not after the run.
 		//
@@ -711,6 +712,10 @@ func replay(args []string) error {
 	if err != nil {
 		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
 	}
+	// ParseFloat accepts "NaN" and "Inf", and the manifest's own check only parses, so the range is enforced here before any request.
+	if err := bench.ValidateMatchTolerance(tol); err != nil {
+		return fmt.Errorf("manifest %s: %w", *manifestPath, err)
+	}
 	if studyKnown && study.FrozenExactTokens != nil {
 		// Refused before the first request: a row whose count is not the frozen one was not generated for this study.
 		if err := frozenTokenRefusal(rows, study, m.TracePath); err != nil {
@@ -726,17 +731,26 @@ func replay(args []string) error {
 		}
 		recordTiming = true
 		sender.SetRecordContentTimes(true)
+	}
+	// Reserved after every refusal that costs nothing and before every file that depends on the destination, so a bad or occupied destination is found before the first request.
+	evidence, err := reserveEvidence(*rawOut)
+	if err != nil {
+		return err
+	}
+	if recordTiming {
 		if err := writeSenderConfig(*rawOut+".sender.json", senderConfig{
 			Study: m.Study, Arm: m.Arm, ConnMode: *connMode,
 			MaxIdleConnsPerHost: conn.MaxIdleConnsPerHost, DrainForReuse: conn.DrainForReuse,
 			TimeoutMs: m.TimeoutMs, Model: m.Model, Target: url, Priorities: prio,
 			RequestIDPrefix: *requestIDPrefix,
 		}); err != nil {
+			evidence.abandon()
 			return err
 		}
 	}
 	live, err := openLiveRowsIf(recordTiming, *rawOut)
 	if err != nil {
+		evidence.abandon()
 		return err
 	}
 	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
@@ -750,23 +764,32 @@ func replay(args []string) error {
 		RecordTiming:    recordTiming,
 		OnRow:           live.write,
 	})
-	if live != nil {
-		// A live file that failed is reported, not fatal: the complete rows are written below either way, and the
-		// live file only matters to an instance that dies before they are.
-		if n, first := live.close(); n > 0 {
-			fmt.Fprintf(os.Stderr, "WARNING: %d row(s) could not be appended to the live file; the first error: %v\n", n, first)
-		}
-	}
-
-	f, err := os.Create(*rawOut)
-	if err != nil {
-		return fmt.Errorf("create raw file %s: %w", *rawOut, err)
-	}
-	defer func() { _ = f.Close() }()
-	if err := bench.WriteRawRows(f, raw); err != nil {
+	if err := finishReplay(evidence, live, rows, raw, m.TraceChecksum); err != nil {
 		return err
 	}
 	fmt.Printf("replayed %d rows against %s (arm=%s) to %s\n", len(raw), url, m.Arm, *rawOut)
+	return nil
+}
+
+// finishReplay finalizes the evidence and its completion record, and fails the run when the recording is incomplete.
+//
+// The rows are always finalized first, because they are the paid evidence whatever their status.
+// A lost live row used to be only a warning; it now makes the record incomplete and the command fail, since the live file is what survives an instance that dies.
+func finishReplay(evidence *evidenceFile, live *liveRows, trace []bench.TraceRow, raw []bench.RawRow, traceChecksum string) error {
+	var liveFailed int
+	var liveErr error
+	if live != nil {
+		liveFailed, liveErr = live.close()
+	}
+	st := completionFor(trace, raw, liveFailed, liveErr)
+	st.TraceChecksum = traceChecksum
+	if err := evidence.finalize(raw, st); err != nil {
+		return err
+	}
+	fmt.Printf("recording %s: %s\n", st.Status, formatDispositions(st.Dispositions))
+	if st.Status != statusComplete {
+		return fmt.Errorf("the recording at %s is incomplete and is marked so in %s: %v", evidence.final, evidence.final+statusSuffix, st.Reasons)
+	}
 	return nil
 }
 
@@ -1175,9 +1198,12 @@ type repSummary struct {
 	rowCount int
 	rows     []bench.RawRow
 	seconds  float64
-	done     map[string]int
-	served   map[string]float64
-	censored bool
+	// observed is the repetition's own first-send-to-last-outcome window, valid only on one replay's clock.
+	observed   float64
+	observedOK bool
+	done       map[string]int
+	served     map[string]float64
+	censored   bool
 	// checksum is this repetition's trace, kept per repetition because a study can give each its own.
 	checksum string
 }
@@ -1234,8 +1260,11 @@ type armEvidence struct {
 	// over the time it was actually sending -- not over a pooled span that includes the washout pauses
 	// between repetitions.
 	repSeconds map[string][]float64
-	checksum   map[string]string
-	tolerance  map[string]float64
+	// repObserved holds each repetition's observed window; a pooled one would cross clock origins, so the arm's is their sum.
+	repObserved   map[string][]float64
+	repObservedOK map[string]bool
+	checksum      map[string]string
+	tolerance     map[string]float64
 	// treatment is the canonical rendering of the priorities each arm's rows carried, so two replays that
 	// differ only in treatment cannot be pooled as repetitions of one condition.
 	treatment map[string]string
@@ -1371,7 +1400,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	e := &armEvidence{
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
 		reps:    map[string][]repSummary{},
-		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
+		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{}, repObserved: map[string][]float64{}, repObservedOK: map[string]bool{},
 		repDone:     map[string][]map[string]int{},
 		replayFrom:  map[string]string{},
 		repFrom:     map[string]string{},
@@ -1381,12 +1410,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		treatment: map[string]string{},
 	}
 	for _, path := range rawFiles {
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, fmt.Errorf("open %s: %w", path, err)
-		}
-		rows, err := bench.ReadRawRows(f)
-		_ = f.Close()
+		rows, err := readRawEvidence(path)
 		if err != nil {
 			return nil, err
 		}
@@ -1514,6 +1538,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 			rowCount: len(rows),
 			rows:     rows,
 			seconds:  rs.ActiveSeconds,
+			observed: rs.ObservedSeconds, observedOK: rs.ObservedWindowValid,
 			done:     done,
 			served:   served,
 			censored: rs.Censored,
@@ -1577,6 +1602,11 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 			e.repTail[arm] = append(e.repTail[arm], r.tail)
 			e.repRows[arm] = append(e.repRows[arm], r.rowCount)
 			e.repSeconds[arm] = append(e.repSeconds[arm], r.seconds)
+			if _, seen := e.repObservedOK[arm]; !seen {
+				e.repObservedOK[arm] = true
+			}
+			e.repObserved[arm] = append(e.repObserved[arm], r.observed)
+			e.repObservedOK[arm] = e.repObservedOK[arm] && r.observedOK
 			e.repDone[arm] = append(e.repDone[arm], r.done)
 			e.repServed[arm] = append(e.repServed[arm], r.served)
 			if r.censored {
@@ -2046,6 +2076,18 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 					total += v
 				}
 				s.SetActiveSeconds(total)
+			}
+			// Summarize refused the pooled window because the repetitions' clocks have different origins;
+			// the arm's window is the sum of the ones each repetition measured, or none if any could not.
+			if windows := e.repObserved[arm]; len(windows) > 1 {
+				total := 0.0
+				for _, v := range windows {
+					total += v
+				}
+				s.ObservedSeconds, s.ObservedWindowValid = total, e.repObservedOK[arm]
+				if !s.ObservedWindowValid {
+					s.ObservedSeconds = 0
+				}
 			}
 			summaries = append(summaries, s)
 			summ[arm] = s

@@ -193,6 +193,29 @@ func tooManyRows(durationMs int64) error {
 	return fmt.Errorf("trace reached %d rows before reaching durationMs %d; no replay offers that load, so the rate is refused rather than generated until memory runs out", maxTraceRows, durationMs)
 }
 
+// validateTraceNumbers refuses a NaN, infinite or negative rate or weight before any arrival is drawn.
+//
+// The model checks below compare with `> 0` and `<= 0`, and NaN is false under both, so a NaN rate used to pass them and run to the row guard.
+// A NaN or infinite weight passed too and made tenant selection depend on arithmetic with no meaning.
+// Zero stays legal for both, because zero is how a tenant says it uses the other arrival model.
+func validateTraceNumbers(params TraceParams) error {
+	bad := func(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) || v < 0 }
+	// The wording keeps "must be finite" and "positive and finite" because the earlier per-model refusals said so and their tests pin it.
+	const rule = "must be finite, and positive and finite where set (never NaN or negative)"
+	if bad(params.RatePerSec) {
+		return fmt.Errorf("ratePerSec %s; got %g", rule, params.RatePerSec)
+	}
+	for _, t := range params.Tenants {
+		if bad(t.Weight) {
+			return fmt.Errorf("tenant %q weight %s; got %g", t.Tenant, rule, t.Weight)
+		}
+		if bad(t.RatePerSec) {
+			return fmt.Errorf("tenant %q ratePerSec %s; got %g", t.Tenant, rule, t.RatePerSec)
+		}
+	}
+	return nil
+}
+
 // GenerateTrace produces a deterministic open-loop trace from params.
 //
 // Arrivals follow a Poisson process: inter-arrival gaps are exponentially distributed with the mean total rate, so the schedule is bursty like real traffic rather than evenly spaced.
@@ -206,6 +229,9 @@ func GenerateTrace(params TraceParams) ([]TraceRow, error) {
 	}
 	if len(params.Tenants) == 0 {
 		return nil, fmt.Errorf("at least one tenant is required")
+	}
+	if err := validateTraceNumbers(params); err != nil {
+		return nil, err
 	}
 
 	// Which arrival model this trace uses is decided by the tenants, and a trace may not be half of each.
