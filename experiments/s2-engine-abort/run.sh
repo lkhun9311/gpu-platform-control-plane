@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Build llm-d-inference-sim at a given commit, run abort.py against it and keep the rows.
-# Usage: experiments/s2-engine-abort/run.sh SIM_COMMIT OUT_JSONL [REPS]
+# Usage: experiments/s2-engine-abort/run.sh SIM_COMMIT OUT_JSONL [REPS [abort.py options...]]
+# SIM_TTFT sets the simulated time to first token (default 100ms); a long one gives a cut before the first token room.
 set -euo pipefail
 
 commit=${1:?simulator commit}
 out=${2:?output jsonl}
 reps=${3:-3}
+shift $(( $# < 3 ? $# : 3 ))
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 log="$work/sim.log"
@@ -25,7 +27,7 @@ resolved=$(git -C "$work/sim" rev-parse HEAD)
 (cd "$work/sim" && CGO_ENABLED=0 go build -o "$work/llm-d-inference-sim" ./cmd/llm-d-inference-sim)
 
 "$work/llm-d-inference-sim" --port "$port" --model m --max-num-seqs 1 \
-  --inter-token-latency 100ms --time-to-first-token 100ms --max-model-len 4096 >"$log" 2>&1 &
+  --inter-token-latency 100ms --time-to-first-token "${SIM_TTFT:-100ms}" --max-model-len 4096 >"$log" 2>&1 &
 sim_pid=$!
 for _ in $(seq 1 100); do
   curl -sf "localhost:$port/metrics" >/dev/null && break
@@ -38,7 +40,7 @@ owner=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 
 [[ "$owner" == "$sim_pid" ]] || { echo "port $port is held by pid ${owner:-unknown}, not the simulator $sim_pid"; exit 1; }
 
 # The commit goes into every row so a result is never read against a different simulator.
-python3 -I "$here/abort.py" "$port" "$reps" | while read -r row; do
+python3 -I "$here/abort.py" --port "$port" --reps "$reps" "$@" | while read -r row; do
   printf '%s\n' "${row%\}}, \"sim_commit\": \"$resolved\"}"
 done >"$out"
 status=${PIPESTATUS[0]}
