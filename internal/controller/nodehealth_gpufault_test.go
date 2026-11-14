@@ -414,6 +414,134 @@ func TestGPUFaultDeactivatesOnlyKueueGPUWorkOnTheFaultedNode(t *testing.T) {
 	}
 }
 
+// Kueue evicts a deactivated Workload and releases its quota while the Job's old Pod is still terminating on the
+// faulted node, which takes up to its grace period. Reactivating then lets the Workload be admitted again while that
+// Pod still holds the faulted card, and the next pass found the terminating Pod on the faulted node, deactivated the
+// Workload again, and so on: the 2026-11-07 operator drill counted about 18 rounds in the 30 s the old Pod took.
+//
+// Mutation that turns this red: drop the wait for the Job's Pods to leave the faulted node in reactivateDisplaced.
+func TestGPUFaultDoesNotCycleAWorkloadWhileItsPodStillTerminatesOnTheFaultedNode(t *testing.T) {
+	pod := gpuPod("on-node", "gpu-1", "uid-1", "1")
+	pod.Finalizers = []string{"example.com/still-terminating"}
+	g := newGFRig(t, true, pod, workload("wl-1", "uid-1"))
+	ctx := context.Background()
+	if err := g.c.Delete(ctx, &corev1.Pod{Name: "on-node", Namespace: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	g.scrape(faultAssessment(0, 1))
+
+	get := func() *kueuev1beta1.Workload {
+		t.Helper()
+		var wl kueuev1beta1.Workload
+		if err := g.c.Get(ctx, types.NamespacedName{Namespace: "t", Name: "wl-1"}, &wl); err != nil {
+			t.Fatal(err)
+		}
+		return &wl
+	}
+	// kueue plays Kueue between passes: it evicts an inactive Workload and admits an active one again.
+	kueue := func() {
+		t.Helper()
+		wl := get()
+		if ptr.Deref(wl.Spec.Active, true) {
+			meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{Type: kueuev1beta1.WorkloadEvicted, Status: metav1.ConditionFalse, Reason: "Admitted"})
+			meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{Type: kueuev1beta1.WorkloadQuotaReserved, Status: metav1.ConditionTrue, Reason: "QuotaReserved"})
+		} else {
+			meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{Type: kueuev1beta1.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: "Deactivated"})
+			meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{Type: kueuev1beta1.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: "Pending"})
+		}
+		if err := g.c.Status().Update(ctx, wl); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	deactivations, reactivations := 0, 0
+	lastDeactivated, lastReactivated := "", ""
+	for range 6 {
+		g.reconcile()
+		wl := get()
+		if at := wl.Annotations[annWorkloadDeactivatedAt]; at != "" && at != lastDeactivated {
+			deactivations++
+			lastDeactivated = at
+		}
+		if at := wl.Annotations[annWorkloadReactivatedAt]; at != "" && at != lastReactivated {
+			reactivations++
+			lastReactivated = at
+		}
+		kueue()
+		g.now = g.now.Add(time.Second)
+	}
+	if deactivations != 1 || reactivations != 0 {
+		t.Fatalf("while the old Pod still terminated on the faulted node: %d deactivations and %d reactivations, want 1 and 0",
+			deactivations, reactivations)
+	}
+	// Nothing watched announces the Pod's departure, so a waiting pass must ask to be run again.
+	res, err := g.r.Reconcile(ctx, ctrl.Request{Name: "nh-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RequeueAfter != displacedPodPoll {
+		t.Fatalf("a pass waiting for the old Pod requeued after %v, want %v", res.RequeueAfter, displacedPodPoll)
+	}
+
+	// The Pod is gone once its kubelet finishes; only then is the Workload requeued, once.
+	var p corev1.Pod
+	if err := g.c.Get(ctx, types.NamespacedName{Namespace: "t", Name: "on-node"}, &p); err != nil {
+		t.Fatal(err)
+	}
+	p.Finalizers = nil
+	if err := g.c.Update(ctx, &p); err != nil {
+		t.Fatal(err)
+	}
+	res, err = g.r.Reconcile(ctx, ctrl.Request{Name: "nh-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wl := get(); !ptr.Deref(wl.Spec.Active, true) || wl.Annotations[annWorkloadReactivatedAt] == "" {
+		t.Fatalf("not reactivated after the old Pod left the faulted node: active=%v %v", wl.Spec.Active, wl.Annotations)
+	}
+	if res.RequeueAfter != 0 {
+		t.Fatalf("a pass with nothing left to wait for still requeued after %v", res.RequeueAfter)
+	}
+}
+
+// A Pod its kubelet reported Failed holds no device, and a Job can keep such Pods for as long as it exists; one left
+// on the faulted node must not hold the Workload out of the queue.
+//
+// Mutation that turns this red: count terminal Pods as still on the node.
+func TestGPUFaultReactivatesDespiteAFailedPodLeftOnTheFaultedNode(t *testing.T) {
+	g := newGFRig(t, true, gpuPod("on-node", "gpu-1", "uid-1", "1"), workload("wl-1", "uid-1"))
+	ctx := context.Background()
+	g.scrape(faultAssessment(0, 1))
+	g.reconcile()
+	var wl kueuev1beta1.Workload
+	if err := g.c.Get(ctx, types.NamespacedName{Namespace: "t", Name: "wl-1"}, &wl); err != nil {
+		t.Fatal(err)
+	}
+	if ptr.Deref(wl.Spec.Active, true) {
+		t.Fatal("not deactivated")
+	}
+	meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{Type: kueuev1beta1.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: "Deactivated"})
+	meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{Type: kueuev1beta1.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: "Pending"})
+	if err := g.c.Status().Update(ctx, &wl); err != nil {
+		t.Fatal(err)
+	}
+	var p corev1.Pod
+	if err := g.c.Get(ctx, types.NamespacedName{Namespace: "t", Name: "on-node"}, &p); err != nil {
+		t.Fatal(err)
+	}
+	p.Status.Phase = corev1.PodFailed
+	if err := g.c.Status().Update(ctx, &p); err != nil {
+		t.Fatal(err)
+	}
+	g.reconcile()
+	if err := g.c.Get(ctx, types.NamespacedName{Namespace: "t", Name: "wl-1"}, &wl); err != nil {
+		t.Fatal(err)
+	}
+	if !ptr.Deref(wl.Spec.Active, true) || wl.Annotations[annWorkloadReactivatedAt] == "" {
+		t.Fatalf("a Failed Pod on the faulted node held the Workload out: active=%v %v", wl.Spec.Active, wl.Annotations)
+	}
+}
+
 // A restartable distributed job restarts every rank together from a checkpoint; reactivating its Workload would
 // requeue the same attempt behind the restart lifecycle's back, so the fault path hands it over instead, in the same
 // patch as the deactivation, and never reactivates it.

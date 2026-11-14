@@ -26,6 +26,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,7 @@ import (
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -510,6 +512,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, tenant, "", http.StatusRequestEntityTooLarge)
 			return
 		}
+		// A body still arriving at the server's read deadline is not malformed either; it never finished.
+		// 400 would send the caller after a syntax bug, where the fix is to send the body faster or smaller.
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			s.fail(w, tenant, "", http.StatusRequestTimeout)
+			return
+		}
 		s.fail(w, tenant, "", http.StatusBadRequest)
 		return
 	}
@@ -642,7 +650,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// attempt on every backend carries the same priority.
 	// Judged on the backends the request may still be sent to: a reservation pins it to the head, and a fallback it can
 	// no longer reach must not keep it unbound.
-	if err := s.settlePriority(w, r, tr, meta, tier, holdCap, forwardTargets(res, targets)); err != nil {
+	if err := s.settlePriority(w, r, tr, meta, tier, holdCap, forwardTargets(pinnedToHead(res, reason), targets)); err != nil {
 		s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
 		return
 	}
@@ -677,7 +685,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// on a final attempt, the guards inside tryBackends stopped the loop before any final attempt ran, and a
 	// request nobody served went into requests_total as a success.
 	lastFailure := 0
-	targets = forwardTargets(res, targets)
+	targets = forwardTargets(pinnedToHead(res, reason), targets)
 	urls := make([]*url.URL, 0, len(targets))
 	for _, t := range targets {
 		urls = append(urls, t.URL)
@@ -863,7 +871,7 @@ func (s *Server) MetricsHandler() http.Handler {
 // NewCache builds a scoped cache over the gateway's read set plus a delegating client that reads the cache and writes the apiserver.
 //
 // It registers the model-name field indexer used for routing.
-func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, namespace string) (cache.Cache, client.Client, error) {
+func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, namespace, secretName string) (cache.Cache, client.Client, error) {
 	ca, err := cache.New(cfg, cache.Options{
 		Scheme:           scheme,
 		DefaultTransform: cache.TransformStripManagedFields(),
@@ -882,13 +890,18 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 		//
 		// It is the one component taking external traffic directly, so a compromise would leak all of it.
 		//
-		// It needs exactly one Secret, so the watch is confined to that Secret's namespace.
+		// It needs exactly one Secret, so the watch is confined to that Secret's namespace and, by a field selector, to its name.
+		//
+		// The namespace alone was not enough: the webhook's serving certificate can live beside the api-keys Secret, and the
+		// gateway cached its private key for no reason.
 		//
 		// This must stay in step with RBAC.
 		//
-		// config/gateway/rbac.yaml grants secrets reads through a Role in the gateway namespace only.
+		// config/gateway/rbac.yaml grants secrets reads through a Role in the gateway namespace, limited by resourceNames to this
+		// one Secret. The apiserver authorizes a list or watch against resourceNames only when it carries this metadata.name
+		// selector, so the selector is what lets the narrower Role sync at all.
 		//
-		// Without this scope the cache tries to list/watch secrets in every namespace, is denied, and never syncs, so readiness never opens.
+		// Without this scope the cache tries to list/watch secrets it may not read, is denied, and never syncs, so readiness never opens.
 		//
 		// The gateway then serves nothing.
 		//
@@ -900,7 +913,7 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 		ByObject: map[client.Object]cache.ByObject{
 			&corev1.Secret{}: {
 				Namespaces: map[string]cache.Config{
-					namespace: {},
+					namespace: {FieldSelector: fields.OneTermEqualSelector("metadata.name", secretName)},
 				},
 			},
 		},
@@ -964,14 +977,20 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 // would stop measuring offered load. One request, one charge, decided up front.
 // forwardTargets is the candidate list a request may be forwarded to.
 //
-// A request holding a reservation goes only to the backend it reserved on. Falling back to another would put its
-// work on a backend whose holds never counted it, and both caps could be exceeded there (found by review); a
-// request with nothing reserved keeps the fallback path.
-func forwardTargets(res *reservation, targets []*BackendRef) []*BackendRef {
-	if res != nil {
+// A request admission charged to the head goes only to the head. Falling back to another would put its work on a
+// backend whose holds or bucket never counted it, and that backend's cap could be exceeded there (found by review
+// for reservations, and again on 2026-11-07 for static-cap's bucket); any other request keeps the fallback path.
+func forwardTargets(pinned bool, targets []*BackendRef) []*BackendRef {
+	if pinned {
 		return targets[:1]
 	}
 	return targets
+}
+
+// pinnedToHead reports whether admission charged this request to the head backend: a reservation holds on it, or
+// static-cap spent the head's tokens on it.
+func pinnedToHead(res *reservation, reason string) bool {
+	return res != nil || reason == reasonWithinBudget
 }
 
 // decideAdmission asks a reserving admitter through Reserve, never Admit, so an admission always carries its
@@ -997,10 +1016,22 @@ func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
 	if _, stateless := admitter.(statelessAdmitter); !stateless {
 		return admitter.Admit(ctx, meta, targets[0], tenant, tier)
 	}
-	for _, t := range targets {
-		if ok, reason := admitter.Admit(ctx, meta, t, tenant, tier); !ok {
+	// An admit keeps a reason too: the head's, unless some candidate was admitted only because the guard could not
+	// read it, which is reported instead, since a bypass anywhere means the request was not judged everywhere it may go.
+	admitReason := ""
+	for i, t := range targets {
+		ok, reason := admitter.Admit(ctx, meta, t, tenant, tier)
+		if !ok {
 			return false, reason
 		}
+		if i == 0 || (guardBypassed(reason) && !guardBypassed(admitReason)) {
+			admitReason = reason
+		}
 	}
-	return true, ""
+	return true, admitReason
+}
+
+// guardBypassed reports whether an admit reason means the guard did not judge the backend at all.
+func guardBypassed(reason string) bool {
+	return reason == reasonBackendUnregistered || reason == reasonTelemetryStale || reason == reasonMultipleEngines
 }

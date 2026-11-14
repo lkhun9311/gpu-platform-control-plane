@@ -1,0 +1,37 @@
+# A tenant's claims are provisioned, never bound by name to a volume someone staged.
+#
+# The tenant role (config/tenant/) lets a tenant create PersistentVolumeClaims for a job's state volume.
+# A claim that names spec.volumeName, or selects volumes by label, binds any compatible PersistentVolume that no
+# claimRef reserves, so a tenant could take a volume staged for another tenant, or one backed by a hostPath or by a
+# shared filesystem's root that Pod Security never sees because the Pod only names the claim.
+# Dynamic provisioning gives each claim its own volume (on EFS, its own access point), which is the only path left.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: tenant-claim-binding
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["persistentvolumeclaims"]
+  matchConditions:
+    - name: tenant-identity
+      expression: "request.userInfo.groups.exists(g, g.startsWith('tenant:'))"
+  validations:
+    - expression: "!has(object.spec.volumeName) || object.spec.volumeName == ''"
+      message: "a tenant's claim may not name spec.volumeName: it would bind a volume staged for someone else"
+      reason: Forbidden
+    - expression: "!has(object.spec.selector)"
+      message: "a tenant's claim may not set spec.selector: it would bind a staged volume by its labels"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: tenant-claim-binding
+spec:
+  policyName: tenant-claim-binding
+  validationActions: ["Deny"]

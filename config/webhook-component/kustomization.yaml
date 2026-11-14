@@ -23,7 +23,7 @@ resources:
 
 patches:
   # Point the manager at the certificate. Without --webhook-cert-path it logs that admission validation is
-  # NOT running and starts anyway, which is right for config/default and wrong wherever this is included.
+  # NOT running and starts anyway, which is right for config/default-no-webhook and wrong wherever this is included.
   - path: manager_webhook_patch.yaml
     target:
       kind: Deployment

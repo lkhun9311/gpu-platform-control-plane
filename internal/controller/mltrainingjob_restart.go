@@ -103,12 +103,14 @@ func restartable(mltj *platformv1.MLTrainingJob) bool {
 func (r *MLTrainingJobReconciler) reconcileRestartable(ctx context.Context, mltj *platformv1.MLTrainingJob) (ctrl.Result, error) {
 	// Terminal only when the work finished or the budget is spent; a Failed written by markFailed for a conflict is
 	// meant to recover once the conflict clears, as it does on the ordinary path.
+	// A terminal job still releases its held ranks: a rank whose node went NotReady before its terminal phase was read is
+	// held until the node is back or fenced, and nothing but this pass would ever release it.
 	if mltj.Status.Phase == mltjPhaseSucceeded {
-		return ctrl.Result{}, nil
+		return r.releaseFinished(ctx, mltj)
 	}
 	if c := meta.FindStatusCondition(mltj.Status.Conditions, mltjCondSynced); mltj.Status.Phase == mltjPhaseFailed &&
 		c != nil && c.Reason == mltjReasonRestartsExhausted {
-		return ctrl.Result{}, nil
+		return r.releaseFinished(ctx, mltj)
 	}
 	if len(mltj.Status.Attempts) == 0 {
 		// The first attempt is recorded before its Job exists; that record is what freezes the template fields.
@@ -329,9 +331,13 @@ func podBoundAt(p *corev1.Pod) (time.Time, bool) {
 // releaseRanks removes finRankStopped from each Pod whose rank is known to have stopped and whose node, if it had
 // one, is in the attempt's record.
 func (r *MLTrainingJobReconciler) releaseRanks(ctx context.Context, mltj *platformv1.MLTrainingJob, pods []corev1.Pod) error {
+	nodes, err := r.nodesOf(ctx, pods)
+	if err != nil {
+		return err
+	}
 	for i := range pods {
 		p := &pods[i]
-		if !controllerutil.ContainsFinalizer(p, finRankStopped) || !rankStopped(mltj, p, true) {
+		if !controllerutil.ContainsFinalizer(p, finRankStopped) || !rankStopped(mltj, p, true, nodes[p.Spec.NodeName]) {
 			continue
 		}
 		if err := r.releaseRank(ctx, p); err != nil {
@@ -353,10 +359,96 @@ func (r *MLTrainingJobReconciler) releaseRank(ctx context.Context, p *corev1.Pod
 	return nil
 }
 
+// releaseFinished releases the held ranks of a job that will start no further attempt, and polls while any stay held.
+// No next attempt needs a node recorded, so only the stop itself is asked for.
+func (r *MLTrainingJobReconciler) releaseFinished(ctx context.Context, mltj *platformv1.MLTrainingJob) (ctrl.Result, error) {
+	var pods corev1.PodList
+	if err := r.apiReader().List(ctx, &pods, client.InNamespace(mltj.Namespace),
+		client.MatchingLabels{mltjUIDLabel: string(mltj.UID)}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("list pods of finished mltrainingjob %s/%s: %w", mltj.Namespace, mltj.Name, err)
+	}
+	nodes, err := r.nodesOf(ctx, pods.Items)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	held := false
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if !controllerutil.ContainsFinalizer(p, finRankStopped) {
+			continue
+		}
+		if !rankStopped(mltj, p, false, nodes[p.Spec.NodeName]) {
+			held = true
+			continue
+		}
+		if err := r.releaseRank(ctx, p); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	if held {
+		return ctrl.Result{RequeueAfter: stopPoll}, nil
+	}
+	return ctrl.Result{}, nil
+}
+
+// nodesOf reads, past the cache, the Node each of pods is bound to; a name that is gone maps to nil.
+func (r *MLTrainingJobReconciler) nodesOf(ctx context.Context, pods []corev1.Pod) (map[string]*corev1.Node, error) {
+	out := map[string]*corev1.Node{}
+	for i := range pods {
+		n := pods[i].Spec.NodeName
+		if _, seen := out[n]; seen || n == "" {
+			continue
+		}
+		var node corev1.Node
+		switch err := r.apiReader().Get(ctx, types.NamespacedName{Name: n}, &node); {
+		case apierrors.IsNotFound(err):
+			out[n] = nil
+		case err != nil:
+			return nil, fmt.Errorf("get node %s: %w", n, err)
+		default:
+			out[n] = &node
+		}
+	}
+	return out, nil
+}
+
+// podGCReason is the DisruptionTarget reason PodGC writes when it fails a Pod whose Node no longer exists
+// (pkg/controller/podgc, v1.34); k8s.io/api has no constant for it.
+const podGCReason = "DeletionByPodGC"
+
+// kubeletReported reports whether a Pod's terminal phase can be read as its kubelet's report that the rank stopped.
+// PodGC also writes Failed, for a Pod whose Node is gone and for one terminating on an out-of-service NotReady node,
+// and the second carries no condition saying so, so the phase alone proves nothing.
+// It counts only while the Pod's Node is Ready and is the machine the rank ran on: a connected kubelet answers for its
+// own Pods, a Node that is gone, NotReady or another machine under the name does not.
+func kubeletReported(rec *platformv1.TrainingAttempt, p *corev1.Pod, node *corev1.Node) bool {
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.DisruptionTarget && c.Reason == podGCReason {
+			return false
+		}
+	}
+	if node == nil {
+		return false
+	}
+	if c := nodeReady(node); c == nil || c.Status != corev1.ConditionTrue {
+		return false
+	}
+	if rec != nil {
+		if want, known := rec.NodeUIDs[p.Spec.NodeName]; known {
+			return want == string(node.UID)
+		}
+	}
+	// No identity recorded: the Node must not have been registered after the Pod was bound to it.
+	bound, ok := podBoundAt(p)
+	return ok && !node.CreationTimestamp.After(bound)
+}
+
 // rankStopped reports whether a rank Pod is known to have stopped: never bound and already being deleted, so no
-// scheduler will bind it; reported terminal by its kubelet; or being deleted from a node fenced for its attempt.
+// scheduler will bind it; reported terminal by its kubelet (kubeletReported); or being deleted from a node fenced for
+// its attempt.
 // With recorded, a bound Pod counts only once its node is in its attempt's record, which the barrier needs.
-func rankStopped(mltj *platformv1.MLTrainingJob, p *corev1.Pod, recorded bool) bool {
+// node is the Pod's Node as it is now, nil when it is gone.
+func rankStopped(mltj *platformv1.MLTrainingJob, p *corev1.Pod, recorded bool, node *corev1.Node) bool {
 	deleting := !p.DeletionTimestamp.IsZero()
 	n := p.Spec.NodeName
 	if n == "" {
@@ -375,7 +467,7 @@ func rankStopped(mltj *platformv1.MLTrainingJob, p *corev1.Pod, recorded bool) b
 	if recorded && (rec == nil || !slices.Contains(rec.Nodes, n)) {
 		return false
 	}
-	if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
+	if (p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed) && kubeletReported(rec, p, node) {
 		return true
 	}
 	if !deleting {
@@ -474,6 +566,13 @@ func (r *MLTrainingJobReconciler) recordActive(ctx context.Context, mltj *platfo
 // trigger moves the current attempt to Stopping, once.
 func (r *MLTrainingJobReconciler) trigger(ctx context.Context, mltj *platformv1.MLTrainingJob, why string) (ctrl.Result, error) {
 	now := metav1.Now()
+	// An attempt that ends admitted but never seen running leaves an admission stamp the next attempt's Running would
+	// be measured from, a window holding the failure, the stop barrier and the requeue (codex review r8).
+	// Cleared in the same write, so the admission-to-running window is always one attempt's; the first attempt
+	// seen running is the one the fields report.
+	if mltj.Status.RunningObservedAt == nil {
+		mltj.Status.AdmittedAt = nil
+	}
 	if err := r.writeAttempts(ctx, mltj, func(a []platformv1.TrainingAttempt) []platformv1.TrainingAttempt {
 		last := &a[len(a)-1]
 		last.State, last.Trigger, last.FailureObservedAt = attemptStopping, why, &now
@@ -518,11 +617,11 @@ func (r *MLTrainingJobReconciler) stopAttempt(ctx context.Context, mltj *platfor
 
 // heldRanks names the Pods finRankStopped still holds because their stop is neither reported nor fenced, for the
 // condition an operator reads.
-func heldRanks(mltj *platformv1.MLTrainingJob, pods []corev1.Pod) string {
+func heldRanks(mltj *platformv1.MLTrainingJob, pods []corev1.Pod, nodes map[string]*corev1.Node) string {
 	var held []string
 	for i := range pods {
 		p := &pods[i]
-		if controllerutil.ContainsFinalizer(p, finRankStopped) && !rankStopped(mltj, p, true) {
+		if controllerutil.ContainsFinalizer(p, finRankStopped) && !rankStopped(mltj, p, true, nodes[p.Spec.NodeName]) {
 			held = append(held, p.Name+"@"+p.Spec.NodeName)
 		}
 	}
@@ -569,7 +668,11 @@ func (r *MLTrainingJobReconciler) stopBarrier(ctx context.Context, mltj *platfor
 			names = append(names, pods.Items[i].Name)
 		}
 		slices.Sort(names)
-		return "pods " + strings.Join(names, ",") + " to be gone" + heldRanks(mltj, pods.Items), nil, nil
+		nodes, err := r.nodesOf(ctx, pods.Items)
+		if err != nil {
+			return "", nil, err
+		}
+		return "pods " + strings.Join(names, ",") + " to be gone" + heldRanks(mltj, pods.Items, nodes), nil, nil
 	}
 
 	// Kueue finds a Job's Workload by the owner's name, so a Workload left by this attempt would be matched to the
@@ -813,10 +916,14 @@ func (r *MLTrainingJobReconciler) retireOnDelete(ctx context.Context, mltj *plat
 		client.MatchingLabels{mltjUIDLabel: string(mltj.UID)}); err != nil {
 		return false, fmt.Errorf("list pods of deleted mltrainingjob %s/%s: %w", mltj.Namespace, mltj.Name, err)
 	}
+	nodes, err := r.nodesOf(ctx, pods.Items)
+	if err != nil {
+		return false, err
+	}
 	for i := range pods.Items {
 		p := &pods.Items[i]
 		// No next attempt needs the node recorded, so only the stop itself is asked for.
-		if controllerutil.ContainsFinalizer(p, finRankStopped) && rankStopped(mltj, p, false) {
+		if controllerutil.ContainsFinalizer(p, finRankStopped) && rankStopped(mltj, p, false, nodes[p.Spec.NodeName]) {
 			if err := r.releaseRank(ctx, p); err != nil {
 				return false, err
 			}

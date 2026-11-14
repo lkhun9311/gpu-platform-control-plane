@@ -1,0 +1,42 @@
+aws-cli (v2/stable) 2.35.21 from Amazon Web Services (aws**) installed
+2026-11-07T19:09:33.644Z head phase T0 read
+2026-11-07T19:09:33.651Z head T0=1794078543 head=172.31.12.114 gpu1=172.31.13.145 gpu2=172.31.6.29 bring-up ends 1794080043
+useradd warning: slurm's uid 1601 is greater than SYS_UID_MAX 999
+useradd warning: munge's uid 1602 is greater than SYS_UID_MAX 999
+2026-11-07T19:10:40.297Z head phase packages installed
+2026-11-07T19:10:43.889Z head phase shared tree ready
+2026-11-07T19:12:56.359Z head phase signal put CONF_READY ready
+2026-11-07T19:16:15.003Z head bring-up complete
+2026-11-07T19:16:15.011Z head phase bring-up complete
+tar: evidence/b1/rep-1/unalloc.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-1/alloc.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-1/unalloc.json: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-1/alloc.json: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-2/unalloc.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-2/alloc.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-2/unalloc.json: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-2/alloc.json: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-4/unalloc.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-4/alloc.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-4/unalloc.json: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-4/alloc.json: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-3/unalloc.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-3/alloc.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-3/unalloc.json: Cannot open: Resource temporarily unavailable
+tar: evidence/b1/rep-3/alloc.json: Cannot open: Resource temporarily unavailable
+tar: Exiting with failure status due to previous errors
+2026-11-07T19:17:03.971Z head the evidence after b1 could not be shipped
+tar: evidence/b2/rep-1/job.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b2/rep-1/job.out: Cannot open: Resource temporarily unavailable
+tar: evidence/b2/rep-2/job.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b2/rep-2/job.out: Cannot open: Resource temporarily unavailable
+tar: evidence/b2/rep-3/job.err: Cannot open: Resource temporarily unavailable
+tar: evidence/b2/rep-3/job.out: Cannot open: Resource temporarily unavailable
+tar: Exiting with failure status due to previous errors
+2026-11-07T19:17:17.028Z head the evidence after b2 could not be shipped
+grep: /shared/evidence/b4/run.jsonl: No such file or directory
+tar: evidence/b4/run.jsonl: Cannot open: Resource temporarily unavailable
+tar: evidence/b4/run.err: Cannot open: Resource temporarily unavailable
+tar: Exiting with failure status due to previous errors
+2026-11-07T19:25:08.272Z head the evidence after b4 could not be shipped
+2026-11-07T19:25:08.275Z head the procedure exited 0

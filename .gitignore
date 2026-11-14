@@ -169,6 +169,12 @@ Thumbs.db
 *.test
 # The DCGM image inspection keeps each command's stdout as <name>.out beside its .err and .exit; it is evidence.
 !/hack/dcgm-diag/*/*/*.out
+# The Slurm on EC2 session's B2 job output is evidence the scorer reads, in its fixture and in each run's archive.
+!/hack/test/slurm-ec2/rehearsal-evidence/**/*.out
+!/hack/slurm-ec2-20*/**/*.out
+# A published run's README states what it shows; its source.tgz is the commit named in session-provenance.txt, 51 MB.
+!/hack/slurm-ec2-20*/README.md
+/hack/slurm-ec2-20*/source.tgz
 
 # Claude Code personal overrides
 .claude/settings.local.json
@@ -275,3 +281,9 @@ infra/aws/bootstrap/.build/
 # The kind restart rehearsal's aws stub and autoscaler state is evidence: check_lifecycle.py reads the stub's answers
 # from state/calls.log, so it is re-included after the state/ rule above, which would otherwise win.
 !/hack/restart-lifecycle-kind-*/state/
+# The operator runbook and the drill that exercises it with only that runbook (2026-11-07).
+!docs/runbook/
+!/docs/runbook/*.md
+!/hack/drill/README.md
+# Each drill's result write-up, which the runbook cites as the source of its known-defects list.
+!/hack/drill/results-*/README.md

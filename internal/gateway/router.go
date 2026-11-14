@@ -60,9 +60,25 @@ type BackendRef struct {
 	// renders schedules by request priority (internal/controller/inference_engine.go, pinned by a test there).
 	// False for a backend the controller does not render, whose engine may reject a priority it was not built for.
 	PriorityScheduled bool
+	// MayPrioritySchedule says an engine serving this backend may schedule by request priority even though
+	// PriorityScheduled cannot yet vouch for it: the spec asks for a rendered engine, or the controller reported one in
+	// force for some generation, so during a rollout or while the controller is away the Pods serving it may be ones
+	// that do.
+	// It decides only whether a caller's own priority is removed, never whether the tier's is injected.
+	MayPrioritySchedule bool
 	// Routing is the routing policy the InferenceDeployment's spec names, empty when it names none.
 	// It is read from the spec because the gateway alone applies it: nothing is rendered or rolled out for it.
 	Routing string
+	// Engines is how many engines may answer behind this backend's Service: the larger of the replicas asked for and
+	// the replicas reported ready, so a scale-down still counts the engines that have not gone yet.
+	// A guard that reads one engine's state through the Service reads whichever engine answered, not the one the
+	// request will reach, once this exceeds 1.
+	Engines int32
+}
+
+// servingEngines is how many engines may be serving d right now.
+func servingEngines(d *platformv1.InferenceDeployment) int32 {
+	return max(d.Spec.Replicas, d.Status.ReadyReplicas)
 }
 
 // specRouting is the policy an InferenceDeployment asks for, or "".
@@ -84,6 +100,20 @@ func enginePriorityScheduled(d *platformv1.InferenceDeployment) bool {
 	}
 	c := meta.FindStatusCondition(d.Status.Conditions, platformv1.ConditionEngineInForce)
 	return c != nil && c.Status == metav1.ConditionTrue && c.ObservedGeneration == d.Generation
+}
+
+// engineMayPrioritySchedule reports whether an engine serving d may schedule by request priority: the spec asks for
+// a rendered engine, or the controller reported one in force at any generation.
+//
+// enginePriorityScheduled distrusts an older generation's condition because injecting a priority into an engine that
+// cannot take it fails the request; removing a caller's priority from one that does not schedule by it costs nothing,
+// so the strip trusts every sign that one might.
+func engineMayPrioritySchedule(d *platformv1.InferenceDeployment) bool {
+	if d.Spec.Engine != nil && d.Spec.Engine.VLLM != nil {
+		return true
+	}
+	c := meta.FindStatusCondition(d.Status.Conditions, platformv1.ConditionEngineInForce)
+	return c != nil && c.Status == metav1.ConditionTrue
 }
 
 // backendAdmission reads the mode in force from status, never from the spec alone, because the spec says what was asked and only the controller knows when the capped engine is the one serving.
@@ -188,7 +218,8 @@ func (s *Server) backendsFor(ctx context.Context, policy *platformv1.GPUQuotaPol
 		}
 		mode, maxHold := backendAdmission(d)
 		refs = append(refs, &BackendRef{Namespace: d.Namespace, Name: d.Name, Port: port, URL: u, Model: model, Admission: mode, MaxHold: maxHold,
-			PriorityScheduled: enginePriorityScheduled(d), Routing: specRouting(d)})
+			PriorityScheduled: enginePriorityScheduled(d), MayPrioritySchedule: engineMayPrioritySchedule(d), Routing: specRouting(d),
+			Engines: servingEngines(d)})
 	}
 	return refs, nil
 }

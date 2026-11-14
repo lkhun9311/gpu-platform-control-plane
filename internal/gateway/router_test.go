@@ -248,4 +248,23 @@ var _ = Describe("backendAdmission", func() {
 		Expect(refs[1].Admission).To(Equal(AdmissionMode("")))
 		Expect(refs[1].MaxHold).To(BeZero())
 	})
+
+	// A scale-down lowers spec.replicas before the old engine stops answering, so the count is the larger of the two.
+	// Mutation that must turn this red: leave Engines out of the BackendRef literal, or read spec.replicas alone.
+	It("counts the engines that may answer behind each backend", func() {
+		one := newInfD("one", "vision", "m", 8000, now)
+		one.Spec.Replicas, one.Status.ReadyReplicas = 1, 1
+		two := newInfD("two", "vision", "m", 8000, now.Add(time.Minute))
+		two.Spec.Replicas = 2
+		shrinking := newInfD("shrinking", "vision", "m", 8000, now.Add(2*time.Minute))
+		shrinking.Spec.Replicas, shrinking.Status.ReadyReplicas = 1, 2
+		s := &Server{Client: newRouterClient(one, two, shrinking)}
+		refs, err := s.backendsFor(context.Background(), policyFor("vision"), "m")
+		Expect(err).NotTo(HaveOccurred())
+		engines := map[string]int32{}
+		for _, r := range refs {
+			engines[r.Name] = r.Engines
+		}
+		Expect(engines).To(Equal(map[string]int32{"one": 1, "two": 2, "shrinking": 2}))
+	})
 })

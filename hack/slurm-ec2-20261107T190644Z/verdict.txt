@@ -1,0 +1,12 @@
+B1 rep 1: 4 of 4 rules held
+B1 rep 2: 4 of 4 rules held
+B1 rep 3: 4 of 4 rules held
+B1 rep 4: 4 of 4 rules held
+B2 rep 1: 5 of 5 rules held
+B2 rep 2: 5 of 5 rules held
+B2 rep 3: 5 of 5 rules held
+B3a: 3 of 3 rules held
+B3b: 3 of 3 rules held
+B4: 6 of 6 rules held
+termination=confirmed
+measured=complete

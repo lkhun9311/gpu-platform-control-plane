@@ -12,8 +12,8 @@ spec:
     name: llama3-8b
     # storageUri is where the model weights live.
     storageUri: s3://models/llama3-8b
-  # image is the serving runtime container image.
-  image: vllm/vllm-openai:v0.6.0
+  # image is the serving runtime container image, pinned to the vLLM v0.27.1 digest every measured profile runs.
+  image: vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
   # gpuClass is illustrative; locally it is backed by simulated capacity.
   gpuClass: l40s
   # gpuCount is GPUs per replica (nvidia.com/gpu).

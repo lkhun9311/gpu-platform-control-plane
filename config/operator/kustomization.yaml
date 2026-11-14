@@ -5,7 +5,7 @@ kind: Kustomization
 #
 # The crds Application owns the CustomResourceDefinitions via ServerSideApply, so this overlay excludes them to avoid dual ownership.
 #
-# Namespace and namePrefix mirror config/default so the GitOps operator matches the make-deploy operator.
+# Namespace and namePrefix mirror config/default-no-webhook so the GitOps operator matches the make-deploy operator.
 namespace: gpu-platform-control-plane-system
 namePrefix: gpu-platform-control-plane-
 

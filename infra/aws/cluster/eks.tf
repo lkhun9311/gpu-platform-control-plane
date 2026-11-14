@@ -46,9 +46,7 @@ module "eks" {
     kube-proxy = {
       addon_version = "v1.35.3-eksbuild.21"
     }
-    vpc-cni = {
-      addon_version = "v1.22.4-eksbuild.3"
-    }
+    vpc-cni = local.vpc_cni_addon
     # The resume arms need a volume that survives a Pod, and no addon here could provide one.
     #
     # It runs as a service account rather than on the node role, so the role is built in iam.tf and named
@@ -435,4 +433,24 @@ locals {
       source_cluster_security_group = true
     }
   }
+}
+
+locals {
+  # NetworkPolicy objects do nothing on a CNI that does not enforce them, and nothing errors, so the tenant bundle's
+  # isolation (config/tenant/) exists on EKS only when this is on.
+  # Strict mode is what closes the window between a Pod starting and its policies arriving: the default mode allows
+  # all traffic to a new Pod until then, and a tenant creating Pods repeatedly would reopen it each time.
+  # Strict mode also denies a new Pod's traffic until a policy allows it, so a namespace with no policies at all
+  # (the session runners' own) loses its networking under it; turn this on only with every namespace enrolled.
+  # The two keys follow the add-on's documented configuration; read them back with
+  # `aws eks describe-addon-configuration --addon-name vpc-cni --addon-version <pin>` before the first apply.
+  vpc_cni_addon = merge(
+    { addon_version = "v1.22.4-eksbuild.3" },
+    var.network_policy_enabled ? {
+      configuration_values = jsonencode({
+        enableNetworkPolicy = "true"
+        env                 = { NETWORK_POLICY_ENFORCING_MODE = "strict" }
+      })
+    } : {},
+  )
 }

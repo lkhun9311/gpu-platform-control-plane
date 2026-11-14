@@ -12,9 +12,9 @@
 # holds this file to them.
 # Names and namespace are written out in full rather than left to kustomize.
 #
-# config/default sets namePrefix and namespace, but those apply only to ITS OWN resources. This file is
-# pulled in as a SIBLING of ../default by config/webhook-enabled, so a transformer there would not reach it,
-# and adding one at the parent level would prefix ../default a second time. The first version of this overlay
+# config/default-no-webhook sets namePrefix and namespace, but those apply only to ITS OWN resources. This file
+# is pulled in as a SIBLING of ../default-no-webhook by config/default, so a transformer there would not reach
+# it, and adding one at the parent level would prefix ../default-no-webhook a second time. The first version of this overlay
 # built cleanly with a webhook pointing at a Service named "webhook-service" in a namespace called "system" —
 # neither of which exists. Spelling the final names out is what makes that unrepresentable.
 ---
@@ -82,10 +82,13 @@ webhooks:
           - ""
         apiVersions:
           - v1
-        # CREATE only. A Pod's resource requests are immutable, so no UPDATE can introduce a device request
-        # that CREATE did not already see, and refusing a DELETE could strand a Pod nobody can remove.
+        # CREATE, and UPDATE since 2026-11-07. A Pod's resource requests are immutable, so no UPDATE can
+        # introduce a device request; but an UPDATE can strip Kueue's admission gate or managed label from a
+        # queued GPU Pod and run it with no Workload, so UPDATE is read for that alone. Status writes go to
+        # pods/status and do not pass through here. Refusing a DELETE could strand a Pod nobody can remove.
         operations:
           - CREATE
+          - UPDATE
         resources:
           - pods
   - name: vgpujob.kb.io

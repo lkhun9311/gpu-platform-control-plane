@@ -1,0 +1,1 @@
+{"cuda_sum": 523776.0, "cvd_after": "0", "cvd_before": "0", "device_count": 1, "host": "gpu1", "job": "3", "nvidia_smi_err": "", "nvidia_smi_lines": ["GPU 0: NVIDIA A10G (UUID: GPU-8e6b17ee-9719-afde-4b41-932e34fb4301)"], "nvidia_smi_rc": 0, "open_nvidia0": "ok"}

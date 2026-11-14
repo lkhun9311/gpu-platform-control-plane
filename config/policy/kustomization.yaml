@@ -1,3 +1,5 @@
 # ValidatingAdmissionPolicy and its binding are cluster-scoped, so no namespace transform applies here.
 resources:
 - gpu-workload-static.yaml
+- tenant-reserved-metadata.yaml
+- tenant-claim-binding.yaml

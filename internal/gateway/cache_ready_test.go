@@ -53,7 +53,7 @@ func TestNewCacheHasEveryRequestPathKindSyncedWhenReady(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	ca, cl, err := NewCache(ctx, cfg, scheme, "default")
+	ca, cl, err := NewCache(ctx, cfg, scheme, "default", "gateway-api-keys")
 	if err != nil {
 		t.Fatal(err)
 	}

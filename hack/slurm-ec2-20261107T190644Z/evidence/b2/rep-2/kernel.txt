@@ -1,0 +1,116 @@
+2026-11-07T19:17:13+00:00 gpu2 kernel: python3 invoked oom-killer: gfp_mask=0xcc0(GFP_KERNEL), order=0, oom_score_adj=0
+2026-11-07T19:17:13+00:00 gpu2 kernel: CPU: 2 UID: 2001 PID: 7054 Comm: python3 Tainted: G           OE       7.0.0-1014-aws #14~24.04.1-Ubuntu PREEMPTLAZY 
+2026-11-07T19:17:13+00:00 gpu2 kernel: Tainted: [O]=OOT_MODULE, [E]=UNSIGNED_MODULE
+2026-11-07T19:17:13+00:00 gpu2 kernel: Hardware name: Amazon EC2 g5.xlarge/, BIOS 1.0 10/16/2017
+2026-11-07T19:17:13+00:00 gpu2 kernel: Call Trace:
+2026-11-07T19:17:13+00:00 gpu2 kernel:  <TASK>
+2026-11-07T19:17:13+00:00 gpu2 kernel:  dump_stack_lvl+0x76/0xa0
+2026-11-07T19:17:13+00:00 gpu2 kernel:  dump_stack+0x10/0x20
+2026-11-07T19:17:13+00:00 gpu2 kernel:  dump_header+0x48/0x220
+2026-11-07T19:17:13+00:00 gpu2 kernel:  oom_kill_process+0xd7/0x250
+2026-11-07T19:17:13+00:00 gpu2 kernel:  out_of_memory+0x101/0x350
+2026-11-07T19:17:13+00:00 gpu2 kernel:  mem_cgroup_out_of_memory+0x100/0x120
+2026-11-07T19:17:13+00:00 gpu2 kernel:  try_charge_memcg+0x3d8/0x650
+2026-11-07T19:17:13+00:00 gpu2 kernel:  charge_memcg+0x34/0x90
+2026-11-07T19:17:13+00:00 gpu2 kernel:  __mem_cgroup_charge+0x31/0xa0
+2026-11-07T19:17:13+00:00 gpu2 kernel:  alloc_anon_folio+0x1de/0x4b0
+2026-11-07T19:17:13+00:00 gpu2 kernel:  do_anonymous_page+0x14c/0x4a0
+2026-11-07T19:17:13+00:00 gpu2 kernel:  handle_pte_fault+0x1c4/0x1f0
+2026-11-07T19:17:13+00:00 gpu2 kernel:  __handle_mm_fault+0x56a/0x760
+2026-11-07T19:17:13+00:00 gpu2 kernel:  handle_mm_fault+0x13d/0x3b0
+2026-11-07T19:17:13+00:00 gpu2 kernel:  do_user_addr_fault+0x1d2/0x8c0
+2026-11-07T19:17:13+00:00 gpu2 kernel:  exc_page_fault+0x81/0x1c0
+2026-11-07T19:17:13+00:00 gpu2 kernel:  asm_exc_page_fault+0x27/0x30
+2026-11-07T19:17:13+00:00 gpu2 kernel: RIP: 0033:0x72d7e2389800
+2026-11-07T19:17:13+00:00 gpu2 kernel: Code: 81 fa 80 00 00 00 76 d2 c5 fe 7f 40 40 c5 fe 7f 40 60 48 83 c7 80 48 81 fa 00 01 00 00 76 2b 48 8d 90 80 00 00 00 48 83 e2 e0 <c5> fd 7f 02 c5 fd 7f 42 20 c5 fd 7f 42 40 c5 fd 7f 42 60 48 83 ea
+2026-11-07T19:17:13+00:00 gpu2 kernel: RSP: 002b:00007fff38d73708 EFLAGS: 00010283
+2026-11-07T19:17:13+00:00 gpu2 kernel: RAX: 000072d7c1cf8010 RBX: 000072d7e1d37bf0 RCX: 000072d7c1cf8010
+2026-11-07T19:17:13+00:00 gpu2 kernel: RDX: 000072d7c53ca000 RSI: 0000000000000000 RDI: 000072d7c5cf7f90
+2026-11-07T19:17:13+00:00 gpu2 kernel: RBP: 00007fff38d737d0 R08: 00000000ffffffff R09: 0000000000000000
+2026-11-07T19:17:13+00:00 gpu2 kernel: R10: 0000000000000022 R11: 0000000000000246 R12: 0000000004000000
+2026-11-07T19:17:13+00:00 gpu2 kernel: R13: 000072d7e24cb1d8 R14: 0000000000000000 R15: 0000000000000001
+2026-11-07T19:17:13+00:00 gpu2 kernel:  </TASK>
+2026-11-07T19:17:13+00:00 gpu2 kernel: memory: usage 524288kB, limit 524288kB, failcnt 23
+2026-11-07T19:17:13+00:00 gpu2 kernel: swap: usage 0kB, limit 0kB, failcnt 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: Memory cgroup stats for /system.slice/gpu2_slurmstepd.scope/job_17:
+2026-11-07T19:17:13+00:00 gpu2 kernel: anon 534941696
+2026-11-07T19:17:13+00:00 gpu2 kernel: file 16384
+2026-11-07T19:17:13+00:00 gpu2 kernel: kernel 1867776
+2026-11-07T19:17:13+00:00 gpu2 kernel: kernel_stack 131072
+2026-11-07T19:17:13+00:00 gpu2 kernel: pagetables 1327104
+2026-11-07T19:17:13+00:00 gpu2 kernel: sec_pagetables 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: percpu 86112
+2026-11-07T19:17:13+00:00 gpu2 kernel: sock 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: vmalloc 16384
+2026-11-07T19:17:13+00:00 gpu2 kernel: shmem 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: zswap 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: zswapped 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: file_mapped 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: file_dirty 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: file_writeback 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: swapcached 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: anon_thp 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: file_thp 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: shmem_thp 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: inactive_anon 532566016
+2026-11-07T19:17:13+00:00 gpu2 kernel: active_anon 2375680
+2026-11-07T19:17:13+00:00 gpu2 kernel: inactive_file 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: active_file 16384
+2026-11-07T19:17:13+00:00 gpu2 kernel: unevictable 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: slab_reclaimable 19624
+2026-11-07T19:17:13+00:00 gpu2 kernel: slab_unreclaimable 262000
+2026-11-07T19:17:13+00:00 gpu2 kernel: slab 281624
+2026-11-07T19:17:13+00:00 gpu2 kernel: workingset_refault_anon 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: workingset_refault_file 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: workingset_activate_anon 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: workingset_activate_file 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: workingset_restore_anon 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: workingset_restore_file 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: workingset_nodereclaim 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgdemote_kswapd 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgdemote_direct 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgdemote_khugepaged 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgdemote_proactive 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgpromote_success 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgscan 139
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgsteal 2
+2026-11-07T19:17:13+00:00 gpu2 kernel: pswpin 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pswpout 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgscan_kswapd 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgscan_direct 139
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgscan_khugepaged 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgscan_proactive 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgsteal_kswapd 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgsteal_direct 2
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgsteal_khugepaged 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgsteal_proactive 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgfault 131736
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgmajfault 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgrefill 51
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgactivate 7
+2026-11-07T19:17:13+00:00 gpu2 kernel: pgdeactivate 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pglazyfree 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: pglazyfreed 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: swpin_zero 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: swpout_zero 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: zswpin 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: zswpout 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: zswpwb 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: thp_fault_alloc 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: thp_collapse_alloc 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: thp_swpout 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: thp_swpout_fallback 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: numa_pages_migrated 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: numa_pte_updates 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: numa_hint_faults 0
+2026-11-07T19:17:13+00:00 gpu2 kernel: Memory cgroup min protection 0kB -- low protection 0kB
+2026-11-07T19:17:13+00:00 gpu2 kernel: Tasks state (memory values in pages):
+2026-11-07T19:17:13+00:00 gpu2 kernel: [  pid  ]   uid  tgid total_vm      rss rss_anon rss_file rss_shmem pgtables_bytes swapents oom_score_adj name
+2026-11-07T19:17:13+00:00 gpu2 kernel: [   7040]  2001  7040     1938      919       70      849         0    61440        0             0 slurm_script
+2026-11-07T19:17:13+00:00 gpu2 kernel: [   7041]  2001  7041    52399     1961      771     1190         0    77824        0             0 srun
+2026-11-07T19:17:13+00:00 gpu2 kernel: [   7042]  2001  7042     1685      347      177      170         0    53248        0             0 srun
+2026-11-07T19:17:13+00:00 gpu2 kernel: [   7036]     0  7036    20809     2182      283     1899         0    86016        0         -1000 slurmstepd
+2026-11-07T19:17:13+00:00 gpu2 kernel: [   7054]  2001  7054   135632   131085   129502     1583         0  1105920        0             0 python3
+2026-11-07T19:17:13+00:00 gpu2 kernel: [   7049]     0  7049    37376     2162      237     1925         0    86016        0         -1000 slurmstepd
+2026-11-07T19:17:13+00:00 gpu2 kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=task_0,mems_allowed=0,oom_memcg=/system.slice/gpu2_slurmstepd.scope/job_17,task_memcg=/system.slice/gpu2_slurmstepd.scope/job_17/step_0/user/task_0,task=python3,pid=7054,uid=2001
+2026-11-07T19:17:13+00:00 gpu2 kernel: Memory cgroup out of memory: Killed process 7054 (python3) total-vm:542528kB, anon-rss:518008kB, file-rss:6332kB, shmem-rss:0kB, UID:2001 pgtables:1080kB oom_score_adj:0

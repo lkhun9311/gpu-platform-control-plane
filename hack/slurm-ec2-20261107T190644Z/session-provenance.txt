@@ -1,0 +1,8 @@
+commit=236779da7dd923dd22456951c7b82f2a0277e077
+study=slurm-ec2-2026-11-07
+head_ami=ami-05b2d28c4a1614552 ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-20261023
+gpu_ami=ami-040ebe879ae70cc30 Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04) 20261106
+head_type=t3.medium cap=0.06
+gpu_type=g5.xlarge cap=0.80
+source_sha256=356219382f6c8b698b48f792085a37895b518748fbbb65dd0c6f38bae5895c8b
+run_id=slurm-ec2-20261107T190644Z-5c9cec57

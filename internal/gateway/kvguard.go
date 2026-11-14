@@ -294,6 +294,17 @@ type backendSnapshot struct {
 	// unchanged"): retaining engaged=true across a stale gap and still rejecting on it would be
 	// fail-CLOSED, which is exactly the v1 bug this snapshot exists to avoid.
 	fresh bool
+	// freshUntil is when this snapshot's telemetry passes maxStaleness, zero when no scrape ever succeeded.
+	// fresh is only the verdict at publication, and a snapshot is next replaced only by the next scrape, so a scrape
+	// interval longer than maxStaleness, or a scrape blocked to its timeout, left the guard deciding on telemetry
+	// older than its own limit (review r6, 2026-11-07); freshAt reads the limit at decision time instead.
+	freshUntil time.Time
+}
+
+// freshAt reports whether the snapshot's telemetry is within maxStaleness at now.
+// A snapshot published after a success always carries freshUntil; one without it is fresh only as published.
+func (s *backendSnapshot) freshAt(now time.Time) bool {
+	return s.fresh && (s.freshUntil.IsZero() || !now.After(s.freshUntil))
 }
 
 // --- Scraper -----------------------------------------------------------------
@@ -461,6 +472,9 @@ func (b *backendScraper) publish(now time.Time) {
 		cacheUsage: b.lastSample.CacheUsage,
 		waiting:    b.lastSample.Waiting,
 		fresh:      fresh,
+	}
+	if b.everSucceeded {
+		snap.freshUntil = b.lastSuccessAt.Add(b.cfg.maxStaleness)
 	}
 	b.snap.Store(snap)
 
@@ -800,6 +814,10 @@ func newKVAwareAdmitter(manager *scraperManager, longThreshold int) *kvAwareAdmi
 // backendRegistrar (kv-aware only); scraperManager.Register is idempotent, so only the first
 // call for a given backend actually starts a scraper.
 func (a *kvAwareAdmitter) RegisterBackend(backend *BackendRef) {
+	// A scraper for a multi-engine backend would publish a reading Admit refuses to use.
+	if backend.Engines > 1 {
+		return
+	}
 	a.manager.Register(backend)
 }
 
@@ -810,6 +828,8 @@ func (a *kvAwareAdmitter) AdmitIsStateless() {}
 
 // Admit implements the Arm C decision (design spec v1 Mechanism / v2 Arm C sections):
 //
+//   - more than one engine behind the backend's Service -> admit, reasonMultipleEngines: the scrape lands on
+//     whichever engine answers, so its pressure says nothing about the engine this request will reach.
 //   - backend not registered, or its telemetry is stale or has never succeeded -> admit (a
 //     staleness BYPASS of the whole guard, not a fail-closed "keep rejecting" retained from
 //     whatever engaged said last).
@@ -818,11 +838,14 @@ func (a *kvAwareAdmitter) AdmitIsStateless() {}
 //   - engaged, standard tier, EstInputTokens >= longThreshold -> reject, reasonKVCachePressure.
 //   - engaged, standard tier, short -> admit.
 func (a *kvAwareAdmitter) Admit(_ context.Context, meta RequestMeta, backend *BackendRef, _, tier string) (bool, string) {
+	if backend.Engines > 1 {
+		return true, reasonMultipleEngines
+	}
 	snap, ok := a.manager.snapshotFor(backendKey(backend))
 	if !ok {
 		return true, reasonBackendUnregistered
 	}
-	if !snap.fresh {
+	if !snap.freshAt(a.manager.cfg.clock()) {
 		return true, reasonTelemetryStale
 	}
 	if !snap.engaged {
@@ -842,6 +865,9 @@ func (a *kvAwareAdmitter) Admit(_ context.Context, meta RequestMeta, backend *Ba
 // It reads the same published snapshot Admit does, so the numbers a request records are the numbers its own
 // decision was made from rather than a second sample taken afterwards.
 func (a *kvAwareAdmitter) Observed(backend *BackendRef) (BackendState, bool) {
+	if backend.Engines > 1 {
+		return BackendState{}, false
+	}
 	snap, ok := a.manager.snapshotFor(backendKey(backend))
 	if !ok {
 		return BackendState{}, false
@@ -850,7 +876,7 @@ func (a *kvAwareAdmitter) Observed(backend *BackendRef) (BackendState, bool) {
 		CacheUsage: snap.cacheUsage,
 		Waiting:    snap.waiting,
 		Engaged:    snap.engaged,
-		Fresh:      snap.fresh,
+		Fresh:      snap.freshAt(a.manager.cfg.clock()),
 	}, true
 }
 

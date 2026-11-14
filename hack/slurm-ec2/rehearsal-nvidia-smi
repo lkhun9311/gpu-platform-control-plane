@@ -1,0 +1,9 @@
+#!/bin/bash
+# The local rehearsal's stand-in: it names one A10G and a UUID, and nothing behind /dev/nvidia0 answers.
+# hack/slurm-ec2/instance.sh installs it only under SLURMEC2_REHEARSAL=1.
+case "$*" in
+  -L) echo "GPU 0: NVIDIA A10G (UUID: GPU-rehearsal-$(hostname -s))" ;;
+  *uuid*) echo "GPU-rehearsal-$(hostname -s)" ;;
+  *driver_version*) echo "rehearsal" ;;
+  *) echo "rehearsal nvidia-smi: $*" ;;
+esac

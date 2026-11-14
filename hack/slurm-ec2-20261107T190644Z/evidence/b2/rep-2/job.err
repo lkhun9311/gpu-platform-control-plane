@@ -1,0 +1,2 @@
+slurmstepd-gpu2: error: Detected 1 oom_kill event in StepId=17.0. Some of the step tasks have been OOM Killed.
+srun: error: gpu2: task 0: Out Of Memory

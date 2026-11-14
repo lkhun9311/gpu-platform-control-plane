@@ -86,6 +86,10 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	var gpuFault controller.GPUFaultFlags
 	gpuFault.Bind(flag.CommandLine)
+	var provisionNodeHealth bool
+	flag.BoolVar(&provisionNodeHealth, "provision-nodehealth", false,
+		"Give every node that advertises nvidia.com/gpu a NodeHealth, so the fault path and the readiness quarantine "+
+			"reach it when it joins. Leave off where NodeHealths are written by hand or by a session runner.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -129,7 +133,7 @@ func main() {
 
 	webhookServer := webhook.NewServer(webhookServerOptions)
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'.
+	// Metrics endpoint is enabled in 'config/default-no-webhook/kustomization.yaml'.
 	//
 	// The Metrics options configure the server.
 	//
@@ -161,7 +165,7 @@ func main() {
 	// While convenient for development and testing, this setup is not recommended for production.
 	//
 	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
+	// - [METRICS-WITH-CERTS] at config/default-no-webhook/kustomization.yaml to generate and use certificates
 	// managed by cert-manager for the metrics server.
 	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
 	if len(metricsCertPath) > 0 {
@@ -214,6 +218,16 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "nodehealth")
 		os.Exit(1)
+	}
+	if provisionNodeHealth {
+		if err := (&controller.NodeHealthProvisioner{
+			Client:    mgr.GetClient(),
+			Scheme:    mgr.GetScheme(),
+			APIReader: mgr.GetAPIReader(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create controller", "controller", "nodehealth-provisioner")
+			os.Exit(1)
+		}
 	}
 	if err := (&controller.GPUQuotaPolicyReconciler{
 		Client: mgr.GetClient(),

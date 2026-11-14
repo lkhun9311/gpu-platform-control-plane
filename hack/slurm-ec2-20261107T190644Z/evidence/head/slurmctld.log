@@ -1,0 +1,160 @@
+[2026-11-07T19:12:42.072] error: Configured MailProg is invalid
+[2026-11-07T19:12:42.076] slurmctld version 23.11.4 started on cluster ec2lab
+[2026-11-07T19:12:42.090] error:  mpi/pmix_v5: init: (null) [0]: mpi_pmix.c:193: pmi/pmix: can not load PMIx library
+[2026-11-07T19:12:42.090] error: Couldn't load specified plugin name for mpi/pmix: Plugin init() callback failed
+[2026-11-07T19:12:42.090] error: MPI: Cannot create context for mpi/pmix
+[2026-11-07T19:12:42.091] error:  mpi/pmix_v5: init: (null) [0]: mpi_pmix.c:193: pmi/pmix: can not load PMIx library
+[2026-11-07T19:12:42.091] error: Couldn't load specified plugin name for mpi/pmix_v5: Plugin init() callback failed
+[2026-11-07T19:12:42.091] error: MPI: Cannot create context for mpi/pmix_v5
+[2026-11-07T19:12:42.103] accounting_storage/slurmdbd: clusteracct_storage_p_register_ctld: Registering slurmctld at port 6817 with slurmdbd
+[2026-11-07T19:12:42.690] Couldn't find tres gres/gpu in the database, creating.
+[2026-11-07T19:12:42.690] Couldn't find tres gres/gpumem in the database, creating.
+[2026-11-07T19:12:42.690] Couldn't find tres gres/gpuutil in the database, creating.
+[2026-11-07T19:12:42.916] priority/multifactor: _read_last_decay_ran: No last decay (/var/spool/slurmctld/priority_last_decay_ran) to recover
+[2026-11-07T19:12:43.063] error: Could not open node state file /var/spool/slurmctld/node_state: No such file or directory
+[2026-11-07T19:12:43.063] error: NOTE: Trying backup state save file. Information may be lost!
+[2026-11-07T19:12:43.063] No node state file (/var/spool/slurmctld/node_state.old) to recover
+[2026-11-07T19:12:43.071] error: Could not open job state file /var/spool/slurmctld/job_state: No such file or directory
+[2026-11-07T19:12:43.071] error: NOTE: Trying backup state save file. Jobs may be lost!
+[2026-11-07T19:12:43.071] No job state file (/var/spool/slurmctld/job_state.old) to recover
+[2026-11-07T19:12:43.071] select/cons_tres: part_data_create_array: select/cons_tres: preparing for 1 partitions
+[2026-11-07T19:12:43.075] error: Could not open reservation state file /var/spool/slurmctld/resv_state: No such file or directory
+[2026-11-07T19:12:43.075] error: NOTE: Trying backup state save file. Reservations may be lost
+[2026-11-07T19:12:43.075] No reservation state file (/var/spool/slurmctld/resv_state.old) to recover
+[2026-11-07T19:12:43.075] error: Could not open trigger state file /var/spool/slurmctld/trigger_state: No such file or directory
+[2026-11-07T19:12:43.075] error: NOTE: Trying backup state save file. Triggers may be lost!
+[2026-11-07T19:12:43.075] No trigger state file (/var/spool/slurmctld/trigger_state.old) to recover
+[2026-11-07T19:12:43.075] read_slurm_conf: backup_controller not specified
+[2026-11-07T19:12:43.075] Reinitializing job accounting state
+[2026-11-07T19:12:43.075] accounting_storage/slurmdbd: acct_storage_p_flush_jobs_on_cluster: Ending any jobs in accounting that were running when controller went down on
+[2026-11-07T19:12:43.075] select/cons_tres: select_p_reconfigure: select/cons_tres: reconfigure
+[2026-11-07T19:12:43.075] select/cons_tres: part_data_create_array: select/cons_tres: preparing for 1 partitions
+[2026-11-07T19:12:43.080] Running as primary controller
+[2026-11-07T19:12:43.352] error: No fed_mgr state file (/var/spool/slurmctld/fed_mgr_state) to recover
+[2026-11-07T19:13:01.317] Node gpu2 now responding
+[2026-11-07T19:13:01.634] Node gpu1 now responding
+[2026-11-07T19:16:15.185] sched: _slurm_rpc_allocate_resources JobId=1 NodeList=gpu1 usec=995
+[2026-11-07T19:16:15.185] error: Could not open job state file /var/spool/slurmctld/job_state: No such file or directory
+[2026-11-07T19:16:15.185] error: NOTE: Trying backup state save file. Jobs may be lost!
+[2026-11-07T19:16:15.186] No job state file (/var/spool/slurmctld/job_state.old) found
+[2026-11-07T19:16:15.235] _job_complete: JobId=1 WEXITSTATUS 0
+[2026-11-07T19:16:15.235] _job_complete: JobId=1 done
+[2026-11-07T19:16:15.236] error: slurm_send_node_msg: [socket:[23837]] slurm_bufs_sendto(msg_type=SRUN_JOB_COMPLETE) failed: Connection reset by peer
+[2026-11-07T19:16:15.237] error: slurm_send_node_msg: [socket:[23840]] slurm_bufs_sendto(msg_type=SRUN_JOB_COMPLETE) failed: Connection reset by peer
+[2026-11-07T19:16:15.243] sched: _slurm_rpc_allocate_resources JobId=2 NodeList=gpu2 usec=286
+[2026-11-07T19:16:15.285] _job_complete: JobId=2 WEXITSTATUS 0
+[2026-11-07T19:16:15.285] _job_complete: JobId=2 done
+[2026-11-07T19:16:15.312] error: slurm_send_node_msg: [socket:[23175]] slurm_bufs_sendto(msg_type=SRUN_JOB_COMPLETE) failed: Connection reset by peer
+[2026-11-07T19:16:15.336] _slurm_rpc_submit_batch_job: JobId=3 InitPrio=1 usec=319
+[2026-11-07T19:16:15.753] sched/backfill: _start_job: Started JobId=3 in gpu on gpu1
+[2026-11-07T19:16:25.381] _job_complete: JobId=3 WEXITSTATUS 0
+[2026-11-07T19:16:25.382] _job_complete: JobId=3 done
+[2026-11-07T19:16:25.494] _slurm_rpc_submit_batch_job: JobId=4 InitPrio=1 usec=329
+[2026-11-07T19:16:26.000] sched: Allocate JobId=4 NodeList=gpu1 #CPUs=2 Partition=gpu
+[2026-11-07T19:16:29.957] _job_complete: JobId=4 WEXITSTATUS 0
+[2026-11-07T19:16:29.957] _job_complete: JobId=4 done
+[2026-11-07T19:16:31.564] _slurm_rpc_submit_batch_job: JobId=5 InitPrio=1 usec=317
+[2026-11-07T19:16:32.000] sched: Allocate JobId=5 NodeList=gpu1 #CPUs=2 Partition=gpu
+[2026-11-07T19:16:34.783] _job_complete: JobId=5 WEXITSTATUS 0
+[2026-11-07T19:16:34.783] _job_complete: JobId=5 done
+[2026-11-07T19:16:35.615] _slurm_rpc_submit_batch_job: JobId=6 InitPrio=1 usec=314
+[2026-11-07T19:16:38.001] sched: Allocate JobId=6 NodeList=gpu1 #CPUs=2 Partition=gpu
+[2026-11-07T19:16:41.001] _job_complete: JobId=6 WEXITSTATUS 0
+[2026-11-07T19:16:41.001] _job_complete: JobId=6 done
+[2026-11-07T19:16:41.684] _slurm_rpc_submit_batch_job: JobId=7 InitPrio=1 usec=374
+[2026-11-07T19:16:42.000] sched: Allocate JobId=7 NodeList=gpu1 #CPUs=2 Partition=gpu
+[2026-11-07T19:16:44.758] _job_complete: JobId=7 WEXITSTATUS 0
+[2026-11-07T19:16:44.758] _job_complete: JobId=7 done
+[2026-11-07T19:16:45.734] _slurm_rpc_submit_batch_job: JobId=8 InitPrio=1 usec=302
+[2026-11-07T19:16:45.754] sched/backfill: _start_job: Started JobId=8 in gpu on gpu1
+[2026-11-07T19:16:48.363] _job_complete: JobId=8 WEXITSTATUS 0
+[2026-11-07T19:16:48.363] _job_complete: JobId=8 done
+[2026-11-07T19:16:49.789] _slurm_rpc_submit_batch_job: JobId=9 InitPrio=1 usec=326
+[2026-11-07T19:16:50.001] sched: Allocate JobId=9 NodeList=gpu2 #CPUs=2 Partition=gpu
+[2026-11-07T19:16:56.089] _job_complete: JobId=9 WEXITSTATUS 0
+[2026-11-07T19:16:56.089] _job_complete: JobId=9 done
+[2026-11-07T19:16:57.872] _slurm_rpc_submit_batch_job: JobId=10 InitPrio=1 usec=309
+[2026-11-07T19:17:00.001] sched: Allocate JobId=10 NodeList=gpu2 #CPUs=2 Partition=gpu
+[2026-11-07T19:17:03.382] _job_complete: JobId=10 WEXITSTATUS 0
+[2026-11-07T19:17:03.382] _job_complete: JobId=10 done
+[2026-11-07T19:17:03.982] sched: _slurm_rpc_allocate_resources JobId=11 NodeList=gpu2 usec=241
+[2026-11-07T19:17:04.050] _job_complete: JobId=11 WEXITSTATUS 0
+[2026-11-07T19:17:04.051] _job_complete: JobId=11 done
+[2026-11-07T19:17:04.063] sched: _slurm_rpc_allocate_resources JobId=12 NodeList=gpu2 usec=212
+[2026-11-07T19:17:04.125] _job_complete: JobId=12 WEXITSTATUS 0
+[2026-11-07T19:17:04.125] _job_complete: JobId=12 done
+[2026-11-07T19:17:04.139] _slurm_rpc_submit_batch_job: JobId=13 InitPrio=1 usec=323
+[2026-11-07T19:17:08.000] sched: Allocate JobId=13 NodeList=gpu2 #CPUs=2 Partition=gpu
+[2026-11-07T19:17:08.413] _job_complete: JobId=13 WEXITSTATUS 0
+[2026-11-07T19:17:08.413] _job_complete: JobId=13 done
+[2026-11-07T19:17:10.303] sched: _slurm_rpc_allocate_resources JobId=14 NodeList=gpu2 usec=301
+[2026-11-07T19:17:10.343] _job_complete: JobId=14 WEXITSTATUS 0
+[2026-11-07T19:17:10.343] _job_complete: JobId=14 done
+[2026-11-07T19:17:10.345] error: slurm_send_node_msg: [socket:[25187]] slurm_bufs_sendto(msg_type=SRUN_JOB_COMPLETE) failed: Connection reset by peer
+[2026-11-07T19:17:10.351] sched: _slurm_rpc_allocate_resources JobId=15 NodeList=gpu2 usec=219
+[2026-11-07T19:17:10.401] _job_complete: JobId=15 WEXITSTATUS 0
+[2026-11-07T19:17:10.402] _job_complete: JobId=15 done
+[2026-11-07T19:17:10.419] sched: _slurm_rpc_allocate_resources JobId=16 NodeList=gpu2 usec=262
+[2026-11-07T19:17:10.459] _job_complete: JobId=16 WEXITSTATUS 0
+[2026-11-07T19:17:10.459] _job_complete: JobId=16 done
+[2026-11-07T19:17:10.460] error: slurm_send_node_msg: [socket:[25969]] slurm_bufs_sendto(msg_type=SRUN_JOB_COMPLETE) failed: Connection reset by peer
+[2026-11-07T19:17:10.460] error: slurm_send_node_msg: [socket:[25971]] slurm_bufs_sendto(msg_type=SRUN_JOB_COMPLETE) failed: Connection reset by peer
+[2026-11-07T19:17:10.473] _slurm_rpc_submit_batch_job: JobId=17 InitPrio=1 usec=330
+[2026-11-07T19:17:13.000] sched: Allocate JobId=17 NodeList=gpu2 #CPUs=2 Partition=gpu
+[2026-11-07T19:17:13.418] _job_complete: JobId=17 WEXITSTATUS 0
+[2026-11-07T19:17:13.418] _job_complete: JobId=17 done
+[2026-11-07T19:17:14.620] sched: _slurm_rpc_allocate_resources JobId=18 NodeList=gpu2 usec=271
+[2026-11-07T19:17:14.659] _job_complete: JobId=18 WEXITSTATUS 0
+[2026-11-07T19:17:14.659] _job_complete: JobId=18 done
+[2026-11-07T19:17:14.661] error: slurm_send_node_msg: [socket:[25407]] slurm_bufs_sendto(msg_type=SRUN_JOB_COMPLETE) failed: Connection reset by peer
+[2026-11-07T19:17:14.667] sched: _slurm_rpc_allocate_resources JobId=19 NodeList=gpu2 usec=219
+[2026-11-07T19:17:14.707] _job_complete: JobId=19 WEXITSTATUS 0
+[2026-11-07T19:17:14.708] _job_complete: JobId=19 done
+[2026-11-07T19:17:14.726] sched: _slurm_rpc_allocate_resources JobId=20 NodeList=gpu2 usec=230
+[2026-11-07T19:17:14.764] _job_complete: JobId=20 WEXITSTATUS 0
+[2026-11-07T19:17:14.764] _job_complete: JobId=20 done
+[2026-11-07T19:17:14.778] _slurm_rpc_submit_batch_job: JobId=21 InitPrio=1 usec=308
+[2026-11-07T19:17:15.755] sched/backfill: _start_job: Started JobId=21 in gpu on gpu2
+[2026-11-07T19:17:16.180] _job_complete: JobId=21 WEXITSTATUS 0
+[2026-11-07T19:17:16.181] _job_complete: JobId=21 done
+[2026-11-07T19:17:16.909] sched: _slurm_rpc_allocate_resources JobId=22 NodeList=gpu2 usec=274
+[2026-11-07T19:17:16.948] _job_complete: JobId=22 WEXITSTATUS 0
+[2026-11-07T19:17:16.949] _job_complete: JobId=22 done
+[2026-11-07T19:17:16.957] sched: _slurm_rpc_allocate_resources JobId=23 NodeList=gpu2 usec=224
+[2026-11-07T19:17:16.997] _job_complete: JobId=23 WEXITSTATUS 0
+[2026-11-07T19:17:16.997] _job_complete: JobId=23 done
+[2026-11-07T19:17:16.998] error: slurm_send_node_msg: [socket:[26634]] slurm_bufs_sendto(msg_type=SRUN_JOB_COMPLETE) failed: Connection reset by peer
+[2026-11-07T19:17:17.043] _slurm_rpc_submit_batch_job: JobId=24 InitPrio=1 usec=284
+[2026-11-07T19:17:20.002] sched: Allocate JobId=24 NodeList=gpu1 #CPUs=2 Partition=gpu
+[2026-11-07T19:17:20.109] _slurm_rpc_submit_batch_job: JobId=25 InitPrio=1 usec=292
+[2026-11-07T19:17:43.001] error: Nodes gpu[1-2] not responding
+[2026-11-07T19:18:20.036] _job_complete: JobId=24 WEXITSTATUS 0
+[2026-11-07T19:18:20.036] _job_complete: JobId=24 done
+[2026-11-07T19:18:21.000] sched: Allocate JobId=25 NodeList=gpu1 #CPUs=2 Partition=gpu
+[2026-11-07T19:19:21.038] _job_complete: JobId=25 WEXITSTATUS 0
+[2026-11-07T19:19:21.038] _job_complete: JobId=25 done
+[2026-11-07T19:19:21.674] _slurm_rpc_submit_batch_job: JobId=26 InitPrio=1 usec=277
+[2026-11-07T19:19:22.000] sched: Allocate JobId=26 NodeList=gpu1 #CPUs=2 Partition=gpu
+[2026-11-07T19:19:22.711] _slurm_rpc_submit_batch_job: JobId=27 InitPrio=1 usec=250
+[2026-11-07T19:20:22.029] _job_complete: JobId=26 WEXITSTATUS 0
+[2026-11-07T19:20:22.030] _job_complete: JobId=26 done
+[2026-11-07T19:20:22.758] sched/backfill: _start_job: Started JobId=27 in gpu on gpu1
+[2026-11-07T19:21:22.786] _job_complete: JobId=27 WEXITSTATUS 0
+[2026-11-07T19:21:22.787] _job_complete: JobId=27 done
+[2026-11-07T19:21:26.245] _slurm_rpc_submit_batch_job: JobId=28 InitPrio=1 usec=333
+[2026-11-07T19:21:27.001] sched: Allocate JobId=28 NodeList=gpu2 #CPUs=2 Partition=gpu
+[2026-11-07T19:21:34.920] _job_complete: JobId=28 WEXITSTATUS 0
+[2026-11-07T19:21:34.920] _job_complete: JobId=28 done
+[2026-11-07T19:21:36.342] update_node: node gpu2 reason set to: b4-hold
+[2026-11-07T19:21:36.342] update_node: node gpu2 state set to DRAINED
+[2026-11-07T19:21:36.351] _slurm_rpc_submit_batch_job: JobId=29 InitPrio=1 usec=302
+[2026-11-07T19:21:37.001] sched: Allocate JobId=29 NodeList=gpu1 #CPUs=2 Partition=gpu
+[2026-11-07T19:22:16.744] update_node: node gpu2 state set to IDLE
+[2026-11-07T19:22:17.003] Node gpu2 now responding
+[2026-11-07T19:22:20.041] update_node: node gpu1 reason set to: gpuhc: GPU-8e6b17ee-9719-afde-4b41-932e34fb4301 DCGM_FI_DEV_XID_ERRORS=79
+[2026-11-07T19:22:20.041] update_node: node gpu1 state set to DRAINING
+[2026-11-07T19:22:21.741] Requeuing JobId=29
+[2026-11-07T19:24:23.759] sched/backfill: _start_job: Started JobId=29 in gpu on gpu2
+[2026-11-07T19:24:55.835] _job_complete: JobId=29 WEXITSTATUS 0
+[2026-11-07T19:24:55.835] _job_complete: JobId=29 done
+[2026-11-07T19:25:08.249] update_node: node gpu1 state set to IDLE

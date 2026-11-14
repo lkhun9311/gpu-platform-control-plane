@@ -74,7 +74,23 @@ const (
 	// to cut a request belongs to this program rather than to the kubelet's SIGKILL; a test pins the two.
 	shutdownGrace                   = 25 * time.Second
 	defaultAdmissionKVScrapeTimeout = 1 * time.Second
+	// apiReadHeaderTimeout ends a connection whose request line and headers have not arrived, so a client that
+	// opens connections and trickles bytes cannot hold goroutines and file descriptors without ever sending a request.
+	apiReadHeaderTimeout = 10 * time.Second
+	// apiReadTimeout bounds reading the whole request, headers and body, so a 1 MiB body must arrive at about
+	// 17 KiB/s; a body still arriving is answered 408 rather than held open.
+	// It does not bound the response: a stream that outlives it is not cut, and a test pins that.
+	apiReadTimeout = 60 * time.Second
 )
+
+// newAPIServer is the OpenAI-compatible API server with its read limits.
+//
+// It had none: no header, read or idle timeout, so a client that never finished its request held a goroutine and
+// a connection for as long as it liked, before any admission or rate limit could see it.
+// No write timeout is set, because a write timeout would cut every streamed generation longer than it.
+func newAPIServer(addr string, h http.Handler, readHeader, read time.Duration) *http.Server {
+	return &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: readHeader, ReadTimeout: read}
+}
 
 func main() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -247,7 +263,9 @@ func main() {
 	//
 	// Deriving both from one variable makes that mismatch impossible.
 	namespace := envOr("GATEWAY_NAMESPACE", "default")
-	ca, cl, err := gateway.NewCache(ctx, cfg, scheme, namespace)
+	// The Secret's name is settled here for the same reason: the cache watches that one Secret and nothing else.
+	apiKeySecret := envOr("GATEWAY_API_KEY_SECRET", "gateway-api-keys")
+	ca, cl, err := gateway.NewCache(ctx, cfg, scheme, namespace, apiKeySecret)
 	if err != nil {
 		log.Error(err, "build cache")
 		os.Exit(1)
@@ -256,7 +274,7 @@ func main() {
 	s := &gateway.Server{
 		Client:       cl,
 		Namespace:    namespace,
-		APIKeySecret: envOr("GATEWAY_API_KEY_SECRET", "gateway-api-keys"),
+		APIKeySecret: apiKeySecret,
 	}
 	if err := s.SetRoutingConfig(routing); err != nil {
 		log.Error(err, "configure routing")
@@ -325,7 +343,7 @@ func main() {
 	// streaming for minutes — was cut at whatever byte it had reached, and the client saw a truncated response
 	// rather than a refused one. On a gateway whose whole job is proxying long generations that is the failure
 	// mode most worth having.
-	api := &http.Server{Addr: ":8080", Handler: s.Handler()}
+	api := newAPIServer(":8080", s.Handler(), apiReadHeaderTimeout, apiReadTimeout)
 	metrics := &http.Server{Addr: ":8081", Handler: s.MetricsHandler()}
 	apiLn, err := net.Listen("tcp", api.Addr)
 	if err != nil {

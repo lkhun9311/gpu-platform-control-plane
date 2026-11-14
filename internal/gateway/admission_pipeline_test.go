@@ -18,7 +18,11 @@ limitations under the License.
 package gateway
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -120,6 +124,34 @@ var _ = Describe("admission pipeline placement", func() {
 		// out of the admitted-work fraction.
 		Expect(rr.Header().Get(HeaderAdmissionReason)).To(BeEmpty(),
 			"a body refused before admission claims an admission reason, which would credit the guard with a decision it never made")
+	})
+
+	// A recorder cannot reach this path: only a real connection carries a read deadline.
+	//
+	// Mutation that turns this red: delete the os.ErrDeadlineExceeded mapping, and the slow body answers 400.
+	It("answers 408 rather than 400 when the body is still arriving at the read deadline", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		srv := httptest.NewUnstartedServer(s.Handler())
+		srv.Config.ReadTimeout = 300 * time.Millisecond
+		srv.Start()
+		defer srv.Close()
+
+		conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { _ = conn.Close() }()
+		// Content-Length promises more than is ever sent, so the handler's read waits on the deadline.
+		_, err = fmt.Fprintf(conn, "POST /v1/chat/completions HTTP/1.1\r\nHost: gw\r\nAuthorization: Bearer %s\r\n"+
+			"Content-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"model\":", testKey)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(conn.SetReadDeadline(time.Now().Add(5 * time.Second))).To(Succeed())
+		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		Expect(err).NotTo(HaveOccurred(), "the gateway closed the connection without answering")
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		Expect(resp.StatusCode).To(Equal(http.StatusRequestTimeout),
+			"a body that never finished was reported as malformed JSON: %s", b)
+		Expect(string(b)).To(ContainSubstring("request_timeout"))
 	})
 
 	// A request that can never be admitted must not carry the retry hint a 429 does. A client obeying

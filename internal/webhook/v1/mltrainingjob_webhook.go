@@ -157,6 +157,12 @@ func (v *MLTrainingJobValidator) distributedClaim(ctx context.Context, mltj *pla
 		return field.ErrorList{field.Invalid(path, name,
 			"the claim is being deleted, so no rank of a distributed job could rely on it")}, nil
 	}
+	// The renderer mounts the claim as a filesystem (volumeMounts at mountPath); a raw block device cannot be
+	// mounted that way, so every rank would fail to start (codex review r10).
+	if pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode == corev1.PersistentVolumeBlock {
+		return field.ErrorList{field.Invalid(path, name,
+			"the claim is volumeMode Block; a state volume is mounted as a filesystem at mountPath, so it must be Filesystem")}, nil
+	}
 	return nil, nil
 }
 

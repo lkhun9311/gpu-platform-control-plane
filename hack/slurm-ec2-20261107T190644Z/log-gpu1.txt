@@ -1,0 +1,13 @@
+2026-11-07T19:10:48.391Z gpu1 phase T0 read
+2026-11-07T19:10:48.395Z gpu1 T0=1794078543 head=172.31.12.114 gpu1=172.31.13.145 gpu2=172.31.6.29 bring-up ends 1794080043
+useradd warning: slurm's uid 1601 is greater than SYS_UID_MAX 999
+useradd warning: munge's uid 1602 is greater than SYS_UID_MAX 999
+2026-11-07T19:12:15.416Z gpu1 phase packages installed
+2026-11-07T19:12:17.349Z gpu1 phase shared mounted
+2026-11-07T19:12:59.434Z gpu1 phase signal got CONF_READY ready
+2026-11-07T19:13:00.482Z gpu1 phase signal put CONF_ACK-gpu1 acked
+2026-11-07T19:13:01.474Z gpu1 slurmd started
+2026-11-07T19:13:01.480Z gpu1 phase slurmd started
+2026-11-07T19:25:16.971Z gpu1 phase signal got END end
+2026-11-07T19:25:16.978Z gpu1 phase END wait returned 0
+instance.sh exited 0

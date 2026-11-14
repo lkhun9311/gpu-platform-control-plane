@@ -143,6 +143,12 @@ The index and the outstanding counts live in one gateway process, so a second re
 
 This single rule is what makes it "a platform boundary" rather than "a UI bolted onto vLLM."
 
+Until 2026-11-07 the rule was a convention: nothing in the cluster stopped a Pod from calling an engine's Pod IP directly, around the gateway's authentication, rate limits and priority binding.
+The tenant bundle (`config/tenant/`, rendered per tenant by `hack/tenant/render.sh`) makes it a NetworkPolicy: an engine Pod accepts traffic only from gateway Pods in a namespace labelled `platform.lkhun9311.github.io/role: platform` and from a namespace labelled `platform.lkhun9311.github.io/role: monitoring`, and a tenant's own trainer in the same namespace is refused too.
+It holds only where two things are true: the namespace is enrolled with the bundle, and the CNI enforces NetworkPolicy.
+The kind proof runs Calico (`hack/tenant-boundary/run.sh`); on EKS, enforcement is the VPC CNI switch `network_policy_enabled` in `infra/aws/cluster`, which is off by default and has not been applied.
+The demo and session namespaces this page's runs used are not enrolled, so for them the rule is still a convention.
+
 ## Minimum metrics (M4-b)
 
 ```
