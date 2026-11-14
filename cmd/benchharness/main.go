@@ -1198,9 +1198,12 @@ type repSummary struct {
 	rowCount int
 	rows     []bench.RawRow
 	seconds  float64
-	done     map[string]int
-	served   map[string]float64
-	censored bool
+	// observed is the repetition's own first-send-to-last-outcome window, valid only on one replay's clock.
+	observed   float64
+	observedOK bool
+	done       map[string]int
+	served     map[string]float64
+	censored   bool
 	// checksum is this repetition's trace, kept per repetition because a study can give each its own.
 	checksum string
 }
@@ -1257,8 +1260,11 @@ type armEvidence struct {
 	// over the time it was actually sending -- not over a pooled span that includes the washout pauses
 	// between repetitions.
 	repSeconds map[string][]float64
-	checksum   map[string]string
-	tolerance  map[string]float64
+	// repObserved holds each repetition's observed window; a pooled one would cross clock origins, so the arm's is their sum.
+	repObserved   map[string][]float64
+	repObservedOK map[string]bool
+	checksum      map[string]string
+	tolerance     map[string]float64
 	// treatment is the canonical rendering of the priorities each arm's rows carried, so two replays that
 	// differ only in treatment cannot be pooled as repetitions of one condition.
 	treatment map[string]string
@@ -1394,7 +1400,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	e := &armEvidence{
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
 		reps:    map[string][]repSummary{},
-		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
+		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{}, repObserved: map[string][]float64{}, repObservedOK: map[string]bool{},
 		repDone:     map[string][]map[string]int{},
 		replayFrom:  map[string]string{},
 		repFrom:     map[string]string{},
@@ -1532,6 +1538,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 			rowCount: len(rows),
 			rows:     rows,
 			seconds:  rs.ActiveSeconds,
+			observed: rs.ObservedSeconds, observedOK: rs.ObservedWindowValid,
 			done:     done,
 			served:   served,
 			censored: rs.Censored,
@@ -1595,6 +1602,11 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 			e.repTail[arm] = append(e.repTail[arm], r.tail)
 			e.repRows[arm] = append(e.repRows[arm], r.rowCount)
 			e.repSeconds[arm] = append(e.repSeconds[arm], r.seconds)
+			if _, seen := e.repObservedOK[arm]; !seen {
+				e.repObservedOK[arm] = true
+			}
+			e.repObserved[arm] = append(e.repObserved[arm], r.observed)
+			e.repObservedOK[arm] = e.repObservedOK[arm] && r.observedOK
 			e.repDone[arm] = append(e.repDone[arm], r.done)
 			e.repServed[arm] = append(e.repServed[arm], r.served)
 			if r.censored {
@@ -2064,6 +2076,18 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 					total += v
 				}
 				s.SetActiveSeconds(total)
+			}
+			// Summarize refused the pooled window because the repetitions' clocks have different origins;
+			// the arm's window is the sum of the ones each repetition measured, or none if any could not.
+			if windows := e.repObserved[arm]; len(windows) > 1 {
+				total := 0.0
+				for _, v := range windows {
+					total += v
+				}
+				s.ObservedSeconds, s.ObservedWindowValid = total, e.repObservedOK[arm]
+				if !s.ObservedWindowValid {
+					s.ObservedSeconds = 0
+				}
 			}
 			summaries = append(summaries, s)
 			summ[arm] = s
