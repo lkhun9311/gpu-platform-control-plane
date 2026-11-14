@@ -31,7 +31,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../../.." || exit 1
 SRC=hack/eks-gitops-session.sh
 LIB=hack/lib/session-teardown.sh
 HERE=hack/test/teardown-replay
-DISARM_LINES=10
+DISARM_LINES=17
 
 pass=0; fail=0
 ok()  { printf '  ok    %s\n' "$1"; pass=$((pass+1)); }
@@ -87,10 +87,18 @@ while read -r name want; do
       v=ok
       [ -n "${unasked// /}" ] && v=unasked
       [ -n "${billing_left// /}" ] && v="${v}+left"
-      disarmed=no; KILL_PID=0
+      disarmed=no; KILL_PID=0; CLUSTER=x; LEASE_KEY=s-x; REGION=ap-northeast-2
       disarm() { disarmed=yes; }
+      # The session lease is removed in the same branch as the disarm, and in no other (session cloud safety design).
+      # Leases are named for the session, not the cluster, so a removal by any other name leaves the lease in place.
+      leased=kept
+      lease_disarm() { [ "$1" = "$LEASE_KEY" ] && leased=removed; }
+      lease_name() { printf "%s" "$1"; }
+      bad() { :; }
       log() { :; }
       '"$disarm_src"'
+      if [ "$disarmed" = yes ] && [ "$leased" != removed ]; then disarmed="yes-lease-kept"; fi
+      if [ "$disarmed" = no ] && [ "$leased" != kept ]; then disarmed="no-lease-removed"; fi
       printf "%s|%s\n" "$v" "$disarmed"
     ' _ "$LIB"
   )"

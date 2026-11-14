@@ -1,8 +1,6 @@
-# Overlay that turns the admission webhook on.
+# config/default with the image side-loaded into kind.
 #
-# It is separate from config/default rather than a flag inside it, because enabling the webhook adds a hard
-# dependency on cert-manager. Folding it into the default would make `kubectl apply -k config/default` fail on
-# every cluster that does not have cert-manager installed, for the sake of a component most of them do not run.
+# config/default already carries the admission guards; this overlay only changes how the image is found.
 #
 #   kubectl apply -k config/webhook-enabled
 #
@@ -11,11 +9,6 @@
 # for this rule but a confusing way to discover a missing dependency, so install cert-manager first.
 resources:
   - ../default
-
-# The guards themselves live in a component shared with config/operator, so the overlay Argo CD reconciles
-# and the one a developer applies on kind cannot disagree about whether admission validation exists.
-components:
-  - ../webhook-component
 
 # A concrete tag, because this image is SIDE-LOADED into kind rather than pulled.
 #

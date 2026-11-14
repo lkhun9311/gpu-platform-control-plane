@@ -35,7 +35,7 @@ rules:
   - list
   - watch
 ---
-# Role: reads only the api-keys Secret.
+# Role: reads only the api-keys Secret, by name.
 #
 # Why a Role rather than a ClusterRole:
 # Secrets are the most sensitive resource in the cluster.
@@ -43,10 +43,13 @@ rules:
 # including other components' credentials and TLS keys.
 # All the gateway actually needs is the single api-keys Secret in its own namespace, so a Role bounds the scope.
 #
-# Why this is not narrowed further with resourceNames:
-# resourceNames breaks list and watch (it applies only to get, where the name is known up front).
-# Since the cache is filled by watch, narrowing that way would make cache sync itself fail.
-# So the namespace boundary is the trust boundary, on the premise that the gateway namespace holds only this Secret.
+# Why it is narrowed further with resourceNames:
+# The namespace is not a boundary that holds: the webhook's serving certificate can share it, and the namespace-wide
+# Role let the gateway read that private key.
+# An earlier comment here said resourceNames breaks list and watch. It does for an unfiltered list, but the apiserver
+# authorizes a list or watch carrying the field selector metadata.name=<name> against resourceNames, and NewCache sends
+# exactly that selector. TestTheGatewayRoleReadsOnlyTheAPIKeySecret runs this Role against a real apiserver.
+# The name must match GATEWAY_API_KEY_SECRET in deployment.yaml.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -61,6 +64,8 @@ rules:
   - ""
   resources:
   - secrets
+  resourceNames:
+  - gateway-api-keys
   verbs:
   - get
   - list

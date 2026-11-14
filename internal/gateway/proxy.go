@@ -94,6 +94,8 @@ type RequestMeta struct {
 	Choices int
 	// CallerPriority is true when the body carries a top-level "priority" key, which the engine schedules by.
 	CallerPriority bool
+	// BodyBytes is the length of the buffered body, which a held request keeps for as long as it waits.
+	BodyBytes int64
 }
 
 // chatMessage is one entry in messages, keyed exactly as the body spells it.
@@ -180,7 +182,8 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 	}
 
 	_, callerPriority := keys["priority"]
-	meta := RequestMeta{Model: model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"]), CallerPriority: callerPriority}
+	meta := RequestMeta{Model: model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"]), CallerPriority: callerPriority,
+		BodyBytes: int64(len(buf))}
 	var totalChars int
 	for _, m := range messages {
 		content := m["content"]
@@ -378,6 +381,9 @@ func errorCode(status int) string {
 		// reused here -- the design document promised that name for 400 and the code has always answered
 		// `bad_request`, so reviving it for a third meaning would make the record worse.
 		return "profile_violation"
+	case http.StatusRequestTimeout:
+		// A body the client did not finish sending before the server's read deadline.
+		return "request_timeout"
 	case http.StatusRequestEntityTooLarge:
 		// Added with the two 413 paths and missed at the time, so both of them — an oversized body and an
 		// estimate larger than the bucket can ever hold — were answering internal_error. A client branching on

@@ -29,11 +29,30 @@ cat >"$work/bin/stub" <<'EOF'
 tool=$(basename "$0")
 printf '%s %s\n' "$tool" "$*" >>"${STUB_CALLS:?the stub was given nowhere to record its calls}" || exit 98
 case "$tool $*" in
+  "aws eks list-clusters"*)
+    if [[ -n "${STUB_OTHER_CLUSTER:-}" ]]; then printf '%s\n' "$STUB_OTHER_CLUSTER"; else echo None; fi ;;
   "aws eks describe-cluster"*)
     if [[ -n "${STUB_CLUSTER_EXISTS:-}" ]]; then echo ACTIVE; exit 0; fi
     echo "An error occurred (ResourceNotFoundException) when calling the DescribeCluster operation: No cluster found" >&2
     exit 254 ;;
   "aws sts get-caller-identity"*) echo "${STUB_ACCOUNT:-111111111111}" ;;
+  # The session lease (hack/lib/session-lease.sh): an Active reaper, and a store kept in one file beside the call log.
+  "aws lambda get-function"*) echo Active ;;
+  "aws ssm get-parameter --region"*"--name /gpu-platform/session-reaper/last-ok"*) date -u +%Y-%m-%dT%H:%M:%SZ ;;
+  # Before get-parameter, whose pattern it also matches: the account-wide listing of leases the arm refuses on.
+  "aws ssm get-parameters-by-path"*)
+    if [[ -f "$STUB_CALLS.lease.name" ]]; then cat "$STUB_CALLS.lease.name"; else echo None; fi ;;
+  "aws ssm get-parameter"*)
+    if [[ -f "$STUB_CALLS.lease" ]]; then cat "$STUB_CALLS.lease"; exit 0; fi
+    echo "An error occurred (ParameterNotFound) when calling the GetParameter operation" >&2
+    exit 254 ;;
+  "aws ssm put-parameter"*)
+    set -- "$@"
+    while [[ $# -gt 0 && "$1" != --name ]]; do shift; done
+    printf '%s\n' "$2" >"$STUB_CALLS.lease.name"
+    while [[ $# -gt 0 && "$1" != --value ]]; do shift; done
+    printf '%s' "$2" >"$STUB_CALLS.lease"
+    echo '{"Version": 1}' ;;
   "gh "*) echo "stub gh refuses, so a case that passes every refusal stops here" >&2; exit 1 ;;
   "kubectl version"* | "helm version"* | "terraform version"* | "aws --version"*) echo "stub" ;;
   "terraform "*) echo "terraform reached" >&2; exit 1 ;;
@@ -50,7 +69,7 @@ sha="$(sha256sum experiments/cpu-ddp/train.py | cut -d' ' -f1)"
 repo="$work/repo"
 mkdir -p "$repo/hack/lib" "$repo/experiments/cpu-ddp"
 cp hack/eks-gitops-session.sh "$repo/hack/"
-cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/phase-supervisor.sh hack/lib/session-teardown.sh "$repo/hack/lib/"
+cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/phase-supervisor.sh hack/lib/session-teardown.sh hack/lib/session-lease.sh "$repo/hack/lib/"
 cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
 mkdir -p "$repo/experiments/multi-gpu-throughput"
 cp hack/lib/allreduce-arms.sh "$repo/hack/lib/"
@@ -155,6 +174,10 @@ session "prefixroute: with KEEP_UP" "refuses KEEP_UP=yes" TRAIN= STUDY=prefixrou
 session "prefixroute: an existing cluster" "cluster gpu-platform already exists (ACTIVE)" \
   TRAIN= STUDY=prefixroute STUB_CLUSTER_EXISTS=1 TTL_MINUTES=440
 session "prefixroute: every refusal passed" "does not exist" TRAIN= STUDY=prefixroute TTL_MINUTES=440
+# Any cluster in the Region refuses the session before its lease or watchdog: they all share one terraform state.
+# Mutation that turns it red: check only a cluster of this session's name.
+session "another cluster in the Region" "an EKS cluster already exists in ap-northeast-2 (gpu-other)" \
+  STUB_ACCOUNT=007635145730 STUB_OTHER_CLUSTER=gpu-other TRAIN= TTL_MINUTES=300
 
 # --- the kill switch, armed under an absolute EXDIR --------------------------------------------------------------
 # Without TRAIN nothing stops the session before its kill switch, so it arms one and then dies at the stub's terraform
@@ -173,6 +196,16 @@ if [[ -n "$pid" && "$stray" == "$pid" && "$out" == *"TTL kill switch armed: PID 
   ok "$name: the watchdog reported pid $pid under an absolute EXDIR, and the session read it"
   grep -q '^terraform -chdir=infra/aws/cluster init' "$STUB_CALLS" && ok "$name: the cluster's init reached the stub, not a real terraform" ||
     bad "$name: the stub saw no init of the cluster root: $(grep '^terraform' "$STUB_CALLS" | head -3)"
+  # The lease is written before the first terraform call, holds this cluster, and is named for the session, not the cluster.
+  lease_at=$(grep -n '^aws ssm put-parameter' "$STUB_CALLS" | head -1 | cut -d: -f1)
+  init_at=$(grep -n '^terraform -chdir=infra/aws/cluster init' "$STUB_CALLS" | head -1 | cut -d: -f1)
+  lease_nm="$(cat "$STUB_CALLS.lease.name" 2>&1)"
+  if [[ -n "$lease_at" && -n "$init_at" ]] && ((lease_at < init_at)) && grep -q '"cluster": "gpu-platform"' "$STUB_CALLS.lease" &&
+    [[ "$lease_nm" == /gpu-platform/session-lease/* && "$lease_nm" != /gpu-platform/session-lease/gpu-platform ]]; then
+    ok "$name: the session lease $lease_nm was written before the cluster's init"
+  else
+    bad "$name: lease $lease_nm written at call '${lease_at}', init at '${init_at}', lease: $(cat "$STUB_CALLS.lease" 2>&1)"
+  fi
 else
   bad "$name: pid file '${pid:-absent}', processes '${stray:-none}', session said: $(grep -o 'TTL[^,]*\|never reported its pid[^;]*' <<<"$out" | head -1)"
 fi

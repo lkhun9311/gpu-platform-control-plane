@@ -69,6 +69,16 @@ type BackendRef struct {
 	// Routing is the routing policy the InferenceDeployment's spec names, empty when it names none.
 	// It is read from the spec because the gateway alone applies it: nothing is rendered or rolled out for it.
 	Routing string
+	// Engines is how many engines may answer behind this backend's Service: the larger of the replicas asked for and
+	// the replicas reported ready, so a scale-down still counts the engines that have not gone yet.
+	// A guard that reads one engine's state through the Service reads whichever engine answered, not the one the
+	// request will reach, once this exceeds 1.
+	Engines int32
+}
+
+// servingEngines is how many engines may be serving d right now.
+func servingEngines(d *platformv1.InferenceDeployment) int32 {
+	return max(d.Spec.Replicas, d.Status.ReadyReplicas)
 }
 
 // specRouting is the policy an InferenceDeployment asks for, or "".
@@ -208,7 +218,8 @@ func (s *Server) backendsFor(ctx context.Context, policy *platformv1.GPUQuotaPol
 		}
 		mode, maxHold := backendAdmission(d)
 		refs = append(refs, &BackendRef{Namespace: d.Namespace, Name: d.Name, Port: port, URL: u, Model: model, Admission: mode, MaxHold: maxHold,
-			PriorityScheduled: enginePriorityScheduled(d), MayPrioritySchedule: engineMayPrioritySchedule(d), Routing: specRouting(d)})
+			PriorityScheduled: enginePriorityScheduled(d), MayPrioritySchedule: engineMayPrioritySchedule(d), Routing: specRouting(d),
+			Engines: servingEngines(d)})
 	}
 	return refs, nil
 }

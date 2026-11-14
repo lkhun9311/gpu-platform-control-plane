@@ -141,7 +141,15 @@ def path_exists(tok):
         return True
     if tracked(p + '*'):                                  # docs write `docs/05` for a numbered document
         return True
-    return bool(tracked('*' + os.path.basename(p)))
+    # Only a bare file name may resolve somewhere else, because only it leaves the directory unsaid.
+    #
+    # This used to end in tracked('*' + basename(p)) for every token, so `docs/no-such-directory/README.md`
+    # resolved to any README.md in the repository and a wrong directory could never fail.
+    # The bare form must also match a whole file name: `job_controller.go` once resolved to
+    # `mltrainingjob_controller.go`, a different file.
+    if '/' in p:
+        return False
+    return bool(tracked('*/' + p))
 
 def name_present(tok):
     # Docs cite a method as `Type.Method`, but Go writes `func (p Type) Method()`, so the dotted string
@@ -205,6 +213,20 @@ if self_test == '--self-test':
     # 4. and the allowlist cannot be what is hiding a real finding
     if probe in allow:
         sys.exit(f"SELF-TEST FAILED: the probe is allowlisted in {allow_path}, so this proves nothing")
+
+    # 5. a path whose directory does not exist is missing, even when its file name is common.
+    #
+    # The name probe above never reached path_exists, so a path fallback that accepted any README.md kept
+    # the self-test green while `docs/no-such-directory/README.md` passed the real scan.
+    for bogus in ('docs/' + 'no-such-' + 'directory/README.md', 'internal/' + 'no-such-' + 'directory/main.go',
+                  'no' + 'job_controller.go'):
+        if classify(bogus) != 'path':
+            sys.exit(f"SELF-TEST FAILED: {bogus} is not classified as a path")
+        if path_exists(bogus):
+            sys.exit(f"SELF-TEST FAILED: {bogus} resolved, so a wrong citation cannot fail")
+    # and the fallback still does its job, or the fix above would have been to delete it
+    if not path_exists('serialprefill.go'):
+        sys.exit("SELF-TEST FAILED: a bare citation of a tracked file no longer resolves")
 
     print(f"self-test: an absent name is classified, searched, and reported as missing "
           f"({len(probe_missing)} finding) -- the detector can fail")

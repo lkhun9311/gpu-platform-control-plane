@@ -46,9 +46,9 @@ declare -A MIRROR=(
 # Every DIGEST-PINNED image reference the shipped manifests carry.
 #
 # Pinned only, because a mirror is verified by digest and an unpinned reference has none. config/samples
-# carries "vllm/vllm-openai:v0.6.0" as an example value, and it sorts ahead of the pinned reference (":" is
-# 0x3a and "@" is 0x40), so a first match over all references picked the sample and refused to mirror the
-# image the engine actually runs.
+# once carried "vllm/vllm-openai:v0.6.0" as an example value, and it sorted ahead of the pinned reference
+# (":" is 0x3a and "@" is 0x40), so a first match over all references picked the sample and refused to
+# mirror the image the engine actually runs. Any tagged example added later would do the same.
 refs="$(grep -rhoP '^\s*(- )?image:\s*\K\S+@sha256:\S+' config/ --include='*.yaml' | sort -u)"
 
 aws ecr get-login-password --region "${AWS_REGION:-ap-northeast-2}" \

@@ -133,6 +133,9 @@ const (
 	reasonBackendUnregistered = "backend_unregistered"
 	// reasonTelemetryStale means the last successful scrape is older than maxStaleness, so the guard is bypassed.
 	reasonTelemetryStale = "telemetry_stale"
+	// reasonMultipleEngines means the backend's Service spreads requests over more than one engine, so a scrape
+	// through it reads some engine's pressure rather than the one this request reaches, and the guard is bypassed.
+	reasonMultipleEngines = "multiple_engines"
 	// reasonNotEngaged means the guard was watching and found no pressure.
 	reasonNotEngaged = "not_engaged"
 	// reasonPremiumTier means the caller is outside the gated population by tier.

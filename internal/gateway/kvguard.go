@@ -814,6 +814,10 @@ func newKVAwareAdmitter(manager *scraperManager, longThreshold int) *kvAwareAdmi
 // backendRegistrar (kv-aware only); scraperManager.Register is idempotent, so only the first
 // call for a given backend actually starts a scraper.
 func (a *kvAwareAdmitter) RegisterBackend(backend *BackendRef) {
+	// A scraper for a multi-engine backend would publish a reading Admit refuses to use.
+	if backend.Engines > 1 {
+		return
+	}
 	a.manager.Register(backend)
 }
 
@@ -824,6 +828,8 @@ func (a *kvAwareAdmitter) AdmitIsStateless() {}
 
 // Admit implements the Arm C decision (design spec v1 Mechanism / v2 Arm C sections):
 //
+//   - more than one engine behind the backend's Service -> admit, reasonMultipleEngines: the scrape lands on
+//     whichever engine answers, so its pressure says nothing about the engine this request will reach.
 //   - backend not registered, or its telemetry is stale or has never succeeded -> admit (a
 //     staleness BYPASS of the whole guard, not a fail-closed "keep rejecting" retained from
 //     whatever engaged said last).
@@ -832,6 +838,9 @@ func (a *kvAwareAdmitter) AdmitIsStateless() {}
 //   - engaged, standard tier, EstInputTokens >= longThreshold -> reject, reasonKVCachePressure.
 //   - engaged, standard tier, short -> admit.
 func (a *kvAwareAdmitter) Admit(_ context.Context, meta RequestMeta, backend *BackendRef, _, tier string) (bool, string) {
+	if backend.Engines > 1 {
+		return true, reasonMultipleEngines
+	}
 	snap, ok := a.manager.snapshotFor(backendKey(backend))
 	if !ok {
 		return true, reasonBackendUnregistered
@@ -856,6 +865,9 @@ func (a *kvAwareAdmitter) Admit(_ context.Context, meta RequestMeta, backend *Ba
 // It reads the same published snapshot Admit does, so the numbers a request records are the numbers its own
 // decision was made from rather than a second sample taken afterwards.
 func (a *kvAwareAdmitter) Observed(backend *BackendRef) (BackendState, bool) {
+	if backend.Engines > 1 {
+		return BackendState{}, false
+	}
 	snap, ok := a.manager.snapshotFor(backendKey(backend))
 	if !ok {
 		return BackendState{}, false

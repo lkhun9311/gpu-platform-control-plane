@@ -26,6 +26,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,7 @@ import (
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -121,6 +123,9 @@ type Server struct {
 	// holdCap admits every HoldCap backend, built on first use so a gateway with none never makes one.
 	holdCap     holdCapAdmitter
 	holdCapOnce sync.Once
+	// holdBudget is charged by every admitter that holds a request, built on first use with DefaultHoldLimits.
+	holdBudget     *holdBudget
+	holdBudgetOnce sync.Once
 	// responseHeaderTimeout bounds the wait for upstream response headers.
 	//
 	// Zero selects proxy.go's defaultResponseHeaderTimeout (30s), so production leaves it unset.
@@ -226,6 +231,9 @@ func (s *Server) RecordRequests(r *RequestRecorder) { s.recorder = r }
 func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
 	s.mode = mode
 	s.admitter = a
+	if h, ok := a.(holdBudgetUser); ok {
+		h.useHoldBudget(s.holds())
+	}
 
 	// Publish the mode here rather than in main, for the same reason mode travels through this call at
 	// all: this is the one place that knows which Admitter is actually installed, so the series cannot
@@ -318,6 +326,27 @@ func (s *Server) failUnresolvedModel(w http.ResponseWriter, tenant, model string
 //
 // Retry-After is set to 5s (design spec Config and API section) because an admission-guard 429 is expected to clear once bucket capacity or backend pressure recovers, at a time the gateway cannot compute.
 // The RPM limiter's 429 can compute it, and carries retryAfterSeconds instead.
+// refuseAdmission answers a request admission refused, with the status its reason calls for.
+func (s *Server) refuseAdmission(w http.ResponseWriter, tenant, model, reason string) {
+	switch {
+	// A request larger than the bucket can ever hold is refused permanently, so it must not carry the
+	// retry hint failReason attaches: a client obeying it would retry an arithmetically impossible request
+	// forever. 413 rather than 429 for the same reason — the caller's action is a smaller prompt, not a
+	// later one.
+	// The 413 does not go through failReason, so before the X-Admission-Reason header existed its reason reached
+	// nowhere a client could record it. That is why the 1,788 refusals in the 2026-09-03 run had to be
+	// explained months later by reading the runner's flags and the gateway's defaults.
+	case reason == reasonInputExceedsBurst || reason == reasonInputExceedsReservation:
+		s.fail(w, tenant, model, http.StatusRequestEntityTooLarge)
+	// The gateway running out of room to hold is not the policy deciding, so it is not 429: internal/bench reads every 429
+	// as the guard shedding work, and a 429 tells the caller it exceeded a rate it may never have reached.
+	case refusedForHold(reason):
+		s.failReason(w, tenant, model, http.StatusServiceUnavailable, reason)
+	default:
+		s.failReason(w, tenant, model, http.StatusTooManyRequests, reason)
+	}
+}
+
 func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code int, reason string) {
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
 	w.Header().Set("Retry-After", "5")
@@ -510,6 +539,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, tenant, "", http.StatusRequestEntityTooLarge)
 			return
 		}
+		// A body still arriving at the server's read deadline is not malformed either; it never finished.
+		// 400 would send the caller after a syntax bug, where the fix is to send the body faster or smaller.
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			s.fail(w, tenant, "", http.StatusRequestTimeout)
+			return
+		}
 		s.fail(w, tenant, "", http.StatusBadRequest)
 		return
 	}
@@ -623,18 +658,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	admissionDecisions.WithLabelValues(string(mode), tenant, meta.Model, decision, reason).Inc()
 	admissionInputTokens.WithLabelValues(string(mode), tenant, decision).Add(float64(meta.EstInputTokens))
 	if !admit {
-		// A request larger than the bucket can ever hold is refused permanently, so it must not carry the
-		// retry hint failReason attaches: a client obeying it would retry an arithmetically impossible request
-		// forever. 413 rather than 429 for the same reason — the caller's action is a smaller prompt, not a
-		// later one.
-		// The 413 does not go through failReason, so before the header above existed its reason reached
-		// nowhere a client could record it. That is why the 1,788 refusals in the 2026-09-03 run had to be
-		// explained months later by reading the runner's flags and the gateway's defaults.
-		if reason == reasonInputExceedsBurst || reason == reasonInputExceedsReservation {
-			s.fail(w, tenant, meta.Model, http.StatusRequestEntityTooLarge)
-			return
-		}
-		s.failReason(w, tenant, meta.Model, http.StatusTooManyRequests, reason)
+		s.refuseAdmission(w, tenant, meta.Model, reason)
 		return
 	}
 
@@ -863,7 +887,7 @@ func (s *Server) MetricsHandler() http.Handler {
 // NewCache builds a scoped cache over the gateway's read set plus a delegating client that reads the cache and writes the apiserver.
 //
 // It registers the model-name field indexer used for routing.
-func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, namespace string) (cache.Cache, client.Client, error) {
+func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, namespace, secretName string) (cache.Cache, client.Client, error) {
 	ca, err := cache.New(cfg, cache.Options{
 		Scheme:           scheme,
 		DefaultTransform: cache.TransformStripManagedFields(),
@@ -882,13 +906,18 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 		//
 		// It is the one component taking external traffic directly, so a compromise would leak all of it.
 		//
-		// It needs exactly one Secret, so the watch is confined to that Secret's namespace.
+		// It needs exactly one Secret, so the watch is confined to that Secret's namespace and, by a field selector, to its name.
+		//
+		// The namespace alone was not enough: the webhook's serving certificate can live beside the api-keys Secret, and the
+		// gateway cached its private key for no reason.
 		//
 		// This must stay in step with RBAC.
 		//
-		// config/gateway/rbac.yaml grants secrets reads through a Role in the gateway namespace only.
+		// config/gateway/rbac.yaml grants secrets reads through a Role in the gateway namespace, limited by resourceNames to this
+		// one Secret. The apiserver authorizes a list or watch against resourceNames only when it carries this metadata.name
+		// selector, so the selector is what lets the narrower Role sync at all.
 		//
-		// Without this scope the cache tries to list/watch secrets in every namespace, is denied, and never syncs, so readiness never opens.
+		// Without this scope the cache tries to list/watch secrets it may not read, is denied, and never syncs, so readiness never opens.
 		//
 		// The gateway then serves nothing.
 		//
@@ -900,7 +929,7 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 		ByObject: map[client.Object]cache.ByObject{
 			&corev1.Secret{}: {
 				Namespaces: map[string]cache.Config{
-					namespace: {},
+					namespace: {FieldSelector: fields.OneTermEqualSelector("metadata.name", secretName)},
 				},
 			},
 		},
@@ -1020,5 +1049,5 @@ func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
 
 // guardBypassed reports whether an admit reason means the guard did not judge the backend at all.
 func guardBypassed(reason string) bool {
-	return reason == reasonBackendUnregistered || reason == reasonTelemetryStale
+	return reason == reasonBackendUnregistered || reason == reasonTelemetryStale || reason == reasonMultipleEngines
 }

@@ -109,9 +109,14 @@ if kill -0 "$pid" 2>>"$work/kill0.err"; then bad "the helper still runs after rs
 rstk_kill_tree "$dog"
 # A helper that ignores TERM and waits on a child that ignores it too: TERM gets its grace, then both are killed and the
 # helper reaped, where an unbounded wait held the cleanup forever (gpt-6-astra review of 116092ef).
+#
+# The `|| true` keeps the inner bash a child.
+# As the function's last command it was exec'd in place of the helper on bash 5.3, so the helper itself was the
+# TERM-resistant loop, its only child was a 0.1 s sleep that was usually gone when read, and the case failed with no
+# child to check.
 helper3() {
   trap '' TERM
-  bash -c 'trap "" TERM; while :; do sleep 0.1; done'
+  bash -c 'trap "" TERM; while :; do sleep 0.1; done' || true
 }
 helper3 &
 pid=$!
@@ -121,7 +126,7 @@ pid=$!
 ) &
 dog=$!
 sleep 0.5
-child="$(rstk_descendants "$pid" | head -1)"
+child="$(pgrep -P "$pid" -x bash | head -1)"
 t0=$SECONDS
 RSTK_TERM_GRACE=1 rstk_kill_tree "$pid"
 took=$((SECONDS - t0))

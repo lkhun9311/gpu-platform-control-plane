@@ -74,7 +74,23 @@ const (
 	// to cut a request belongs to this program rather than to the kubelet's SIGKILL; a test pins the two.
 	shutdownGrace                   = 25 * time.Second
 	defaultAdmissionKVScrapeTimeout = 1 * time.Second
+	// apiReadHeaderTimeout ends a connection whose request line and headers have not arrived, so a client that
+	// opens connections and trickles bytes cannot hold goroutines and file descriptors without ever sending a request.
+	apiReadHeaderTimeout = 10 * time.Second
+	// apiReadTimeout bounds reading the whole request, headers and body, so a 1 MiB body must arrive at about
+	// 17 KiB/s; a body still arriving is answered 408 rather than held open.
+	// It does not bound the response: a stream that outlives it is not cut, and a test pins that.
+	apiReadTimeout = 60 * time.Second
 )
+
+// newAPIServer is the OpenAI-compatible API server with its read limits.
+//
+// It had none: no header, read or idle timeout, so a client that never finished its request held a goroutine and
+// a connection for as long as it liked, before any admission or rate limit could see it.
+// No write timeout is set, because a write timeout would cut every streamed generation longer than it.
+func newAPIServer(addr string, h http.Handler, readHeader, read time.Duration) *http.Server {
+	return &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: readHeader, ReadTimeout: read}
+}
 
 func main() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -112,6 +128,9 @@ func main() {
 		admissionKVMaxStaleness   time.Duration
 		admissionKVScrapeTimeout  time.Duration
 		admissionKVIdleTimeout    time.Duration
+
+		// holdLimits bounds what serial-prefill, HoldCap and fixed-spacing keep while requests wait; on by default.
+		holdLimits = gateway.DefaultHoldLimits
 	)
 	flag.StringVar(&admissionModeFlag, "admission-mode", string(gateway.AdmissionOff),
 		"Admission control mode on the inference path: off, static-cap, kv-aware, prospective, serial-prefill, or fixed-spacing.")
@@ -125,6 +144,14 @@ func main() {
 		"fixed-spacing mode: the least time between two standard admissions on a backend. Required.")
 	flag.DurationVar(&admissionFixedMaxHold, "admission-fixed-spacing-max-hold", 0,
 		"fixed-spacing mode: the longest a standard request is held for its turn before it is refused. Required.")
+	flag.Int64Var(&holdLimits.Requests, "admission-hold-max-requests", holdLimits.Requests,
+		"the most standard requests the gateway holds for their turn at once, across serial-prefill, HoldCap and fixed-spacing; one past it is refused with 503 hold_full.")
+	flag.Int64Var(&holdLimits.Bytes, "admission-hold-max-bytes", holdLimits.Bytes,
+		"the most request body bytes the held requests may keep at once; one past it is refused with 503 hold_full.")
+	flag.Int64Var(&holdLimits.TenantRequests, "admission-hold-tenant-max-requests", holdLimits.TenantRequests,
+		"the most held requests one tenant may have at once; one past it is refused with 503 hold_tenant_full.")
+	flag.Int64Var(&holdLimits.TenantBytes, "admission-hold-tenant-max-bytes", holdLimits.TenantBytes,
+		"the most held body bytes one tenant may have at once; one past it is refused with 503 hold_tenant_full.")
 	flag.Float64Var(&admissionStaticRate, "admission-static-rate", defaultAdmissionStaticRate,
 		"static-cap mode: sustained per-backend input-token refill rate, in tokens/sec.")
 	flag.IntVar(&admissionStaticBurst, "admission-static-burst", defaultAdmissionStaticBurst,
@@ -247,7 +274,9 @@ func main() {
 	//
 	// Deriving both from one variable makes that mismatch impossible.
 	namespace := envOr("GATEWAY_NAMESPACE", "default")
-	ca, cl, err := gateway.NewCache(ctx, cfg, scheme, namespace)
+	// The Secret's name is settled here for the same reason: the cache watches that one Secret and nothing else.
+	apiKeySecret := envOr("GATEWAY_API_KEY_SECRET", "gateway-api-keys")
+	ca, cl, err := gateway.NewCache(ctx, cfg, scheme, namespace, apiKeySecret)
 	if err != nil {
 		log.Error(err, "build cache")
 		os.Exit(1)
@@ -256,7 +285,7 @@ func main() {
 	s := &gateway.Server{
 		Client:       cl,
 		Namespace:    namespace,
-		APIKeySecret: envOr("GATEWAY_API_KEY_SECRET", "gateway-api-keys"),
+		APIKeySecret: apiKeySecret,
 	}
 	if err := s.SetRoutingConfig(routing); err != nil {
 		log.Error(err, "configure routing")
@@ -283,6 +312,11 @@ func main() {
 	// InitRateLimiter is (admitter is unexported to the gateway package), and mode travels with it
 	// so the metrics label can never disagree with which Admitter is actually running.
 	s.SetAdmitter(admissionMode, admitter)
+	// Refused at start rather than clamped, so a deployment never runs with limits other than the ones it wrote.
+	if err := s.SetHoldLimits(holdLimits); err != nil {
+		log.Error(err, "configure the hold limits")
+		os.Exit(1)
+	}
 	// A backend can choose its own admission, so the process-wide mode above no longer says what every request gets.
 	if err := s.RegisterBackendAdmissionMetric(); err != nil {
 		log.Error(err, "register the backend admission gauge")
@@ -325,7 +359,7 @@ func main() {
 	// streaming for minutes — was cut at whatever byte it had reached, and the client saw a truncated response
 	// rather than a refused one. On a gateway whose whole job is proxying long generations that is the failure
 	// mode most worth having.
-	api := &http.Server{Addr: ":8080", Handler: s.Handler()}
+	api := newAPIServer(":8080", s.Handler(), apiReadHeaderTimeout, apiReadTimeout)
 	metrics := &http.Server{Addr: ":8081", Handler: s.MetricsHandler()}
 	apiLn, err := net.Listen("tcp", api.Addr)
 	if err != nil {

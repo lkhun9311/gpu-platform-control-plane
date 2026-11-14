@@ -104,7 +104,7 @@ chmod +x "$work/bin/date"
 repo="$work/repo"
 mkdir -p "$repo/hack/lib" "$repo/experiments/distributed-restart" "$repo/experiments/cpu-ddp" "$repo/experiments/multi-gpu-throughput"
 cp hack/eks-gitops-session.sh "$repo/hack/"
-cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/gpu-fault.sh hack/lib/restart-session.sh hack/lib/phase-supervisor.sh hack/lib/session-teardown.sh \
+cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/gpu-fault.sh hack/lib/restart-session.sh hack/lib/phase-supervisor.sh hack/lib/session-teardown.sh hack/lib/session-lease.sh \
   hack/lib/allreduce-arms.sh "$repo/hack/lib/"
 cp experiments/distributed-restart/train.py "$repo/experiments/distributed-restart/"
 cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
@@ -1650,8 +1650,12 @@ score ended-after-budget-no-step terminate-wait-1 FAILED "censored at its budget
 score ended-after-budget reference FAILED "past its budget: the job ended 'Succeeded' 723 s after its creation"
 # late_score <defect> <python on d, the case directory> <want> [<not>]: a late or censored fixture with its evidence
 # changed, whose line has <want> and not <not>.
+# Each fixture is numbered from a counter, not named by $RANDOM: make_fixture.py refuses a directory that exists, and two
+# draws of 0-32767 in one run did collide once in CI.
+late_fixtures=0
 late_score() {
-  local run="$work/run-late-$RANDOM" out line
+  late_fixtures=$((late_fixtures + 1))
+  local run="$work/run-late-$late_fixtures" out line
   python3 hack/test/restart-session/make_fixture.py "$run" "$1" terminate-wait-1 || { bad "$1: the fixture was not built"; return; }
   python3 - "$run/terminate-wait-1" "$2" <<'EOF'
 import json, pathlib, sys

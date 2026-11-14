@@ -184,13 +184,13 @@ func TestSerialPrefillASkippedWaiterDoesNotPassTheTurnOn(t *testing.T) {
 // Mutation that turns it red: time the hold from the admitter's maxHold in reserve.
 func TestSerialPrefillRefusesByTheWaitersOwnHold(t *testing.T) {
 	s := newSerialPrefillAdmitter(5 * time.Second)
-	first, ok, _ := s.reserve(context.Background(), serialBackend(), "", tierStandard, 5*time.Second)
+	first, ok, _ := s.reserve(context.Background(), RequestMeta{}, serialBackend(), "", tierStandard, 5*time.Second)
 	if !ok {
 		t.Fatal("the first request was not admitted on a free backend")
 	}
 	defer first.Done()
 	start := time.Now()
-	_, ok, reason := s.reserve(context.Background(), serialBackend(), "", tierStandard, 50*time.Millisecond)
+	_, ok, reason := s.reserve(context.Background(), RequestMeta{}, serialBackend(), "", tierStandard, 50*time.Millisecond)
 	if ok || reason != reasonSerialPrefillHoldTimeout {
 		t.Fatalf("a waiter with a 50ms hold: admitted %v, reason %s; want a hold timeout", ok, reason)
 	}

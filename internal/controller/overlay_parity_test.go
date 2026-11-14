@@ -18,8 +18,11 @@ import (
 // dnsNames do not cover, so with failurePolicy Fail every governed write in the cluster would have been
 // refused. It was found by diffing the two renders by hand. This is that diff, kept.
 //
+// config/default, the install `make deploy` applies, is the third path. It left the guards out until
+// 2026-11-13, so the default install admitted what the GitOps one refused.
+//
 // Mutation that turns this red: move the webhook-component include from config/operator-webhook into
-// config/operator, or drop it from either overlay.
+// config/operator, or drop it from config/operator-webhook or config/default.
 func TestBothDeploymentPathsRenderTheSameGuards(t *testing.T) {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		t.Skip("kubectl is not on PATH, so the overlays cannot be rendered here")
@@ -29,6 +32,10 @@ func TestBothDeploymentPathsRenderTheSameGuards(t *testing.T) {
 	if gitops != laptop {
 		t.Fatalf("the GitOps and laptop overlays disagree about admission validation.\n"+
 			"operator-webhook:\n%s\n\nwebhook-enabled:\n%s", gitops, laptop)
+	}
+	if deploy := renderWebhookConfig(t, "../../config/default"); deploy != gitops {
+		t.Fatalf("make deploy and the GitOps overlay disagree about admission validation.\n"+
+			"operator-webhook:\n%s\n\ndefault:\n%s", gitops, deploy)
 	}
 	if !strings.Contains(gitops, "vgpupod.kb.io") || !strings.Contains(gitops, "vgpujob.kb.io") {
 		t.Fatalf("both paths agree and neither deploys the device guards:\n%s", gitops)

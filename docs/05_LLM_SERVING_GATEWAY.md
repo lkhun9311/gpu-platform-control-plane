@@ -83,6 +83,17 @@ The token bucket is static; it cannot protect a premium tenant's p99 from a *wit
 
 Both, and HoldCap, which uses serial-prefill's line, hand turns round-robin across tenants and in arrival order within one, so a tenant that queued many requests on a backend holds one turn per round rather than every turn ahead of a tenant that queued one. With a single standard tenant, as in every registered run, the order is the arrival order it was.
 
+What the three may hold at once is bounded, in total and per tenant, in requests and in body bytes (`internal/gateway/holdbudget.go`). A held request keeps a goroutine and its buffered body, up to 1 MiB, and without a bound a burst could have the gateway OOM-killed under its 256 Mi limit.
+
+| Flag | Default |
+|---|---|
+| `--admission-hold-max-requests` | 1024 |
+| `--admission-hold-max-bytes` | 64 MiB |
+| `--admission-hold-tenant-max-requests` | 512 |
+| `--admission-hold-tenant-max-bytes` | 32 MiB |
+
+Only a request that has to wait is charged, from joining a line until it leaves it by any way. One past a limit is refused at once with 503, `Retry-After` and `X-Admission-Reason: hold_full` or `hold_tenant_full`. Not 429: `internal/bench` reads every 429 as the policy shedding work, and counts a hold refusal apart and invalidates the arm instead. The registered HoldCap traces hold at most 232 contender requests under 10 MiB, inside every default (`docs/superpowers/specs/2026-11-14-gateway-hold-capacity-design.md`).
+
 `--bind-priority` writes the tenant tier's engine priority into every forwarded body (premium 0, standard 1), overwriting any caller value, and reports it in `X-Engine-Priority`. It only matters to an engine started with `--scheduling-policy=priority`.
 Without the flag, the gateway binds the tier anyway when every backend a request may still be sent to is an engine the controller reports in force, its `EngineInForce` condition True for the current generation (set once every serving Pod runs the template rendered from `spec.engine`), because every rendered engine schedules by priority; without a bound tier all requests reach it at one priority and the policy does nothing. The hold-cap product study measured that on EKS: the product's Off left the premium TTFT p99 at 6 to 10 s where the lab's off, which bound the tier, gave about 1.5 s (`hack/eks-serve/holdcap-study/runs/`). A request that may fall back to a backend the controller does not render stays unbound, since that engine may not accept a priority.
 Unbound does not mean caller-chosen: such a request that may still reach a rendered engine has any `priority` the caller sent removed, because the rendered head would otherwise schedule a standard tenant's -100 ahead of premium's 0. Only a request that can reach no rendered engine keeps the caller's field.

@@ -23,6 +23,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway"
 )
 
 // httpStatusTooManyRequests is the status the gateway returns when an admission control rejects a request.
@@ -53,6 +55,8 @@ const (
 	// declared-load tally needed the same test; two copies of one predicate is how a pair of checks drift
 	// into disagreeing about which rows they cover.
 	httpStatusOK = 200
+	// httpStatusServiceUnavailable is how the gateway refuses a request it has no room to hold; refusedForHold reads it with its reason.
+	httpStatusServiceUnavailable = 503
 )
 
 // errKindTimeout is the RawRow.ErrorKind the replay client records when a request exceeds its deadline.
@@ -140,6 +144,23 @@ func shedByAdmission(r RawRow) bool {
 		return true
 	}
 	return r.HTTPStatus == httpStatusInputExceedsBurst && r.AdmissionReason != ""
+}
+
+// refusedForHold reports whether the gateway refused this request because it could hold no more waiting requests.
+//
+// The gateway answers it 503 and names it in X-Admission-Reason (docs/superpowers/specs/2026-11-14-gateway-hold-capacity-design.md).
+// Both are required: a 503 without the reason is some other failure, and the reason never travels on another status.
+func refusedForHold(r RawRow) bool {
+	return r.HTTPStatus == httpStatusServiceUnavailable &&
+		(r.AdmissionReason == gateway.ReasonHoldFull || r.AdmissionReason == gateway.ReasonHoldTenantFull)
+}
+
+// holdRefusals is refusedForHold as a count, so Summarize's loop gains no branch at its complexity ceiling.
+func holdRefusals(r RawRow) int {
+	if refusedForHold(r) {
+		return 1
+	}
+	return 0
 }
 
 // refusedBeforeAdmission reports whether the gateway turned the request away without the guard seeing it.
@@ -253,6 +274,11 @@ type ArmSummary struct {
 	// either invents an observation; counting it as admitted -- which is what happened -- let an arm whose
 	// traffic died in transport report a perfect admission match on work it never offered.
 	AdmissionLost int
+	// HoldRefused is how many requests the gateway refused because it could hold no more, whatever their eligibility.
+	//
+	// Such a refusal is the gateway's capacity, not the policy under test: a 503 the harness used to count as admitted
+	// work in the fraction, and that it must never count as the guard shedding. A compared arm with any is invalid.
+	HoldRefused int
 	// eligibleScored is how many eligible requests did get a verdict; AdmissionLost is judged against it.
 	eligibleScored int
 	// Rejected counts admission refusals (HTTP 429 or 413), the load the guard or static cap shed.
@@ -573,6 +599,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		// Summed over OFFERED rows, not completed ones: the load is what the trace asked for, and a run that
 		// lost requests still offered the prompts it was configured with.
 		s.EstInputTokensByTenant[r.Tenant] += int64(r.EstInputTokens)
+		s.HoldRefused += holdRefusals(r)
 		d := s.DispositionByTenant[r.Tenant]
 		d.Offered++
 		switch {
@@ -997,6 +1024,12 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 		if s.ExactTokensContradicted > 0 {
 			c.invalidate(fmt.Sprintf("arm %s has %d eligible requests whose engine-reported input-token count disagrees with the trace's measurement, so the trace was stamped against a different tokenizer or a different prompt ran", s.Arm, s.ExactTokensContradicted))
 		}
+		// A refusal for lack of room to hold means the arm measured the gateway's capacity alongside its policy, so the
+		// two cannot be told apart in its tail or its fraction.
+		if s.HoldRefused > 0 {
+			c.invalidate(fmt.Sprintf("arm %s had %d requests refused because the gateway could hold no more (503 hold_full or hold_tenant_full), so it measured the gateway's hold capacity as well as its policy",
+				s.Arm, s.HoldRefused))
+		}
 		// An eligible request with no admission verdict is unknown work, not admitted work, and the
 		// admitted-work fraction is what the whole matched comparison rests on. The threshold is the tail's:
 		// past one percent the fraction is describing a population it could not see.
@@ -1068,6 +1101,10 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 // Split out of Summarize only to keep that function under the complexity limit; the eligibility test stays
 // at the call site because that predicate IS the population definition and belongs where it is read.
 func (s *ArmSummary) tallyEligibleWork(r RawRow) {
+	// Out of both terms too: the policy neither admitted nor refused it, the gateway had no room to ask. HoldRefused counts it.
+	if refusedForHold(r) {
+		return
+	}
 	if admissionUnknown(r) {
 		// Out of both terms. The guard may have admitted this request and the connection died after, or it
 		// may never have arrived; the evidence cannot say which, and a fraction built on a guess is worse
