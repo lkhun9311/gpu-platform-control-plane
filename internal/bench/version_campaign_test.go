@@ -320,6 +320,29 @@ func TestAnalysisSetRefusals(t *testing.T) {
 			l.CampaignID = ""
 			return l
 		}, "campaign"},
+		// Block numbers fix the workload seed and both orders, so skipping one would be choosing a workload.
+		"a replacement that skips the next block number": {func() AttemptLedger {
+			return appendAttempt(invalid3(), BlockAttempt{Block: 8, Status: AttemptValid, Replaces: 3})
+		}, "due"},
+		"replacements out of order": {func() AttemptLedger {
+			l := plannedLedger()
+			l.Attempts[1].Status, l.Attempts[1].Reason = AttemptInvalid, "recorder write error"
+			l.Attempts[2].Status, l.Attempts[2].Reason = AttemptInvalid, "recorder write error"
+			l = appendAttempt(l, BlockAttempt{Block: 8, Status: AttemptValid, Replaces: 2})
+			return appendAttempt(l, BlockAttempt{Block: 7, Status: AttemptValid, Replaces: 3})
+		}, "due"},
+		"an attempt with no recorded times": {func() AttemptLedger {
+			l := plannedLedger()
+			for i := range l.Attempts {
+				l.Attempts[i].StartedAt, l.Attempts[i].EndedAt = time.Time{}, time.Time{}
+			}
+			return l
+		}, "time"},
+		"an attempt that ends before it starts": {func() AttemptLedger {
+			l := plannedLedger()
+			l.Attempts[3].EndedAt = l.Attempts[3].StartedAt.Add(-time.Minute)
+			return l
+		}, "ends"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := d.AnalysisSet(c.ledger())
@@ -455,6 +478,37 @@ func TestCheckVersionCampaign(t *testing.T) {
 				t.Errorf("refusal %q does not mention %q", err, c.want)
 			}
 		})
+	}
+}
+
+// TestCheckVersionCampaignRecountsTheAnalysedPopulation: the window met the floor over the planned traces, and a smaller replacement can undo that.
+func TestCheckVersionCampaignRecountsTheAnalysedPopulation(t *testing.T) {
+	registerFrozenVersionStudy(t)
+	path, _ := writeBundle(t, nil)
+	b, sum, err := LoadCampaignBundle(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := frozenVersionDesignFixture()
+	// 6 x 168 = 1008 meets a floor of 1000; with block 3 replaced by a 158-row trace the analysed blocks offer 998.
+	for i := range b.Traces {
+		b.Traces[i].MeasuredRows = 168
+		if b.Traces[i].Block == 7 {
+			b.Traces[i].MeasuredRows = 158
+		}
+	}
+	if d.MinOfferedPopulation != 1000 {
+		t.Fatalf("fixture assumes a floor of 1000, the design has %d", d.MinOfferedPopulation)
+	}
+	ledger := plannedLedger()
+	if _, err := CheckVersionCampaign(b, sum, ledger, campaignCells(t, b, sum, []int{1, 2, 3, 4, 5, 6})); err != nil {
+		t.Fatalf("planned blocks at 1008 rows per load: %v", err)
+	}
+	ledger.Attempts[2].Status, ledger.Attempts[2].Reason = AttemptInvalid, "dispatch lag"
+	ledger = appendAttempt(ledger, BlockAttempt{Block: 7, Status: AttemptValid, Replaces: 3})
+	_, err = CheckVersionCampaign(b, sum, ledger, campaignCells(t, b, sum, []int{1, 2, 4, 5, 6, 7}))
+	if err == nil || !strings.Contains(err.Error(), "998") {
+		t.Fatalf("err %v, want a refusal naming the 998 analysed requests", err)
 	}
 }
 

@@ -368,6 +368,13 @@ func (d VersionStudyDesign) AnalysisSet(l AttemptLedger) ([]int, error) {
 		if _, dup := byBlock[a.Block]; dup {
 			return nil, fmt.Errorf("block %d is attempted twice; a block is replaced under a new number, never rerun", a.Block)
 		}
+		// Unrecorded or reversed times would let the overlap check below pass on records that establish no sequence at all.
+		if a.StartedAt.IsZero() || a.EndedAt.IsZero() {
+			return nil, fmt.Errorf("block %d has no recorded start or end time, so the ledger cannot show the attempts ran in sequence", a.Block)
+		}
+		if !a.EndedAt.After(a.StartedAt) {
+			return nil, fmt.Errorf("block %d ends at %s, not after it starts at %s", a.Block, a.EndedAt.Format(time.RFC3339), a.StartedAt.Format(time.RFC3339))
+		}
 		if i > 0 && a.StartedAt.Before(l.Attempts[i-1].EndedAt) {
 			return nil, fmt.Errorf("block %d started before the previous attempt ended; attempts run one after another", a.Block)
 		}
@@ -402,6 +409,11 @@ func (d VersionStudyDesign) AnalysisSet(l AttemptLedger) ([]int, error) {
 			case next <= d.PlannedBlocks || a.StartedAt.Before(plannedEnd):
 				return nil, fmt.Errorf("block %d must start after every planned block has ended", a.Block)
 			}
+			// The block number fixes the replacement's workload seed and both orders, so a skipped number would be a chosen workload.
+			if a.Block != next {
+				return nil, fmt.Errorf("replacement block %d is out of order; block %d was due", a.Block, next)
+			}
+			next++
 			replaced[a.Replaces] = true
 		}
 		byBlock[a.Block] = a
@@ -489,6 +501,21 @@ func CheckVersionCampaign(b *CampaignBundle, bundleSHA string, ledger AttemptLed
 			if !seen[cellKey{block, arm}] {
 				return nil, fmt.Errorf("valid block %d is missing its %s cell", block, arm)
 			}
+		}
+	}
+	// The window met the floor over the planned blocks' traces; a replacement's trace may offer fewer rows, so recount what is analysed.
+	rows := map[[2]any]int{}
+	for _, t := range b.Traces {
+		rows[[2]any{t.Block, t.Load}] = t.MeasuredRows
+	}
+	for _, l := range versionStudyLoads {
+		total := 0
+		for _, block := range set {
+			total += rows[[2]any{block, l.Name}]
+		}
+		if total < d.MinOfferedPopulation {
+			return nil, fmt.Errorf("the analysed blocks %v offer %d measured requests at %s, below the registered floor of %d; no verdict is computed",
+				set, total, l.Name, d.MinOfferedPopulation)
 		}
 	}
 	return set, setErr
