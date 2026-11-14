@@ -8,10 +8,11 @@ import (
 // SamplingPolicy is a study's frozen generation behaviour: what every request asks the engine to do with its logits and its stop condition.
 //
 // The trace seed fixes which requests arrive when; it says nothing about what the engine generates.
-// A request that names no sampling parameter gets the engine's defaults, and since vLLM began reading the model's
-// generation_config those defaults are Qwen2.5's temperature 0.7, top_p 0.8 and repetition_penalty 1.05, applied or not
-// depending on the version (audit finding 12).
-// A version comparison that left them implicit could be measuring a change of sampler rather than of scheduler.
+// A request that names no sampling parameter gets the engine's defaults, and v0.27.1 takes those from the model's
+// generation_config: serving Qwen2.5-3B it logged temperature 0.7, top_p 0.8, top_k 20 and repetition_penalty 1.05
+// (hack/mps-capability/2026-10-24-run2/m5c-run/mpscap/diag/logs-engines-m5c-a.txt:59).
+// Whether a newer version applies that file the same way is not known, so a version comparison that left sampling
+// implicit could be measuring a change of sampler rather than of scheduler (audit finding 12).
 //
 // The sender consumes this through RequestFields and the preflight through CheckCompletion; see the version study's spec.
 type SamplingPolicy struct {
