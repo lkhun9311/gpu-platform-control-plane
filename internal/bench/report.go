@@ -797,6 +797,54 @@ func percentile(sorted []float64, q float64) float64 {
 	return sorted[rank]
 }
 
+// percentileOf is percentile for a caller that must not publish an empty or corrupt population as a number.
+//
+// percentile returns 0 for an empty slice, which every historical caller relies on and which is indistinguishable from a measured 0.
+// New quantities go through this one instead, so a missing sample is an error a report can name rather than an excellent latency.
+// The slice must already be sorted, exactly as for percentile.
+func percentileOf(sorted []float64, q float64) (float64, error) {
+	if math.IsNaN(q) || q < 0 || q > 1 {
+		return 0, fmt.Errorf("quantile %g is outside [0, 1]", q)
+	}
+	if len(sorted) == 0 {
+		return 0, fmt.Errorf("no samples")
+	}
+	for _, v := range sorted {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, fmt.Errorf("a sample is %g, so no quantile of the population is a measurement", v)
+		}
+	}
+	return percentile(sorted, q), nil
+}
+
+// validateBootstrapSettings refuses resampling settings no interval can come from.
+//
+// Zero iterations used to return the percentile of an empty slice, [0, 0], marked valid; a negative count panicked in make.
+// alpha outside (0, 1) names no two-sided interval at all.
+func validateBootstrapSettings(iterations int, alpha float64) error {
+	if iterations < 2 {
+		return fmt.Errorf("%d bootstrap iterations cannot give an interval; at least 2 are needed", iterations)
+	}
+	if math.IsNaN(alpha) || alpha <= 0 || alpha >= 1 {
+		return fmt.Errorf("alpha %g is outside (0, 1), so it names no two-sided interval", alpha)
+	}
+	return nil
+}
+
+// firstNonFinite returns the first NaN or infinite value in values, and whether there was one.
+//
+// A NaN breaks sort.Float64s's ordering, so every percentile taken after it would land on an arbitrary sample.
+func firstNonFinite(values ...[]float64) (float64, bool) {
+	for _, vs := range values {
+		for _, v := range vs {
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				return v, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // CI is a two-sided confidence interval.
 type CI struct {
 	Lo float64
@@ -825,7 +873,13 @@ type CI struct {
 // alpha is the two-sided error, so 0.05 yields a 95% interval; iterations sets the resample count; seed makes it reproducible.
 func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI {
 	if len(values) == 0 {
-		return CI{}
+		return CI{InvalidReason: "no values to resample"}
+	}
+	if err := validateBootstrapSettings(iterations, alpha); err != nil {
+		return CI{InvalidReason: err.Error()}
+	}
+	if v, bad := firstNonFinite(values); bad {
+		return CI{InvalidReason: fmt.Sprintf("a resampled value is %g, so no interval over the values is a measurement", v)}
 	}
 	if len(values) == 1 {
 		// A single repetition cannot bound its own variance, so the interval degenerates to the point estimate

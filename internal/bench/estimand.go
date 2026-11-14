@@ -121,6 +121,12 @@ func PairedRatioCI(baseline, colocated []float64, iterations int, seed int64, al
 			"a paired bootstrap needs equally many repetitions in both arms and has %d and %d",
 			len(baseline), len(colocated))}
 	}
+	if err := validateBootstrapSettings(iterations, alpha); err != nil {
+		return CI{InvalidReason: err.Error()}
+	}
+	if v, bad := firstNonFinite(baseline, colocated); bad {
+		return CI{InvalidReason: fmt.Sprintf("a repetition's p99 is %g, so no ratio over the repetitions is a measurement", v)}
+	}
 	if n == 1 {
 		// One repetition cannot bound its own variance, so this degenerates to the point estimate.
 		//
@@ -147,18 +153,13 @@ func PairedRatioCI(baseline, colocated []float64, iterations int, seed int64, al
 			rc[j] = colocated[k]
 		}
 		mb := medianOf(rb)
-		if mb == 0 {
-			// A resample whose baseline median is zero has no ratio. Dropping it rather than substituting a
-			// zero keeps the percentiles over ratios that exist; the count of survivors is checked below so
-			// that an all-dropped distribution cannot read as an interval.
-			continue
+		if mb <= 0 {
+			// A resample whose baseline median is zero has no ratio, and the interval is refused rather than taken over the survivors.
+			// Dropping such draws conditioned the interval on the resamples that happened to work, which is the same fault PairedBlockRatioCI refuses.
+			// No registered study's evidence has a zero per-repetition p99, so refusing here leaves every published interval as it was.
+			return CI{InvalidReason: "a resample's baseline median is zero, so its ratio is undefined; the interval is refused rather than computed over the resamples that happened to work"}
 		}
 		ratios = append(ratios, medianOf(rc)/mb)
-	}
-	if len(ratios) < 2 {
-		return CI{InvalidReason: fmt.Sprintf(
-			"only %d of %d resamples had a non-zero baseline median, which is too few to take percentiles over",
-			len(ratios), iterations)}
 	}
 
 	sort.Float64s(ratios)
@@ -302,6 +303,9 @@ func PairedBlockRatioCI(arm string, baseline, colocated [][]RawRow, iterations i
 		// a point wearing an interval's name. BootstrapCI and PairedRatioCI refuse the same way.
 		return CI{InvalidReason: "one repetition per arm cannot bound its own variance, so there is no interval"}
 	}
+	if err := validateBootstrapSettings(iterations, alpha); err != nil {
+		return CI{InvalidReason: err.Error()}
+	}
 
 	src := rand.NewPCG(uint64(seed), uint64(seed)^0x9e3779b97f4a7c15)
 	rng := rand.New(src)
@@ -322,6 +326,10 @@ func PairedBlockRatioCI(arm string, baseline, colocated [][]RawRow, iterations i
 			// A replicate with no premium completions in the baseline has no ratio. It is NOT skipped:
 			// dropping it and reporting the rest as a valid interval is what the amendment forbids.
 			return CI{InvalidReason: "a resampled baseline block carries no premium completion, so its p99 is zero and the ratio is undefined; the interval is refused rather than computed over the replicates that happened to work"}
+		}
+		if c <= 0 {
+			// The candidate side is refused for the same reason: an empty candidate tail reads as a ratio of 0, the best interference ratio there is.
+			return CI{InvalidReason: "a resampled candidate block carries no premium completion, so its p99 is zero and the ratio would read as perfect protection; the interval is refused"}
 		}
 		ratios = append(ratios, c/b)
 	}
