@@ -39,12 +39,17 @@ case "$tool $*" in
   # The session lease (hack/lib/session-lease.sh): an Active reaper, and a store kept in one file beside the call log.
   "aws lambda get-function"*) echo Active ;;
   "aws ssm get-parameter --region"*"--name /gpu-platform/session-reaper/last-ok"*) date -u +%Y-%m-%dT%H:%M:%SZ ;;
+  # Before get-parameter, whose pattern it also matches: the account-wide listing of leases the arm refuses on.
+  "aws ssm get-parameters-by-path"*)
+    if [[ -f "$STUB_CALLS.lease.name" ]]; then cat "$STUB_CALLS.lease.name"; else echo None; fi ;;
   "aws ssm get-parameter"*)
     if [[ -f "$STUB_CALLS.lease" ]]; then cat "$STUB_CALLS.lease"; exit 0; fi
     echo "An error occurred (ParameterNotFound) when calling the GetParameter operation" >&2
     exit 254 ;;
   "aws ssm put-parameter"*)
     set -- "$@"
+    while [[ $# -gt 0 && "$1" != --name ]]; do shift; done
+    printf '%s\n' "$2" >"$STUB_CALLS.lease.name"
     while [[ $# -gt 0 && "$1" != --value ]]; do shift; done
     printf '%s' "$2" >"$STUB_CALLS.lease"
     echo '{"Version": 1}' ;;
@@ -191,13 +196,15 @@ if [[ -n "$pid" && "$stray" == "$pid" && "$out" == *"TTL kill switch armed: PID 
   ok "$name: the watchdog reported pid $pid under an absolute EXDIR, and the session read it"
   grep -q '^terraform -chdir=infra/aws/cluster init' "$STUB_CALLS" && ok "$name: the cluster's init reached the stub, not a real terraform" ||
     bad "$name: the stub saw no init of the cluster root: $(grep '^terraform' "$STUB_CALLS" | head -3)"
-  # The lease is written before the first terraform call, and holds this cluster.
+  # The lease is written before the first terraform call, holds this cluster, and is named for the session, not the cluster.
   lease_at=$(grep -n '^aws ssm put-parameter' "$STUB_CALLS" | head -1 | cut -d: -f1)
   init_at=$(grep -n '^terraform -chdir=infra/aws/cluster init' "$STUB_CALLS" | head -1 | cut -d: -f1)
-  if [[ -n "$lease_at" && -n "$init_at" ]] && ((lease_at < init_at)) && grep -q '"cluster": "gpu-platform"' "$STUB_CALLS.lease"; then
-    ok "$name: the session lease was written before the cluster's init"
+  lease_nm="$(cat "$STUB_CALLS.lease.name" 2>&1)"
+  if [[ -n "$lease_at" && -n "$init_at" ]] && ((lease_at < init_at)) && grep -q '"cluster": "gpu-platform"' "$STUB_CALLS.lease" &&
+    [[ "$lease_nm" == /gpu-platform/session-lease/* && "$lease_nm" != /gpu-platform/session-lease/gpu-platform ]]; then
+    ok "$name: the session lease $lease_nm was written before the cluster's init"
   else
-    bad "$name: lease written at call '${lease_at}', init at '${init_at}', lease: $(cat "$STUB_CALLS.lease" 2>&1)"
+    bad "$name: lease $lease_nm written at call '${lease_at}', init at '${init_at}', lease: $(cat "$STUB_CALLS.lease" 2>&1)"
   fi
 else
   bad "$name: pid file '${pid:-absent}', processes '${stray:-none}', session said: $(grep -o 'TTL[^,]*\|never reported its pid[^;]*' <<<"$out" | head -1)"
