@@ -123,6 +123,9 @@ type Server struct {
 	// holdCap admits every HoldCap backend, built on first use so a gateway with none never makes one.
 	holdCap     holdCapAdmitter
 	holdCapOnce sync.Once
+	// holdBudget is charged by every admitter that holds a request, built on first use with DefaultHoldLimits.
+	holdBudget     *holdBudget
+	holdBudgetOnce sync.Once
 	// responseHeaderTimeout bounds the wait for upstream response headers.
 	//
 	// Zero selects proxy.go's defaultResponseHeaderTimeout (30s), so production leaves it unset.
@@ -228,6 +231,9 @@ func (s *Server) RecordRequests(r *RequestRecorder) { s.recorder = r }
 func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
 	s.mode = mode
 	s.admitter = a
+	if h, ok := a.(holdBudgetUser); ok {
+		h.useHoldBudget(s.holds())
+	}
 
 	// Publish the mode here rather than in main, for the same reason mode travels through this call at
 	// all: this is the one place that knows which Admitter is actually installed, so the series cannot
@@ -320,6 +326,27 @@ func (s *Server) failUnresolvedModel(w http.ResponseWriter, tenant, model string
 //
 // Retry-After is set to 5s (design spec Config and API section) because an admission-guard 429 is expected to clear once bucket capacity or backend pressure recovers, at a time the gateway cannot compute.
 // The RPM limiter's 429 can compute it, and carries retryAfterSeconds instead.
+// refuseAdmission answers a request admission refused, with the status its reason calls for.
+func (s *Server) refuseAdmission(w http.ResponseWriter, tenant, model, reason string) {
+	switch {
+	// A request larger than the bucket can ever hold is refused permanently, so it must not carry the
+	// retry hint failReason attaches: a client obeying it would retry an arithmetically impossible request
+	// forever. 413 rather than 429 for the same reason — the caller's action is a smaller prompt, not a
+	// later one.
+	// The 413 does not go through failReason, so before the X-Admission-Reason header existed its reason reached
+	// nowhere a client could record it. That is why the 1,788 refusals in the 2026-09-03 run had to be
+	// explained months later by reading the runner's flags and the gateway's defaults.
+	case reason == reasonInputExceedsBurst || reason == reasonInputExceedsReservation:
+		s.fail(w, tenant, model, http.StatusRequestEntityTooLarge)
+	// The gateway running out of room to hold is not the policy deciding, so it is not 429: internal/bench reads every 429
+	// as the guard shedding work, and a 429 tells the caller it exceeded a rate it may never have reached.
+	case refusedForHold(reason):
+		s.failReason(w, tenant, model, http.StatusServiceUnavailable, reason)
+	default:
+		s.failReason(w, tenant, model, http.StatusTooManyRequests, reason)
+	}
+}
+
 func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code int, reason string) {
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
 	w.Header().Set("Retry-After", "5")
@@ -631,18 +658,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	admissionDecisions.WithLabelValues(string(mode), tenant, meta.Model, decision, reason).Inc()
 	admissionInputTokens.WithLabelValues(string(mode), tenant, decision).Add(float64(meta.EstInputTokens))
 	if !admit {
-		// A request larger than the bucket can ever hold is refused permanently, so it must not carry the
-		// retry hint failReason attaches: a client obeying it would retry an arithmetically impossible request
-		// forever. 413 rather than 429 for the same reason — the caller's action is a smaller prompt, not a
-		// later one.
-		// The 413 does not go through failReason, so before the header above existed its reason reached
-		// nowhere a client could record it. That is why the 1,788 refusals in the 2026-09-03 run had to be
-		// explained months later by reading the runner's flags and the gateway's defaults.
-		if reason == reasonInputExceedsBurst || reason == reasonInputExceedsReservation {
-			s.fail(w, tenant, meta.Model, http.StatusRequestEntityTooLarge)
-			return
-		}
-		s.failReason(w, tenant, meta.Model, http.StatusTooManyRequests, reason)
+		s.refuseAdmission(w, tenant, meta.Model, reason)
 		return
 	}
 

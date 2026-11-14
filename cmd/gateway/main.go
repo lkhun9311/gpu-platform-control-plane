@@ -128,6 +128,9 @@ func main() {
 		admissionKVMaxStaleness   time.Duration
 		admissionKVScrapeTimeout  time.Duration
 		admissionKVIdleTimeout    time.Duration
+
+		// holdLimits bounds what serial-prefill, HoldCap and fixed-spacing keep while requests wait; on by default.
+		holdLimits = gateway.DefaultHoldLimits
 	)
 	flag.StringVar(&admissionModeFlag, "admission-mode", string(gateway.AdmissionOff),
 		"Admission control mode on the inference path: off, static-cap, kv-aware, prospective, serial-prefill, or fixed-spacing.")
@@ -141,6 +144,14 @@ func main() {
 		"fixed-spacing mode: the least time between two standard admissions on a backend. Required.")
 	flag.DurationVar(&admissionFixedMaxHold, "admission-fixed-spacing-max-hold", 0,
 		"fixed-spacing mode: the longest a standard request is held for its turn before it is refused. Required.")
+	flag.Int64Var(&holdLimits.Requests, "admission-hold-max-requests", holdLimits.Requests,
+		"the most standard requests the gateway holds for their turn at once, across serial-prefill, HoldCap and fixed-spacing; one past it is refused with 503 hold_full.")
+	flag.Int64Var(&holdLimits.Bytes, "admission-hold-max-bytes", holdLimits.Bytes,
+		"the most request body bytes the held requests may keep at once; one past it is refused with 503 hold_full.")
+	flag.Int64Var(&holdLimits.TenantRequests, "admission-hold-tenant-max-requests", holdLimits.TenantRequests,
+		"the most held requests one tenant may have at once; one past it is refused with 503 hold_tenant_full.")
+	flag.Int64Var(&holdLimits.TenantBytes, "admission-hold-tenant-max-bytes", holdLimits.TenantBytes,
+		"the most held body bytes one tenant may have at once; one past it is refused with 503 hold_tenant_full.")
 	flag.Float64Var(&admissionStaticRate, "admission-static-rate", defaultAdmissionStaticRate,
 		"static-cap mode: sustained per-backend input-token refill rate, in tokens/sec.")
 	flag.IntVar(&admissionStaticBurst, "admission-static-burst", defaultAdmissionStaticBurst,
@@ -301,6 +312,11 @@ func main() {
 	// InitRateLimiter is (admitter is unexported to the gateway package), and mode travels with it
 	// so the metrics label can never disagree with which Admitter is actually running.
 	s.SetAdmitter(admissionMode, admitter)
+	// Refused at start rather than clamped, so a deployment never runs with limits other than the ones it wrote.
+	if err := s.SetHoldLimits(holdLimits); err != nil {
+		log.Error(err, "configure the hold limits")
+		os.Exit(1)
+	}
 	// A backend can choose its own admission, so the process-wide mode above no longer says what every request gets.
 	if err := s.RegisterBackendAdmissionMetric(); err != nil {
 		log.Error(err, "register the backend admission gauge")

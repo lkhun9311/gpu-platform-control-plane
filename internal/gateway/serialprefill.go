@@ -42,7 +42,12 @@ type serialPrefillAdmitter struct {
 	maxHold time.Duration
 	busy    map[string]bool
 	waiters map[string]*fairLine
+	// budget is charged for each request while it waits; nil charges nothing.
+	budget *holdBudget
 }
+
+// useHoldBudget makes this admitter charge its waiters to the gateway's budget.
+func (s *serialPrefillAdmitter) useHoldBudget(b *holdBudget) { s.budget = b }
 
 // waiter is a held request's turn, when it began waiting and how long it may wait, so a turn is never handed to one already past its hold.
 // Each waiter keeps the hold it arrived under, so a changed maxHold applies to the next request and not to one already waiting.
@@ -70,12 +75,14 @@ func (s *serialPrefillAdmitter) Admit(context.Context, RequestMeta, *BackendRef,
 
 // Reserve admits a premium request at once, and a standard one when its backend has no standard request in prefill,
 // waiting its turn behind those that arrived before it.
-func (s *serialPrefillAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
-	return s.reserve(ctx, backend, tenant, tier, s.maxHold)
+func (s *serialPrefillAdmitter) Reserve(ctx context.Context, meta RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
+	return s.reserve(ctx, meta, backend, tenant, tier, s.maxHold)
 }
 
 // reserve is Reserve with the hold passed in, so the hold-cap admitter can give each backend the hold from its own spec.
-func (s *serialPrefillAdmitter) reserve(ctx context.Context, backend *BackendRef, tenant, tier string, maxHold time.Duration) (*reservation, bool, string) {
+// A request that has to wait is charged to the hold budget from joining the line until this returns, by any branch, because its goroutine and body live that long.
+// One the budget cannot hold is refused before it joins, so it never takes a turn from those already waiting.
+func (s *serialPrefillAdmitter) reserve(ctx context.Context, meta RequestMeta, backend *BackendRef, tenant, tier string, maxHold time.Duration) (*reservation, bool, string) {
 	if tier == tierPremium {
 		return nil, true, reasonPremiumUnreserved
 	}
@@ -91,6 +98,11 @@ func (s *serialPrefillAdmitter) reserve(ctx context.Context, backend *BackendRef
 		s.mu.Unlock()
 		return s.hold(key), true, reasonSerialPrefillFree
 	}
+	if ok, reason := s.budget.take(tenant, meta.BodyBytes); !ok {
+		s.mu.Unlock()
+		return nil, false, reason
+	}
+	defer s.budget.give(tenant, meta.BodyBytes)
 	turn := make(chan struct{})
 	line.push(waiter{turn: turn, since: time.Now(), maxHold: maxHold, tenant: tenant})
 	s.mu.Unlock()

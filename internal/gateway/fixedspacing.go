@@ -41,7 +41,12 @@ type fixedSpacingAdmitter struct {
 	spacing time.Duration
 	maxHold time.Duration
 	lines   map[string]*fixedSpacingLine
+	// budget is charged for each request while it waits; nil charges nothing.
+	budget *holdBudget
 }
+
+// useHoldBudget makes this admitter charge its waiters to the gateway's budget.
+func (f *fixedSpacingAdmitter) useHoldBudget(b *holdBudget) { f.budget = b }
 
 // NewFixedSpacingAdmitter returns the fixed-spacing admitter with its spacing and longest hold.
 func NewFixedSpacingAdmitter(spacing, maxHold time.Duration) Admitter {
@@ -62,7 +67,8 @@ func (f *fixedSpacingAdmitter) Admit(context.Context, RequestMeta, *BackendRef, 
 // An admitted standard request carries an empty reservation: nothing it does later releases anything, but a
 // reservation is what keeps it on the backend whose clock it was charged to; without one the server kept the
 // fallback backends, which no spacing had been asked about (review of b80093c).
-func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
+// A request that has to wait is charged to the hold budget until this returns, as serial-prefill's are, and one the budget cannot hold is refused before it joins.
+func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, meta RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
 	if tier == tierPremium {
 		return nil, true, reasonPremiumUnreserved
 	}
@@ -79,6 +85,11 @@ func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backe
 		f.mu.Unlock()
 		return &reservation{}, true, reasonFixedSpacingFree
 	}
+	if ok, reason := f.budget.take(tenant, meta.BodyBytes); !ok {
+		f.mu.Unlock()
+		return nil, false, reason
+	}
+	defer f.budget.give(tenant, meta.BodyBytes)
 	turn := make(chan struct{})
 	l.waiters.push(waiter{turn: turn, since: now, maxHold: f.maxHold, tenant: tenant})
 	f.arm(key, l, now)
