@@ -2858,7 +2858,7 @@ EOF
       mps-compute-apps-*.csv | mps-compute-apps-*.err | mps-pod-lookup.err | ladder-verdict-rung*.txt) ;;
       applied-values.tsv | cell-environment.tsv | engine-log-*.txt) ;;
       step-log-*.jsonl | step-plugin-*.sha256) ;;
-      fence-*.json | fence-forward-*.log | gateway-record-*.jsonl | raw-*.jsonl.sender.json | ineligible-*.txt) ;;
+      fence-*.json | fence-forward-*.log | gateway-record-*.jsonl | raw-*.jsonl.sender.json | raw-*.jsonl.status.json | ineligible-*.txt) ;;
       phases.tsv | cell-uploads.tsv | calibration.txt | calibration-forward.log) ;;
       live-raw-*.jsonl | live-gateway-record-*.jsonl | sidecar-uploads.tsv | engine-samples-*.tsv) ;;
       # The MPS capability session's bar journal; its evidence is in the mpscap/ directory beside it.
