@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	appsv1 "k8s.io/api/apps/v1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -119,26 +122,193 @@ func TestOffRendersNoCap(t *testing.T) {
 	}
 }
 
-// A profile added to the enum without a rendering would panic in the reconciler, so the two are compared here first.
-func TestEveryProfileInTheCRDHasARendering(t *testing.T) {
+// crdEnum returns the enum the generated CRD puts under the first property named field.
+func crdEnum(t *testing.T, field string) []string {
+	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "platform.lkhun9311.github.io_inferencedeployments.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := regexp.MustCompile(`(?s)\n(\s*)profile:\n.*?enum:\n((?:\s*- \S+\n)+)`).FindStringSubmatch(string(raw))
+	m := regexp.MustCompile(`(?s)\n(\s*)` + field + `:\n.*?enum:\n((?:\s*- \S+\n)+)`).FindStringSubmatch(string(raw))
 	if m == nil {
-		t.Fatal("no enum under profile in the generated CRD")
+		t.Fatalf("no enum under %s in the generated CRD", field)
 	}
-	n := 0
+	var vals []string
 	for line := range strings.SplitSeq(strings.TrimSpace(m[2]), "\n") {
-		p := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "-"))
-		n++
+		vals = append(vals, strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "-")))
+	}
+	if len(vals) == 0 {
+		t.Fatalf("the %s enum parsed as empty", field)
+	}
+	return vals
+}
+
+// A profile added to the enum without a rendering would panic in the reconciler, so the two are compared here first.
+// The experimental profile renders from the release table, which TestEveryReleaseInTheCRDHasAReviewedRow covers.
+func TestEveryProfileInTheCRDHasARendering(t *testing.T) {
+	for _, p := range crdEnum(t, "profile") {
+		if p == platformv1.VLLMProfileExperimentalA10G {
+			continue
+		}
 		if _, ok := vllmProfiles[p]; !ok {
 			t.Errorf("profile %s is accepted by the CRD and has no rendering", p)
 		}
 	}
-	if n == 0 {
-		t.Fatal("the profile enum parsed as empty")
+}
+
+// A release the CRD accepts without a reviewed row would panic in the reconciler, and a row the CRD refuses is review nobody can use.
+// Mutation that turns this red: add a release to the enum on VLLMExperimental.Release without a row, or a row without the enum.
+func TestEveryReleaseInTheCRDHasAReviewedRow(t *testing.T) {
+	enum := crdEnum(t, "release")
+	for _, r := range enum {
+		if _, ok := experimentalReleases[r]; !ok {
+			t.Errorf("release %s is accepted by the CRD and has no reviewed argument set", r)
+		}
+	}
+	for r := range experimentalReleases {
+		if !slices.Contains(enum, r) {
+			t.Errorf("release %s has a reviewed argument set and the CRD refuses it", r)
+		}
+	}
+}
+
+// The CEL rule pins spec.image to each release's digest, and the controller renders that release's flags, so the two must name the same digest.
+// The marker is read rather than the generated CRD, because the YAML folds the rule across lines; the CRD is regenerated from it.
+// Mutation that turns this red: change a row's digest, or the digest in the experimental CEL rule.
+func TestEveryReleaseDigestIsTheOneTheCRDPins(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "api", "v1", "inferencedeployment_types.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for r, rel := range experimentalReleases {
+		pair := "self.engine.vllm.experimental.release == '" + r + "' && self.image.endsWith('@" + rel.digest + "')"
+		if !strings.Contains(string(raw), pair) {
+			t.Errorf("the CEL rule does not pin release %s to %s", r, rel.digest)
+		}
+	}
+}
+
+func experimentalInfD(async string) *platformv1.InferenceDeployment {
+	infd := engineInfD("")
+	infd.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileExperimentalA10G
+	infd.Spec.Engine.VLLM.Experimental = &platformv1.VLLMExperimental{
+		Release: platformv1.VLLMReleaseV0271, AsyncScheduling: async}
+	return infd
+}
+
+// A study arm on the experimental profile is comparable with the validated engine only if, on the same release with async off, it is that engine.
+// Mutation that turns this red: change any argument of the v0.27.1 release row.
+func TestExperimentalV0271WithAsyncOffRendersTheValidatedEngine(t *testing.T) {
+	got, ok := engineProfile(experimentalInfD(platformv1.AsyncSchedulingDisabled))
+	if !ok {
+		t.Fatal("the reviewed release with async off has no rendering")
+	}
+	want := vllmProfiles[platformv1.VLLMProfileV0271A10G]
+	if !slices.Equal(got.args, want.args) {
+		t.Fatalf("rendered %v, the validated profile renders %v", got.args, want.args)
+	}
+	if !slices.Equal(got.instanceTypes, want.instanceTypes) {
+		t.Fatalf("instance types %v, the validated profile has %v", got.instanceTypes, want.instanceTypes)
+	}
+}
+
+// The async arm's registration claims one changed setting, so the rendering may differ in nothing else.
+// Mutation that turns this red: render the same flag for both choices, or let Enabled touch another argument.
+func TestExperimentalAsyncChoiceChangesOnlyAsyncScheduling(t *testing.T) {
+	off, ok1 := engineProfile(experimentalInfD(platformv1.AsyncSchedulingDisabled))
+	on, ok2 := engineProfile(experimentalInfD(platformv1.AsyncSchedulingEnabled))
+	if !ok1 || !ok2 {
+		t.Fatal("a reviewed async choice has no rendering")
+	}
+	if len(off.args) != len(on.args) {
+		t.Fatalf("the choices render %d and %d arguments", len(off.args), len(on.args))
+	}
+	var diff []string
+	for i := range off.args {
+		if off.args[i] != on.args[i] {
+			diff = append(diff, off.args[i]+" -> "+on.args[i])
+		}
+	}
+	if len(diff) != 1 || diff[0] != "--no-async-scheduling -> --async-scheduling" {
+		t.Fatalf("the choices differ in %v, want only the async-scheduling flag", diff)
+	}
+}
+
+// The CRD refuses each of these, and the controller refuses them too, so a CRD that drifts from the table renders nothing rather than guessed flags.
+// Mutation that turns this red: drop any one check from engineProfile.
+func TestEngineProfileRefusesCombinationsNobodyReviewed(t *testing.T) {
+	cases := map[string]func(*platformv1.InferenceDeployment){
+		"unreviewed release": func(o *platformv1.InferenceDeployment) { o.Spec.Engine.VLLM.Experimental.Release = "v0.28.0" },
+		"other digest": func(o *platformv1.InferenceDeployment) {
+			o.Spec.Image = "vllm/vllm-openai@sha256:" + "00" + platformv1.VLLMV0271Digest[9:]
+		},
+		"tag, not digest":              func(o *platformv1.InferenceDeployment) { o.Spec.Image = "vllm/vllm-openai:v0.27.1" },
+		"no async choice":              func(o *platformv1.InferenceDeployment) { o.Spec.Engine.VLLM.Experimental.AsyncScheduling = "" },
+		"bool-like async":              func(o *platformv1.InferenceDeployment) { o.Spec.Engine.VLLM.Experimental.AsyncScheduling = "true" },
+		"profile without experimental": func(o *platformv1.InferenceDeployment) { o.Spec.Engine.VLLM.Experimental = nil },
+		"experimental on a validated profile": func(o *platformv1.InferenceDeployment) {
+			o.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileV0271A10G
+		},
+		"HoldCap on experimental": func(o *platformv1.InferenceDeployment) {
+			o.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeHoldCap}
+		},
+		"HoldCap on prefix cache": func(o *platformv1.InferenceDeployment) {
+			o.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileV0271A10GPrefixCache
+			o.Spec.Engine.VLLM.Experimental = nil
+			o.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeHoldCap}
+		},
+	}
+	for name, mutate := range cases {
+		o := experimentalInfD(platformv1.AsyncSchedulingEnabled)
+		mutate(o)
+		if p, ok := engineProfile(o); ok {
+			t.Errorf("%s rendered %v", name, p.args)
+		}
+	}
+}
+
+// A benchmark row is traced to its engine through this annotation, so it must be exactly what the container runs, for every profile.
+// Mutation that turns this red: record the profile's args without the per-deployment ones, or omit the image.
+func TestRenderedEngineAnnotationIsWhatTheContainerRuns(t *testing.T) {
+	prefix := engineInfD("")
+	prefix.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileV0271A10GPrefixCache
+	for name, infd := range map[string]*platformv1.InferenceDeployment{
+		"holdcap":      engineInfD(platformv1.AdmissionModeHoldCap),
+		"prefix-cache": prefix,
+		"async-on":     experimentalInfD(platformv1.AsyncSchedulingEnabled),
+	} {
+		dep := &appsv1.Deployment{}
+		if !mutateEngineDeployment(infd, dep) {
+			t.Fatalf("%s has no rendering", name)
+		}
+		raw, ok := dep.Spec.Template.Annotations[renderedEngineAnnotation]
+		if !ok {
+			t.Fatalf("%s: no %s on the Pod template", name, renderedEngineAnnotation)
+		}
+		var got renderedEngine
+		if err := json.Unmarshal([]byte(raw), &got); err != nil {
+			t.Fatalf("%s: %s is not JSON: %v", name, raw, err)
+		}
+		c := dep.Spec.Template.Spec.Containers[0]
+		if got.Image != c.Image || !slices.Equal(got.Args, c.Args) {
+			t.Errorf("%s: annotation records %s %v, the container runs %s %v", name, got.Image, got.Args, c.Image, c.Args)
+		}
+	}
+}
+
+// The validated profiles resolve exactly as before, HoldCap included, so the experimental path loosened nothing for them.
+func TestEngineProfileKeepsTheValidatedProfiles(t *testing.T) {
+	for _, mode := range []string{"", platformv1.AdmissionModeOff, platformv1.AdmissionModeHoldCap} {
+		p, ok := engineProfile(engineInfD(mode))
+		if !ok || !slices.Equal(p.args, vllmProfiles[platformv1.VLLMProfileV0271A10G].args) {
+			t.Errorf("v0.27.1-a10g in mode %q resolved to %v, %v", mode, p.args, ok)
+		}
+	}
+	o := engineInfD("")
+	o.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileV0271A10GPrefixCache
+	p, ok := engineProfile(o)
+	if !ok || !slices.Equal(p.args, vllmProfiles[platformv1.VLLMProfileV0271A10GPrefixCache].args) {
+		t.Errorf("the prefix-cache profile resolved to %v, %v", p.args, ok)
 	}
 }
 
@@ -150,6 +320,11 @@ func TestEveryRenderedProfileSchedulesByPriority(t *testing.T) {
 	for name, p := range vllmProfiles {
 		if !slices.Contains(p.args, "--scheduling-policy=priority") {
 			t.Errorf("profile %s does not schedule by priority, and the gateway binds a tier on every rendered engine", name)
+		}
+	}
+	for name, rel := range experimentalReleases {
+		if !slices.Contains(rel.args, "--scheduling-policy=priority") {
+			t.Errorf("release %s does not schedule by priority, and the gateway binds a tier on every rendered engine", name)
 		}
 	}
 }

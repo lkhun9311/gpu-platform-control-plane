@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -24,12 +26,23 @@ const (
 	// It lives on the Deployment's metadata, not the template, so a change that does not touch the engine does not restart it.
 	renderedGenerationAnnotation = "platform.lkhun9311.github.io/rendered-generation"
 
+	// renderedEngineAnnotation records on the Pod template the image and the full argument list the engine was rendered with, as JSON.
+	// It is on the template so every Pod carries the engine it runs, and a benchmark row read off a Pod is traced to its flags without knowing the profile table.
+	// It changes only when the container's image or args change, which restart the engine anyway.
+	renderedEngineAnnotation = "platform.lkhun9311.github.io/rendered-engine"
+
 	// holdCapPrefillThreshold is the only prefill cap measured; a field would ship an unmeasured setting.
 	holdCapPrefillThreshold = 384
 
 	// exclusiveGPULabel marks a node whose GPUs are not shared; see the node groups in infra/aws/cluster/eks.tf.
 	exclusiveGPULabel = "platform.lkhun9311.github.io/gpu"
 )
+
+// renderedEngine is the value of renderedEngineAnnotation.
+type renderedEngine struct {
+	Image string   `json:"image"`
+	Args  []string `json:"args"`
+}
 
 // vllmProfile is one measured engine configuration.
 type vllmProfile struct {
@@ -72,6 +85,72 @@ var vllmProfiles = map[string]vllmProfile{
 	},
 }
 
+// vllmRelease is a vLLM release the experimental profile may run, with its flags spelled as that release accepts them.
+// A newer release may rename or drop a flag, so a row is added only after its args were checked against that release's `vllm serve --help`.
+type vllmRelease struct {
+	// digest is the image the flags were reviewed against; the CEL rule on the spec repeats it.
+	digest string
+	// args are the measured A10G settings without the async-scheduling flag, which the spec chooses.
+	args []string
+	// asyncOn and asyncOff are this release's spelling of the two async-scheduling choices.
+	asyncOn, asyncOff string
+}
+
+// experimentalReleases are the reviewed rows; the CRD enum on experimental.release and TestEveryReleaseInTheCRDHasAReviewedRow keep them equal.
+var experimentalReleases = map[string]vllmRelease{
+	// Spelled out rather than taken from measuredA10GArgs, so a newer row is a literal list a reviewer reads against its release.
+	// TestExperimentalV0271WithAsyncOffRendersTheValidatedEngine holds this row to the validated profile.
+	platformv1.VLLMReleaseV0271: {
+		digest: platformv1.VLLMV0271Digest,
+		args: []string{
+			"--dtype=half",
+			"--max-model-len=16384",
+			"--max-num-seqs=64",
+			"--gpu-memory-utilization=0.90",
+			"--no-enable-prefix-caching",
+			"--max-num-batched-tokens=512",
+			"--scheduling-policy=priority",
+		},
+		asyncOn:  "--async-scheduling",
+		asyncOff: "--no-async-scheduling",
+	},
+}
+
+// engineProfile resolves the spec's engine to a rendering, or reports false for any combination nobody reviewed.
+// The CRD refuses each such combination first; refusing here as well means a CRD that drifts from the table renders nothing rather than guessed flags.
+func engineProfile(infd *platformv1.InferenceDeployment) (vllmProfile, bool) {
+	v := infd.Spec.Engine.VLLM
+	// HoldCap was measured on one profile only, so the cap is never rendered onto another.
+	if holdCapRequested(infd) && v.Profile != platformv1.VLLMProfileV0271A10G {
+		return vllmProfile{}, false
+	}
+	if v.Profile != platformv1.VLLMProfileExperimentalA10G {
+		if v.Experimental != nil {
+			return vllmProfile{}, false
+		}
+		p, ok := vllmProfiles[v.Profile]
+		return p, ok
+	}
+	if v.Experimental == nil {
+		return vllmProfile{}, false
+	}
+	rel, ok := experimentalReleases[v.Experimental.Release]
+	if !ok || !strings.HasSuffix(infd.Spec.Image, "@"+rel.digest) {
+		return vllmProfile{}, false
+	}
+	var async string
+	switch v.Experimental.AsyncScheduling {
+	case platformv1.AsyncSchedulingEnabled:
+		async = rel.asyncOn
+	case platformv1.AsyncSchedulingDisabled:
+		async = rel.asyncOff
+	default:
+		return vllmProfile{}, false
+	}
+	// Last, where the validated profiles put --no-async-scheduling, so async off renders their argument order exactly.
+	return vllmProfile{args: append(slices.Clone(rel.args), async), instanceTypes: a10gInstanceTypes}, true
+}
+
 // holdCapRequested reports whether the spec asks for HoldCap.
 func holdCapRequested(infd *platformv1.InferenceDeployment) bool {
 	return infd.Spec.Admission != nil && infd.Spec.Admission.Mode == platformv1.AdmissionModeHoldCap
@@ -103,9 +182,9 @@ func admissionLabel(infd *platformv1.InferenceDeployment) string {
 }
 
 // mutateEngineDeployment renders the pinned engine onto the Deployment.
-// It returns false for a profile with no rendering, which the CRD's enum makes unreachable and TestEveryProfileInTheCRDHasARendering keeps so.
+// It returns false for a combination with no rendering, which the CRD's enums and CEL rules make unreachable and the parity tests keep so.
 func mutateEngineDeployment(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) bool {
-	p, ok := vllmProfiles[infd.Spec.Engine.VLLM.Profile]
+	p, ok := engineProfile(infd)
 	if !ok {
 		return false
 	}
@@ -119,13 +198,17 @@ func mutateEngineDeployment(infd *platformv1.InferenceDeployment, dep *appsv1.De
 		dep.Spec.Template.Annotations = map[string]string{}
 	}
 	dep.Spec.Template.Annotations[admissionAnnotation] = admissionLabel(infd)
+	args := vllmArgs(infd, p)
+	// A struct of strings cannot fail to marshal, so the error carries nothing.
+	rendered, _ := json.Marshal(renderedEngine{Image: infd.Spec.Image, Args: args})
+	dep.Spec.Template.Annotations[renderedEngineAnnotation] = string(rendered)
 	health := corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")}}
 	gpu := *resource.NewQuantity(int64(infd.Spec.GPUCount), resource.DecimalSI)
 	dep.Spec.Template.Spec.Containers = []corev1.Container{{
 		Name: "server",
-		// spec.image, which the CEL rule pins to the measured digest, so a mirror of that digest is what runs.
+		// spec.image, which the CEL rules pin to a measured or reviewed digest, so a mirror of that digest is what runs.
 		Image: infd.Spec.Image,
-		Args:  vllmArgs(infd, p),
+		Args:  args,
 		Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: servingPort(infd)}},
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{nvidiaGPUResource: gpu},
@@ -169,6 +252,7 @@ func clearEngineResidue(dep *appsv1.Deployment) {
 		return
 	}
 	delete(dep.Spec.Template.Annotations, admissionAnnotation)
+	delete(dep.Spec.Template.Annotations, renderedEngineAnnotation)
 	delete(dep.Annotations, renderedGenerationAnnotation)
 	// The zero strategy is defaulted back to RollingUpdate, which a generic multi-replica service relies on.
 	dep.Spec.Strategy = appsv1.DeploymentStrategy{}

@@ -149,6 +149,63 @@ var _ = Describe("InferenceDeployment HoldCap validation", func() {
 		Expect(k8sClient.Create(ctx, o)).To(Succeed())
 	})
 
+	experimental := func(name, async string) *platformv1.InferenceDeployment {
+		o := holdCap(name)
+		o.Spec.Admission = nil
+		o.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileExperimentalA10G
+		o.Spec.Engine.VLLM.Experimental = &platformv1.VLLMExperimental{
+			Release: platformv1.VLLMReleaseV0271, AsyncScheduling: async}
+		return o
+	}
+
+	// The engine-version study needs both async-scheduling arms on a reviewed release, from Docker Hub or the mirror.
+	It("accepts the experimental profile on a reviewed release with either async choice", func() {
+		Expect(k8sClient.Create(ctx, experimental("exp-on", platformv1.AsyncSchedulingEnabled))).To(Succeed())
+		Expect(k8sClient.Create(ctx, experimental("exp-off", platformv1.AsyncSchedulingDisabled))).To(Succeed())
+		o := experimental("exp-mirror", platformv1.AsyncSchedulingEnabled)
+		o.Spec.Image = "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/mirror/vllm-openai@" + platformv1.VLLMV0271Digest
+		Expect(k8sClient.Create(ctx, o)).To(Succeed())
+	})
+
+	// A digest the release was not reviewed against may spell its flags differently, so the pair is pinned together.
+	It("refuses the experimental profile on any image but its release's digest", func() {
+		for _, img := range []string{"vllm/vllm-openai:v0.27.1", "vllm/vllm-openai@sha256:" + "00" + platformv1.VLLMV0271Digest[9:]} {
+			o := experimental("exp-image", platformv1.AsyncSchedulingEnabled)
+			o.Spec.Image = img
+			refused(o, "digest reviewed for its release")
+		}
+	})
+
+	It("refuses a release or an async choice nobody reviewed", func() {
+		o := experimental("exp-release", platformv1.AsyncSchedulingEnabled)
+		o.Spec.Engine.VLLM.Experimental.Release = "v0.28.0"
+		refused(o, "spec.engine.vllm.experimental.release")
+		o = experimental("exp-async", "")
+		refused(o, "spec.engine.vllm.experimental.asyncScheduling")
+		o = experimental("exp-async-true", "true")
+		refused(o, "spec.engine.vllm.experimental.asyncScheduling")
+	})
+
+	// A validated profile carrying experimental would read as measured while naming an unmeasured choice.
+	It("refuses experimental without the experimental profile, and the profile without it", func() {
+		o := experimental("exp-validated", platformv1.AsyncSchedulingEnabled)
+		o.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileV0271A10G
+		refused(o, "experimental is set exactly when profile is experimental-a10g")
+		o = experimental("exp-missing", platformv1.AsyncSchedulingEnabled)
+		o.Spec.Engine.VLLM.Experimental = nil
+		refused(o, "experimental is set exactly when profile is experimental-a10g")
+	})
+
+	// HoldCap was measured on v0.27.1-a10g only, and async scheduling with the same release is still a different engine.
+	It("refuses HoldCap on the experimental profile, whatever its async choice", func() {
+		for _, async := range []string{platformv1.AsyncSchedulingEnabled, platformv1.AsyncSchedulingDisabled} {
+			o := experimental("exp-holdcap", async)
+			o.Spec.Admission = &platformv1.InferenceAdmission{
+				Mode: platformv1.AdmissionModeHoldCap, MaxHold: &metav1.Duration{Duration: 25 * time.Second}}
+			refused(o, "HoldCap requires engine profile v0.27.1-a10g")
+		}
+	})
+
 	It("accepts the three routing policies and refuses any other", func() {
 		for _, p := range []string{platformv1.RoutingPolicyRoundRobin, platformv1.RoutingPolicyLeastQueue, platformv1.RoutingPolicyPrefixAffinity} {
 			o := holdCap("routing-" + strings.ToLower(p))

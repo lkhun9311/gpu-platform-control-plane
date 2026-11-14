@@ -35,7 +35,8 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(self.routing) || self.routing.policy != 'PrefixAffinity' || self.replicas <= 1",message="routing.policy PrefixAffinity requires replicas at most 1: the Service spreads a deployment's requests over its engines, so the prefix the gateway remembers is cached on only one of them"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.gpuCount == 1",message="spec.engine requires gpuCount 1: its only profile is one engine on one A10G"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.model.storageUri.matches('^hf://[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$')",message="spec.engine requires model.storageUri of the form hf://<org>/<repo>"
-// +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967')",message="spec.engine requires spec.image pinned to the vLLM v0.27.1 digest the profile was measured on, from any registry"
+// +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.engine.vllm.profile == 'experimental-a10g' || self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967')",message="spec.engine requires spec.image pinned to the vLLM v0.27.1 digest the profile was measured on, from any registry"
+// +kubebuilder:validation:XValidation:rule="!has(self.engine) || !has(self.engine.vllm.experimental) || (self.engine.vllm.experimental.release == 'v0.27.1' && self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967'))",message="engine.vllm.experimental requires spec.image pinned to the digest reviewed for its release, from any registry"
 // +kubebuilder:validation:XValidation:rule="!has(self.admission) || self.admission.mode != 'HoldCap' || !has(self.engine) || self.engine.vllm.profile == 'v0.27.1-a10g'",message="admission.mode HoldCap requires engine profile v0.27.1-a10g: HoldCap was measured with prefix caching off"
 type InferenceDeploymentSpec struct {
 	// model is the model to serve.
@@ -128,6 +129,20 @@ const VLLMProfileV0271A10G = "v0.27.1-a10g"
 // It exists for the prefix-aware routing study, which needs the engines to keep shared prefixes; its latency has not been measured.
 const VLLMProfileV0271A10GPrefixCache = "v0.27.1-a10g-prefix-cache"
 
+// VLLMProfileExperimentalA10G renders a reviewed vLLM release with the measured A10G settings and an explicit async-scheduling choice.
+// It exists so an engine-version study can run engines nobody has measured, under a name that cannot be mistaken for a validated profile.
+// The CRD refuses HoldCap on it, because HoldCap was measured on v0.27.1-a10g only.
+const VLLMProfileExperimentalA10G = "experimental-a10g"
+
+// VLLMReleaseV0271 is the release the validated profiles run, and the only one whose flags have been reviewed so far.
+const VLLMReleaseV0271 = "v0.27.1"
+
+// The async-scheduling choices of the experimental profile.
+const (
+	AsyncSchedulingEnabled  = "Enabled"
+	AsyncSchedulingDisabled = "Disabled"
+)
+
 // VLLMV0271Digest is the image digest config/vllm/deployment.yaml pins; the CEL rule on the spec repeats it.
 const VLLMV0271Digest = "sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967"
 
@@ -143,10 +158,12 @@ type InferenceEngine struct {
 
 // VLLMEngine is a pinned vLLM configuration.
 // It has no free-form arguments: a list would let HoldCap run on an engine the evidence says nothing about.
+// +kubebuilder:validation:XValidation:rule="has(self.experimental) == (self.profile == 'experimental-a10g')",message="experimental is set exactly when profile is experimental-a10g"
 type VLLMEngine struct {
 	// profile is the engine configuration measured on one A10G with Qwen2.5-3B-Instruct.
 	// v0.27.1-a10g-prefix-cache is the same configuration with prefix caching on, for the prefix-aware routing study.
-	// +kubebuilder:validation:Enum=v0.27.1-a10g;v0.27.1-a10g-prefix-cache
+	// experimental-a10g is the same settings on the release and async-scheduling choice named in experimental, and is unmeasured.
+	// +kubebuilder:validation:Enum=v0.27.1-a10g;v0.27.1-a10g-prefix-cache;experimental-a10g
 	// +required
 	Profile string `json:"profile"`
 
@@ -154,6 +171,24 @@ type VLLMEngine struct {
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
 	// +required
 	ModelRevision string `json:"modelRevision"`
+
+	// experimental names what the experimental-a10g profile varies, and is set exactly when profile is experimental-a10g.
+	// +optional
+	Experimental *VLLMExperimental `json:"experimental,omitempty"`
+}
+
+// VLLMExperimental is the two inputs an engine-version study varies, each stated rather than defaulted.
+type VLLMExperimental struct {
+	// release is a vLLM release whose flags the controller has been reviewed against, and the CRD pins spec.image to that release's digest.
+	// A newer release may rename or drop flags, so it is added by reviewing its argument set in the controller, not by naming it here.
+	// +kubebuilder:validation:Enum=v0.27.1
+	// +required
+	Release string `json:"release"`
+
+	// asyncScheduling is Enabled or Disabled, and has no default so a study row cannot inherit a release's own default unnoticed.
+	// +kubebuilder:validation:Enum=Enabled;Disabled
+	// +required
+	AsyncScheduling string `json:"asyncScheduling"`
 }
 
 // InferenceAdmission selects the gateway's admission for this deployment.
