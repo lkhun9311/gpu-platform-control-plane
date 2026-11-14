@@ -128,7 +128,7 @@ func TestHTTPSenderStampsMonotonicTimes(t *testing.T) {
 	if c == nil || c.SendNanos == nil || c.FirstContentNanos == nil || c.LastContentNanos == nil || c.EndNanos == nil {
 		t.Fatalf("row carries no complete clock: %+v", c)
 	}
-	if !(*c.SendNanos <= *c.FirstContentNanos && *c.FirstContentNanos < *c.LastContentNanos && *c.LastContentNanos <= *c.EndNanos) {
+	if *c.SendNanos > *c.FirstContentNanos || *c.FirstContentNanos >= *c.LastContentNanos || *c.LastContentNanos > *c.EndNanos {
 		t.Fatalf("clock out of order: send %d first %d last %d end %d", *c.SendNanos, *c.FirstContentNanos, *c.LastContentNanos, *c.EndNanos)
 	}
 }
