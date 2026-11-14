@@ -9,6 +9,7 @@ out=${2:?output jsonl}
 reps=${3:-3}
 shift $(( $# < 3 ? $# : 3 ))
 here=$(cd "$(dirname "$0")" && pwd)
+mkdir -p "$(dirname "$out")"
 work=$(mktemp -d)
 log="$work/sim.log"
 # A fixed port lets a simulator left over from another run answer the readiness check, and then every row

@@ -7,6 +7,7 @@ set -euo pipefail
 out=${1:?output jsonl}
 reps=${2:-3}
 here=$(cd "$(dirname "$0")" && pwd)
+mkdir -p "$(dirname "$out")"
 # Pinned by digest: the tag can move, and a row must name the engine it measured.
 image=vllm/vllm-openai-cpu@sha256:0314b8a7594a3fc54e8a0c3ca1ba0c9257302bfb546abfb49a2d6107d2d0767f
 model=Qwen/Qwen2.5-0.5B-Instruct
