@@ -510,6 +510,15 @@ func TestCheckVersionCampaignRecountsTheAnalysedPopulation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "998") {
 		t.Fatalf("err %v, want a refusal naming the 998 analysed requests", err)
 	}
+
+	// A stopped campaign is under the floor too, but its valid blocks must survive for the descriptive report.
+	stopped := plannedLedger()
+	stopped.Attempts = stopped.Attempts[:3]
+	stopped.Attempts[2].Status, stopped.Attempts[2].Reason = AttemptStopped, "budget"
+	set, err := CheckVersionCampaign(b, sum, stopped, campaignCells(t, b, sum, []int{1, 2}))
+	if err == nil || !strings.Contains(err.Error(), "incomplete") || !strings.Contains(err.Error(), "floor") || !slices.Equal(set, []int{1, 2}) {
+		t.Fatalf("set %v err %v, want [1 2] with an incomplete-pilot and a floor error", set, err)
+	}
 }
 
 // TestCompareRuntime checks the running engine against the bundle and the registration.

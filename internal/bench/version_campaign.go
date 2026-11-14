@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -513,9 +514,10 @@ func CheckVersionCampaign(b *CampaignBundle, bundleSHA string, ledger AttemptLed
 		for _, block := range set {
 			total += rows[[2]any{block, l.Name}]
 		}
+		// The shortfall bars a verdict, not the descriptive report, so the paired valid blocks are returned with the error.
 		if total < d.MinOfferedPopulation {
-			return nil, fmt.Errorf("the analysed blocks %v offer %d measured requests at %s, below the registered floor of %d; no verdict is computed",
-				set, total, l.Name, d.MinOfferedPopulation)
+			return set, errors.Join(setErr, fmt.Errorf("the analysed blocks %v offer %d measured requests at %s, below the registered floor of %d; no verdict is computed",
+				set, total, l.Name, d.MinOfferedPopulation))
 		}
 	}
 	return set, setErr
