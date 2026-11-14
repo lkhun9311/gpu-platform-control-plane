@@ -164,6 +164,11 @@ type RawRow struct {
 	// share this harness reports while the GPU did exactly the same work. Both are recorded so the
 	// disagreement is visible in the evidence rather than absent from it.
 	EngineOutputTokens int `json:"engineOutputTokens,omitempty"`
+	// EngineUsageReported says whether the response carried the engine's usage chunk, apart from the counts in it.
+	//
+	// Without it a missing usage chunk, a zero count and a dropped negative count were the same absent key.
+	// Nil means the row predates it or the request was never sent; Replay sets it on every sent row.
+	EngineUsageReported *bool `json:"engineUsageReported,omitempty"`
 	// EngineInputTokens is what the engine itself reported for this request, when it answered one.
 	//
 	// It exists to check ExactInputTokens rather than to replace it: the trace's value is measured once per
@@ -271,6 +276,8 @@ type SendResult struct {
 	PromptTokens int
 	// EngineOutputTokens is the engine's own count of what it generated, zero when it reported none.
 	EngineOutputTokens int
+	// UsageReported says the stream carried a usage chunk at all, whatever counts it held.
+	UsageReported bool
 	// FinishReason is why the engine stopped, empty when it reported none.
 	//
 	// Empty and "stop" are different facts: the first means nothing said, the second means the model
@@ -455,6 +462,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 			r.EndUnixNanos = res.EndUnixNanos
 			r.EngineInputTokens = res.PromptTokens
 			r.EngineOutputTokens = res.EngineOutputTokens
+			r.EngineUsageReported = &res.UsageReported
 			r.FinishReason = res.FinishReason
 			r.BackendState = res.BackendState
 			r.OutputTokens = res.OutputTokens

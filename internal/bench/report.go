@@ -280,6 +280,15 @@ type ArmSummary struct {
 	// plausible number that is wrong by an amount the reader cannot see.
 	OutputUnmeasuredRows         int
 	OutputUnmeasuredRowsByTenant map[string]int
+	// UsageReportedRows, UsageMissingRows, UsageInvalidRows and UsageNotRecordedRows split the answered (HTTP 200) rows by what the engine said about its own output.
+	//
+	// Reported rows carried a usage chunk, and Invalid counts those among them whose count is negative, or zero while content arrived.
+	// Missing rows recorded that no usage chunk came; NotRecorded rows predate the record, so nothing is known either way.
+	// They are counts only: nothing published above is changed by them, so a historical report renders as it did.
+	UsageReportedRows    int
+	UsageMissingRows     int
+	UsageInvalidRows     int
+	UsageNotRecordedRows int
 	// InterContentFrameMsP50 and InterContentFrameMsP99 are (end - first content) / (content frames - 1).
 	//
 	// That is the per-request value TPOT used to be, kept under its own name because it measures frames, not
@@ -565,6 +574,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		// Same population and the same reason it carries no condition: the loop is at the gocyclo ceiling,
 		// so the three-way split lives inside the method rather than as an `if` here.
 		s.tallyFinishReasons(r)
+		s.tallyUsage(r)
 		// Admitted-work accounting covers the eligible population, for the admission-match check.
 		//
 		// The gateway gates on tier == standard AND EstInputTokens >= threshold, and this applies the same
@@ -1287,6 +1297,24 @@ func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
 		return
 	}
 	s.EngineInputTokensUnreportedByTenant[r.Tenant]++
+}
+
+// tallyUsage classifies an answered row by whether the engine reported its own output count, and whether that count can be one.
+func (s *ArmSummary) tallyUsage(r RawRow) {
+	if r.HTTPStatus != httpStatusOK {
+		return
+	}
+	switch {
+	case r.EngineUsageReported == nil:
+		s.UsageNotRecordedRows++
+	case !*r.EngineUsageReported:
+		s.UsageMissingRows++
+	default:
+		s.UsageReportedRows++
+		if r.EngineOutputTokens < 0 || (r.EngineOutputTokens == 0 && r.OutputTokens > 0) {
+			s.UsageInvalidRows++
+		}
+	}
 }
 
 // deliveredSamples accumulates the per-request stream samples Summarize turns into percentiles.

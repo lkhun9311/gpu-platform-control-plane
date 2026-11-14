@@ -525,11 +525,11 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 			return res
 		}
 		if chunk.Usage != nil {
+			// Presence is recorded on its own, and the output count verbatim, so a zero or negative count stays visible instead of reading as no count.
+			res.UsageReported = true
+			res.EngineOutputTokens = chunk.Usage.CompletionTokens
 			if chunk.Usage.PromptTokens > 0 {
 				res.PromptTokens = chunk.Usage.PromptTokens
-			}
-			if chunk.Usage.CompletionTokens > 0 {
-				res.EngineOutputTokens = chunk.Usage.CompletionTokens
 			}
 		}
 		// The LAST non-empty reason wins, because every content chunk carries null and only the final one
