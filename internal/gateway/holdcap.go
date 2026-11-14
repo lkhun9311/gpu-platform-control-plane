@@ -37,9 +37,12 @@ func (holdCapAdmitter) Admit(context.Context, RequestMeta, *BackendRef, string, 
 }
 
 // Reserve holds a standard request for its backend's turn, for at most that backend's hold.
-func (h holdCapAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
-	return h.s.reserve(ctx, backend, tenant, tier, backend.MaxHold)
+func (h holdCapAdmitter) Reserve(ctx context.Context, meta RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
+	return h.s.reserve(ctx, meta, backend, tenant, tier, backend.MaxHold)
 }
+
+// useHoldBudget charges HoldCap's waiters to the same budget as the process-wide admitter's, because they share one gateway's memory.
+func (h holdCapAdmitter) useHoldBudget(b *holdBudget) { h.s.useHoldBudget(b) }
 
 // holdCapTargets is the candidates a request may be sent to once HoldCap is in play.
 // A HoldCap head is served only as itself, premium included, because its admission was decided for its engine and no other.
