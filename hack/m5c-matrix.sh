@@ -2676,7 +2676,7 @@ expected_outputs() {
     -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
     -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
     -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \
-    -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
+    -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' -o -name 'raw-*.jsonl.status.json' \
     -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
     -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
     -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' -o -name 'mps-journal.jsonl' \) 2>/dev/null | wc -l)
@@ -2841,7 +2841,7 @@ EOF
     -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
     -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
     -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \
-    -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
+    -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' -o -name 'raw-*.jsonl.status.json' \
     -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
     -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
     -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' -o -name 'mps-journal.jsonl' \) 2>/dev/null | wc -l)
