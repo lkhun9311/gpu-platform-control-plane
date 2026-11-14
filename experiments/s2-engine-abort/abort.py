@@ -323,15 +323,16 @@ def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
         holder.sock.close()
         if cleared is None or "at" not in holder_done:
             raise Invalid("the queue or the holder did not finish")
-        # The waiting gauge also falls when a request starts running, which needs the holder gone first.
-        if holder_done["at"] <= cleared_at:
-            raise Invalid("the holder finished before the queue cleared, so this is not a removal while queued")
+        # The case needs the cut to land while the holder still runs; otherwise nothing was queued behind it.
+        if holder_done["at"] <= cut_at:
+            raise Invalid("the holder finished before the cut, so the request was not cut while queued")
         row["waiting_cleared_after_cut_s"] = round(cleared, 3)
         row["holder_done_after_cut_s"] = round(holder_done["at"] - cut_at, 3)
         row["running_when_cleared"] = running_then
         finish_with_probe(port, row, a, limit)
-        # The queue verdict is the removal itself; the probe only shows the engine came back.
-        row["released"] = row["released"] and running_then == 1
+        # The waiting gauge also falls when a request starts running, which needs the holder gone first, so only a
+        # queue that clears while the holder still runs is a removal; the probe only shows the engine came back.
+        row["released"] = row["released"] and holder_done["at"] > cleared_at and running_then == 1
 
     after = stable_metrics(port)
     row["generation_counter_delta"] = after["generation_tokens_total"] - before["generation_tokens_total"]
