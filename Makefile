@@ -433,7 +433,7 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 	done; \
 	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py hack/eks-serve/prefix-route-study/*.py \
 		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py \
-		experiments/multi-pod-ddp/*.py experiments/gateway-replica-limit/*.py experiments/mlops-lineage/*.py hack/slurm-ec2/*.py hack/test/slurm-ec2/aws; do \
+		experiments/multi-pod-ddp/*.py experiments/gateway-replica-limit/*.py experiments/mlops-lineage/*.py experiments/mlops-w2/*.py hack/slurm-ec2/*.py hack/test/slurm-ec2/aws; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \
@@ -450,6 +450,24 @@ scorer-tests: ## Run the study scorers' own tests, which pin what each published
 	python3 -m unittest experiments/multi-gpu-throughput/test_analyze.py
 	python3 -m unittest experiments/gateway-replica-limit/test_score.py
 	python3 -m unittest experiments/mlops-lineage/test_score.py
+	@# W2's split rules, parser, metrics and gate need no third-party package, so they run here with the rest.
+	python3 -m unittest experiments/mlops-w2/test_data.py experiments/mlops-w2/test_evaluate.py experiments/mlops-w2/test_prompt.py experiments/mlops-w2/test_gate.py
+
+.PHONY: w2-control
+w2-control: ## Run the W2 TF-IDF control's tests in a throwaway environment built from experiments/mlops-w2/requirements.txt.
+	@# The only W2 tests that need third-party packages; everything else in experiments/mlops-w2 runs under scorer-tests.
+	@# python3 -m venv where the system has it (CI), uv where it does not. A failed python3 -m venv leaves a half-made
+	@# environment with a python and no packages, and the first version of this target ran the tests in it; uv therefore
+	@# recreates the directory, and every step exits on failure instead of sitting inside an && chain set -e ignores.
+	@set -e; d=$$(mktemp -d); trap 'rm -rf "$$d"' EXIT; \
+	if python3 -m venv "$$d" >/dev/null 2>&1; then \
+		"$$d/bin/pip" install -q -r experiments/mlops-w2/requirements.txt || { echo "w2-control: pip install failed" >&2; exit 1; }; \
+	else \
+		uv venv -q --clear "$$d" || { echo "w2-control: neither python3 -m venv nor uv could make an environment" >&2; exit 1; }; \
+		VIRTUAL_ENV="$$d" uv pip install -q -r experiments/mlops-w2/requirements.txt || { echo "w2-control: uv pip install failed" >&2; exit 1; }; \
+	fi; \
+	"$$d/bin/python" -c "import sklearn" || { echo "w2-control: the environment has no scikit-learn" >&2; exit 1; }; \
+	"$$d/bin/python" -m unittest experiments/mlops-w2/test_tfidf.py
 
 .PHONY: sweeper-tests
 sweeper-tests: ## Run the termination sweeper's tests, which pin what it terminates and that a refusal fails the invocation.
@@ -546,7 +564,7 @@ infra-offline: terraform ## Check that the Terraform validation step needs no AW
 	./hack/infra-validate-is-offline-test.sh
 
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check scorer-tests sweeper-tests workload-tests session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
+infra-validate: terraform kustomize actionlint shell-check scorer-tests w2-control sweeper-tests workload-tests session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
 	@# Each root is validated in a throwaway TF_DATA_DIR, and the loop stops at the first failure.
 	@#
 	@# Two defects lived in the previous three lines. The first: `-backend=false` does not mean "no backend".

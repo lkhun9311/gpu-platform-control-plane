@@ -1,0 +1,8 @@
+# Exact versions for W2's CPU steps (reading the pinned parquet files and the TF-IDF control).
+# The split rules, the parser, the metrics and the gate import none of these and run under plain python3.
+numpy==2.5.4
+pyarrow==26.0.1
+scikit-learn==1.9.1
+scipy==1.18.1
+joblib==1.6.0
+threadpoolctl==3.8.0

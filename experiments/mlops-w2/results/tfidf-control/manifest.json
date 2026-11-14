@@ -1,0 +1,28 @@
+{
+  "model": {
+    "kind": "tfidf",
+    "params_sha256": "661565f288d9295fbaed389a493ffc8ba6f39ac58e3146c5e793d47aa9ee3338",
+    "label_map_sha256": "987c1bb5c8903c0cc6cf1bcbfd9b743e6ae39c13d511e0b29c4d42fa596991ec"
+  },
+  "params": {
+    "vectorizer": {
+      "analyzer": "word",
+      "ngram_range": [
+        1,
+        2
+      ],
+      "sublinear_tf": true,
+      "lowercase": true
+    },
+    "classifier": {
+      "solver": "lbfgs",
+      "max_iter": 5000
+    },
+    "c": 100.0,
+    "fit_on": "train",
+    "train_sha256": "e9724791dcd239b3f90b73c169c1682442d31a83cf3227f0edf50bb912999c43"
+  },
+  "test_manifest_sha256": "9e6d177c6a52281c0d18980012dcd5042711c0114f51ca8e05b02520fb47b5c0",
+  "label_map_sha256": "987c1bb5c8903c0cc6cf1bcbfd9b743e6ae39c13d511e0b29c4d42fa596991ec",
+  "predictions_sha256": "9ecee1b1a1c2cbb23de7f94dbe8912f154273ec033c76c646b9d21f26666f8dc"
+}
