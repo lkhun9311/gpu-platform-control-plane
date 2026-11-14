@@ -41,6 +41,7 @@ So both limits answer 503 with `Retry-After` and name themselves in `X-Admission
 - `Summarize` counts such rows in `ArmSummary.HoldRefused` and keeps them out of both terms of the admitted-work fraction, where before this change a 503 counted as admitted work.
 - A compared arm with any such row is invalid: it measured the gateway's capacity, not its policy.
 - The HoldCap study scorer (`hack/eks-serve/holdcap-study/score.py`) already fails a HoldCap cell on any refusal, so it needs no change.
+- The registered v26/v27 pilot scorers (`hack/prospective-pilot/pilot_report.py`) are left as registered. Their "hold refusals" line names only the two hold timeouts, but `contender_outcomes` counts any refusal as a failed contender, so a hold-capacity refusal still lands against the contender completion limit (>= 0.95) rather than passing unseen.
 
 ### Why these defaults
 
