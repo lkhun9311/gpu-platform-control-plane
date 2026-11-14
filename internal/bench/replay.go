@@ -63,8 +63,9 @@ type RawRow struct {
 	ReplayOriginUnixNanos int64 `json:"replayOriginUnixNanos,omitempty"`
 	ReturnedUnixNanos     int64 `json:"returnedUnixNanos,omitempty"`
 	// ContentGapsMicros is the gap before each content frame after the first, in microseconds, as the client saw
-	// them; set only when the replay records timing. A p99 over these is an inter-token p99 of individual gaps, which
-	// a per-request average (end minus first, over frames minus one) cannot give.
+	// them; set only when the replay records timing. A p99 over these is an inter-content-frame p99 of individual gaps,
+	// which a per-request average (end minus first, over frames minus one) cannot give; it is a token gap only at
+	// one token per frame.
 	ContentGapsMicros []int64 `json:"contentGapsMicros,omitempty"`
 	// PromptLenChars is the prompt size in characters this request was generated at.
 	//
@@ -84,7 +85,10 @@ type RawRow struct {
 	PromptLenChars int `json:"promptLenChars,omitempty"`
 	// EstInputTokens is the gateway-style conservative estimate for this prompt, recorded so the report can measure admitted vs offered work for admission matching.
 	EstInputTokens int `json:"estInputTokens"`
-	// OutputTokens is the number of tokens the response produced.
+	// OutputTokens is the number of SSE frames that carried content, which is a token count only at one token per frame.
+	//
+	// The name and JSON key predate the distinction and are kept so every file already written still reads.
+	// OutputCountContract decides whether a report counts this or EngineOutputTokens.
 	OutputTokens int `json:"outputTokens"`
 	// HTTPStatus is the response status; 0 when no response was received (a transport error or timeout).
 	HTTPStatus int `json:"httpStatus"`
@@ -237,7 +241,7 @@ type SendResult struct {
 	EndUnixNanos int64
 	// ContentUnixNanos is every content frame's arrival time, kept only when the sender was asked to.
 	ContentUnixNanos []int64
-	// OutputTokens is the response length in tokens.
+	// OutputTokens is the number of SSE frames that carried content; EngineOutputTokens is the token count.
 	OutputTokens int
 	// PromptTokens is the engine's own count of the prompt, zero when it reported none.
 	PromptTokens int

@@ -128,6 +128,54 @@ type Study struct {
 
 	// PrefixLoad is a shared-prefix study's registered load, nil for every other study.
 	PrefixLoad *PrefixLoad
+
+	// OutputCount is the measurement contract this study's throughput, tenant shares and TPOT are counted under.
+	//
+	// Empty means OutputCountContentFrames, the rule every study registered before 2026-11-14 was scored under.
+	// It is a study property and not a report flag because a published number has to keep meaning what it meant
+	// when it was published: switching the count for those studies would move results nobody re-registered.
+	// A new study opts into OutputCountEngineTokens by naming it here, which travels with its rows as their Study.
+	OutputCount OutputCountContract
+}
+
+// OutputCountContract names how a report counts the output a response delivered.
+//
+// The values are versioned strings rather than a boolean so a third rule can be added beside them without
+// reinterpreting either, and so a report can print which rule produced its numbers.
+type OutputCountContract string
+
+const (
+	// OutputCountContentFrames counts SSE frames that carried content, RawRow.OutputTokens.
+	//
+	// It equals the token count only while the server emits one token per frame, which the protocol does not
+	// promise: speculative decoding and some engine versions put several tokens in one frame.
+	OutputCountContentFrames OutputCountContract = "content-frames-v1"
+	// OutputCountEngineTokens counts the engine's own usage.completion_tokens, RawRow.EngineOutputTokens.
+	//
+	// A delivered row without that count is not measurable under this contract and is counted as such.
+	// Filling it from frames would reintroduce the unit this contract exists to remove, and filling it with
+	// zero would understate the arm by an amount nobody could see.
+	OutputCountEngineTokens OutputCountContract = "engine-tokens-v2"
+)
+
+// OutputCountRule resolves the study's contract, mapping the unset value to the frame rule it always meant.
+func (s Study) OutputCountRule() OutputCountContract {
+	if s.OutputCount == "" {
+		return OutputCountContentFrames
+	}
+	return s.OutputCount
+}
+
+// OutputCountForStudy is the contract rows recorded under this study ID are counted with.
+//
+// An ID this binary does not know resolves to the frame rule, because every row written before contracts
+// existed was scored that way; the harness refuses unregistered studies before any row is summarized.
+func OutputCountForStudy(id string) OutputCountContract {
+	st, ok := LookupStudy(id)
+	if !ok {
+		return OutputCountContentFrames
+	}
+	return st.OutputCountRule()
 }
 
 // FrozenTuple is the five load quantities a pre-registration can freeze.
