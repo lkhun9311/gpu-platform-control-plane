@@ -43,6 +43,8 @@ import time
 HOST = "127.0.0.1"
 CASES = ("control", "busy_control", "stream_cut", "plain_cut", "prefill_baseline", "prefill_cut", "queued_cut")
 GAUGES = ("num_requests_running", "num_requests_waiting")
+# Prometheus text values: decimal or exponent forms in either case, and the special values.
+NUMBER = r"[-+]?(?:[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?|Inf|NaN)"
 COUNTERS = ("generation_tokens_total",)
 
 
@@ -65,7 +67,10 @@ def metrics(port: int) -> dict:
     out: dict = {"present": []}
     for name in GAUGES + COUNTERS:
         # The name must be followed by `{` so that `num_requests_waiting_by_reason` does not match.
-        series = re.findall(r"^vllm:%s\{([^}]*)\} ([0-9.e+]+)$" % name, text, re.M)
+        series = re.findall(r"^vllm:%s\{([^}]*)\} (%s)(?: -?\d+)?$" % (name, NUMBER), text, re.M)
+        if len(series) != len(re.findall(r"^vllm:%s\{" % name, text, re.M)):
+            # A sample this parser cannot read must not turn into an absent series.
+            raise Invalid("unparsed sample for vllm:%s" % name)
         if len(series) > 1:
             # Reading the first of several engines would call a busy engine idle.
             raise Invalid("%d series for vllm:%s; one engine is assumed" % (len(series), name))
@@ -80,7 +85,10 @@ def metrics(port: int) -> dict:
             out["present"].append(name)
     # vLLM puts `engine` before `finished_reason` and the simulator does not, so the label is found anywhere.
     out["success"] = {}
-    for labels, value in re.findall(r"^vllm:request_success_total\{([^}]*)\} ([0-9.e+]+)$", text, re.M):
+    found = re.findall(r"^vllm:request_success_total\{([^}]*)\} (%s)(?: -?\d+)?$" % NUMBER, text, re.M)
+    if len(found) != len(re.findall(r"^vllm:request_success_total\{", text, re.M)):
+        raise Invalid("unparsed sample for vllm:request_success_total")
+    for labels, value in found:
         reason = re.search(r'finished_reason="([^"]+)"', labels)
         if reason:
             if reason.group(1) in out["success"]:
@@ -90,7 +98,10 @@ def metrics(port: int) -> dict:
 
 
 def stable_metrics(port: int, limit: float = 15) -> dict:
-    """Metrics once five scrapes over one second agree, so a late update is not left between two rows."""
+    """Metrics once five scrapes over one second agree.
+
+    A heuristic, not a barrier: an update later than the window would be missed, and the rows say so.
+    """
     deadline = time.monotonic() + limit
     window = [metrics(port)]
     while time.monotonic() < deadline:
@@ -156,6 +167,10 @@ class Stream:
 
     def _events(self) -> None:
         # SSE allows CRLF, CR or LF line ends and several data lines per event, joined by a newline.
+        # A CR at the very end may be the first half of a CRLF split across reads, so it waits for the next read.
+        hold = b""
+        if self.buf.endswith(b"\r") and not self.done:
+            self.buf, hold = self.buf[:-1], b"\r"
         text = self.buf.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
         while True:
             cut = text.find(b"\n\n")
@@ -180,7 +195,7 @@ class Stream:
                 raise Invalid("engine sent an SSE error: %s" % str(event["error"])[:200])
             self.events.append(event)
             self.event_times.append(now)
-        self.buf = text
+        self.buf = text + hold
 
     def _pump(self, timeout: float) -> None:
         self.sock.settimeout(timeout)
@@ -299,7 +314,9 @@ def finish_with_probe(port: int, row: dict, a: argparse.Namespace, limit: float)
     row["probe_ttfb_s"] = round(ttfb, 3)
     row["probe_excess_s"] = round(ttfb - a.baseline, 3)
     row["idle_after_probe_s"] = None if settled is None else round(settled, 3)
-    row["released"] = settled is not None and ttfb - a.baseline < a.release_threshold
+    # Prompt service and prompt idle are both required; an engine that answers fast but stays busy is not free.
+    row["released"] = (settled is not None and settled < a.release_threshold
+                       and ttfb - a.baseline < a.release_threshold)
 
 
 def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
@@ -341,7 +358,7 @@ def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
             s.poll()
         finally:
             s.sock.close()
-        if s.status != 200 or len(s.events) < 5 or s.done:
+        if s.status != 200 or len(s.events) < 5 or s.done or s.closed or s.finishes():
             raise Invalid("the stream was not open with five events at the cut (status %s, %d events, done %s)" %
                           (s.status, len(s.events), s.done))
         row["events_before_cut"] = len(s.events)
@@ -356,7 +373,7 @@ def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
         finally:
             s.sock.close()
         # A non-streamed answer arrives whole at the end, so any byte back means it finished before the cut.
-        if running != 1 or s.status is not None or s.closed:
+        if running != 1 or s.raw or s.buf or s.status is not None or s.closed:
             raise Invalid("the request was not running unanswered at the cut (running %s, status %s, closed %s)" %
                           (running, s.status, s.closed))
         finish_with_probe(port, row, a, limit)
@@ -431,7 +448,8 @@ def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
         row["holder_events_after_clear"] = events_after_clear
         row["holder_done_after_cut_s"] = round(drain.done_at - cut_at, 3)
         finish_with_probe(port, row, a, limit)
-        row["released"] = row["released"] and events_after_clear >= a.holder_events_after_clear
+        row["released"] = (row["released"] and cleared < a.release_threshold
+                           and events_after_clear >= a.holder_events_after_clear)
 
     after = stable_metrics(port)
     row["generation_counter_delta"] = after["generation_tokens_total"] - before["generation_tokens_total"]
