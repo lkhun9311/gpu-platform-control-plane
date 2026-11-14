@@ -9,19 +9,22 @@ Every row is either valid, with the conditions its case depends on checked, or i
 invalid row, a control that does not release, or a busy control that does release exits non-zero.
 
 Cases:
-  control           streams and reads up to [DONE]; the probe after it is the baseline for a free slot.
-  busy_control      keeps a stream alive and probes while it runs; the probe must wait, or it can overtake a request
-                    and then says nothing about a cut.
-  stream_cut        streams, reads five SSE events and closes.
-  plain_cut         sends a non-streamed request and closes --cut-after seconds in.
-  prefill_baseline  sends the long prompt uncut and records its prompt tokens and time to first event.
-  prefill_cut       sends the long prompt and closes once the engine runs it and before any response byte arrived.
-  queued_cut        queues a request behind a holder that is drained and timed on its own thread, closes the queued
-                    one while it waits, and requires the queue to clear before the holder finishes.
+  control           streams to [DONE] with the full token count; its probe shows a free slot answers fast.
+  busy_control      probes while a stream still runs; the probe must wait, or it could overtake a request and then
+                    says nothing about a cut.
+  stream_cut        streams, closes after five events while the stream is still open.
+  plain_cut         sends a non-streamed request and closes --cut-after seconds in, once the engine runs it and before
+                    any response arrived.
+  prefill_baseline  sends the long prompt uncut and records its prompt tokens and time to first SSE event.
+  prefill_cut       sends the long prompt and closes before its first SSE event, at --cut-fraction of the uncut time;
+                    valid only if the probe then waits past the idle baseline, which shows the engine was working on it.
+                    The rows show a cut before the first event the client saw, not which engine phase was running.
+  queued_cut        queues a request behind a holder that is drained on its own thread, closes the queued one while
+                    it waits, and counts as released only if the holder still sent events after the queue cleared.
 
-Release is judged on the probe's time to first event in excess of the idle baseline measured at the start of the run,
-and it also needs the engine to reach idle afterwards.
-Counters are read only once two consecutive scrapes agree.
+Release is judged on the probe's time to first SSE event in excess of the idle baseline measured at the start of the
+run, and it also needs the engine to reach idle afterwards.
+Counters are read once five scrapes over one second agree.
 
 Standard library only. Usage: python3 -I abort.py --port PORT [--reps N] [--cases a,b] [...]
 """
@@ -49,12 +52,17 @@ class Invalid(Exception):
 
 def metrics(port: int) -> dict:
     conn = http.client.HTTPConnection(HOST, port, timeout=10)
-    conn.request("GET", "/metrics")
-    resp = conn.getresponse()
-    text = resp.read().decode()
+    try:
+        conn.request("GET", "/metrics")
+        resp = conn.getresponse()
+        text = resp.read().decode()
+    except OSError as e:
+        raise Invalid("metrics scrape failed: %s" % e)
+    finally:
+        conn.close()
     if resp.status != 200:
         raise Invalid("metrics returned HTTP %d" % resp.status)
-    out: dict = {}
+    out: dict = {"present": []}
     for name in GAUGES + COUNTERS:
         # The name must be followed by `{` so that `num_requests_waiting_by_reason` does not match.
         series = re.findall(r"^vllm:%s\{([^}]*)\} ([0-9.e+]+)$" % name, text, re.M)
@@ -65,10 +73,11 @@ def metrics(port: int) -> dict:
             if name in GAUGES:
                 # A gauge is published from the start, so a missing one means the scrape is not this engine's.
                 raise Invalid("vllm:%s missing from metrics" % name)
-            # A counter appears only after its first observation, and an absent counter has counted nothing.
+            # The simulator publishes a counter only after its first observation; the row records that it was absent.
             out[name] = 0.0
         else:
             out[name] = float(series[0][1])
+            out["present"].append(name)
     # vLLM puts `engine` before `finished_reason` and the simulator does not, so the label is found anywhere.
     out["success"] = {}
     for labels, value in re.findall(r"^vllm:request_success_total\{([^}]*)\} ([0-9.e+]+)$", text, re.M):
@@ -80,16 +89,15 @@ def metrics(port: int) -> dict:
     return out
 
 
-def stable_metrics(port: int, limit: float = 10) -> dict:
-    """Metrics once two scrapes 0.2 s apart agree, so a late update is not left between two rows."""
+def stable_metrics(port: int, limit: float = 15) -> dict:
+    """Metrics once five scrapes over one second agree, so a late update is not left between two rows."""
     deadline = time.monotonic() + limit
-    last = metrics(port)
+    window = [metrics(port)]
     while time.monotonic() < deadline:
-        time.sleep(0.2)
-        now = metrics(port)
-        if now == last:
-            return now
-        last = now
+        time.sleep(0.25)
+        window = (window + [metrics(port)])[-5:]
+        if len(window) == 5 and all(m == window[0] for m in window):
+            return window[0]
     raise Invalid("metrics did not settle within %.0f s" % limit)
 
 
@@ -107,7 +115,7 @@ def send(port: int, stream: bool, max_tokens: int, prompt: str = "hi") -> socket
 
 
 class Stream:
-    """Reads one HTTP response from a raw socket and splits its SSE events."""
+    """Reads one HTTP response from a raw socket, undoes chunked encoding and assembles SSE events."""
 
     def __init__(self, sock: socket.socket, started: float):
         self.sock, self.started = sock, started
@@ -116,7 +124,9 @@ class Stream:
         self.chunked = False
         self.first_event_at: float | None = None
         self.events: list[dict] = []
+        self.event_times: list[float] = []
         self.done = False
+        self.closed = False
 
     def _decode(self) -> None:
         if self.status is None:
@@ -129,47 +139,76 @@ class Stream:
             self.chunked = any(l.lower().replace(" ", "") == "transfer-encoding:chunked" for l in lines[1:])
         if not self.chunked:
             self.buf, self.raw = self.buf + self.raw, b""
-            return
-        # A chunk boundary can fall inside an event's JSON, so the body is reassembled before events are split.
+        else:
+            # A chunk boundary can fall inside an event, so the body is reassembled before events are split.
+            while True:
+                eol = self.raw.find(b"\r\n")
+                if eol < 0:
+                    break
+                size = int(self.raw[:eol].split(b";")[0], 16)
+                if len(self.raw) < eol + 2 + size + 2:
+                    break
+                self.buf += self.raw[eol + 2:eol + 2 + size]
+                self.raw = self.raw[eol + 2 + size + 2:]
+                if size == 0:
+                    break
+        self._events()
+
+    def _events(self) -> None:
+        # SSE allows CRLF, CR or LF line ends and several data lines per event, joined by a newline.
+        text = self.buf.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
         while True:
-            eol = self.raw.find(b"\r\n")
-            if eol < 0:
-                return
-            size = int(self.raw[:eol].split(b";")[0], 16)
-            if len(self.raw) < eol + 2 + size + 2:
-                return
-            self.buf += self.raw[eol + 2:eol + 2 + size]
-            self.raw = self.raw[eol + 2 + size + 2:]
-            if size == 0:
-                return
+            cut = text.find(b"\n\n")
+            if cut < 0:
+                break
+            raw, text = text[:cut], text[cut + 2:]
+            data = [l[5:].lstrip(b" ") for l in raw.split(b"\n") if l.startswith(b"data:")]
+            if not data:
+                continue
+            payload = b"\n".join(data)
+            now = time.monotonic()
+            if self.first_event_at is None:
+                self.first_event_at = now
+            if payload.strip() == b"[DONE]":
+                self.done = True
+                continue
+            try:
+                event = json.loads(payload)
+            except ValueError:
+                raise Invalid("an SSE event is not JSON: %r" % payload[:100])
+            if "error" in event:
+                raise Invalid("engine sent an SSE error: %s" % str(event["error"])[:200])
+            self.events.append(event)
+            self.event_times.append(now)
+        self.buf = text
 
     def _pump(self, timeout: float) -> None:
         self.sock.settimeout(timeout)
-        chunk = self.sock.recv(65536)
+        try:
+            chunk = self.sock.recv(65536)
+        except socket.timeout:
+            raise Invalid("no response data within %.0f s" % timeout)
         if not chunk:
+            self.closed = True
             raise Invalid("connection closed before the response ended")
         self.raw += chunk
         self._decode()
-        while True:
-            # SSE events end with a blank line; frames are counted as events, not as `data:` substrings.
-            cut = self.buf.find(b"\n\n")
-            if cut < 0:
-                break
-            raw, self.buf = self.buf[:cut], self.buf[cut + 2:]
-            for line in raw.split(b"\n"):
-                line = line.strip()
-                if not line.startswith(b"data:"):
-                    continue
-                payload = line[5:].strip()
-                if self.first_event_at is None:
-                    self.first_event_at = time.monotonic()
-                if payload == b"[DONE]":
-                    self.done = True
-                    continue
-                event = json.loads(payload)
-                if "error" in event:
-                    raise Invalid("engine sent an SSE error: %s" % str(event["error"])[:200])
-                self.events.append(event)
+
+    def poll(self) -> None:
+        """Decodes whatever has arrived without waiting."""
+        self.sock.setblocking(False)
+        try:
+            while True:
+                chunk = self.sock.recv(65536)
+                if not chunk:
+                    self.closed = True
+                    break
+                self.raw += chunk
+        except BlockingIOError:
+            pass
+        finally:
+            self.sock.setblocking(True)
+        self._decode()
 
     def read_events(self, count: int, timeout: float) -> None:
         while len(self.events) < count and not self.done:
@@ -181,16 +220,52 @@ class Stream:
         if self.status != 200:
             raise Invalid("stream answered HTTP %s" % self.status)
 
+    def usage(self) -> dict:
+        found = [e["usage"] for e in self.events if e.get("usage")]
+        return found[-1] if found else {}
+
+    def finishes(self) -> list:
+        return [c.get("finish_reason") for e in self.events for c in e.get("choices", []) if c.get("finish_reason")]
+
+
+class Drain:
+    """Reads a stream to [DONE] on a thread and hands its failure back to the caller."""
+
+    def __init__(self, s: Stream, timeout: float):
+        self.s, self.error, self.done_at = s, None, None
+        self.thread = threading.Thread(target=self._run, args=(timeout,), daemon=True)
+        self.thread.start()
+
+    def _run(self, timeout: float) -> None:
+        try:
+            self.s.read_to_done(timeout)
+            self.done_at = time.monotonic()
+        except Exception as e:  # noqa: BLE001 - every failure has to reach the main thread
+            self.error = e
+
+    def join(self, timeout: float) -> None:
+        self.thread.join(timeout)
+        if self.thread.is_alive():
+            raise Invalid("the drained stream did not finish")
+        if self.error is not None:
+            raise Invalid("the drained stream failed: %s" % self.error)
+
+
+def check_complete(s: Stream, tokens: int, what: str) -> None:
+    if s.finishes() != ["length"] or s.usage().get("completion_tokens") != tokens:
+        raise Invalid("%s ended with %s and %s tokens, not one length with %d" %
+                      (what, s.finishes(), s.usage().get("completion_tokens"), tokens))
+
 
 def probe(port: int, limit: float) -> float:
-    """Time to the probe's first SSE event; the probe has to finish with one token and no error."""
+    """Time to the probe's first SSE event; the probe has to finish with exactly one generated token."""
     started = time.monotonic()
     s = Stream(send(port, True, 1), started)
-    s.read_to_done(limit)
-    s.sock.close()
-    finishes = [c.get("finish_reason") for e in s.events for c in e.get("choices", []) if c.get("finish_reason")]
-    if finishes != ["length"]:
-        raise Invalid("probe finished with %s, not one length" % finishes)
+    try:
+        s.read_to_done(limit)
+    finally:
+        s.sock.close()
+    check_complete(s, 1, "the probe")
     return s.first_event_at - started
 
 
@@ -237,64 +312,88 @@ def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
     if name == "control":
         started = time.monotonic()
         s = Stream(send(port, True, a.max_tokens), started)
-        s.read_to_done(limit)
-        s.sock.close()
+        try:
+            s.read_to_done(limit)
+        finally:
+            s.sock.close()
+        check_complete(s, a.max_tokens, "the control")
         row["request_duration_s"] = round(time.monotonic() - started, 3)
         finish_with_probe(port, row, a, limit)
 
     elif name == "busy_control":
         s = Stream(send(port, True, a.max_tokens), time.monotonic())
-        s.read_events(5, limit)
-        # Drained on a thread so the target never stalls on a full socket while the probe waits.
-        drained = threading.Thread(target=s.read_to_done, args=(limit,), daemon=True)
-        drained.start()
-        finish_with_probe(port, row, a, limit)
-        drained.join(limit)
-        s.sock.close()
-
-    elif name in ("stream_cut", "plain_cut"):
-        s = Stream(send(port, name == "stream_cut", a.max_tokens), time.monotonic())
-        if name == "stream_cut":
+        try:
             s.read_events(5, limit)
-            row["events_before_cut"] = len(s.events)
-        else:
+            if s.done:
+                raise Invalid("the busy stream finished before the probe")
+            # Drained on a thread so the target never stalls on a full socket while the probe waits.
+            drain = Drain(s, limit)
+            finish_with_probe(port, row, a, limit)
+            drain.join(limit)
+        finally:
+            s.sock.close()
+        check_complete(s, a.max_tokens, "the busy stream")
+
+    elif name == "stream_cut":
+        s = Stream(send(port, True, a.max_tokens), time.monotonic())
+        try:
+            s.read_events(5, limit)
+            s.poll()
+        finally:
+            s.sock.close()
+        if s.status != 200 or len(s.events) < 5 or s.done:
+            raise Invalid("the stream was not open with five events at the cut (status %s, %d events, done %s)" %
+                          (s.status, len(s.events), s.done))
+        row["events_before_cut"] = len(s.events)
+        finish_with_probe(port, row, a, limit)
+
+    elif name == "plain_cut":
+        s = Stream(send(port, False, a.max_tokens), time.monotonic())
+        try:
             time.sleep(a.cut_after)
-        s.sock.close()
+            running = metrics(port)["num_requests_running"]
+            s.poll()
+        finally:
+            s.sock.close()
+        # A non-streamed answer arrives whole at the end, so any byte back means it finished before the cut.
+        if running != 1 or s.status is not None or s.closed:
+            raise Invalid("the request was not running unanswered at the cut (running %s, status %s, closed %s)" %
+                          (running, s.status, s.closed))
         finish_with_probe(port, row, a, limit)
 
     elif name == "prefill_baseline":
         started = time.monotonic()
         s = Stream(send(port, True, 1, prompt=long_prompt(a.long_prompt_words)), started)
-        s.read_to_done(limit)
-        s.sock.close()
-        usage = [e["usage"] for e in s.events if e.get("usage")]
-        row["prompt_tokens"] = usage[-1]["prompt_tokens"] if usage else None
+        try:
+            s.read_to_done(limit)
+        finally:
+            s.sock.close()
+        check_complete(s, 1, "the long prompt")
+        row["prompt_tokens"] = s.usage().get("prompt_tokens")
         row["first_event_s"] = round(s.first_event_at - started, 3)
         a.prefill_first_event = s.first_event_at - started
         settled = wait_for(port, idle, limit)
         row["released"] = settled is not None
 
     elif name == "prefill_cut":
-        # vLLM publishes num_requests_running after a step, so the gauge turns 1 only once the prefill step is done
-        # and cannot mark "in prefill"; the cut is timed as a fraction of the uncut first event measured this rep.
+        # vLLM publishes num_requests_running after a step, so the gauge cannot mark a request before its first
+        # output; the cut is timed as a fraction of the uncut first event measured earlier in this rep.
         if a.prefill_first_event is None:
             raise Invalid("no prefill_baseline earlier in this rep to time the cut from")
         started = time.monotonic()
-        sock = send(port, True, a.max_tokens, prompt=long_prompt(a.long_prompt_words))
-        time.sleep(a.prefill_first_event * a.cut_fraction)
-        # vLLM may send the headers before any output, so the test is for an SSE event, not for any byte.
-        sock.setblocking(False)
+        s = Stream(send(port, True, a.max_tokens, prompt=long_prompt(a.long_prompt_words)), started)
         try:
-            early = sock.recv(65536, socket.MSG_PEEK)
-        except BlockingIOError:
-            early = b""
-        if b"data:" in early:
-            raise Invalid("an SSE event arrived before the cut, so the cut was not before the first token")
-        sock.close()
+            time.sleep(a.prefill_first_event * a.cut_fraction)
+            s.poll()
+        finally:
+            s.sock.close()
+        if s.events or s.done or s.closed or (s.status is not None and s.status != 200):
+            raise Invalid("the response had an event, ended or failed before the cut (status %s, %d events)" %
+                          (s.status, len(s.events)))
         row["cut_after_send_s"] = round(time.monotonic() - started, 3)
         row["uncut_first_event_s"] = round(a.prefill_first_event, 3)
         finish_with_probe(port, row, a, limit)
-        # A probe that waits past the idle baseline shows the engine was running this prefill when the cut came;
+        # A probe that waits past the idle baseline shows the engine was working on this request when the cut came;
         # without that wait the cut may have landed before the engine took the request at all.
         if row["probe_excess_s"] <= a.busy_excess:
             raise Invalid("the probe did not wait (excess %.3f s), so the cut may have come before the engine took "
@@ -302,37 +401,37 @@ def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
 
     elif name == "queued_cut":
         holder = Stream(send(port, True, a.max_tokens), time.monotonic())
-        holder.read_events(1, limit)
-        holder_done: dict = {}
-
-        def drain() -> None:
-            holder.read_to_done(limit)
-            holder_done["at"] = time.monotonic()
-
-        drained = threading.Thread(target=drain, daemon=True)
-        drained.start()
-        queued = send(port, True, a.max_tokens)
-        if wait_for(port, lambda m: m["num_requests_waiting"] >= 1, 30) is None:
-            raise Invalid("the second request never waited")
-        cut_at = time.monotonic()
-        queued.close()
-        cleared = wait_for(port, lambda m: m["num_requests_waiting"] == 0, limit)
-        cleared_at = time.monotonic()
-        running_then = metrics(port)["num_requests_running"]
-        drained.join(limit)
-        holder.sock.close()
-        if cleared is None or "at" not in holder_done:
-            raise Invalid("the queue or the holder did not finish")
-        # The case needs the cut to land while the holder still runs; otherwise nothing was queued behind it.
-        if holder_done["at"] <= cut_at:
+        queued = None
+        try:
+            holder.read_events(1, limit)
+            drain = Drain(holder, limit)
+            queued = send(port, True, a.max_tokens)
+            if wait_for(port, lambda m: m["num_requests_waiting"] >= 1, 30) is None:
+                raise Invalid("the second request never waited")
+            events_at_cut = len(holder.events)
+            cut_at = time.monotonic()
+            queued.close()
+            cleared = wait_for(port, lambda m: m["num_requests_waiting"] == 0, limit)
+            cleared_at = time.monotonic()
+            drain.join(limit)
+        finally:
+            holder.sock.close()
+            if queued is not None:
+                queued.close()
+        check_complete(holder, a.max_tokens, "the holder")
+        if cleared is None:
+            raise Invalid("the queue never cleared")
+        if drain.done_at <= cut_at or holder.done and holder.event_times and holder.event_times[-1] < cut_at:
             raise Invalid("the holder finished before the cut, so the request was not cut while queued")
+        # The waiting gauge also falls when a request starts running, which needs the holder gone first; holder
+        # events that arrive after the queue cleared show the holder was still running then.
+        events_after_clear = sum(1 for t in holder.event_times if t > cleared_at)
         row["waiting_cleared_after_cut_s"] = round(cleared, 3)
-        row["holder_done_after_cut_s"] = round(holder_done["at"] - cut_at, 3)
-        row["running_when_cleared"] = running_then
+        row["holder_events_at_cut"] = events_at_cut
+        row["holder_events_after_clear"] = events_after_clear
+        row["holder_done_after_cut_s"] = round(drain.done_at - cut_at, 3)
         finish_with_probe(port, row, a, limit)
-        # The waiting gauge also falls when a request starts running, which needs the holder gone first, so only a
-        # queue that clears while the holder still runs is a removal; the probe only shows the engine came back.
-        row["released"] = row["released"] and holder_done["at"] > cleared_at and running_then == 1
+        row["released"] = row["released"] and events_after_clear >= a.holder_events_after_clear
 
     after = stable_metrics(port)
     row["generation_counter_delta"] = after["generation_tokens_total"] - before["generation_tokens_total"]
@@ -341,6 +440,8 @@ def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
         for r in sorted(set(after["success"]) | set(before["success"]))
         if after["success"].get(r, 0) - before["success"].get(r, 0)
     }
+    row["counters_absent_before"] = [c for c in COUNTERS if c not in before["present"]]
+    row["success_series_after"] = sorted(after["success"])
     return row
 
 
@@ -351,14 +452,16 @@ def main() -> int:
     p.add_argument("--cases", default="control,busy_control,stream_cut,plain_cut")
     p.add_argument("--max-tokens", type=int, default=50)
     p.add_argument("--token-seconds", type=float, default=0.1, help="rough time per token, only for timeouts")
-    p.add_argument("--release-threshold", type=float, default=1.0,
+    p.add_argument("--release-threshold", type=float, default=2.0,
                    help="a probe slower than the idle baseline by this much waited on the cut request")
     p.add_argument("--cut-after", type=float, default=1.0)
     p.add_argument("--long-prompt-words", type=int, default=1500)
     p.add_argument("--cut-fraction", type=float, default=0.4,
                    help="prefill_cut closes at this fraction of the uncut long prompt's first event")
-    p.add_argument("--busy-excess", type=float, default=0.05,
+    p.add_argument("--busy-excess", type=float, default=0.1,
                    help="probe excess above which the engine counts as having been busy with the cut request")
+    p.add_argument("--holder-events-after-clear", type=int, default=5,
+                   help="holder events needed after the queue cleared for a queued cut to count as a removal")
     a = p.parse_args()
     a.prefill_first_event = None
     cases = [c for c in a.cases.split(",") if c]
@@ -368,7 +471,8 @@ def main() -> int:
     limit = a.max_tokens * a.token_seconds * 4 + 60
     a.baseline = baseline_probe(a.port, limit)
     print(json.dumps({"case": "idle_probe_baseline", "probe_ttfb_s": round(a.baseline, 3),
-                      "args": {k: v for k, v in vars(a).items() if k != "baseline"}}), flush=True)
+                      "args": {k: v for k, v in vars(a).items() if k not in ("baseline", "prefill_first_event")}}),
+          flush=True)
     failures = []
     for rep in range(a.reps):
         for name in cases:
