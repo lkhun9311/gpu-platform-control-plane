@@ -270,15 +270,18 @@ def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
         usage = [e["usage"] for e in s.events if e.get("usage")]
         row["prompt_tokens"] = usage[-1]["prompt_tokens"] if usage else None
         row["first_event_s"] = round(s.first_event_at - started, 3)
+        a.prefill_first_event = s.first_event_at - started
         settled = wait_for(port, idle, limit)
         row["released"] = settled is not None
 
     elif name == "prefill_cut":
+        # vLLM publishes num_requests_running after a step, so the gauge turns 1 only once the prefill step is done
+        # and cannot mark "in prefill"; the cut is timed as a fraction of the uncut first event measured this rep.
+        if a.prefill_first_event is None:
+            raise Invalid("no prefill_baseline earlier in this rep to time the cut from")
         started = time.monotonic()
         sock = send(port, True, a.max_tokens, prompt=long_prompt(a.long_prompt_words))
-        ran = wait_for(port, lambda m: m["num_requests_running"] >= 1, limit)
-        if ran is None:
-            raise Invalid("the long prompt never ran")
+        time.sleep(a.prefill_first_event * a.cut_fraction)
         # vLLM may send the headers before any output, so the test is for an SSE event, not for any byte.
         sock.setblocking(False)
         try:
@@ -289,7 +292,13 @@ def run_case(port: int, name: str, a: argparse.Namespace) -> dict:
             raise Invalid("an SSE event arrived before the cut, so the cut was not before the first token")
         sock.close()
         row["cut_after_send_s"] = round(time.monotonic() - started, 3)
+        row["uncut_first_event_s"] = round(a.prefill_first_event, 3)
         finish_with_probe(port, row, a, limit)
+        # A probe that waits past the idle baseline shows the engine was running this prefill when the cut came;
+        # without that wait the cut may have landed before the engine took the request at all.
+        if row["probe_excess_s"] <= a.busy_excess:
+            raise Invalid("the probe did not wait (excess %.3f s), so the cut may have come before the engine took "
+                          "the request" % row["probe_excess_s"])
 
     elif name == "queued_cut":
         holder = Stream(send(port, True, a.max_tokens), time.monotonic())
@@ -345,7 +354,12 @@ def main() -> int:
                    help="a probe slower than the idle baseline by this much waited on the cut request")
     p.add_argument("--cut-after", type=float, default=1.0)
     p.add_argument("--long-prompt-words", type=int, default=1500)
+    p.add_argument("--cut-fraction", type=float, default=0.4,
+                   help="prefill_cut closes at this fraction of the uncut long prompt's first event")
+    p.add_argument("--busy-excess", type=float, default=0.05,
+                   help="probe excess above which the engine counts as having been busy with the cut request")
     a = p.parse_args()
+    a.prefill_first_event = None
     cases = [c for c in a.cases.split(",") if c]
     unknown = set(cases) - set(CASES)
     if unknown:
