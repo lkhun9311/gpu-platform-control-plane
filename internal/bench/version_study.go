@@ -3,6 +3,7 @@ package bench
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 )
 
@@ -56,19 +57,10 @@ func ParseVersionStudyArm(arm string) (treatment, load string, ok bool) {
 	if !found {
 		return "", "", false
 	}
-	if !containsString(versionStudyTreatments, t) || versionStudyLoad(l) == nil {
+	if !slices.Contains(versionStudyTreatments, t) || versionStudyLoad(l) == nil {
 		return "", "", false
 	}
 	return t, l, true
-}
-
-func containsString(xs []string, x string) bool {
-	for _, y := range xs {
-		if x == y {
-			return true
-		}
-	}
-	return false
 }
 
 // versionStudyLoad returns the registered load of this name, or nil.
@@ -399,6 +391,95 @@ func WorkloadSeed(campaignSeed int64, block int, load string) (int64, error) {
 	s = splitmix64(s ^ uint64(idx+1)<<32)
 	// The sign bit is cleared because gen-trace and the manifest carry the seed as a signed integer.
 	return int64(s & math.MaxInt64), nil
+}
+
+// CheckVersionCampaign checks that a version-study campaign's valid cells pair into blocks, and returns the complete blocks.
+//
+// Each manifest has already passed LoadManifest, which checks one cell against the registration.
+// What one cell cannot show is how cells relate: that the treatments of a block replayed the same workload, that no two
+// blocks replayed the same one, and that every cell was priced against one λ0 (audit findings 2, 3, 17 and 21).
+// Pairing reads the identity the manifest recorded before execution, never a file name.
+//
+// The caller passes only cells its validity rules kept; a block with any cell left out is incomplete and is not analysed.
+// Fewer complete blocks than the registration plans is an error, because the analysis is then not confirmatory and may
+// not publish adopt, equivalent or reject (audit finding 14); the complete blocks are still returned for a descriptive report.
+func CheckVersionCampaign(cells []RunManifest) ([]int, error) {
+	if len(cells) == 0 {
+		return nil, fmt.Errorf("no cells to pair")
+	}
+	st, ok := LookupStudy(cells[0].Study)
+	if !ok || st.Version == nil {
+		return nil, fmt.Errorf("study %q is not a version study", cells[0].Study)
+	}
+	type cellKey struct {
+		block int
+		arm   string
+	}
+	type blockLoad struct {
+		block int
+		load  string
+	}
+	var ref *RunManifest
+	seen := map[cellKey]bool{}
+	traceOf := map[blockLoad]string{}
+	ownerOf := map[string]blockLoad{}
+	perBlock := map[int]int{}
+	for i := range cells {
+		m := &cells[i]
+		if m.Study != st.ID {
+			return nil, fmt.Errorf("cell %d (%s) belongs to study %s and the campaign to %s", i, m.Arm, m.Study, st.ID)
+		}
+		_, load, ok := ParseVersionStudyArm(m.Arm)
+		if !ok {
+			return nil, fmt.Errorf("cell %d: arm %q is not one of the version study's arms", i, m.Arm)
+		}
+		if m.Cell == nil {
+			return nil, fmt.Errorf("cell %d (%s) carries no cell identity, so it cannot be placed in a block", i, m.Arm)
+		}
+		if ref == nil {
+			ref = m
+		}
+		switch {
+		case m.Cell.CampaignID != ref.Cell.CampaignID:
+			return nil, fmt.Errorf("cell %d (%s) is from campaign %q and the first cell from %q", i, m.Arm, m.Cell.CampaignID, ref.Cell.CampaignID)
+		case m.Cell.CapacityRequestsPerSec != ref.Cell.CapacityRequestsPerSec || m.Cell.CapacityArtifactSHA256 != ref.Cell.CapacityArtifactSHA256:
+			// One λ0 for every treatment is the registered design; two would make 0.9 λ0 different offered work per arm.
+			return nil, fmt.Errorf("cell %d (%s) derives its load from capacity %v (%s) and the first cell from %v (%s)", i, m.Arm,
+				m.Cell.CapacityRequestsPerSec, m.Cell.CapacityArtifactSHA256, ref.Cell.CapacityRequestsPerSec, ref.Cell.CapacityArtifactSHA256)
+		case m.Model != ref.Model:
+			return nil, fmt.Errorf("cell %d (%s) served model %q and the first cell %q", i, m.Arm, m.Model, ref.Model)
+		}
+		k := cellKey{m.Cell.Block, m.Arm}
+		if seen[k] {
+			return nil, fmt.Errorf("block %d arm %s is recorded twice; a rerun replaces a block, it does not add to one", k.block, k.arm)
+		}
+		seen[k] = true
+		perBlock[k.block]++
+
+		bl := blockLoad{m.Cell.Block, load}
+		if prev, ok := traceOf[bl]; ok && prev != m.TraceChecksum {
+			return nil, fmt.Errorf("block %d at %s: %s replays trace %s and another treatment replays %s; a block's treatments share one workload",
+				bl.block, load, m.Arm, m.TraceChecksum, prev)
+		}
+		traceOf[bl] = m.TraceChecksum
+		if other, ok := ownerOf[m.TraceChecksum]; ok && other != bl {
+			return nil, fmt.Errorf("blocks %d (%s) and %d (%s) replay the same trace %s; each block draws its own workload",
+				other.block, other.load, bl.block, bl.load, m.TraceChecksum)
+		}
+		ownerOf[m.TraceChecksum] = bl
+	}
+	var complete []int
+	for block, n := range perBlock {
+		if n == len(st.Arms) {
+			complete = append(complete, block)
+		}
+	}
+	slices.Sort(complete)
+	if len(complete) < st.Version.PlannedBlocks {
+		return complete, fmt.Errorf("not confirmatory: %d complete block(s) %v of the registered %d; no adopt, equivalent or reject verdict may be published",
+			len(complete), complete, st.Version.PlannedBlocks)
+	}
+	return complete, nil
 }
 
 // EngineSettings is the engine a cell ran, typed so that a setting the manifest does not name is refused rather than ignored.
