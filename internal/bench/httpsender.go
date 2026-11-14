@@ -373,6 +373,10 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		if errors.Is(reqCtx.Err(), context.DeadlineExceeded) {
 			return SendResult{ErrorKind: "timeout"}
 		}
+		// The replay itself was stopped, which says nothing about the system under test.
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return SendResult{ErrorKind: errKindCancelled}
+		}
 		return SendResult{ErrorKind: "transport"}
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -548,9 +552,12 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		}
 	}
 	if err := sc.Err(); err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			res.ErrorKind = "timeout"
-		} else {
+		case errors.Is(ctx.Err(), context.Canceled):
+			res.ErrorKind = errKindCancelled
+		default:
 			res.ErrorKind = errorKindStream
 		}
 	} else if !res.StreamTerminated {

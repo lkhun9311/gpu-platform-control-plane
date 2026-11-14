@@ -39,6 +39,11 @@ type RequestClock struct {
 	LastContentNanos  *int64 `json:"lastContentNanos,omitempty"`
 	// EndNanos is when the response stream finished or broke, the same instant as RawRow.EndUnixNanos; nil when no stream ended.
 	EndNanos *int64 `json:"endNanos,omitempty"`
+	// TerminalNanos is when the request reached its final disposition, on every outcome.
+	//
+	// It is when the sender returned: for a refusal or a failure before any header, the only end the request has.
+	// For an unsent request it is when the replay stopped dispatching, so every scheduled request has one.
+	TerminalNanos *int64 `json:"terminalNanos,omitempty"`
 }
 
 // elapsedSince is t measured from origin on the monotonic clock, or nil when t was never stamped.
