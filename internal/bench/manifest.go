@@ -215,11 +215,14 @@ type CellIdentity struct {
 	Block int `json:"block"`
 	// Position is the treatment's place in the block's seeded order, from 1.
 	Position int `json:"position"`
+	// LoadPosition is the load's place in the block's load order, from 1, the same for every treatment of the block.
+	LoadPosition int `json:"loadPosition"`
 	// OrderSeed is the campaign seed the order and the workload seed were derived from.
 	OrderSeed int64 `json:"orderSeed"`
-	// CapacityRequestsPerSec is λ0 as the calibration artifact froze it, and CapacityArtifactSHA256 that artifact's sha256.
-	CapacityRequestsPerSec float64 `json:"capacityRequestsPerSec"`
-	CapacityArtifactSHA256 string  `json:"capacityArtifactSHA256"`
+	// StableRateRequestsPerSec is λ0, A's confirmed stable operating rate, as the campaign bundle froze it.
+	StableRateRequestsPerSec float64 `json:"stableRateRequestsPerSec"`
+	// BundleSHA256 names the campaign bundle the cell ran under, which pins calibration, traces, window and price by content.
+	BundleSHA256 string `json:"bundleSHA256"`
 	// OfferedRequestsPerSec is the arrival rate the trace was generated at, which must be the load's fraction of λ0.
 	OfferedRequestsPerSec float64 `json:"offeredRequestsPerSec"`
 }
@@ -515,6 +518,9 @@ func (m *RunManifest) validateCell(d *VersionStudyDesign, treatment, load string
 	if want := slices.Index(ArmOrder(c.OrderSeed, c.Block), treatment) + 1; c.Position != want {
 		return fmt.Errorf("cell.position %d: block %d runs treatment %s at position %d", c.Position, c.Block, treatment, want)
 	}
+	if want := slices.Index(LoadOrder(c.Block), load) + 1; c.LoadPosition != want {
+		return fmt.Errorf("cell.loadPosition %d: block %d runs %s at position %d", c.LoadPosition, c.Block, load, want)
+	}
 	wantSeed, err := WorkloadSeed(c.OrderSeed, c.Block, load)
 	if err != nil {
 		return err
@@ -522,16 +528,16 @@ func (m *RunManifest) validateCell(d *VersionStudyDesign, treatment, load string
 	if m.Seed != wantSeed {
 		return fmt.Errorf("seed %d is not block %d's workload seed %d at %s", m.Seed, c.Block, wantSeed, load)
 	}
-	if !lowerHex(c.CapacityArtifactSHA256, 64) {
-		return fmt.Errorf("cell.capacityArtifactSHA256 %q is not a sha256; λ0 must come from a frozen calibration artifact", c.CapacityArtifactSHA256)
+	if !lowerHex(c.BundleSHA256, 64) {
+		return fmt.Errorf("cell.bundleSHA256 %q is not a sha256; a cell runs under a frozen campaign bundle", c.BundleSHA256)
 	}
-	rate, err := OfferedRate(load, c.CapacityRequestsPerSec)
+	rate, err := OfferedRate(load, c.StableRateRequestsPerSec)
 	if err != nil {
-		return fmt.Errorf("cell capacity: %w", err)
+		return fmt.Errorf("cell λ0: %w", err)
 	}
 	// A relative tolerance, because the rate is a product of two floats and an exact comparison would refuse its own arithmetic.
 	if math.IsNaN(c.OfferedRequestsPerSec) || math.Abs(c.OfferedRequestsPerSec-rate) > 1e-9*rate {
-		return fmt.Errorf("cell.offeredRequestsPerSec %v is not %s of λ0 %v (%v)", c.OfferedRequestsPerSec, load, c.CapacityRequestsPerSec, rate)
+		return fmt.Errorf("cell.offeredRequestsPerSec %v is not %s of λ0 %v (%v)", c.OfferedRequestsPerSec, load, c.StableRateRequestsPerSec, rate)
 	}
 	return nil
 }

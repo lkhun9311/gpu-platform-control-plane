@@ -32,9 +32,19 @@ func TestVersionStudyArmsAreLiteral(t *testing.T) {
 // TestVersionStudyRegistration pins the registered properties the spec names as fixed now.
 func TestVersionStudyRegistration(t *testing.T) {
 	st, _ := LookupStudy(StudyVersionAsync)
-	if st.MinRepetitions != 5 || !st.PublishesInterval || !st.TracesVaryByRepetition {
-		t.Errorf("floor %d, interval %v, traces vary %v; want 5, true, true", st.MinRepetitions, st.PublishesInterval,
+	if st.MinRepetitions != 6 || !st.PublishesInterval || !st.TracesVaryByRepetition {
+		t.Errorf("floor %d, interval %v, traces vary %v; want 6, true, true", st.MinRepetitions, st.PublishesInterval,
 			st.TracesVaryByRepetition)
+	}
+	d := st.Version
+	if d.SLO != (SLO{TTFTMs: 1000, TPOTMs: 60}) || d.PlannedBlocks != 6 || d.MaxReplacementBlocks != 2 {
+		t.Errorf("SLO %+v, planned %d, replacements %d", d.SLO, d.PlannedBlocks, d.MaxReplacementBlocks)
+	}
+	if d.Engines[TreatmentB].VLLMVersion != "v0.32.0" || d.Engines[TreatmentC].VLLMVersion != "v0.32.0" {
+		t.Errorf("B and C versions %q %q, want v0.32.0", d.Engines[TreatmentB].VLLMVersion, d.Engines[TreatmentC].VLLMVersion)
+	}
+	if d.Engines[TreatmentA].SchedulingPolicy != "priority" {
+		t.Errorf("scheduling policy %q, want priority", d.Engines[TreatmentA].SchedulingPolicy)
 	}
 	if !st.FixesOutputAtCap || !st.RecordsReplayTiming {
 		t.Errorf("fixes output at cap %v, records replay timing %v; want both", st.FixesOutputAtCap, st.RecordsReplayTiming)
@@ -85,21 +95,15 @@ func TestVersionStudyEnginesDifferOnlyWhereRegistered(t *testing.T) {
 func TestVersionStudyNamesWhatIsNotYetFrozen(t *testing.T) {
 	d := versionAsyncDesign()
 	want := []string{
-		"treatment B vLLM version",
-		"treatment B image digest",
-		"treatment C vLLM version",
-		"treatment C image digest",
-		"SLO TTFT",
-		"SLO TPOT",
-		"equivalence margin ttft_p99",
-		"equivalence margin tpot_p99",
-		"equivalence margin e2e_p99",
-		"equivalence margin goodput",
+		"treatment B image digest (engine-path track)",
+		"treatment B flag review (engine-path track)",
+		"treatment C image digest (engine-path track)",
+		"treatment C flag review (engine-path track)",
 	}
 	if got := d.Unfrozen(); !slices.Equal(got, want) {
 		t.Fatalf("unfrozen = %v, want %v", got, want)
 	}
-	if err := d.PreflightRefusal(); err == nil || !strings.Contains(err.Error(), "SLO TTFT") {
+	if err := d.PreflightRefusal(); err == nil || !strings.Contains(err.Error(), "flag review") {
 		t.Fatalf("preflight = %v, want a refusal naming the unfrozen items", err)
 	}
 	frozen := frozenVersionDesignFixture()
@@ -179,7 +183,7 @@ func TestWorkloadSeedSharedAcrossArmsDistinctAcrossCells(t *testing.T) {
 func TestPhaseBoundaryIsByIntendedArrival(t *testing.T) {
 	d := frozenVersionDesignFixture()
 	w := int64(d.WarmupSeconds) * 1000
-	m := int64(d.MeasureSeconds(4.0)) * 1000
+	m := int64(300) * 1000
 	for _, c := range []struct {
 		offset int64
 		want   Phase
@@ -191,43 +195,108 @@ func TestPhaseBoundaryIsByIntendedArrival(t *testing.T) {
 		{w + m, PhaseOutside},
 		{-1, PhaseOutside},
 	} {
-		if got := d.PhaseOf(c.offset, 4.0); got != c.want {
+		if got := d.PhaseOf(c.offset, 300); got != c.want {
 			t.Errorf("offset %d ms: phase %q, want %q", c.offset, got, c.want)
 		}
 	}
-}
-
-// TestMeasureWindowReachesTheTailFloor checks the window grows so a pooled p99 rests on at least 1,000 requests.
-func TestMeasureWindowReachesTheTailFloor(t *testing.T) {
-	d := frozenVersionDesignFixture()
-	if got := d.MeasureSeconds(10); got != d.MinMeasureSeconds {
-		t.Errorf("at 10 req/s window = %d s, want the floor %d s", got, d.MinMeasureSeconds)
-	}
-	// 5 blocks x 0.6 x 0.2 req/s = 0.6 req/s pooled, so 1,000 requests need 1,667 s.
-	if got := d.MeasureSeconds(0.2); got != 1667 {
-		t.Errorf("at 0.2 req/s window = %d s, want 1667 s", got)
-	}
-	if got := d.MeasureSeconds(0); got != 0 {
-		t.Errorf("an unmeasured capacity produced a window of %d s, want 0", got)
+	if got := d.PhaseOf(w, 0); got != PhaseOutside {
+		t.Errorf("a zero window gave phase %q", got)
 	}
 }
 
-// TestBudgetStopRule checks a block is not started unless its worst observed cost still fits under the cap.
-func TestBudgetStopRule(t *testing.T) {
+// TestChooseWindowFromTraces is attack item 10: the floor is met by the generated traces, not expected from a rate.
+func TestChooseWindowFromTraces(t *testing.T) {
 	d := frozenVersionDesignFixture()
-	for _, c := range []struct {
-		spent, worst float64
-		want         bool
-	}{
-		{5, 2, true},
-		{16, 2, true},
-		{16.01, 2, false},
-		{0, 0, false},
-		{0, -1, false},
-	} {
-		if got := d.MayStartBlock(c.spent, c.worst); got != c.want {
-			t.Errorf("spent %.2f worst block %.2f: may start %v, want %v", c.spent, c.worst, got, c.want)
+	at := func(perBlock map[string]float64) func(int, string, int) (int, error) {
+		return func(_ int, load string, w int) (int, error) { return int(perBlock[load] * float64(w)), nil }
+	}
+	// 6 blocks x 0.2 req/s: 780 s offers 936, 840 s offers 1,008.
+	if w, err := d.ChooseWindow(at(map[string]float64{LoadL060: 0.2, LoadL090: 0.3})); err != nil || w != 840 {
+		t.Errorf("window %d err %v, want 840", w, err)
+	}
+	if w, err := d.ChooseWindow(at(map[string]float64{LoadL060: 10, LoadL090: 15})); err != nil || w != 300 {
+		t.Errorf("window %d err %v, want the minimum 300", w, err)
+	}
+	if _, err := d.ChooseWindow(at(map[string]float64{LoadL060: 0.05, LoadL090: 0.075})); err == nil {
+		t.Errorf("a window over the maximum was chosen rather than refused")
+	}
+	// Every load must reach the floor, not their sum.
+	if w, _ := d.ChooseWindow(at(map[string]float64{LoadL060: 0.2, LoadL090: 100})); w != 840 {
+		t.Errorf("window %d, want 840 set by the lower load", w)
+	}
+}
+
+// TestLoadOrderIsCounterbalanced is attack item 11: each load runs first in half the planned blocks.
+func TestLoadOrderIsCounterbalanced(t *testing.T) {
+	first := map[string]int{}
+	for b := 1; b <= versionStudyPlannedBlocks; b++ {
+		o := LoadOrder(b)
+		if len(o) != 2 || o[0] == o[1] {
+			t.Fatalf("block %d load order %v", b, o)
 		}
+		first[o[0]]++
+	}
+	if first[LoadL060] != 3 || first[LoadL090] != 3 {
+		t.Errorf("loads first: %v, want 3 each", first)
+	}
+	if LoadOrder(0) != nil {
+		t.Errorf("block 0 has a load order")
+	}
+}
+
+// TestSixBlocksBalanceEveryPosition checks the owner's six blocks put each treatment in each position twice.
+func TestSixBlocksBalanceEveryPosition(t *testing.T) {
+	d := versionAsyncDesign()
+	pos := map[string][3]int{}
+	for b := 1; b <= d.PlannedBlocks; b++ {
+		for i, tr := range ArmOrder(d.CampaignSeed, b) {
+			p := pos[tr]
+			p[i]++
+			pos[tr] = p
+		}
+	}
+	for _, tr := range []string{TreatmentA, TreatmentB, TreatmentC} {
+		if pos[tr] != [3]int{2, 2, 2} {
+			t.Errorf("treatment %s positions %v, want [2 2 2]", tr, pos[tr])
+		}
+	}
+}
+
+// TestBudgetBounds is attack item 13: every phase is bounded, and a block starts only if every missing valid block still fits.
+func TestBudgetBounds(t *testing.T) {
+	d := frozenVersionDesignFixture()
+	if got := d.BlockBoundSeconds(300); got != 6480 {
+		t.Errorf("block bound %d s, want 6480", got)
+	}
+	if got := d.Calibration.MaxRungs(); got != 30 {
+		t.Errorf("calibration rungs bound %d, want 30", got)
+	}
+	// Setup 2700 + calibration 30 x 360 + preflight 3 x 900 + 6 blocks x 6480 + teardown 600.
+	if got := d.SessionBoundSeconds(300); got != 55680 {
+		t.Errorf("session bound %d s, want 55680", got)
+	}
+	const rate = 1.337 // $1.237/h for the instance plus $0.10/h of other charges
+	for _, c := range []struct {
+		spent float64
+		need  int
+		want  bool
+	}{
+		{3.0, 6, true},
+		{3.5, 6, false},
+		{15.0, 1, true},
+		{15.5, 1, false},
+		{0, 0, false},
+		{-1, 1, false},
+	} {
+		if got := d.MayStartBlock(c.spent, rate, c.need, 300); got != c.want {
+			t.Errorf("spent %.2f, %d blocks needed: may start %v, want %v", c.spent, c.need, got, c.want)
+		}
+	}
+	if d.MayStartBlock(0, 0, 1, 300) || d.MayStartBlock(0, rate, 1, 0) {
+		t.Errorf("a zero rate or window let a block start")
+	}
+	if got := d.TeardownDeadlineSeconds(rate); got != 47866 {
+		t.Errorf("teardown deadline %d s after launch, want 47866", got)
 	}
 }
 
@@ -238,20 +307,16 @@ var pinnedArmOrder20261115 = [][]string{
 	{TreatmentC, TreatmentB, TreatmentA},
 }
 
-// frozenVersionDesignFixture is the registered design with every owner decision filled by placeholder values.
+// frozenVersionDesignFixture is the registered design with the engine-path track's values filled by placeholders.
 //
-// The values are test inputs, not proposals; the spec carries the proposals.
+// The digest and review hashes are test inputs, not the v0.32.0 image's.
 func frozenVersionDesignFixture() VersionStudyDesign {
 	d := versionAsyncDesign()
 	for _, tr := range []string{TreatmentB, TreatmentC} {
 		e := d.Engines[tr]
-		e.VLLMVersion = "v9.9.9"
 		e.Image = "vllm/vllm-openai@sha256:" + strings.Repeat("b", 64)
 		d.Engines[tr] = e
-	}
-	d.SLO = SLO{TTFTMs: 1000, TPOTMs: 60}
-	d.Margins = map[Endpoint]float64{
-		EndpointTTFTP99: 0.10, EndpointTPOTP99: 0.10, EndpointE2EP99: 0.10, EndpointGoodput: 0.02,
+		d.EngineFlagReviews[tr] = strings.Repeat(strings.ToLower(tr), 64)
 	}
 	return d
 }

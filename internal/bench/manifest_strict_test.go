@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -178,13 +179,14 @@ func versionManifest(t *testing.T) RunManifest {
 		Engine:          new(d.Engines[TreatmentC]),
 		Sampling:        versionStudySampling(),
 		Cell: &CellIdentity{
-			CampaignID:             "s1-20261120",
-			Block:                  2,
-			Position:               pos,
-			OrderSeed:              d.CampaignSeed,
-			CapacityRequestsPerSec: 4,
-			CapacityArtifactSHA256: strings.Repeat("c", 64),
-			OfferedRequestsPerSec:  3.6,
+			CampaignID:               "s1-20261120",
+			Block:                    2,
+			Position:                 pos,
+			LoadPosition:             slices.Index(LoadOrder(2), LoadL090) + 1,
+			OrderSeed:                d.CampaignSeed,
+			StableRateRequestsPerSec: 4,
+			BundleSHA256:             strings.Repeat("c", 64),
+			OfferedRequestsPerSec:    3.6,
 		},
 	}
 }
@@ -219,8 +221,9 @@ func TestVersionManifestRefusals(t *testing.T) {
 		"another order seed":          {func(m *RunManifest) { m.Cell.OrderSeed = 7 }, "orderSeed"},
 		"workload seed of block 1":    {func(m *RunManifest) { m.Seed++ }, "seed"},
 		"offered rate not 0.9 λ0":     {func(m *RunManifest) { m.Cell.OfferedRequestsPerSec = 4 }, "offered"},
-		"no capacity":                 {func(m *RunManifest) { m.Cell.CapacityRequestsPerSec = 0 }, "capacity"},
-		"capacity artifact not hex":   {func(m *RunManifest) { m.Cell.CapacityArtifactSHA256 = "pending" }, "capacityArtifactSHA256"},
+		"no λ0":                       {func(m *RunManifest) { m.Cell.StableRateRequestsPerSec = 0 }, "λ0"},
+		"bundle hash not hex":         {func(m *RunManifest) { m.Cell.BundleSHA256 = "pending" }, "bundleSHA256"},
+		"load position not the block": {func(m *RunManifest) { m.Cell.LoadPosition = 3 - m.Cell.LoadPosition }, "loadPosition"},
 		"another timeout":             {func(m *RunManifest) { m.TimeoutMs = 30000 }, "timeoutMs"},
 		"no timeout scope":            {func(m *RunManifest) { m.TimeoutScope = "" }, "timeoutScope"},
 		"the admission endpoint":      {func(m *RunManifest) { m.PrimaryEndpoint = "ttft_p99" }, "primaryEndpoint"},

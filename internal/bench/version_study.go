@@ -7,23 +7,23 @@ import (
 	"strings"
 )
 
-// The A/B/C engine-version study, registered in docs/superpowers/specs/2026-11-15-vllm-version-async-study-design.md.
+// The A/B/C engine-version pilot, registered in docs/superpowers/specs/2026-11-15-vllm-version-async-study-design.md.
 //
 // This file holds the parts of that registration a program can check: the arms, what may differ between the
-// treatments' engines, the loads, the windows, the block order and workload seeds, and which owner decisions are
-// still open. The spec is the authority for why each value is what it is.
+// treatments' engines, the loads and their order, the windows, the block order and workload seeds, the phase bounds
+// and budget, and which values are still open. The spec is the authority for why each value is what it is.
 
 // The three treatments of the version study.
 const (
-	// TreatmentA is vLLM v0.27.1 with the validated execution profile, the reference every candidate is compared with.
+	// TreatmentA is vLLM v0.27.1 with the validated execution profile, the incumbent every candidate is compared with.
 	TreatmentA = "A"
-	// TreatmentB is a newer pinned vLLM with A's settings and async scheduling off, so only the version moves.
+	// TreatmentB is vLLM v0.32.0 with A's settings and async scheduling off, so only the version moves.
 	TreatmentB = "B"
 	// TreatmentC is B with async scheduling on, so only the scheduler mode moves against B.
 	TreatmentC = "C"
 )
 
-// The two registered offered loads, as fractions of the capacity λ0 measured on treatment A.
+// The two registered offered loads, as fractions of λ0, treatment A's confirmed stable operating rate.
 //
 // 1.2 λ0 and bursts are overload exploration and belong to a separate study, so they have no arm here.
 const (
@@ -37,8 +37,8 @@ var (
 	versionStudyLoads      = []LoadLevel{{Name: LoadL060, Fraction: 0.6}, {Name: LoadL090, Fraction: 0.9}}
 )
 
-// versionStudyPlannedBlocks is the registered block count; the spec gives why five and not more.
-const versionStudyPlannedBlocks = 5
+// versionStudyPlannedBlocks is six, so every one of the six treatment orders runs exactly once.
+const versionStudyPlannedBlocks = 6
 
 // LoadLevel is one registered offered load: a name the arm carries and the fraction of λ0 it offers.
 type LoadLevel struct {
@@ -95,9 +95,10 @@ func versionStudyExactTokens() map[int]int {
 // Endpoint names one registered outcome of the version study.
 type Endpoint string
 
-// The five registered endpoints; the spec defines each one's population and percentile.
+// The registered endpoints; the spec defines each one's population and percentile, and DecisionRule.Voting says which decide.
 const (
 	EndpointTTFTP99 Endpoint = "ttft_p99"
+	// EndpointTPOTP99 is over successful requests only, so it is descriptive and never votes (attack item 4).
 	EndpointTPOTP99 Endpoint = "tpot_p99"
 	EndpointE2EP99  Endpoint = "e2e_p99"
 	EndpointGoodput Endpoint = "goodput"
@@ -107,18 +108,15 @@ const (
 
 // EndpointVersionDecisionSet is the version study's primaryEndpoint.
 //
-// The study has no single primary metric: its verdict is the registered rule over four voting endpoints.
+// The study has no single primary metric: its verdict is the registered rule over its voting endpoints and guardrail.
 // Naming the rule keeps the manifest field meaning "what the run is judged by", which reproduction compares.
 const EndpointVersionDecisionSet = "version-decision-set-v1"
 
-// votingEndpoints are the endpoints the decision rule reads, each of which needs a frozen margin.
-var votingEndpoints = []Endpoint{EndpointTTFTP99, EndpointTPOTP99, EndpointE2EP99, EndpointGoodput}
-
-// SLO is the per-request service objective goodput counts against; zero means not yet decided.
+// SLO is the per-request service objective goodput counts against.
 type SLO struct {
 	// TTFTMs bounds the time from intended arrival to the first content byte.
 	TTFTMs float64
-	// TPOTMs bounds the request's mean time per output token after the first.
+	// TPOTMs bounds the request's client-observed time per output token after the first.
 	TPOTMs float64
 }
 
@@ -133,6 +131,22 @@ type LengthWeight struct {
 	Weight float64
 }
 
+// PhaseBounds are the registered ceilings on each phase's wall time, which the budget is computed from.
+//
+// A bound is a deadline the runner enforces, not an estimate: a phase that reaches it ends with the outcome the spec registers.
+type PhaseBounds struct {
+	// SetupSeconds covers instance launch, both image pulls and the model download.
+	SetupSeconds int
+	// ReadinessSeconds runs from engine process start to /health 200 and every priming request answered.
+	ReadinessSeconds int
+	// DrainSeconds runs from the last arrival until the engine reports nothing running or waiting.
+	DrainSeconds int
+	// PreflightSecondsPerTreatment covers one treatment's start, readiness and preflight requests.
+	PreflightSecondsPerTreatment int
+	// TeardownSeconds is held back at the end of the deadline for teardown to finish.
+	TeardownSeconds int
+}
+
 // VersionStudyDesign is the part of the version study's registration a program can enforce.
 type VersionStudyDesign struct {
 	// Model, ModelRevision and TokenizerRevision pin what every arm serves; the controller passes one revision as both.
@@ -143,19 +157,24 @@ type VersionStudyDesign struct {
 	ChatTemplateSHA256 string
 	// Engines is the engine each treatment must run, compared field by field with every manifest.
 	Engines map[string]EngineSettings
-	// Comparisons are the contrasts the decision rule is applied to.
-	Comparisons []Comparison
+	// EngineFlagReviews maps B and C to the sha256 of the effective-argument record the engine-path track reviewed for the v0.32.0 image.
+	//
+	// Empty until that track has read the image's own flags and confirmed each registered setting maps to one; this registration does not guess them.
+	EngineFlagReviews map[string]string
+	// Primary selects a deployment, Fallback selects only when Primary does not adopt, and Explanatory never selects.
+	Primary, Fallback, Explanatory Comparison
 	// CampaignSeed fixes every block's treatment order and workload before any run, so neither can be redrawn after a bad block.
 	CampaignSeed int64
-	// PlannedBlocks is how many complete blocks the analysis needs, and MaxReplacementBlocks how many invalid ones may be replaced.
+	// PlannedBlocks is how many valid blocks the analysis needs, and MaxReplacementBlocks how many invalid ones may be replaced.
 	PlannedBlocks        int
 	MaxReplacementBlocks int
 	// WarmupSeconds is the warm-up at the cell's own offered rate before every measurement window.
 	WarmupSeconds int
-	// MinMeasureSeconds is the shortest measurement window; MeasureSeconds lengthens it to reach MinTailSamples.
+	// MinMeasureSeconds and MaxMeasureSeconds bound the window ChooseWindow picks from the generated traces.
 	MinMeasureSeconds int
-	// MinTailSamples is the fewest requests a pooled p99 may rest on, per arm and load, over the planned blocks.
-	MinTailSamples int
+	MaxMeasureSeconds int
+	// MinOfferedPopulation is the fewest measured requests the planned blocks' traces must offer per load.
+	MinOfferedPopulation int
 	// TimeoutMs is the whole-request deadline every arm is sent with.
 	TimeoutMs int
 	// DispatchLagP99Ms and DispatchLagMaxMs bound transport-write time minus intended arrival in a valid cell.
@@ -164,14 +183,15 @@ type VersionStudyDesign struct {
 	// InputTokens and OutputTokens are the workload's length mixtures, drawn independently per request.
 	InputTokens  []LengthWeight
 	OutputTokens []LengthWeight
-	// SLO and Margins are owner decisions; zero means undecided, and PreflightRefusal refuses until both are set.
+	// SLO is the owner's per-request objective.
 	SLO SLO
-	// Margins are the practical-equivalence margins, as relative changes of each endpoint's ratio.
-	Margins map[Endpoint]float64
-	// IntervalLevel and Resamples fix the block bootstrap.
-	IntervalLevel float64
-	Resamples     int
-	// BudgetUSD is the session cap and ReserveUSD what is held back for teardown and the instance's last partial hour.
+	// Decision is the pilot decision heuristic.
+	Decision DecisionRule
+	// Calibration is the ladder that finds λ0.
+	Calibration CalibrationRule
+	// Bounds are the phase ceilings.
+	Bounds PhaseBounds
+	// BudgetUSD is the session cap and ReserveUSD what is held back beyond the bounded phases.
 	BudgetUSD  float64
 	ReserveUSD float64
 }
@@ -185,31 +205,52 @@ func versionAsyncDesign() VersionStudyDesign {
 		ChatTemplateSHA256: "cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f",
 		Engines: map[string]EngineSettings{
 			TreatmentA: versionStudyEngine("v0.27.1", "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967", false),
-			// The newer version is the owner's choice and is not invented here; an empty value refuses every B and C manifest.
-			TreatmentB: versionStudyEngine("", "", false),
-			TreatmentC: versionStudyEngine("", "", true),
+			// The owner chose v0.32.0; its digest is filled by the engine-path track, and an empty one refuses every B and C manifest.
+			TreatmentB: versionStudyEngine("v0.32.0", "", false),
+			TreatmentC: versionStudyEngine("v0.32.0", "", true),
 		},
-		Comparisons: []Comparison{
-			{Candidate: TreatmentB, Reference: TreatmentA},
-			{Candidate: TreatmentC, Reference: TreatmentB},
-			{Candidate: TreatmentC, Reference: TreatmentA},
-		},
+		EngineFlagReviews:    map[string]string{TreatmentB: "", TreatmentC: ""},
+		Primary:              Comparison{Candidate: TreatmentC, Reference: TreatmentA},
+		Fallback:             Comparison{Candidate: TreatmentB, Reference: TreatmentA},
+		Explanatory:          Comparison{Candidate: TreatmentC, Reference: TreatmentB},
 		CampaignSeed:         20261115,
 		PlannedBlocks:        versionStudyPlannedBlocks,
 		MaxReplacementBlocks: 2,
 		WarmupSeconds:        60,
 		MinMeasureSeconds:    300,
-		MinTailSamples:       1000,
+		MaxMeasureSeconds:    1800,
+		MinOfferedPopulation: 1000,
 		TimeoutMs:            60000,
 		DispatchLagP99Ms:     10,
 		DispatchLagMaxMs:     100,
 		InputTokens:          []LengthWeight{{256, 0.5}, {1024, 0.3}, {2048, 0.2}},
 		OutputTokens:         []LengthWeight{{64, 0.5}, {256, 0.5}},
-		Margins:              map[Endpoint]float64{},
-		IntervalLevel:        0.90,
-		Resamples:            10000,
-		BudgetUSD:            20,
-		ReserveUSD:           2,
+		SLO:                  SLO{TTFTMs: 1000, TPOTMs: 60},
+		Decision: DecisionRule{
+			Voting:               []Endpoint{EndpointTTFTP99, EndpointE2EP99, EndpointGoodput},
+			BenefitEndpoints:     []Endpoint{EndpointE2EP99},
+			MinWorthwhileBenefit: 0.10,
+			ToleratedLoss:        map[Endpoint]float64{EndpointTTFTP99: 0.10, EndpointE2EP99: 0.10, EndpointGoodput: 0.10},
+			MaxFailureFraction:   0.005,
+			IntervalLevel:        0.90,
+		},
+		Calibration: CalibrationRule{
+			StartRate: 0.5, Growth: 1.5, MaxExpansion: 12,
+			FallbackFactor: 0.5, MaxFallback: 2,
+			TargetRatio: 1.05, MaxRefine: 6,
+			Confirmations: 2, MaxStepDowns: 2, MaxInvalidRetries: 2,
+			Tolerance: 0.02, OutstandingSlackMin: 3, MaxFailureFraction: 0.005,
+			WarmupSeconds: 60, WindowSeconds: 180, DrainSeconds: 120,
+		},
+		Bounds: PhaseBounds{
+			SetupSeconds:                 2700,
+			ReadinessSeconds:             600,
+			DrainSeconds:                 120,
+			PreflightSecondsPerTreatment: 900,
+			TeardownSeconds:              600,
+		},
+		BudgetUSD:  20,
+		ReserveUSD: 2,
 	}
 }
 
@@ -231,57 +272,46 @@ func versionStudyEngine(version, image string, async bool) EngineSettings {
 	}
 }
 
-// Unfrozen lists the registered values that are still owner decisions, in a fixed order.
+// Unfrozen lists the registered values still open, in a fixed order.
 //
-// λ0 is not here: it is measured inside the session by the registered procedure and frozen in a calibration artifact every cell names.
+// λ0, the window and the price are not here: the session measures or reads them by registered procedures and freezes them in the campaign bundle.
 func (d VersionStudyDesign) Unfrozen() []string {
 	var out []string
 	for _, t := range versionStudyTreatments {
-		e := d.Engines[t]
-		if e.VLLMVersion == "" {
+		if d.Engines[t].VLLMVersion == "" {
 			out = append(out, "treatment "+t+" vLLM version")
 		}
-		if e.Image == "" {
-			out = append(out, "treatment "+t+" image digest")
+		if d.Engines[t].Image == "" {
+			out = append(out, "treatment "+t+" image digest (engine-path track)")
 		}
-	}
-	if !(d.SLO.TTFTMs > 0) || math.IsInf(d.SLO.TTFTMs, 0) {
-		out = append(out, "SLO TTFT")
-	}
-	if !(d.SLO.TPOTMs > 0) || math.IsInf(d.SLO.TPOTMs, 0) {
-		out = append(out, "SLO TPOT")
-	}
-	for _, e := range votingEndpoints {
-		if m := d.Margins[e]; !(m > 0 && m < 1) {
-			out = append(out, "equivalence margin "+string(e))
+		if review, ok := d.EngineFlagReviews[t]; ok && !lowerHex(review, 64) {
+			out = append(out, "treatment "+t+" flag review (engine-path track)")
 		}
 	}
 	return out
 }
 
-// PreflightRefusal refuses to run any cell while a registered value is undecided.
-//
-// A run under an unfrozen SLO or margin could be judged by numbers chosen after its results were seen.
+// PreflightRefusal refuses to run any cell while a registered value is open.
 func (d VersionStudyDesign) PreflightRefusal() error {
 	if u := d.Unfrozen(); len(u) > 0 {
-		return fmt.Errorf("the version study is not frozen; still undecided: %s", strings.Join(u, ", "))
+		return fmt.Errorf("the version study is not frozen; still open: %s", strings.Join(u, ", "))
 	}
 	return nil
 }
 
-// MeasureSeconds is the measurement window for a measured capacity, or 0 when the capacity is not a positive number.
+// LoadOrder is the order a block runs its two loads in, the same for every treatment of the block.
 //
-// The window is the same at both loads, so it is sized for the lower one: the planned blocks at 0.6 λ0 must offer MinTailSamples requests.
-func (d VersionStudyDesign) MeasureSeconds(capacityPerSec float64) int {
-	if !(capacityPerSec > 0) || math.IsInf(capacityPerSec, 0) {
-		return 0
+// Odd blocks run l060 first and even blocks l090 first, so each load follows the other in half the planned blocks.
+// A fixed order would let "l090 after l060" stand for "l090", and carry-over need not cancel between versions (attack item 11).
+func LoadOrder(block int) []string {
+	switch {
+	case block < 1:
+		return nil
+	case block%2 == 1:
+		return []string{LoadL060, LoadL090}
+	default:
+		return []string{LoadL090, LoadL060}
 	}
-	lowest := math.Inf(1)
-	for _, l := range versionStudyLoads {
-		lowest = math.Min(lowest, l.Fraction)
-	}
-	need := int(math.Ceil(float64(d.MinTailSamples) / (float64(d.PlannedBlocks) * lowest * capacityPerSec)))
-	return max(d.MinMeasureSeconds, need)
 }
 
 // Phase is which part of a cell a request belongs to, decided by its intended arrival.
@@ -296,15 +326,15 @@ const (
 	PhaseOutside Phase = "outside"
 )
 
-// PhaseOf classifies a trace row by its intended arrival offset.
+// PhaseOf classifies a trace row by its intended arrival offset, for a frozen window of windowSeconds.
 //
 // The boundary is the intended arrival and never the completion time.
 // Filtering by completion would drop exactly the slow requests that arrived during warm-up and finished inside the window, and keep the reverse, differently per arm.
-func (d VersionStudyDesign) PhaseOf(offsetMs int64, capacityPerSec float64) Phase {
+func (d VersionStudyDesign) PhaseOf(offsetMs int64, windowSeconds int) Phase {
 	warm := int64(d.WarmupSeconds) * 1000
-	end := warm + int64(d.MeasureSeconds(capacityPerSec))*1000
+	end := warm + int64(windowSeconds)*1000
 	switch {
-	case offsetMs < 0:
+	case offsetMs < 0 || windowSeconds <= 0:
 		return PhaseOutside
 	case offsetMs < warm:
 		return PhaseWarmup
@@ -315,27 +345,88 @@ func (d VersionStudyDesign) PhaseOf(offsetMs int64, capacityPerSec float64) Phas
 	}
 }
 
-// OfferedRate is the arrival rate of a load at a measured capacity, or an error for an unregistered load.
-func OfferedRate(load string, capacityPerSec float64) (float64, error) {
+// ChooseWindow picks the measurement window from the seeded traces alone, before anything is measured.
+//
+// measured returns how many rows of the planned block's trace at a load fall in a window of the given length.
+// The window grows in 60 s steps from the minimum until the planned blocks offer MinOfferedPopulation measured requests at
+// every load, so the floor is met by the traces themselves rather than expected from a rate (attack item 10).
+// It never looks at an outcome, and a window over the maximum stops the session instead of being stretched.
+func (d VersionStudyDesign) ChooseWindow(measured func(block int, load string, windowSeconds int) (int, error)) (int, error) {
+	for w := d.MinMeasureSeconds; w <= d.MaxMeasureSeconds; w += 60 {
+		ok := true
+		for _, l := range versionStudyLoads {
+			total := 0
+			for b := 1; b <= d.PlannedBlocks; b++ {
+				n, err := measured(b, l.Name, w)
+				if err != nil {
+					return 0, err
+				}
+				total += n
+			}
+			if total < d.MinOfferedPopulation {
+				ok = false
+			}
+		}
+		if ok {
+			return w, nil
+		}
+	}
+	return 0, fmt.Errorf("no window up to %d s offers %d measured requests per load over %d blocks; λ0 is too low for this design",
+		d.MaxMeasureSeconds, d.MinOfferedPopulation, d.PlannedBlocks)
+}
+
+// OfferedRate is the arrival rate of a load at λ0, or an error for an unregistered load or a rate that is not positive.
+func OfferedRate(load string, stableRate float64) (float64, error) {
 	l := versionStudyLoad(load)
 	if l == nil {
 		return 0, fmt.Errorf("load %q is not one of the version study's registered loads", load)
 	}
-	if !(capacityPerSec > 0) || math.IsInf(capacityPerSec, 0) {
-		return 0, fmt.Errorf("capacity %v is not a measured positive rate", capacityPerSec)
+	if !(stableRate > 0) || math.IsInf(stableRate, 0) {
+		return 0, fmt.Errorf("λ0 %v is not a confirmed positive rate", stableRate)
 	}
-	return l.Fraction * capacityPerSec, nil
+	return l.Fraction * stableRate, nil
 }
 
-// MayStartBlock says whether one more block fits under the cap.
+// BlockBoundSeconds is a block's ceiling for a window: per treatment, two engine starts and two cells.
 //
-// worstBlockUSD is the larger of the planning estimate and the costliest block completed so far, so it is never zero.
-// A zero or negative estimate is refused, because it would let every block start.
-func (d VersionStudyDesign) MayStartBlock(spentUSD, worstBlockUSD float64) bool {
-	if !(worstBlockUSD > 0) || math.IsNaN(spentUSD) || math.IsInf(spentUSD, 0) || math.IsInf(worstBlockUSD, 0) {
+// Two starts, because an engine that does not drain by the deadline is restarted before the next load.
+func (d VersionStudyDesign) BlockBoundSeconds(windowSeconds int) int {
+	cell := d.WarmupSeconds + windowSeconds + d.Bounds.DrainSeconds
+	return len(versionStudyTreatments) * (2*d.Bounds.ReadinessSeconds + 2*cell)
+}
+
+// usd is the cost of seconds at a session rate in dollars per hour.
+func usd(seconds int, ratePerHour float64) float64 {
+	return float64(seconds) / 3600 * ratePerHour
+}
+
+// MayStartBlock says whether the session can still afford every valid block it needs, not merely the next one.
+//
+// ratePerHour is the instance price plus the other session charges per hour; validStillNeeded counts the valid blocks
+// missing from the planned total. Each is charged at its bound, and teardown and the reserve are held back (attack item 13).
+func (d VersionStudyDesign) MayStartBlock(spentUSD, ratePerHour float64, validStillNeeded, windowSeconds int) bool {
+	if !(ratePerHour > 0) || math.IsInf(ratePerHour, 0) || math.IsNaN(spentUSD) || spentUSD < 0 || validStillNeeded < 1 || windowSeconds <= 0 {
 		return false
 	}
-	return spentUSD+worstBlockUSD <= d.BudgetUSD-d.ReserveUSD
+	need := float64(validStillNeeded)*usd(d.BlockBoundSeconds(windowSeconds), ratePerHour) +
+		usd(d.Bounds.TeardownSeconds, ratePerHour) + d.ReserveUSD
+	return spentUSD+need <= d.BudgetUSD
+}
+
+// SessionBoundSeconds is the whole session's ceiling: setup, calibration, three preflights, the planned blocks and teardown.
+func (d VersionStudyDesign) SessionBoundSeconds(windowSeconds int) int {
+	return d.Bounds.SetupSeconds + d.Calibration.MaxSeconds() + len(versionStudyTreatments)*d.Bounds.PreflightSecondsPerTreatment +
+		d.PlannedBlocks*d.BlockBoundSeconds(windowSeconds) + d.Bounds.TeardownSeconds
+}
+
+// TeardownDeadlineSeconds is how long after launch teardown must begin, whatever phase is running.
+//
+// It covers setup and calibration too: the cap less the reserve, at the session rate, less the teardown bound.
+func (d VersionStudyDesign) TeardownDeadlineSeconds(ratePerHour float64) int {
+	if !(ratePerHour > 0) || math.IsInf(ratePerHour, 0) {
+		return 0
+	}
+	return int((d.BudgetUSD-d.ReserveUSD)/ratePerHour*3600) - d.Bounds.TeardownSeconds
 }
 
 // splitmix64 is the generator behind the block order and the workload seeds.
@@ -361,8 +452,8 @@ var allTreatmentOrders = [][]string{
 
 // ArmOrder is the order block (counting from 1) visits the treatments in.
 //
-// The six orders are shuffled once by the campaign seed and dealt to blocks in turn, so the first six blocks never repeat an order.
-// Five blocks cannot balance three treatments over three positions exactly; dealing without replacement is the closest a fixed count gets.
+// The six orders are shuffled once by the campaign seed and dealt to blocks in turn, so the six planned blocks run every
+// order exactly once and each treatment holds each position twice.
 // A block before 1 has no order and gets nil.
 func ArmOrder(seed int64, block int) []string {
 	if block < 1 {
@@ -401,97 +492,6 @@ func WorkloadSeed(campaignSeed int64, block int, load string) (int64, error) {
 	s = splitmix64(s ^ uint64(idx+1)<<32)
 	// The sign bit is cleared because gen-trace and the manifest carry the seed as a signed integer.
 	return int64(s & math.MaxInt64), nil
-}
-
-// CheckVersionCampaign checks that a version-study campaign's valid cells pair into blocks, and returns the complete blocks.
-//
-// Each manifest has already passed LoadManifest, which checks one cell against the registration.
-// What one cell cannot show is how cells relate: that the treatments of a block replayed the same workload, that no two
-// blocks replayed the same one, and that every cell was priced against one λ0 (audit findings 2, 3, 17 and 21).
-// Pairing reads the identity the manifest recorded before execution, never a file name.
-//
-// The caller passes only cells its validity rules kept; a block with any cell left out is incomplete and is not analysed.
-// Fewer complete blocks than the registration plans is an error, because the analysis is then not confirmatory and may
-// not publish adopt, equivalent or reject (audit finding 14); the complete blocks are still returned for a descriptive report.
-func CheckVersionCampaign(cells []RunManifest) ([]int, error) {
-	if len(cells) == 0 {
-		return nil, fmt.Errorf("no cells to pair")
-	}
-	st, ok := LookupStudy(cells[0].Study)
-	if !ok || st.Version == nil {
-		return nil, fmt.Errorf("study %q is not a version study", cells[0].Study)
-	}
-	type cellKey struct {
-		block int
-		arm   string
-	}
-	type blockLoad struct {
-		block int
-		load  string
-	}
-	var ref *RunManifest
-	seen := map[cellKey]bool{}
-	traceOf := map[blockLoad]string{}
-	ownerOf := map[string]blockLoad{}
-	perBlock := map[int]int{}
-	for i := range cells {
-		m := &cells[i]
-		if m.Study != st.ID {
-			return nil, fmt.Errorf("cell %d (%s) belongs to study %s and the campaign to %s", i, m.Arm, m.Study, st.ID)
-		}
-		_, load, ok := ParseVersionStudyArm(m.Arm)
-		if !ok {
-			return nil, fmt.Errorf("cell %d: arm %q is not one of the version study's arms", i, m.Arm)
-		}
-		if m.Cell == nil {
-			return nil, fmt.Errorf("cell %d (%s) carries no cell identity, so it cannot be placed in a block", i, m.Arm)
-		}
-		if ref == nil {
-			ref = m
-		}
-		switch {
-		case m.Cell.CampaignID != ref.Cell.CampaignID:
-			return nil, fmt.Errorf("cell %d (%s) is from campaign %q and the first cell from %q", i, m.Arm, m.Cell.CampaignID, ref.Cell.CampaignID)
-		case m.Cell.CapacityRequestsPerSec != ref.Cell.CapacityRequestsPerSec || m.Cell.CapacityArtifactSHA256 != ref.Cell.CapacityArtifactSHA256:
-			// One λ0 for every treatment is the registered design; two would make 0.9 λ0 different offered work per arm.
-			return nil, fmt.Errorf("cell %d (%s) derives its load from capacity %v (%s) and the first cell from %v (%s)", i, m.Arm,
-				m.Cell.CapacityRequestsPerSec, m.Cell.CapacityArtifactSHA256, ref.Cell.CapacityRequestsPerSec, ref.Cell.CapacityArtifactSHA256)
-		case m.Model != ref.Model:
-			return nil, fmt.Errorf("cell %d (%s) served model %q and the first cell %q", i, m.Arm, m.Model, ref.Model)
-		case m.TokenizerRev != ref.TokenizerRev:
-			return nil, fmt.Errorf("cell %d (%s) names tokenizer %q and the first cell %q", i, m.Arm, m.TokenizerRev, ref.TokenizerRev)
-		}
-		k := cellKey{m.Cell.Block, m.Arm}
-		if seen[k] {
-			return nil, fmt.Errorf("block %d arm %s is recorded twice; a rerun replaces a block, it does not add to one", k.block, k.arm)
-		}
-		seen[k] = true
-		perBlock[k.block]++
-
-		bl := blockLoad{m.Cell.Block, load}
-		if prev, ok := traceOf[bl]; ok && prev != m.TraceChecksum {
-			return nil, fmt.Errorf("block %d at %s: %s replays trace %s and another treatment replays %s; a block's treatments share one workload",
-				bl.block, load, m.Arm, m.TraceChecksum, prev)
-		}
-		traceOf[bl] = m.TraceChecksum
-		if other, ok := ownerOf[m.TraceChecksum]; ok && other != bl {
-			return nil, fmt.Errorf("blocks %d (%s) and %d (%s) replay the same trace %s; each block draws its own workload",
-				other.block, other.load, bl.block, bl.load, m.TraceChecksum)
-		}
-		ownerOf[m.TraceChecksum] = bl
-	}
-	var complete []int
-	for block, n := range perBlock {
-		if n == len(st.Arms) {
-			complete = append(complete, block)
-		}
-	}
-	slices.Sort(complete)
-	if len(complete) < st.Version.PlannedBlocks {
-		return complete, fmt.Errorf("not confirmatory: %d complete block(s) %v of the registered %d; no adopt, equivalent or reject verdict may be published",
-			len(complete), complete, st.Version.PlannedBlocks)
-	}
-	return complete, nil
 }
 
 // EngineSettings is the engine a cell ran, typed so that a setting the manifest does not name is refused rather than ignored.
