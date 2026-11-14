@@ -26,8 +26,12 @@ package bench
 
 import (
 	"fmt"
+	"maps"
+	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -64,6 +68,8 @@ const (
 type RunManifest struct {
 	// SchemaVersion pins the manifest shape, so a future incompatible change to this struct can
 	// be detected instead of silently misparsed.
+	//
+	// Only ManifestSchemaV2 and ManifestSchemaV3 load, and a study's registration says which one its runs must use.
 	SchemaVersion string `json:"schemaVersion"`
 	// Study names the pre-registered experiment this run belongs to.
 	//
@@ -136,6 +142,7 @@ type RunManifest struct {
 	// archives on disk carry no scope, and refusing them would make every past manifest unloadable to
 	// prove a point about future ones. "Not recorded" and "no scope" must not read the same, which is why
 	// the absence is documented here rather than defaulted to the current value.
+	// A non-empty value other than TimeoutScopeWholeRequest is refused, and a v3 manifest must state it.
 	TimeoutScope string `json:"timeoutScope,omitempty"`
 	// Seed is the trace generator's seed, recorded here so a manifest alone documents which seed
 	// produced its trace even though gen-trace, not LoadManifest, is what actually consumes it.
@@ -175,8 +182,8 @@ type RunManifest struct {
 	// trace is not the one the study froze.
 	//
 	// omitempty, and not in validateFields' required list: the ninth pilot's six manifests predate the
-	// field and must keep loading. Making it required needs a schemaVersion branch, and there is no such
-	// branch anywhere yet -- both writers stamp the literal "v2" and nothing reads it.
+	// field and must keep loading. validateFields now branches on schemaVersion, so requiring it is a v3 rule
+	// to add when a v3 writer exists, never a change to v2.
 	PromptLenChars map[string]int `json:"promptLenChars,omitempty"`
 
 	// MaxOutputTokens is the per-tenant max_tokens cap this cell sent, keyed by tenant.
@@ -189,6 +196,32 @@ type RunManifest struct {
 	// omitempty and not required, for the reason PromptLenChars gives: six manifests from the ninth pilot
 	// predate the field and must keep loading.
 	MaxOutputTokens map[string]int `json:"maxOutputTokens,omitempty"`
+
+	// Engine, Sampling and Cell exist from schema v3 on, and a v2 manifest that carries any of them is refused.
+	//
+	// Engine is the engine the cell ran, compared field by field with the study's registration for the arm's treatment.
+	Engine *EngineSettings `json:"engine,omitempty"`
+	// Sampling is the generation policy the cell's requests were sent with, which must equal the study's.
+	Sampling *SamplingPolicy `json:"sampling,omitempty"`
+	// Cell is where this run sits in its campaign, recorded before execution so pairing does not rest on file names (audit finding 3).
+	Cell *CellIdentity `json:"cell,omitempty"`
+}
+
+// CellIdentity is one cell's place in a paired-block campaign, and the capacity its offered load was derived from.
+type CellIdentity struct {
+	// CampaignID names one session's campaign; cells of two campaigns are never paired.
+	CampaignID string `json:"campaignId"`
+	// Block counts from 1; the treatments of one block share their workload and are compared with each other.
+	Block int `json:"block"`
+	// Position is the treatment's place in the block's seeded order, from 1.
+	Position int `json:"position"`
+	// OrderSeed is the campaign seed the order and the workload seed were derived from.
+	OrderSeed int64 `json:"orderSeed"`
+	// CapacityRequestsPerSec is λ0 as the calibration artifact froze it, and CapacityArtifactSHA256 that artifact's sha256.
+	CapacityRequestsPerSec float64 `json:"capacityRequestsPerSec"`
+	CapacityArtifactSHA256 string  `json:"capacityArtifactSHA256"`
+	// OfferedRequestsPerSec is the arrival rate the trace was generated at, which must be the load's fraction of λ0.
+	OfferedRequestsPerSec float64 `json:"offeredRequestsPerSec"`
 }
 
 // LoadManifest reads, validates, and returns the manifest at path.
@@ -206,10 +239,8 @@ func LoadManifest(path string) (*RunManifest, error) {
 		return nil, fmt.Errorf("read manifest %s: %w", path, err)
 	}
 
-	var m RunManifest
-	// sigs.k8s.io/yaml round-trips through JSON, so a manifest may be written as either YAML or
-	// plain JSON (JSON is valid YAML) without this package needing to tell them apart.
-	if err := yaml.Unmarshal(data, &m); err != nil {
+	m, err := decodeManifest(data)
+	if err != nil {
 		return nil, fmt.Errorf("parse manifest %s: %w", path, err)
 	}
 
@@ -231,7 +262,78 @@ func LoadManifest(path string) (*RunManifest, error) {
 	}
 	m.TracePath = tracePath
 
+	return m, nil
+}
+
+// decodeManifest parses a manifest's bytes, refusing a field the struct does not have.
+//
+// The lenient decoder ignored unknown fields, so `asyncScheduling: true` in a manifest parsed, did nothing, and left a
+// record claiming a setting no code read (audit finding 13).
+// Every run manifest on disk was checked before this became strict: 58 committed under hack/ and 408 in the storage
+// archives, all schema v2 and none carrying a field outside the struct, and TestCommittedManifestsLoadStrictly keeps
+// the committed ones loading.
+func decodeManifest(data []byte) (*RunManifest, error) {
+	var m RunManifest
+	// sigs.k8s.io/yaml round-trips through JSON, so a manifest may be written as either YAML or
+	// plain JSON (JSON is valid YAML) without this package needing to tell them apart.
+	if err := yaml.UnmarshalStrict(data, &m); err != nil {
+		return nil, err
+	}
+	// The JSON step matches keys in any letter case, so the strict decoder accepted `timeoutMS: 60000` beside
+	// `timeoutMs: 30000` without error and kept whichever sorted last (30000, measured 2026-11-15).
+	// A lone misspelt key would set the field outright, so the keys are compared exactly as well.
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	if err := checkKeys("manifest", raw, reflect.TypeFor[RunManifest](), false); err != nil {
+		return nil, err
+	}
+	if m.SchemaVersion != ManifestSchemaV3 {
+		return &m, nil
+	}
+	// Decoding cannot tell an omitted number from a zero, and temperature 0 is a registered value.
+	// A record that never said what it sent must not read as one that sent the registered value.
+	for _, obj := range []struct {
+		name string
+		typ  reflect.Type
+	}{
+		{"engine", reflect.TypeFor[EngineSettings]()},
+		{"sampling", reflect.TypeFor[SamplingPolicy]()},
+		{"cell", reflect.TypeFor[CellIdentity]()},
+	} {
+		// An absent object is validateFields' refusal, which names the object rather than its first key.
+		if present, ok := raw[obj.name].(map[string]any); ok {
+			if err := checkKeys(obj.name, present, obj.typ, true); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return &m, nil
+}
+
+// checkKeys refuses a key that is not exactly one of typ's JSON names and, when requireAll is set, a name that is absent.
+func checkKeys(obj string, present map[string]any, typ reflect.Type, requireAll bool) error {
+	names := map[string]bool{}
+	for i := range typ.NumField() {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		names[name] = true
+	}
+	// Sorted, so the same manifest is refused with the same message every time.
+	for _, k := range slices.Sorted(maps.Keys(present)) {
+		if !names[k] {
+			return fmt.Errorf("%s: unknown field %q; keys are matched exactly, including letter case", obj, k)
+		}
+	}
+	if !requireAll {
+		return nil
+	}
+	for _, n := range slices.Sorted(maps.Keys(names)) {
+		if _, ok := present[n]; !ok {
+			return fmt.Errorf("%s.%s is missing; a v3 manifest states every setting rather than leaving one to its zero value", obj, n)
+		}
+	}
+	return nil
 }
 
 // validateFields checks that every field LoadManifest's checksum step depends on, and every
@@ -252,12 +354,34 @@ func (m *RunManifest) validateFields() error {
 		{"model", m.Model},
 		{"promptCorpusSHA", m.PromptCorpusSHA},
 		{"primaryEndpoint", m.PrimaryEndpoint},
-		{"matchTolerance", m.MatchTolerance},
+	}
+	// matchTolerance is the gateway's admission-work tolerance, which a v3 study without a gateway does not have.
+	if m.SchemaVersion != ManifestSchemaV3 {
+		required = append(required, struct {
+			name  string
+			value string
+		}{"matchTolerance", m.MatchTolerance})
 	}
 	for _, f := range required {
 		if f.value == "" {
 			return fmt.Errorf("missing required field %q", f.name)
 		}
+	}
+
+	switch m.SchemaVersion {
+	case ManifestSchemaV2:
+		if m.Engine != nil || m.Sampling != nil || m.Cell != nil {
+			return fmt.Errorf("schemaVersion %s carries engine, sampling or cell, which exist only from %s; a v2 reader would ignore them",
+				ManifestSchemaV2, ManifestSchemaV3)
+		}
+	case ManifestSchemaV3:
+	default:
+		return fmt.Errorf("schemaVersion %q is not one this binary reads (%s, %s)", m.SchemaVersion, ManifestSchemaV2, ManifestSchemaV3)
+	}
+
+	// Empty is a run from before the field existed; any other value has to be what the sender actually bounds.
+	if m.TimeoutScope != "" && m.TimeoutScope != TimeoutScopeWholeRequest {
+		return fmt.Errorf("timeoutScope %q is not what the sender implements (%s)", m.TimeoutScope, TimeoutScopeWholeRequest)
 	}
 
 	if m.PromptCorpusSHA != PromptCorpusSHA256 {
@@ -272,15 +396,129 @@ func (m *RunManifest) validateFields() error {
 	if !study.Admits(m.Arm) {
 		return fmt.Errorf("arm %q is not one of study %s's arms (%s)", m.Arm, study.ID, strings.Join(study.Arms, ", "))
 	}
+	if want := study.manifestSchema(); m.SchemaVersion != want {
+		return fmt.Errorf("study %s records its runs in manifest schema %s, and this manifest is %s", study.ID, want, m.SchemaVersion)
+	}
 
 	if m.TimeoutMs <= 0 {
 		return fmt.Errorf("timeoutMs must be positive, got %d", m.TimeoutMs)
 	}
 
-	if _, err := strconv.ParseFloat(m.MatchTolerance, 64); err != nil {
-		return fmt.Errorf("matchTolerance %q is not a number: %w", m.MatchTolerance, err)
+	if m.SchemaVersion == ManifestSchemaV3 {
+		return m.validateV3(study)
 	}
 
+	// Every v2 manifest ever written names this endpoint; another value would be a judging contract no report implements.
+	if m.PrimaryEndpoint != "ttft_p99" {
+		return fmt.Errorf("primaryEndpoint %q is not the v2 judging contract %q", m.PrimaryEndpoint, "ttft_p99")
+	}
+	tol, err := strconv.ParseFloat(m.MatchTolerance, 64)
+	if err != nil {
+		return fmt.Errorf("matchTolerance %q is not a number: %w", m.MatchTolerance, err)
+	}
+	// ParseFloat accepts "NaN" and "Inf", and a NaN tolerance compares false with everything, so it would pass every match.
+	if math.IsNaN(tol) || tol < 0 || tol > 1 {
+		return fmt.Errorf("matchTolerance %q is not a fraction in [0, 1]", m.MatchTolerance)
+	}
+
+	return nil
+}
+
+// manifestSchema resolves the study's schema, mapping the unset value to the v2 every earlier study wrote.
+func (s Study) manifestSchema() string {
+	if s.ManifestSchema == "" {
+		return ManifestSchemaV2
+	}
+	return s.ManifestSchema
+}
+
+// validateV3 compares a v3 manifest with its study's registration: one complete preflight comparison rather than a field here and there.
+func (m *RunManifest) validateV3(study Study) error {
+	d := study.Version
+	if d == nil || study.Sampling == nil {
+		return fmt.Errorf("study %s names schema %s but registers no version design and sampling to compare with", study.ID, ManifestSchemaV3)
+	}
+	if err := d.PreflightRefusal(); err != nil {
+		return err
+	}
+
+	// No gateway is in this study's path, so a gateway knob in the record would claim a setting nothing applied.
+	if len(m.Thresholds) > 0 || m.LongThreshold != 0 || m.MatchTolerance != "" {
+		return fmt.Errorf("thresholds, longThreshold and matchTolerance are gateway settings and study %s sends to the engine directly", study.ID)
+	}
+	if m.PrimaryEndpoint != EndpointVersionDecisionSet {
+		return fmt.Errorf("primaryEndpoint %q is not study %s's registered decision set %q", m.PrimaryEndpoint, study.ID, EndpointVersionDecisionSet)
+	}
+	if m.TimeoutMs != d.TimeoutMs {
+		return fmt.Errorf("timeoutMs %d is not the registered %d", m.TimeoutMs, d.TimeoutMs)
+	}
+	if m.TimeoutScope != TimeoutScopeWholeRequest {
+		return fmt.Errorf("timeoutScope %q must be stated as %s in a v3 manifest", m.TimeoutScope, TimeoutScopeWholeRequest)
+	}
+
+	if m.Sampling == nil {
+		return fmt.Errorf("manifest carries no sampling policy; study %s freezes one", study.ID)
+	}
+	if err := m.Sampling.Validate(); err != nil {
+		return fmt.Errorf("sampling: %w", err)
+	}
+	if *m.Sampling != *study.Sampling {
+		return fmt.Errorf("sampling %+v is not the registered %+v", *m.Sampling, *study.Sampling)
+	}
+
+	treatment, load, ok := ParseVersionStudyArm(m.Arm)
+	if !ok {
+		return fmt.Errorf("arm %q does not name a treatment and a load", m.Arm)
+	}
+	if m.Engine == nil {
+		return fmt.Errorf("manifest carries no engine settings; study %s registers the engine of every treatment", study.ID)
+	}
+	if !digestPinned(m.Engine.Image) {
+		return fmt.Errorf("engine image %q is not pinned by digest", m.Engine.Image)
+	}
+	if diff := d.Engines[treatment].Diff(*m.Engine); diff != "" {
+		return fmt.Errorf("engine of treatment %s: %s", treatment, diff)
+	}
+
+	return m.validateCell(d, treatment, load)
+}
+
+// validateCell checks the cell's place in its campaign against the seeded plan the registration fixed.
+func (m *RunManifest) validateCell(d *VersionStudyDesign, treatment, load string) error {
+	c := m.Cell
+	if c == nil {
+		return fmt.Errorf("manifest carries no cell identity; pairing must not rest on file names")
+	}
+	if strings.TrimSpace(c.CampaignID) == "" {
+		return fmt.Errorf("cell.campaignId is empty")
+	}
+	if last := d.PlannedBlocks + d.MaxReplacementBlocks; c.Block < 1 || c.Block > last {
+		return fmt.Errorf("cell.block %d is outside the registered 1..%d (planned blocks and their replacements)", c.Block, last)
+	}
+	if c.OrderSeed != d.CampaignSeed {
+		return fmt.Errorf("cell.orderSeed %d is not the registered campaign seed %d", c.OrderSeed, d.CampaignSeed)
+	}
+	if want := slices.Index(ArmOrder(c.OrderSeed, c.Block), treatment) + 1; c.Position != want {
+		return fmt.Errorf("cell.position %d: block %d runs treatment %s at position %d", c.Position, c.Block, treatment, want)
+	}
+	wantSeed, err := WorkloadSeed(c.OrderSeed, c.Block, load)
+	if err != nil {
+		return err
+	}
+	if m.Seed != wantSeed {
+		return fmt.Errorf("seed %d is not block %d's workload seed %d at %s", m.Seed, c.Block, wantSeed, load)
+	}
+	if !lowerHex(c.CapacityArtifactSHA256, 64) {
+		return fmt.Errorf("cell.capacityArtifactSHA256 %q is not a sha256; λ0 must come from a frozen calibration artifact", c.CapacityArtifactSHA256)
+	}
+	rate, err := OfferedRate(load, c.CapacityRequestsPerSec)
+	if err != nil {
+		return fmt.Errorf("cell capacity: %w", err)
+	}
+	// A relative tolerance, because the rate is a product of two floats and an exact comparison would refuse its own arithmetic.
+	if math.IsNaN(c.OfferedRequestsPerSec) || math.Abs(c.OfferedRequestsPerSec-rate) > 1e-9*rate {
+		return fmt.Errorf("cell.offeredRequestsPerSec %v is not %s of λ0 %v (%v)", c.OfferedRequestsPerSec, load, c.CapacityRequestsPerSec, rate)
+	}
 	return nil
 }
 
