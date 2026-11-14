@@ -91,6 +91,29 @@ spec:
                   vllm:
                     description: vllm renders the pinned vLLM profile.
                     properties:
+                      experimental:
+                        description: experimental names what the experimental-a10g
+                          profile varies, and is set exactly when profile is experimental-a10g.
+                        properties:
+                          asyncScheduling:
+                            description: asyncScheduling is Enabled or Disabled, and
+                              has no default so a study row cannot inherit a release's
+                              own default unnoticed.
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                          release:
+                            description: |-
+                              release is a vLLM release whose flags the controller has been reviewed against, and the CRD pins spec.image to that release's digest.
+                              A newer release may rename or drop flags, so it is added by reviewing its argument set in the controller, not by naming it here.
+                            enum:
+                            - v0.27.1
+                            type: string
+                        required:
+                        - asyncScheduling
+                        - release
+                        type: object
                       modelRevision:
                         description: modelRevision pins the model and tokenizer to
                           a Hub commit, as the admission sessions' engine validator
@@ -101,14 +124,19 @@ spec:
                         description: |-
                           profile is the engine configuration measured on one A10G with Qwen2.5-3B-Instruct.
                           v0.27.1-a10g-prefix-cache is the same configuration with prefix caching on, for the prefix-aware routing study.
+                          experimental-a10g is the same settings on the release and async-scheduling choice named in experimental, and is unmeasured.
                         enum:
                         - v0.27.1-a10g
                         - v0.27.1-a10g-prefix-cache
+                        - experimental-a10g
                         type: string
                     required:
                     - modelRevision
                     - profile
                     type: object
+                    x-kubernetes-validations:
+                    - message: experimental is set exactly when profile is experimental-a10g
+                      rule: has(self.experimental) == (self.profile == 'experimental-a10g')
                 required:
                 - vllm
                 type: object
@@ -212,7 +240,12 @@ spec:
               rule: '!has(self.engine) || self.model.storageUri.matches(''^hf://[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'')'
             - message: spec.engine requires spec.image pinned to the vLLM v0.27.1
                 digest the profile was measured on, from any registry
-              rule: '!has(self.engine) || self.image.endsWith(''@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967'')'
+              rule: '!has(self.engine) || self.engine.vllm.profile == ''experimental-a10g''
+                || self.image.endsWith(''@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967'')'
+            - message: engine.vllm.experimental requires spec.image pinned to the
+                digest reviewed for its release, from any registry
+              rule: '!has(self.engine) || !has(self.engine.vllm.experimental) || (self.engine.vllm.experimental.release
+                == ''v0.27.1'' && self.image.endsWith(''@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967''))'
             - message: 'admission.mode HoldCap requires engine profile v0.27.1-a10g:
                 HoldCap was measured with prefix caching off'
               rule: '!has(self.admission) || self.admission.mode != ''HoldCap'' ||

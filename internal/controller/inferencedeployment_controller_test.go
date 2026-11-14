@@ -655,6 +655,21 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			))
 		})
 
+		// The engine-version study's async arm is reconciled into a running template, not only admitted by the apiserver.
+		It("renders the experimental profile with the async-scheduling choice it names", func() {
+			o := newEngineInfD(platformv1.AdmissionModeOff)
+			o.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileExperimentalA10G
+			o.Spec.Engine.VLLM.Experimental = &platformv1.VLLMExperimental{
+				Release: platformv1.VLLMReleaseV0271, AsyncScheduling: platformv1.AsyncSchedulingEnabled}
+			Expect(k8sClient.Create(ctx, o)).To(Succeed())
+			reconcileOK(reconciler())
+			c := getDep().Spec.Template.Spec.Containers[0]
+			Expect(c.Image).To(Equal(platformv1.VLLMV0271Image))
+			Expect(c.Args).To(ContainElement("--async-scheduling"))
+			Expect(c.Args).NotTo(ContainElement("--no-async-scheduling"))
+			Expect(capArgs(c)).To(Equal(0))
+		})
+
 		It("drops the cap and the annotation follows when HoldCap is turned off", func() {
 			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
 			r := reconciler()
