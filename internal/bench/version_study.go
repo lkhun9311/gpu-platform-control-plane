@@ -135,6 +135,12 @@ type LengthWeight struct {
 
 // VersionStudyDesign is the part of the version study's registration a program can enforce.
 type VersionStudyDesign struct {
+	// Model, ModelRevision and TokenizerRevision pin what every arm serves; the controller passes one revision as both.
+	Model             string
+	ModelRevision     string
+	TokenizerRevision string
+	// ChatTemplateSHA256 is the template hack/input-length-resolution.json measured the frozen token counts under.
+	ChatTemplateSHA256 string
 	// Engines is the engine each treatment must run, compared field by field with every manifest.
 	Engines map[string]EngineSettings
 	// Comparisons are the contrasts the decision rule is applied to.
@@ -173,6 +179,10 @@ type VersionStudyDesign struct {
 // versionAsyncDesign returns a fresh copy of the registered design, so a caller cannot edit the registry through it.
 func versionAsyncDesign() VersionStudyDesign {
 	return VersionStudyDesign{
+		Model:              "Qwen/Qwen2.5-3B-Instruct",
+		ModelRevision:      "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+		TokenizerRevision:  "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+		ChatTemplateSHA256: "cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f",
 		Engines: map[string]EngineSettings{
 			TreatmentA: versionStudyEngine("v0.27.1", "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967", false),
 			// The newer version is the owner's choice and is not invented here; an empty value refuses every B and C manifest.
@@ -448,6 +458,8 @@ func CheckVersionCampaign(cells []RunManifest) ([]int, error) {
 				m.Cell.CapacityRequestsPerSec, m.Cell.CapacityArtifactSHA256, ref.Cell.CapacityRequestsPerSec, ref.Cell.CapacityArtifactSHA256)
 		case m.Model != ref.Model:
 			return nil, fmt.Errorf("cell %d (%s) served model %q and the first cell %q", i, m.Arm, m.Model, ref.Model)
+		case m.TokenizerRev != ref.TokenizerRev:
+			return nil, fmt.Errorf("cell %d (%s) names tokenizer %q and the first cell %q", i, m.Arm, m.TokenizerRev, ref.TokenizerRev)
 		}
 		k := cellKey{m.Cell.Block, m.Arm}
 		if seen[k] {

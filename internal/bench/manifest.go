@@ -324,6 +324,11 @@ func checkKeys(obj string, present map[string]any, typ reflect.Type, requireAll 
 		if !names[k] {
 			return fmt.Errorf("%s: unknown field %q; keys are matched exactly, including letter case", obj, k)
 		}
+		// YAML reads `key:` and `key: null` as null, and the JSON step leaves the field at its zero value.
+		// A present key with no value would then pass as an explicit zero, which for temperature is the registered value.
+		if present[k] == nil {
+			return fmt.Errorf("%s.%s is null; a manifest states a value or omits the key", obj, k)
+		}
 	}
 	if !requireAll {
 		return nil
@@ -440,6 +445,15 @@ func (m *RunManifest) validateV3(study Study) error {
 	}
 	if err := d.PreflightRefusal(); err != nil {
 		return err
+	}
+
+	// The model and its tokenizer are part of the registration, not of the run: a cell serving another revision is another study.
+	// The frozen prompt-token counts were measured under this tokenizer, so a cell that cannot name it cannot be checked against them.
+	if m.Model != d.Model {
+		return fmt.Errorf("model %q is not the registered %q", m.Model, d.Model)
+	}
+	if m.TokenizerRev != d.TokenizerRevision {
+		return fmt.Errorf("tokenizerRev %q is not the registered %q", m.TokenizerRev, d.TokenizerRevision)
 	}
 
 	// No gateway is in this study's path, so a gateway knob in the record would claim a setting nothing applied.

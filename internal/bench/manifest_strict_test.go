@@ -168,7 +168,8 @@ func versionManifest(t *testing.T) RunManifest {
 		Study:           studyVersionFixture,
 		Arm:             VersionStudyArm(TreatmentC, LoadL090),
 		GatewayURL:      "http://engine.example:8000",
-		Model:           "qwen2.5-3b-instruct",
+		Model:           d.Model,
+		TokenizerRev:    d.TokenizerRevision,
 		PromptCorpusSHA: PromptCorpusSHA256,
 		TimeoutMs:       d.TimeoutMs,
 		TimeoutScope:    TimeoutScopeWholeRequest,
@@ -225,6 +226,9 @@ func TestVersionManifestRefusals(t *testing.T) {
 		"the admission endpoint":      {func(m *RunManifest) { m.PrimaryEndpoint = "ttft_p99" }, "primaryEndpoint"},
 		"gateway thresholds":          {func(m *RunManifest) { m.Thresholds = map[string]string{"W": "4"} }, "thresholds"},
 		"an admission tolerance":      {func(m *RunManifest) { m.MatchTolerance = "0.05" }, "matchTolerance"},
+		"no tokenizer revision":       {func(m *RunManifest) { m.TokenizerRev = "" }, "tokenizerRev"},
+		"another tokenizer revision":  {func(m *RunManifest) { m.TokenizerRev = strings.Repeat("e", 40) }, "tokenizerRev"},
+		"another model":               {func(m *RunManifest) { m.Model = "Qwen/Qwen2.5-7B-Instruct" }, "model"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := versionManifest(t)
@@ -257,6 +261,36 @@ func TestVersionManifestRefusesAnOmittedSetting(t *testing.T) {
 	_, err := LoadManifest(path)
 	if err == nil || !strings.Contains(err.Error(), "temperature") {
 		t.Fatalf("err = %v, want a refusal naming the missing temperature", err)
+	}
+}
+
+// TestManifestRefusesExplicitNull checks a key written with no value is refused rather than read as its zero.
+//
+// YAML reads `temperature:` and `temperature: null` as null, and the JSON step then leaves the field at zero, which for
+// temperature is the registered value; a presence check alone let that through (diff review, 2026-11-15).
+func TestManifestRefusesExplicitNull(t *testing.T) {
+	registerFrozenVersionStudy(t)
+	for name, c := range map[string]struct{ from, to string }{
+		"empty sampling value": {"  temperature: 0\n", "  temperature:\n"},
+		"null sampling value":  {"  temperature: 0\n", "  temperature: null\n"},
+		"null engine value":    {"  maxNumSeqs: 64\n", "  maxNumSeqs: null\n"},
+		"null top-level value": {"timeoutMs: 60000\n", "timeoutMs: null\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeManifestFile(t, versionManifest(t), "")
+			data, _ := os.ReadFile(path)
+			cut := strings.Replace(string(data), c.from, c.to, 1)
+			if cut == string(data) {
+				t.Fatalf("fixture has no %q line:\n%s", c.from, data)
+			}
+			if err := os.WriteFile(path, []byte(cut), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadManifest(path)
+			if err == nil || !strings.Contains(err.Error(), "null") {
+				t.Fatalf("err = %v, want a refusal naming the null value", err)
+			}
+		})
 	}
 }
 

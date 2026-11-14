@@ -25,7 +25,8 @@ func campaignCells(t *testing.T, n int) []RunManifest {
 					SchemaVersion: ManifestSchemaV3,
 					Study:         studyVersionFixture,
 					Arm:           VersionStudyArm(tr, load),
-					Model:         "qwen2.5-3b-instruct",
+					Model:         d.Model,
+					TokenizerRev:  d.TokenizerRevision,
 					Seed:          seed,
 					TraceChecksum: fmt.Sprintf("%064x", block*10+len(load)+int(rate*10)),
 					Engine:        new(d.Engines[tr]),
@@ -104,6 +105,9 @@ func TestCampaignRefusals(t *testing.T) {
 		},
 		"a cell without identity": {
 			func(cells []RunManifest) []RunManifest { cells[2].Cell = nil; return cells }, "cell",
+		},
+		"a cell scored under another tokenizer": {
+			func(cells []RunManifest) []RunManifest { cells[4].TokenizerRev = strings.Repeat("e", 40); return cells }, "tokenizer",
 		},
 		"a cell served by another model": {
 			func(cells []RunManifest) []RunManifest { cells[2].Model = "qwen2.5-7b-instruct"; return cells }, "model",
