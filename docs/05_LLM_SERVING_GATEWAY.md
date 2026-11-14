@@ -131,6 +131,28 @@ Known gaps *(corrected 2026-11-07: this line said none of them holds requests fo
 - A plain deployment ahead of a HoldCap one for the same model no longer falls back into it, so if the plain one is down, its requests fail.
 - serial-prefill state lives in one gateway process. A gateway rollout under the default RollingUpdate briefly runs two, and each admits on its own.
 
+### Experimental engine profile
+
+`engine.vllm.profile: experimental-a10g` exists for an engine-version study: the same A10G settings as `v0.27.1-a10g`, on a vLLM release and an async-scheduling choice the spec states in `engine.vllm.experimental`.
+
+```yaml
+engine:
+  vllm:
+    profile: experimental-a10g
+    modelRevision: aa8e72537993ba99e69dfaafa59ed015b17504d1
+    experimental:
+      release: v0.27.1          # enum of reviewed releases
+      asyncScheduling: Enabled  # Enabled or Disabled, no default
+```
+
+- `release` is an enum of releases whose flags were reviewed in `experimentalReleases` (`internal/controller/inference_engine.go`), and a CEL rule pins `spec.image` to that release's digest from any registry. A newer vLLM may rename or drop a flag, so it is added by writing its argument list into a new row after checking it against that release's `vllm serve --help`, adding it to the enum, and adding its `release == '…' && self.image.endsWith('@sha256:…')` clause to the CEL rule. `TestEveryReleaseInTheCRDHasAReviewedRow` and `TestEveryReleaseDigestIsTheOneTheCRDPins` fail when the three disagree.
+- Today the only reviewed release is `v0.27.1`. With `asyncScheduling: Disabled` it renders exactly the `v0.27.1-a10g` arguments (`TestExperimentalV0271WithAsyncOffRendersTheValidatedEngine`), and `Enabled` changes only `--no-async-scheduling` to `--async-scheduling`.
+- The CRD refuses `experimental` on any other profile, the profile without it, an unreviewed release or async value, a digest other than the release's, and HoldCap. The controller refuses the same combinations itself rather than render guessed flags.
+- Routing rules are unchanged: `PrefixAffinity` still requires `replicas` at most 1, and the profile neither adds nor relaxes a routing rule.
+- Nothing about this profile's latency has been measured. It still schedules by priority, so the gateway binds tiers on it as on the validated profiles.
+
+Every rendered engine's Pod template carries `platform.lkhun9311.github.io/rendered-engine`, a JSON object with the `image` and the full `args` the container was rendered with, so a benchmark row read off a Pod can be traced to the exact flags it ran.
+
 ### Routing across the deployments serving one model
 
 Without a policy the gateway sends every request for a model to its oldest `InferenceDeployment` and keeps the others as fallback.
