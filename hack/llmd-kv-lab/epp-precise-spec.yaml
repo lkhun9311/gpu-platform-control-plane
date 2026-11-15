@@ -1,0 +1,37 @@
+# The precise arm with speculative indexing: the producer seeds the chosen endpoint right after each routing decision,
+# so a repeat that arrives before the engine's KV event still finds the prefix; entries expire after speculativeTTL
+# (2s by default at the pinned commit).
+# It is epp-precise.yaml plus speculativeIndexing: true, which upstream's perf config
+# (test/perf/config/router-configs/precise-prefix.yaml) sets and its dev config does not.
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+plugins:
+- type: token-producer
+  parameters:
+    modelName: ${MODEL_NAME}
+    vllm:
+      url: ${VLLM_RENDER_URL}
+- type: precise-prefix-cache-producer
+  parameters:
+    tokenProcessorConfig:
+      blockSizeTokens: 16
+    speculativeIndexing: true
+    kvEventsConfig:
+      zmqEndpoint: tcp://0.0.0.0:5557
+    indexerConfig:
+      kvBlockIndexConfig:
+        enableMetrics: true
+        metricsLoggingInterval: 60000000000
+- type: prefix-cache-scorer
+  parameters:
+    prefixMatchInfoProducerName: precise-prefix-cache-producer
+- type: decode-filter
+- type: max-score-picker
+- type: single-profile-handler
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: max-score-picker
+  - pluginRef: prefix-cache-scorer
+    weight: 10

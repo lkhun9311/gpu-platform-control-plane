@@ -1,0 +1,22 @@
+# The approximate arm of the lab.
+# It is llm-d-router's test/e2e/artifacts/config/sim-epp-config.yaml at the pinned commit, unchanged, so the arm is what
+# upstream's own dev environment runs: no tokenizer service (the estimate backend) and a 64-token block floor.
+# The two arms therefore differ in tokenizer and block size as well as in their source of truth, and the lab doc says so.
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+plugins:
+- type: approx-prefix-cache-producer
+  parameters:
+    maxPrefixTokensToMatch: 16384
+    lruCapacityPerServer: 31250
+- type: prefix-cache-scorer
+- type: decode-filter
+- type: max-score-picker
+- type: single-profile-handler
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: max-score-picker
+  - pluginRef: prefix-cache-scorer
+    weight: 2
