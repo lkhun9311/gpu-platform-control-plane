@@ -228,12 +228,20 @@ These rules decide validity without looking at endpoint values. They apply with 
      - a spot interruption notice.
    - Nothing else counts as external. Any other crash or unavailability is an engine outcome.
    - The predicate is fixed before any run and reads only those AWS records, so it cannot be applied after seeing results. Before, a human decided from the instance's event log, which an append-only ledger that decides replacement could not accommodate.
+   - "Within its time range" means the record's interval overlaps the block's start-to-end interval, both closed. This was made precise on 2026-11-15, before any run, in `ExternalCause` (#612):
+     - a scheduled event spans its NotBefore to NotAfter, so one announced during the block but due after it does not count;
+     - a failed status check spans its ImpairedSince to the first poll that saw it pass, and has no end while it still fails;
+     - a spot notice is the instant it names.
+   - Records that do not cover the whole block without a gap decide nothing. That gap is a recorder failure (rule 5), not "nothing was reported".
 
 Engine-caused failures, crashes and missed readiness deadlines are **outcomes**, not invalidity. Replacement is reserved for instrumentation, protocol and external failures.
 
 ## Attempt ledger and reruns
 
 - Every block attempt is written to the ledger when it ends (`BlockAttempt`: block, status valid / invalid / stopped, reason, start and end, the block it replaces), and never edited. The ledger is archived (`Closed`) before anything is computed from it.
+  - Amendment 2026-11-15 (#612): the attempt's start is also recorded durably before its first cell, in the append-only journal the ledger is read from.
+  - An attempt whose end never came, because the runner was interrupted, is closed by recovery as **stopped**: nothing establishes an instrumentation, protocol or external failure, so it is not replaced.
+  - Its manifests stay cells of an attempted block that is not analysed.
 - `AnalysisSet` refuses a ledger that is not archived; an attempt without a recorded start or end, or one that does not end after it starts; planned or replacement blocks out of order (a replacement must take the next block number, since the number fixes its workload seed and orders); a block attempted twice; an invalid or stopped attempt without a reason; overlapping attempts; anything after a stopped attempt; a replacement that names a valid block ("a valid block is never rerun"), no block, or an already replaced one; a replacement that starts before every planned block has ended; and more than 2 replacements. The analysed set is then exactly the valid blocks; since replacements exist only for invalid blocks, there is never a choice between valid blocks.
 - A replacement runs under the next block number with its own pre-generated trace, seeded order and load order.
 - `CheckVersionCampaign` pairs cells only through the bundle and the ledger. It refuses:

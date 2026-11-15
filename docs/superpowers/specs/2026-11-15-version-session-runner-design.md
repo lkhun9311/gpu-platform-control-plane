@@ -57,7 +57,18 @@ Every step writes its evidence before the next starts. Every step has the bound 
      - the drain ends when the engine's own gauges read zero, within 120 s;
      - if they do not, the engine is restarted before the next load, and the restart is recorded.
    - Classify the block from its cells by the invalidation rules. The rules never look at endpoint values.
-   - Append the attempt to the ledger with its reason and times, before the next block.
+   - Append the attempt's end to the ledger with its reason and time, before the next block.
+     - The ledger is an append-only journal (`AttemptJournal`).
+     - A block's start is synced to it before the block's first cell runs.
+     - A crash therefore leaves an open attempt rather than manifests of a block the ledger never saw.
+     - `RecoverAttemptJournal` closes that attempt as stopped, so the campaign ends there as an incomplete pilot. It also cuts a torn last line, which was never acknowledged (#612).
+     - A failed write or sync of the journal is itself a recorder failure (rule 5).
+       - It is recorded in a marker beside the journal, because the journal may now end in torn bytes.
+       - The journal takes no more records, and it cannot be reopened until recovery moves the fault into it.
+       - The fault stops the attempt it touched, even one whose valid end is whole on disk with its durability unknown.
+       - A failed archive reopens the ledger, and in both cases no block starts after the fault.
+       - Every fault stays in the ledger (`RecorderFaults`). `AnalysisSet` then reports an incomplete pilot, as the stop rules require, even when every block was valid.
+       - If the marker cannot be written either, the only record left is the runner's error and exit status (#614).
 6. **Close:** archive the ledger, run `CheckVersionCampaign`, write the campaign summary, stop. The verdict is computed offline from the archived evidence, not on the instance.
 
 Stop rules end the campaign as an incomplete pilot:
@@ -74,7 +85,7 @@ These are the registration's rules, applied per cell:
 - **Protocol:** `ClassifyRow` over every row.
 - **Identity:** `LoadManifest` refuses the manifest, or `CompareRuntime` refuses the running engine.
 - **Recorder:** any write or durability error.
-- **External cause:** the instance's own event log. The runner records the log; deciding the cause stays a human step, with the log as the only evidence.
+- **External cause:** `ExternalCause` over AWS's own records for the instance: scheduled events, failed system status checks and spot interruption notices, polled over the whole block. This is the owner's amendment below. It replaced the human step this line first described. Records with a gap are a recorder failure.
 
 One invalid cell invalidates its block.
 
