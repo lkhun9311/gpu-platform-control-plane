@@ -2,6 +2,7 @@ package bench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -153,8 +154,15 @@ func TestWaitDrainedReturnsOnlyOnAnIdleEngine(t *testing.T) {
 	}
 }
 
-// stubEngine serves one-token SSE responses after delay, and its own queue gauges at /metrics.
+// stubEngine serves conforming SSE responses after delay, and its own queue gauges at /metrics.
+//
+// A conforming response reports the registered prompt count for the prompt's size and exactly the requested output, ended by length.
+// shortOutput makes it report one output token whatever was asked, as an engine ignoring the requested length would.
 func stubEngine(t *testing.T, delay time.Duration, busyMetrics bool) (*httptest.Server, *atomic.Int64) {
+	return stubEngineWith(t, delay, busyMetrics, false)
+}
+
+func stubEngineWith(t *testing.T, delay time.Duration, busyMetrics, shortOutput bool) (*httptest.Server, *atomic.Int64) {
 	t.Helper()
 	var inflight, served atomic.Int64
 	mux := http.NewServeMux()
@@ -162,11 +170,26 @@ func stubEngine(t *testing.T, delay time.Duration, busyMetrics bool) (*httptest.
 		served.Add(1)
 		inflight.Add(1)
 		defer inflight.Add(-1)
-		_, _ = io.Copy(io.Discard, r.Body)
+		var body struct {
+			MaxTokens int `json:"max_tokens"`
+			Messages  []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		time.Sleep(delay)
+		out := body.MaxTokens
+		if shortOutput {
+			out = 1
+		}
+		prompt := 0
+		if len(body.Messages) > 0 {
+			prompt = versionStudyExactTokens()[len(body.Messages[0].Content)]
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"a"},"finish_reason":"length"}]}`+"\n\n")
-		_, _ = io.WriteString(w, `data: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":1}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"a"}}]}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"b"},"finish_reason":"length"}]}`+"\n\n")
+		_, _ = fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}\n\n", prompt, out)
 		_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	})
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
@@ -206,6 +229,7 @@ func TestRungRunnerClassifiesAgainstAStubEngine(t *testing.T) {
 			r := &RungRunner{
 				Design:    fastDesign(),
 				Sender:    NewHTTPSender(srv.URL, "m", nil, 30*time.Second, SenderConn{MaxIdleConnsPerHost: 64, DrainForReuse: true}),
+				Sampling:  *versionStudySampling(),
 				Queue:     HTTPEngineQueue(srv.Client(), srv.URL+"/metrics"),
 				PollEvery: 50 * time.Millisecond,
 				OnRung:    func(_ int, _ []RawRow, o RungObservation, _ RungClass, _ error) { got = o },
@@ -243,6 +267,7 @@ func TestRungRunnerSendsTheRequestIDsItRecords(t *testing.T) {
 	r := &RungRunner{
 		Design:    fastDesign(),
 		Sender:    NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true}),
+		Sampling:  *versionStudySampling(),
 		Queue:     HTTPEngineQueue(srv.Client(), srv.URL+"/metrics"),
 		PollEvery: 10 * time.Millisecond,
 		OnRung:    func(_ int, rs []RawRow, _ RungObservation, _ RungClass, _ error) { rows = rs },
@@ -255,5 +280,40 @@ func TestRungRunnerSendsTheRequestIDsItRecords(t *testing.T) {
 		if row.RequestID == "" || !ids[row.RequestID] {
 			t.Fatalf("row %d records id %q, which was never sent", row.Index, row.RequestID)
 		}
+	}
+}
+
+// TestRungRunnerInvalidatesANonconformingEngine: an engine that ignores the requested length serves a lighter workload, and λ0 must not come from it.
+func TestRungRunnerInvalidatesANonconformingEngine(t *testing.T) {
+	srv, _ := stubEngineWith(t, 10*time.Millisecond, false, true)
+	var gotErr error
+	r := &RungRunner{
+		Design:    fastDesign(),
+		Sender:    NewHTTPSender(srv.URL, "m", nil, 30*time.Second, SenderConn{MaxIdleConnsPerHost: 64, DrainForReuse: true}),
+		Sampling:  *versionStudySampling(),
+		Queue:     HTTPEngineQueue(srv.Client(), srv.URL+"/metrics"),
+		PollEvery: 50 * time.Millisecond,
+		OnRung:    func(_ int, _ []RawRow, _ RungObservation, _ RungClass, err error) { gotErr = err },
+	}
+	if cls := r.Probe(context.Background(), 5, 1); cls != RungInvalid || gotErr == nil || !strings.Contains(gotErr.Error(), "exact-cap") {
+		t.Fatalf("class %s err %v, want invalid for a nonconforming completion", cls, gotErr)
+	}
+}
+
+// TestDrainBoundSharesTheRungsDeadline: the next rung waits only for what is left of the previous rung's drain, so rungs stay inside MaxSeconds.
+func TestDrainBoundSharesTheRungsDeadline(t *testing.T) {
+	d := fastDesign()
+	r := &RungRunner{Design: d}
+	now := time.Unix(1000, 0)
+	if got := r.drainBound(now); got != time.Duration(d.Calibration.DrainSeconds)*time.Second {
+		t.Fatalf("first rung bound %v, want the full drain", got)
+	}
+	r.drainDeadline = now.Add(700 * time.Millisecond)
+	if got := r.drainBound(now); got != 700*time.Millisecond {
+		t.Fatalf("bound %v, want what is left of the previous deadline", got)
+	}
+	r.drainDeadline = now.Add(-time.Second)
+	if got := r.drainBound(now); got != 0 {
+		t.Fatalf("bound %v after the deadline passed, want 0", got)
 	}
 }

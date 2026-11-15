@@ -54,6 +54,7 @@ func versionCalibrate(args []string, out io.Writer) error {
 	runner := &bench.RungRunner{
 		Design:    *st.Version,
 		Sender:    sender,
+		Sampling:  *st.Sampling,
 		Queue:     bench.HTTPEngineQueue(&http.Client{Timeout: 10 * time.Second}, *metricsURL),
 		PollEvery: *poll,
 	}

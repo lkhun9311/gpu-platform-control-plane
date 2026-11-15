@@ -172,11 +172,26 @@ func WaitDrained(ctx context.Context, read EngineQueueReader, bound, every time.
 type RungRunner struct {
 	Design VersionStudyDesign
 	Sender Sender
-	Queue  EngineQueueReader
+	// Sampling is the study's policy, which every completed row must conform to before the rung counts.
+	Sampling SamplingPolicy
+	Queue    EngineQueueReader
 	// PollEvery is how often the drained check reads the engine.
 	PollEvery time.Duration
 	// OnRung receives each rung's rows, observation and class, so a session can keep the evidence before the ladder moves on.
 	OnRung func(ordinal int, rows []RawRow, o RungObservation, cls RungClass, err error)
+	// drainDeadline is the previous rung's warm-up plus window plus drain, measured from its replay's start.
+	drainDeadline time.Time
+}
+
+// drainBound is how long the next rung may wait for the engine to drain.
+//
+// It is what is left of the previous rung's deadline, never a fresh allowance, so a rung that overran into its drain does not lengthen the next.
+// That keeps every rung inside the warm-up plus window plus drain that CalibrationRule.MaxSeconds budgets.
+func (r *RungRunner) drainBound(now time.Time) time.Duration {
+	if r.drainDeadline.IsZero() {
+		return time.Duration(r.Design.Calibration.DrainSeconds) * time.Second
+	}
+	return max(r.drainDeadline.Sub(now), 0)
 }
 
 // Probe runs one rung from a drained engine and classifies it; it is the probe CalibrationRule.Run calls.
@@ -190,7 +205,7 @@ func (r *RungRunner) Probe(ctx context.Context, rate float64, ordinal int) RungC
 		}
 		return cls
 	}
-	drained := WaitDrained(ctx, r.Queue, time.Duration(rule.DrainSeconds)*time.Second, r.PollEvery)
+	drained := WaitDrained(ctx, r.Queue, r.drainBound(time.Now()), r.PollEvery)
 	if !drained {
 		return report(nil, RungObservation{OfferedRate: rate}, RungInvalid, errors.New("the engine did not report an empty queue within the drain bound"))
 	}
@@ -203,10 +218,51 @@ func (r *RungRunner) Probe(ctx context.Context, rate float64, ordinal int) RungC
 	if s, ok := r.Sender.(interface{ SetRequestIDPrefix(string) }); ok {
 		s.SetRequestIDPrefix(prefix)
 	}
+	r.drainDeadline = time.Now().Add(time.Duration(rule.WarmupSeconds+rule.WindowSeconds+rule.DrainSeconds) * time.Second)
 	rows := Replay(ctx, r.Sender, trace, ReplayOptions{Arm: fmt.Sprintf("calibration-%d", ordinal), RequestIDPrefix: prefix})
 	o, err := ObserveRung(rows, rate, rule, drained)
 	if err != nil {
 		return report(rows, o, RungInvalid, err)
 	}
+	// A completed request that did not do the registered work makes the rung measure a lighter workload, so it invalidates the rung.
+	if err := r.checkConformance(trace, rows); err != nil {
+		return report(rows, o, RungInvalid, err)
+	}
 	return report(rows, o, rule.ClassifyRung(o), nil)
+}
+
+// checkConformance runs every replayed row through ClassifyRow, the study's own conformance rule, against its trace row.
+func (r *RungRunner) checkConformance(trace []TraceRow, rows []RawRow) error {
+	byIndex := make(map[int]TraceRow, len(trace))
+	for _, t := range trace {
+		byIndex[t.Index] = t
+	}
+	for _, row := range rows {
+		tr, ok := byIndex[row.Index]
+		if !ok {
+			return fmt.Errorf("row %d is not in the rung's trace", row.Index)
+		}
+		if _, err := ClassifyRow(r.Sampling, rowFacts(row, tr)); err != nil {
+			return fmt.Errorf("row %d does not conform: %w", row.Index, err)
+		}
+	}
+	return nil
+}
+
+// rowFacts is what ClassifyRow needs from one replayed row and the trace row it was sent from.
+func rowFacts(row RawRow, tr TraceRow) RowFacts {
+	return RowFacts{
+		Dispatched:           row.Clock != nil && row.Clock.SendNanos != nil,
+		HTTPStatus:           row.HTTPStatus,
+		StreamCompleted:      row.Disposition == DispositionCompleted,
+		TimedOut:             row.ErrorKind == "timeout",
+		TransportError:       row.ErrorKind == "transport",
+		UsagePresent:         row.EngineUsageReported != nil && *row.EngineUsageReported,
+		PromptTokens:         row.EngineInputTokens,
+		ExpectedPromptTokens: tr.ExactInputTokens,
+		CompletionTokens:     row.EngineOutputTokens,
+		CapTokens:            tr.MaxOutputTokens,
+		FinishReason:         row.FinishReason,
+		ContentFrames:        row.OutputTokens,
+	}
 }
