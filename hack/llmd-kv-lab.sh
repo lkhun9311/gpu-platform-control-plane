@@ -96,12 +96,9 @@ fetch_checkout() {
   fi
 }
 
-# check refuses on any drift: a different kind CLI, a moved or dirty checkout, an upstream file that changed under
-# the committed arms, or an image whose tag now points somewhere other than the pinned digest.
-cmd_check() {
-  local bad=0 got
-  got=$(kind version | awk '{print $2}')
-  [ "$got" = "$KIND_CLI_VERSION" ] || { echo "  drift: kind CLI is $got, pinned $KIND_CLI_VERSION" >&2; bad=1; }
+# checkout_ok reports whether the router checkout is the pinned commit, clean, and carries the pinned upstream files.
+checkout_ok() {
+  local bad=0 got f
   if [ -d "$CHECKOUT/.git" ]; then
     got=$(git -C "$CHECKOUT" rev-parse HEAD)
     [ "$got" = "$ROUTER_COMMIT" ] || { echo "  drift: router checkout at $got" >&2; bad=1; }
@@ -113,6 +110,16 @@ cmd_check() {
   else
     echo "  missing: router checkout $CHECKOUT (up fetches it)" >&2; bad=1
   fi
+  [ "$bad" = 0 ]
+}
+
+# check refuses on any drift: a different kind CLI, a moved or dirty checkout, an upstream file that changed under
+# the committed arms, or an image whose tag now points somewhere other than the pinned digest.
+cmd_check() {
+  local bad=0 got
+  got=$(kind version | awk '{print $2}')
+  [ "$got" = "$KIND_CLI_VERSION" ] || { echo "  drift: kind CLI is $got, pinned $KIND_CLI_VERSION" >&2; bad=1; }
+  checkout_ok || bad=1
   image_digest_ok "$SIM_IMAGE" "$SIM_DIGEST" || { echo "  drift: $SIM_IMAGE is not $SIM_DIGEST locally" >&2; bad=1; }
   image_digest_ok "$RENDER_IMAGE" "$RENDER_DIGEST" || { echo "  drift: $RENDER_IMAGE is not $RENDER_DIGEST locally" >&2; bad=1; }
   image_digest_ok "$KIND_NODE_IMAGE" "$KIND_NODE_DIGEST" || { echo "  drift: $KIND_NODE_IMAGE is not $KIND_NODE_DIGEST locally" >&2; bad=1; }
@@ -183,6 +190,9 @@ render_config() {
 cmd_up() {
   local mode=${1:-precise}
   fetch_checkout
+  # The checkout is verified before anything is built from it, because the EPP image is labelled with the pinned commit
+  # and a later check trusts that label: an image built from a modified tree would pass every later run.
+  checkout_ok || die "router checkout drift (above); nothing was built"
   prepare_images
   cmd_check
   create_cluster
@@ -275,12 +285,15 @@ cmd_down() {
   kind delete cluster --name "$CLUSTER"
 }
 
-case "${1:-}" in
-  pins) cmd_pins ;;
-  check) fetch_checkout; cmd_check ;;
-  up) cmd_up "${2:-precise}" ;;
-  mode) cmd_mode "${2:-}" ;;
-  status) cmd_status ;;
-  down) cmd_down ;;
-  *) echo "usage: $0 pins|check|up [precise|precise-pull|precise-spec|approx]|mode precise|precise-pull|precise-spec|approx|status|down" >&2; exit 2 ;;
-esac
+# Dispatch only when run, so a test can source the functions without bringing anything up.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  case "${1:-}" in
+    pins) cmd_pins ;;
+    check) fetch_checkout; cmd_check ;;
+    up) cmd_up "${2:-precise}" ;;
+    mode) cmd_mode "${2:-}" ;;
+    status) cmd_status ;;
+    down) cmd_down ;;
+    *) echo "usage: $0 pins|check|up [precise|precise-pull|precise-spec|approx]|mode precise|precise-pull|precise-spec|approx|status|down" >&2; exit 2 ;;
+  esac
+fi

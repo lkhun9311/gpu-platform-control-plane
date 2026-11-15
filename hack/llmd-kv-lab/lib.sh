@@ -21,6 +21,9 @@ k() { kubectl --context "$CTX" --request-timeout=30s "$@"; }
 say() { echo "${SAY_AS:-lab}: $*" | tee -a "$RUN/observe.log"; }
 
 lab_init() {
+  # Ownership is checked before any cleanup is armed, so a run refused on someone else's cluster leaves it untouched.
+  k -n kube-system get configmap gpuaas-llmd-kv-lab-owner >/dev/null 2>&1 \
+    || { echo "lab: $CTX has no gpuaas-llmd-kv-lab-owner marker; not running probes against a cluster this lab did not create" >&2; exit 1; }
   mkdir -p "$RUN"
   go build -o "$DRIVER" "$REPO/hack/llmd-kv-lab/driver"
   "$LAB" pins >"$RUN/pins.txt"
@@ -35,8 +38,12 @@ lab_init() {
 lab_cleanup() {
   kill "$PROXY_PID" 2>/dev/null || true
   # A blocked ZMQ path must never outlive the run, or the next run would measure it without knowing.
-  docker exec "$NODE" sh -c 'while iptables -D FORWARD -p tcp --dport 5557 -j DROP 2>/dev/null; do :; done;
-    while iptables -D FORWARD -p tcp --sport 5557 -j DROP 2>/dev/null; do :; done' || true
+  # Only the rules this run inserted are removed, one deletion per insertion, so nothing it did not add is touched.
+  while [ "${FW_INSERTED:-0}" -gt 0 ]; do
+    docker exec "$NODE" iptables -D FORWARD -p tcp --dport 5557 -j DROP || true
+    docker exec "$NODE" iptables -D FORWARD -p tcp --sport 5557 -j DROP || true
+    FW_INSERTED=$((FW_INSERTED - 1))
+  done
 }
 
 svc() { echo "$PROXY/api/v1/namespaces/default/services/http:$EPP:9090/proxy"; }

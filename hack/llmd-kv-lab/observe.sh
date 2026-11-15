@@ -54,6 +54,8 @@ run_arm() {
     [ -n "$blocked" ] || blocked=$(other_pod "$(family_pod W1)")
     say "[$ARM] zmq-block: dropping tcp/5557 in $NODE FORWARD; warming W2 directly on $blocked"
     snap 4-before-block
+    # Counted before inserting, so an interrupted insertion is still undone on exit.
+    FW_INSERTED=$((${FW_INSERTED:-0} + 1))
     docker exec "$NODE" iptables -I FORWARD -p tcp --dport 5557 -j DROP
     docker exec "$NODE" iptables -I FORWARD -p tcp --sport 5557 -j DROP
     date -u +%FT%TZ >"$RUN/$ARM/zmq-blocked-at.txt"
@@ -64,6 +66,7 @@ run_arm() {
     sleep 30
     docker exec "$NODE" iptables -D FORWARD -p tcp --dport 5557 -j DROP
     docker exec "$NODE" iptables -D FORWARD -p tcp --sport 5557 -j DROP
+    FW_INSERTED=$((FW_INSERTED - 1))
     date -u +%FT%TZ >"$RUN/$ARM/zmq-restored-at.txt"
     say "[$ARM] zmq-block: restored; waiting 20s for any buffered events"
     sleep 20
