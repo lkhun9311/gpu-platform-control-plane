@@ -53,11 +53,13 @@ else
   bad "cleanup deleted: ${deletes:-nothing}"
 fi
 : >"$CALLS"
-OWN_TAG=absent bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; FW_TAG=llmd-kv-lab-test-2 PROXY_PID= lab_cleanup" 2>/dev/null
-if grep -q "iptables -D" "$CALLS"; then
+# Under the callers' own set -euo pipefail, a run with nothing to remove must still exit 0.
+if ! OWN_TAG=absent bash -c "set -euo pipefail; source '$REPO/hack/llmd-kv-lab/lib.sh'; FW_TAG=llmd-kv-lab-test-2 PROXY_PID= lab_cleanup" 2>/dev/null; then
+  bad "cleanup with no tagged rule failed under pipefail"
+elif grep -q "iptables -D" "$CALLS"; then
   bad "a run that inserted nothing deleted: $(grep 'iptables -D' "$CALLS")"
 else
-  ok "a run that inserted nothing deletes nothing"
+  ok "a run that inserted nothing deletes nothing and exits 0"
 fi
 
 # 3. A dirty checkout is refused before prepare_images builds anything.
@@ -83,6 +85,17 @@ if (OWNED=1 STAMP=guard PROXY_PORT=1 bash -c "source '$REPO/hack/llmd-kv-lab/lib
   bad "lab_init returned with a proxy that never reached the cluster"
 else
   ok "lab_init refuses a proxy that does not start"
+fi
+
+# 5. The PID cleanup stops is kubectl's own, not a wrapper's: the stub proxy stays up until killed.
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$TMP/bin/curl"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "kubectl $*" >>"$CALLS"' \
+  'case "$*" in *" proxy "*) exec sleep 30 ;; esac' '[ "${OWNED:-0}" = 1 ] || exit 1' >"$TMP/bin/kubectl"
+args=$(OWNED=1 STAMP=guard2 bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; RUN='$TMP/run2'; SAY_AS=test lab_init >/dev/null 2>&1; ps -o args= -p \"\$PROXY_PID\"; trap - EXIT; kill \"\$PROXY_PID\"" 2>/dev/null || true)
+if grep -q "sleep 30" <<<"$args"; then
+  ok "PROXY_PID is the proxy process itself"
+else
+  bad "PROXY_PID is not the proxy process: '$args'"
 fi
 
 [ "$fail" = 0 ] && echo "check-llmd-kv-lab-guards: all checks passed"

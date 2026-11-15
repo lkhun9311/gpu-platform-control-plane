@@ -29,7 +29,8 @@ lab_init() {
   "$LAB" pins >"$RUN/pins.txt"
   "$LAB" check >>"$RUN/pins.txt"
   # The API server proxy reaches the EPP's metrics port and each simulator pod without a port-forward per target.
-  k proxy --port="$PROXY_PORT" >"$RUN/kubectl-proxy.log" 2>&1 &
+  # kubectl is started directly, not through k, so $! is the proxy itself and cleanup stops it rather than a wrapper.
+  kubectl --context "$CTX" proxy --port="$PROXY_PORT" >"$RUN/kubectl-proxy.log" 2>&1 &
   PROXY_PID=$!
   trap lab_cleanup EXIT
   # The proxy must be this run's and must reach this lab's cluster: a port already taken would leave every request to
@@ -61,12 +62,14 @@ fw_block() {
 
 # fw_remove_own deletes every FORWARD rule carrying FW_TAG, and nothing else, however far insertion or removal got.
 fw_remove_own() {
-  local rule
-  docker exec "$NODE" iptables -S FORWARD 2>/dev/null | grep -F -- "--comment $FW_TAG " | sed 's/^-A /-D /' \
-    | while read -r rule; do
-      # shellcheck disable=SC2086 # the rule spec is split into iptables arguments on purpose
-      docker exec "$NODE" iptables $rule || true
-    done
+  local listing rule
+  # No tagged rule left is the normal end of a run, so an empty match is success; only a rule that stays is not.
+  listing=$(docker exec "$NODE" iptables -S FORWARD 2>/dev/null || true)
+  while read -r rule; do
+    [ -n "$rule" ] || continue
+    # shellcheck disable=SC2086 # the rule spec is split into iptables arguments on purpose
+    docker exec "$NODE" iptables ${rule/#-A /-D } || true
+  done < <(grep -F -- "--comment $FW_TAG " <<<"$listing" || true)
 }
 
 svc() { echo "$PROXY/api/v1/namespaces/default/services/http:$EPP:9090/proxy"; }
