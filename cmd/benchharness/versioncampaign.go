@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -60,19 +61,27 @@ func versionManifests(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	var nums []int
-	for f := range strings.SplitSeq(*blocks, ",") {
-		n, err := strconv.Atoi(strings.TrimSpace(f))
-		if err != nil {
-			return fmt.Errorf("block %q is not a number", f)
-		}
-		nums = append(nums, n)
-	}
 	st, ok := bench.LookupStudy(b.Study)
 	if !ok {
 		return fmt.Errorf("study %q is not registered", b.Study)
 	}
-	for _, block := range nums {
+	// Every manifest is built and every destination checked before the first is written.
+	// The writer never replaces a file, so a refusal halfway would leave a frozen partial set that blocks the corrected retry.
+	type pending struct {
+		path string
+		m    bench.RunManifest
+	}
+	var todo []pending
+	seen := map[int]bool{}
+	for f := range strings.SplitSeq(*blocks, ",") {
+		block, err := strconv.Atoi(strings.TrimSpace(f))
+		if err != nil {
+			return fmt.Errorf("block %q is not a number", f)
+		}
+		if seen[block] {
+			return fmt.Errorf("block %d is listed twice", block)
+		}
+		seen[block] = true
 		for _, arm := range st.Arms {
 			treatment, load, _ := bench.ParseVersionStudyArm(arm)
 			m, err := bench.VersionCellManifest(b, sum, filepath.Dir(*bundlePath), block, treatment, load, *engineURL)
@@ -80,15 +89,21 @@ func versionManifests(args []string, out io.Writer) error {
 				return err
 			}
 			path := filepath.Join(*outDir, fmt.Sprintf("manifest-b%d-%s.yaml", block, arm))
-			if err := bench.WriteManifestFile(path, m); err != nil {
-				return err
+			if _, err := os.Stat(path); err == nil {
+				return fmt.Errorf("%s exists; a frozen cell's record is never rewritten", path)
 			}
-			if _, err := bench.LoadManifest(path); err != nil {
-				return fmt.Errorf("written manifest %s does not load: %w", path, err)
-			}
-			if _, err := fmt.Fprintln(out, path); err != nil {
-				return err
-			}
+			todo = append(todo, pending{path, m})
+		}
+	}
+	for _, p := range todo {
+		if err := bench.WriteManifestFile(p.path, p.m); err != nil {
+			return err
+		}
+		if _, err := bench.LoadManifest(p.path); err != nil {
+			return fmt.Errorf("written manifest %s does not load: %w", p.path, err)
+		}
+		if _, err := fmt.Fprintln(out, p.path); err != nil {
+			return err
 		}
 	}
 	return nil

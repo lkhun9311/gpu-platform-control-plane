@@ -161,3 +161,28 @@ func TestVersionCampaignSurvivesBeingMoved(t *testing.T) {
 		t.Fatalf("%d manifests, want 6", len(entries))
 	}
 }
+
+// TestVersionManifestsWritesNothingForABadBlockList: a typo in one block must not leave the others frozen, or the corrected retry meets existing files.
+func TestVersionManifestsWritesNothingForABadBlockList(t *testing.T) {
+	dir := t.TempDir()
+	art, _ := json.Marshal(bench.CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2.0})
+	if err := os.WriteFile(filepath.Join(dir, "calibration.json"), art, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := versionBundle([]string{"-dir", dir, "-campaign-id", "s1-test", "-price-usd-per-hour", "1.237",
+		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, blocks := range []string{"1,9", "1,1", "1,x"} {
+		mdir := t.TempDir()
+		err := versionManifests([]string{"-bundle", filepath.Join(dir, bench.CampaignBundleFile), "-engine-url", "http://127.0.0.1:8000",
+			"-blocks", blocks, "-out", mdir}, &out)
+		if err == nil {
+			t.Fatalf("-blocks %s accepted", blocks)
+		}
+		if entries, _ := os.ReadDir(mdir); len(entries) != 0 {
+			t.Fatalf("-blocks %s: refused but left %d files", blocks, len(entries))
+		}
+	}
+}
