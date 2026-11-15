@@ -547,7 +547,11 @@ func TestAnOpenFailureOnAnInterruptedJournalIsRecoverable(t *testing.T) {
 		t.Fatal(err)
 	}
 	l, pending, err := ReadAttemptJournal(path, "camp-1")
-	if err != nil || pending != nil || l.Attempts[0].Status != AttemptStopped || !strings.Contains(l.Attempts[0].Reason, "recorder failure") {
+	if err != nil || pending != nil || l.Attempts[0].Block != 1 || l.Attempts[0].Status != AttemptStopped || !strings.Contains(l.Attempts[0].Reason, "recorder failure") {
 		t.Fatalf("ledger %+v pending %+v err %v", l, pending, err)
+	}
+	l.Closed = true
+	if _, err := versionAsyncDesign().AnalysisSet(l); err == nil || !strings.Contains(err.Error(), "incomplete pilot") {
+		t.Fatalf("analysis of the recovered ledger: %v", err)
 	}
 }

@@ -138,7 +138,7 @@ func (s *journalState) applyFault(r journalRecord) error {
 			return fmt.Errorf("fault of block %d at %s is not after its start", r.Block, r.At.Format(time.RFC3339Nano))
 		}
 		s.ledger.Attempts = append(s.ledger.Attempts, BlockAttempt{
-			Block: r.Block, Status: AttemptStopped, Reason: reason,
+			Block: s.pending.Block, Status: AttemptStopped, Reason: reason,
 			StartedAt: s.pending.StartedAt, EndedAt: r.At, Replaces: s.pending.Replaces,
 		})
 		s.pending = nil
