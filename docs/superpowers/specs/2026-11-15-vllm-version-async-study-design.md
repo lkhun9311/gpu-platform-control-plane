@@ -25,9 +25,12 @@ It does **not** license:
 |---|---|---|
 | **Fixed now** | arms; v0.32.0 for B and C; the engine profile and what may differ; `--scheduling-policy=priority`; model, model revision, tokenizer revision and chat template; loads 0.6 and 0.9 λ0; workload mixture; sampling; campaign seed `20261115`; 6 planned blocks + at most 2 replacements; treatment and load orders; warm-up 60 s; window rule; timeout; dispatch-lag tolerance; SLO; decision rule and its thresholds; calibration ladder and criteria; invalidation, ledger and rerun rules; phase bounds; $20 cap with $2 reserve | `versionAsyncDesign`, `versionStudySampling`, `LoadManifest` |
 | **Measured or read in the session, then frozen** | λ0; the window W; the instance price; every trace | the campaign bundle (`LoadCampaignBundle`), whose sha256 every cell carries |
-| **Still open** | B's and C's image digest, and the review of v0.32.0's effective flags, both filled by the engine-path track | `Unfrozen` lists exactly these four; `PreflightRefusal` refuses every manifest and bundle until they are set |
+| **Still open** | nothing (the engine-path track froze the last four values on 2026-11-15) | `Unfrozen` would list B's and C's image digest and flag review if any were unset; `PreflightRefusal` refuses every manifest and bundle while it lists anything |
 
-The two engine-path fields are `EngineSettings.Image` for treatments B and C, and `EngineFlagReviews`: the sha256 of the effective-argument record that track reviewed against the v0.32.0 image's own flags, confirming that each registered setting maps to a real flag. This page does not guess either.
+The two engine-path fields are `EngineSettings.Image` for treatments B and C, and `EngineFlagReviews`: the sha256 of the effective-argument record that track reviewed against the v0.32.0 image's own flags, confirming that each registered setting maps to a real flag.
+B and C run `vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34`, the manifest list Docker Hub's `v0.32.0` tag resolved to on 2026-11-15; the image records the build commit the tag names.
+Their reviews are `hack/engine-flag-reviews/vllm-v0.32.0-async-off.json` (B) and `hack/engine-flag-reviews/vllm-v0.32.0-async-on.json` (C); `TestEngineFlagReviewsAreTheCommittedRecords` recomputes both hashes, and the controller's `TestExperimentalV0320RendersItsReviewedRecord` holds the rendering to the same files.
+That is a source review: no flag's effect on v0.32.0 has been measured here.
 
 ## Arms and what may differ
 
@@ -36,7 +39,7 @@ Six arms, `<treatment>-<load>`: `A-l060`, `A-l090`, `B-l060`, `B-l090`, `C-l060`
 | Treatment | Engine | Async scheduling |
 |---|---|---|
 | A | vLLM v0.27.1, `vllm/vllm-openai@sha256:0a51ea5b…bfd967` (`VLLMV0271Digest`) | off |
-| B | vLLM v0.32.0, digest by the engine-path track | off |
+| B | vLLM v0.32.0, `vllm/vllm-openai@sha256:befccf0e…5b34` (`VLLMV0320Digest`) | off |
 | C | the same image as B | on |
 
 **Must not differ:** the `v0.27.1-a10g` profile from `internal/controller/inference_engine.go` (`measuredA10GArgs`, prefix caching off): `--dtype=half`, `--max-model-len=16384`, `--max-num-seqs=64`, `--gpu-memory-utilization=0.90`, `--no-enable-prefix-caching`, `--max-num-batched-tokens=512`, `--scheduling-policy=priority`. Also the model `Qwen/Qwen2.5-3B-Instruct` at revision `aa8e72537993ba99e69dfaafa59ed015b17504d1` for weights and tokenizer, chat template sha256 `cd8e9439…527f`, instance, client, workload per block, sampling and timeout.
@@ -267,7 +270,7 @@ The registered protocol is not executable at this head (attack item 1). Before a
 - **The sender** (owned elsewhere) sends `RequestFields` and records the fields above. Since #587 it records every latency on the monotonic clock (`RequestClock`), with a terminal disposition and usage presence for every request. It still sends no sampling parameter, measures from dispatch (`SendNanos`) rather than from intended arrival, and records no transport-write or trailer stamp.
 - **Replay accepts v3:** `cmd/benchharness` parses `matchTolerance` as a number unconditionally before replay, so a valid v3 manifest, which must leave it empty, is refused there.
 - **A v3 manifest writer, the calibration runner, the trace generator and the bundle writer** exist; `gen-trace` and `prepare-traces` still write v2.
-- **An engine path** that runs v0.32.0 with the registered settings; the controller pins v0.27.1 and forces async off. The engine-path track fills the digests and flag reviews.
+- **An engine path** that runs v0.32.0 with the registered settings: done. The `experimental-a10g` profile renders release `v0.32.0` on its pinned digest with either async choice (#586 and this change). What remains is showing it in the free rehearsal.
 - **The watchdog** enforces the absolute teardown deadline.
 
 ## What answers what
@@ -275,7 +278,7 @@ The registered protocol is not executable at this head (attack item 1). Before a
 | Source | Item | Answer here |
 |---|---|---|
 | owner | pilot, 6 blocks, roles of the comparisons | "The question"; `MinRepetitions` 6; `SelectTreatment` |
-| owner | v0.32.0, digest and flags by the engine-path track | `Engines`, `EngineFlagReviews`, `Unfrozen` |
+| owner | v0.32.0; digest and flag reviews filled by the engine-path track | `Engines`, `EngineFlagReviews`, `Unfrozen` |
 | owner | SLO 1,000 / 60 ms; 10% benefit, 10% loss, 0.5% guardrail; TPOT descriptive; reject by established harm; cross-load policy | `SLO`, `DecisionRule`, `AssessLoad`, `CombineLoads` |
 | owner | keep `priority` | `versionStudyEngine` |
 | attack 2, 3 | λ0 criteria, separate budgets, fallback, confirmation, unresolved stop, drained start | "Load"; `CalibrationRule` |

@@ -146,7 +146,12 @@ engine:
 ```
 
 - `release` is an enum of releases whose flags were reviewed in `experimentalReleases` (`internal/controller/inference_engine.go`), and a CEL rule pins `spec.image` to that release's digest from any registry. A newer vLLM may rename or drop a flag, so it is added by writing its argument list into a new row after checking it against that release's `vllm serve --help`, adding it to the enum, and adding its `release == '…' && self.image.endsWith('@sha256:…')` clause to the CEL rule. `TestEveryReleaseInTheCRDHasAReviewedRow` and `TestEveryReleaseDigestIsTheOneTheCRDPins` fail when the three disagree.
-- Today the only reviewed release is `v0.27.1`. With `asyncScheduling: Disabled` it renders exactly the `v0.27.1-a10g` arguments (`TestExperimentalV0271WithAsyncOffRendersTheValidatedEngine`), and `Enabled` changes only `--no-async-scheduling` to `--async-scheduling`.
+- Two releases are reviewed. On `v0.27.1` with `asyncScheduling: Disabled` the profile renders exactly the `v0.27.1-a10g` arguments (`TestExperimentalV0271WithAsyncOffRendersTheValidatedEngine`). `Enabled` changes only `--no-async-scheduling` to `--async-scheduling`.
+- `v0.32.0` is pinned to `sha256:befccf0e…5b34` (`VLLMV0320Digest`), the manifest list Docker Hub's tag resolved to on 2026-11-15. Its image records the build commit the `v0.32.0` tag names, and its entrypoint is `vllm serve`, as in v0.27.1.
+  - Each flag was checked against the source at that commit. Every one kept its spelling, so the row equals v0.27.1's. The records are `hack/engine-flag-reviews/vllm-v0.32.0-async-off.json` and `hack/engine-flag-reviews/vllm-v0.32.0-async-on.json`, with each flag's source line and the hashes of the files read.
+  - `TestExperimentalV0320RendersItsReviewedRecord` holds the rendering to those records.
+  - The async flag is always rendered, because v0.32.0 turns async scheduling on when the flag is absent. An explicit `--async-scheduling` fails at startup on an incompatible configuration rather than being dropped.
+  - This is a source review, not a measurement: nothing has run v0.32.0 here.
 - The CRD refuses `experimental` on any other profile, the profile without it, an unreviewed release or async value, a digest other than the release's, and HoldCap. The controller refuses the same combinations itself rather than render guessed flags.
 - Routing rules are unchanged: `PrefixAffinity` still requires `replicas` at most 1, and the profile neither adds nor relaxes a routing rule.
 - Nothing about this profile's latency has been measured. It still schedules by priority, so the gateway binds tiers on it as on the validated profiles.
