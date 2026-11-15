@@ -156,8 +156,17 @@ func HTTPEngineQueue(client *http.Client, metricsURL string) EngineQueueReader {
 // A failed read is not idle: an engine whose queue cannot be read cannot be shown drained.
 func WaitDrained(ctx context.Context, read EngineQueueReader, bound, every time.Duration) bool {
 	deadline := time.Now().Add(bound)
+	// With time left, every read runs under the deadline and an answer that comes after it does not count.
+	// With none, the single read runs on the caller's context, bounded by the reader's own timeout.
+	readCtx := ctx
+	if bound > 0 {
+		var cancel context.CancelFunc
+		readCtx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
 	for {
-		if running, waiting, err := read(ctx); err == nil && running == 0 && waiting == 0 {
+		running, waiting, err := read(readCtx)
+		if err == nil && running == 0 && waiting == 0 && (bound <= 0 || !time.Now().After(deadline)) {
 			return true
 		}
 		left := time.Until(deadline)

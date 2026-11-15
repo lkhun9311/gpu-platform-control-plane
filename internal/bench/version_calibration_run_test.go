@@ -346,3 +346,26 @@ func TestProbeGivesARetryItsOwnDrainAllowance(t *testing.T) {
 		t.Fatalf("the retry's drain bound is %v, want its own full allowance", got)
 	}
 }
+
+// TestWaitDrainedRejectsAnAnswerAfterTheBound: an idle reading that arrives after the drain bound does not start a rung the bound already ended.
+func TestWaitDrainedRejectsAnAnswerAfterTheBound(t *testing.T) {
+	slowIdle := func(ctx context.Context) (int, int, error) {
+		select {
+		case <-time.After(100 * time.Millisecond):
+			return 0, 0, nil
+		case <-ctx.Done():
+			return 0, 0, ctx.Err()
+		}
+	}
+	start := time.Now()
+	if WaitDrained(context.Background(), slowIdle, 20*time.Millisecond, time.Millisecond) {
+		t.Fatal("an idle answer that took longer than the bound started the rung")
+	}
+	if took := time.Since(start); took > 80*time.Millisecond {
+		t.Fatalf("the check ran %v past a 20 ms bound", took)
+	}
+	ignoresCtx := func(context.Context) (int, int, error) { time.Sleep(60 * time.Millisecond); return 0, 0, nil }
+	if WaitDrained(context.Background(), ignoresCtx, 20*time.Millisecond, time.Millisecond) {
+		t.Fatal("an idle answer received after the bound started the rung")
+	}
+}
