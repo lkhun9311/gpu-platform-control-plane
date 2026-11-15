@@ -98,5 +98,16 @@ else
   bad "PROXY_PID is not the proxy process: '$args'"
 fi
 
+# 6. A reused STAMP is refused before the arm restarts anything, so two executions never share one evidence directory.
+mkdir -p "$TMP/run3/precise"
+: >"$CALLS"
+if (bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; RUN='$TMP/run3'; SAY_AS=test fresh_arm precise") >/dev/null 2>&1; then
+  bad "fresh_arm reused an existing arm directory"
+elif grep -q -e "kubectl" -e "docker" "$CALLS"; then
+  bad "a refused arm still touched the cluster: $(cat "$CALLS")"
+else
+  ok "a reused arm directory is refused before anything restarts"
+fi
+
 [ "$fail" = 0 ] && echo "check-llmd-kv-lab-guards: all checks passed"
 exit "$fail"

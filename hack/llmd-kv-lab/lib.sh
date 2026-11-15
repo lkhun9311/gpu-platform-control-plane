@@ -119,6 +119,8 @@ wait_epp_ready() {
 
 fresh_arm() {
   ARM=$1
+  # An arm's evidence is written once: a reused STAMP would append to its requests and overwrite its logs and snapshots.
+  [ ! -e "$RUN/$ARM" ] || { echo "lab: $RUN/$ARM exists; use a new STAMP rather than mixing two executions" >&2; exit 1; }
   mkdir -p "$RUN/$ARM"
   say "=== arm $ARM: EPP on the $ARM config, then fresh simulator pods"
   # mode restarts the EPP first and the simulators second; the reverse order left every push-mode simulator

@@ -17,6 +17,16 @@ func TestPrefixTextIsDeterministicPerFamily(t *testing.T) {
 	}
 }
 
+// Families must part at the first word: two names sharing a long beginning would otherwise share whole cache blocks,
+// and a pod never warmed for a family could score above zero and count as a predicted hit.
+func TestFamiliesDifferFromTheFirstWord(t *testing.T) {
+	a := prefixText("R-delete-vllm-d-8579766dcd-8c7vj", 10)
+	b := prefixText("R-delete-vllm-d-8579766dcd-cj2pl", 10)
+	if strings.Fields(a)[0] == strings.Fields(b)[0] {
+		t.Fatalf("families with a common name start share their first word:\n%q\n%q", a, b)
+	}
+}
+
 // A hit must come only from the shared prefix, so two requests of a family differ only after it.
 func TestPromptsShareExactlyTheFamilyPrefix(t *testing.T) {
 	a, b := promptFor("F0", 40, "r-1"), promptFor("F0", 40, "r-2")

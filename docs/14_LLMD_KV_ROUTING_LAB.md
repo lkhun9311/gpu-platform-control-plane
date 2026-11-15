@@ -115,6 +115,16 @@ The EPP's view comes from its "Calculated score" debug lines, joined on that id.
 
 So each row carries three things that can disagree: what the EPP believed (scores), where the request went (pod), and
 what was true (cached tokens).
+
+**Prompt form changed after the recorded runs.** The prefix now begins with the family's own hash (`f<16 hex>`), so two
+families part at the first token.
+Before, the prefix began "Context for <family>:", and the restart probes' long family names (`R-delete-vllm-d-…`)
+shared their first 16-token block. A pod never warmed for a family therefore scored 0.0417–0.0435 for it, which
+"predicted" (score above zero) would count if a warm-up were lost.
+That did not decide any recorded result: in all nine restart rows the serving pod scored 0.956–0.958 and the
+shared-block pods 0.042–0.043 (`runs/20261115-restart-precise/summary.txt`).
+The leave, lag and eviction probes use short family names that part inside the first block.
+Runs recorded under `runs/` used the old form, and new runs use the new one, so their prompts are not byte-identical.
 A request can also bypass the EPP: the driver sends to a pod through the API server's pod proxy, which is how a prefix
 is placed on a pod the EPP did not choose.
 

@@ -49,8 +49,10 @@ func prefixText(family string, words int) string {
 	_, _ = h.Write([]byte(family))
 	// A seeded generator, not crypto, because the point is reproducibility.
 	r := rand.New(rand.NewSource(int64(h.Sum64()))) //nolint:gosec
-	out := make([]string, 0, words+4)
-	out = append(out, "Context", "for", family+":")
+	out := make([]string, 0, words+5)
+	// The family's hash comes first, so two families part at the first token even when their names share a long start;
+	// otherwise they would share whole cache blocks and an unwarmed pod could score above zero for the other family.
+	out = append(out, fmt.Sprintf("f%016x", h.Sum64()), "Context", "for", family+":")
 	for range words {
 		out = append(out, vocabulary[r.Intn(len(vocabulary))])
 	}
