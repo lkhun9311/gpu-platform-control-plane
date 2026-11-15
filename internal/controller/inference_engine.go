@@ -2,10 +2,10 @@ package controller
 
 import (
 	"encoding/json"
-	"fmt"
-	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/engineargs"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -30,9 +30,6 @@ const (
 	// It is on the template so every Pod carries the engine it runs, and a benchmark row read off a Pod is traced to its flags without knowing the profile table.
 	// It changes only when the container's image or args change, which restart the engine anyway.
 	renderedEngineAnnotation = "platform.lkhun9311.github.io/rendered-engine"
-
-	// holdCapPrefillThreshold is the only prefill cap measured; a field would ship an unmeasured setting.
-	holdCapPrefillThreshold = 384
 
 	// exclusiveGPULabel marks a node whose GPUs are not shared; see the node groups in infra/aws/cluster/eks.tf.
 	exclusiveGPULabel = "platform.lkhun9311.github.io/gpu"
@@ -85,53 +82,9 @@ var vllmProfiles = map[string]vllmProfile{
 	},
 }
 
-// vllmRelease is a vLLM release the experimental profile may run, with its flags spelled as that release accepts them.
-// A newer release may rename or drop a flag, so a row is added only after its args were checked against that release's `vllm serve --help`.
-type vllmRelease struct {
-	// digest is the image the flags were reviewed against; the CEL rule on the spec repeats it.
-	digest string
-	// args are the measured A10G settings without the async-scheduling flag, which the spec chooses.
-	args []string
-	// asyncOn and asyncOff are this release's spelling of the two async-scheduling choices.
-	asyncOn, asyncOff string
-}
-
-// experimentalReleases are the reviewed rows; the CRD enum on experimental.release and TestEveryReleaseInTheCRDHasAReviewedRow keep them equal.
-var experimentalReleases = map[string]vllmRelease{
-	// Spelled out rather than taken from measuredA10GArgs, so a newer row is a literal list a reviewer reads against its release.
-	// TestExperimentalV0271WithAsyncOffRendersTheValidatedEngine holds this row to the validated profile.
-	platformv1.VLLMReleaseV0271: {
-		digest: platformv1.VLLMV0271Digest,
-		args: []string{
-			"--dtype=half",
-			"--max-model-len=16384",
-			"--max-num-seqs=64",
-			"--gpu-memory-utilization=0.90",
-			"--no-enable-prefix-caching",
-			"--max-num-batched-tokens=512",
-			"--scheduling-policy=priority",
-		},
-		asyncOn:  "--async-scheduling",
-		asyncOff: "--no-async-scheduling",
-	},
-	// Reviewed against the source at the image's build commit, flag by flag, in hack/engine-flag-reviews/vllm-v0.32.0-async-*.json.
-	// The list equals v0.27.1's because every setting kept its spelling; it is still written out so the next release is read, not inherited.
-	// Async is rendered either way, because v0.32.0 enables it by default when the flag is absent.
-	platformv1.VLLMReleaseV0320: {
-		digest: platformv1.VLLMV0320Digest,
-		args: []string{
-			"--dtype=half",
-			"--max-model-len=16384",
-			"--max-num-seqs=64",
-			"--gpu-memory-utilization=0.90",
-			"--no-enable-prefix-caching",
-			"--max-num-batched-tokens=512",
-			"--scheduling-policy=priority",
-		},
-		asyncOn:  "--async-scheduling",
-		asyncOff: "--no-async-scheduling",
-	},
-}
+// experimentalReleases are the reviewed rows, rendered by internal/engineargs so a docker engine renders the same list.
+// The CRD enum on experimental.release and TestEveryReleaseInTheCRDHasAReviewedRow keep them equal.
+var experimentalReleases = engineargs.Releases()
 
 // engineProfile resolves the spec's engine to a rendering, or reports false for any combination nobody reviewed.
 // The CRD refuses each such combination first; refusing here as well means a CRD that drifts from the table renders nothing rather than guessed flags.
@@ -152,20 +105,23 @@ func engineProfile(infd *platformv1.InferenceDeployment) (vllmProfile, bool) {
 		return vllmProfile{}, false
 	}
 	rel, ok := experimentalReleases[v.Experimental.Release]
-	if !ok || !strings.HasSuffix(infd.Spec.Image, "@"+rel.digest) {
+	if !ok || !strings.HasSuffix(infd.Spec.Image, "@"+rel.Digest) {
 		return vllmProfile{}, false
 	}
-	var async string
+	var async bool
 	switch v.Experimental.AsyncScheduling {
 	case platformv1.AsyncSchedulingEnabled:
-		async = rel.asyncOn
+		async = true
 	case platformv1.AsyncSchedulingDisabled:
-		async = rel.asyncOff
 	default:
 		return vllmProfile{}, false
 	}
-	// Last, where the validated profiles put --no-async-scheduling, so async off renders their argument order exactly.
-	return vllmProfile{args: append(slices.Clone(rel.args), async), instanceTypes: a10gInstanceTypes}, true
+	// engineargs puts the async flag last, where the validated profiles put --no-async-scheduling.
+	args, err := engineargs.ProfileArgs(v.Experimental.Release, async)
+	if err != nil {
+		return vllmProfile{}, false
+	}
+	return vllmProfile{args: args, instanceTypes: a10gInstanceTypes}, true
 }
 
 // holdCapRequested reports whether the spec asks for HoldCap.
@@ -176,18 +132,13 @@ func holdCapRequested(infd *platformv1.InferenceDeployment) bool {
 // vllmArgs renders the engine's command line: the Hub repository, the profile, the routing names and the pinned revision.
 // The CEL rule on the spec guarantees the hf:// form, so the prefix is only removed here.
 func vllmArgs(infd *platformv1.InferenceDeployment, p vllmProfile) []string {
-	rev := infd.Spec.Engine.VLLM.ModelRevision
-	args := append([]string{strings.TrimPrefix(infd.Spec.Model.StorageURI, "hf://")}, p.args...)
-	args = append(args,
-		fmt.Sprintf("--port=%d", servingPort(infd)),
-		"--served-model-name="+infd.Spec.Model.Name,
-		"--revision="+rev,
-		"--tokenizer-revision="+rev,
-	)
-	if holdCapRequested(infd) {
-		args = append(args, fmt.Sprintf("--long-prefill-token-threshold=%d", holdCapPrefillThreshold))
-	}
-	return args
+	return engineargs.Command(p.args, engineargs.Deployment{
+		Model:      strings.TrimPrefix(infd.Spec.Model.StorageURI, "hf://"),
+		Port:       servingPort(infd),
+		ServedName: infd.Spec.Model.Name,
+		Revision:   infd.Spec.Engine.VLLM.ModelRevision,
+		HoldCap:    holdCapRequested(infd),
+	})
 }
 
 // admissionLabel is the annotation value for the rendered template, decided by the same test that decided the cap.

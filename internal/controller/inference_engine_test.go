@@ -14,6 +14,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/engineargs"
 )
 
 const measuredRevision = "aa8e72537993ba99e69dfaafa59ed015b17504d1"
@@ -181,9 +182,9 @@ func TestEveryReleaseDigestIsTheOneTheCRDPins(t *testing.T) {
 		t.Fatal(err)
 	}
 	for r, rel := range experimentalReleases {
-		pair := "self.engine.vllm.experimental.release == '" + r + "' && self.image.endsWith('@" + rel.digest + "')"
+		pair := "self.engine.vllm.experimental.release == '" + r + "' && self.image.endsWith('@" + rel.Digest + "')"
 		if !strings.Contains(string(raw), pair) {
-			t.Errorf("the CEL rule does not pin release %s to %s", r, rel.digest)
+			t.Errorf("the CEL rule does not pin release %s to %s", r, rel.Digest)
 		}
 	}
 }
@@ -366,7 +367,7 @@ func TestEveryRenderedProfileSchedulesByPriority(t *testing.T) {
 		}
 	}
 	for name, rel := range experimentalReleases {
-		if !slices.Contains(rel.args, "--scheduling-policy=priority") {
+		if !slices.Contains(rel.Args, "--scheduling-policy=priority") {
 			t.Errorf("release %s does not schedule by priority, and the gateway binds a tier on every rendered engine", name)
 		}
 	}
@@ -395,5 +396,30 @@ func TestPrefixCacheProfileDiffersOnlyInCaching(t *testing.T) {
 	}
 	if !slices.Equal(base.instanceTypes, pc.instanceTypes) {
 		t.Fatalf("instance types %v and %v differ", base.instanceTypes, pc.instanceTypes)
+	}
+}
+
+// A docker engine renders its container's arguments from internal/engineargs, so the Pod's must be that same list.
+// Mutation that turns this red: render the Pod's arguments by any path other than engineargs.Command.
+func TestPodArgsAreTheSharedRendererOutput(t *testing.T) {
+	for _, async := range []string{platformv1.AsyncSchedulingDisabled, platformv1.AsyncSchedulingEnabled} {
+		infd := experimentalInfD(async)
+		infd.Spec.Image = platformv1.VLLMV0320Image
+		infd.Spec.Engine.VLLM.Experimental.Release = platformv1.VLLMReleaseV0320
+		dep := &appsv1.Deployment{}
+		if !mutateEngineDeployment(infd, dep) {
+			t.Fatalf("async %s rendered nothing", async)
+		}
+		profile, err := engineargs.ProfileArgs(platformv1.VLLMReleaseV0320, async == platformv1.AsyncSchedulingEnabled)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := engineargs.Command(profile, engineargs.Deployment{
+			Model: strings.TrimPrefix(infd.Spec.Model.StorageURI, "hf://"), Port: servingPort(infd),
+			ServedName: infd.Spec.Model.Name, Revision: infd.Spec.Engine.VLLM.ModelRevision,
+		})
+		if got := dep.Spec.Template.Spec.Containers[0].Args; !slices.Equal(got, want) {
+			t.Fatalf("async %s: Pod args %v, the shared renderer gives %v", async, got, want)
+		}
 	}
 }
