@@ -282,19 +282,16 @@ type RuntimeIdentity struct {
 	ModelRevision      string
 	TokenizerRevision  string
 	ChatTemplateSHA256 string
-	// EffectiveArgsSHA256 is the sha256 of the argument record the engine logged, compared with the reviewed one.
-	EffectiveArgsSHA256 string
+	// ProfileArgs are the engine's profile arguments as observed on the running process, normalised by ParseProfileArgs.
+	//
+	// They are compared with the registration's ReviewedProfileArgs; the review file's own hash is provenance, not something an argv can match.
+	ProfileArgs []string
 	// Settings are the registered settings as read back from the running engine.
 	Settings EngineSettings
 }
 
 // CompareRuntime refuses an engine that is not the one the bundle and the registration name.
 func (b *CampaignBundle) CompareRuntime(d VersionStudyDesign, treatment string, rt RuntimeIdentity) error {
-	want, ok := d.Engines[treatment]
-	if !ok {
-		return fmt.Errorf("treatment %q is not registered", treatment)
-	}
-	want.Image = b.Images[treatment]
 	switch {
 	case rt.ModelRevision != b.ModelRevision:
 		return fmt.Errorf("engine serves model revision %q, the bundle %q", rt.ModelRevision, b.ModelRevision)
@@ -303,15 +300,10 @@ func (b *CampaignBundle) CompareRuntime(d VersionStudyDesign, treatment string, 
 	case rt.ChatTemplateSHA256 != b.ChatTemplateSHA256:
 		return fmt.Errorf("engine applies chat template %q, the bundle %q", rt.ChatTemplateSHA256, b.ChatTemplateSHA256)
 	}
-	if review, reviewed := d.EngineFlagReviews[treatment]; reviewed && rt.EffectiveArgsSHA256 != review {
-		return fmt.Errorf("engine's effective arguments hash to %q, the reviewed record is %q", rt.EffectiveArgsSHA256, review)
+	if imageDigest(rt.Image) != imageDigest(b.Images[treatment]) {
+		return fmt.Errorf("engine of treatment %s runs %q, the bundle froze %q", treatment, rt.Image, b.Images[treatment])
 	}
-	got := rt.Settings
-	got.VLLMVersion, got.Image = rt.VLLMVersion, rt.Image
-	if diff := want.Diff(got); diff != "" {
-		return fmt.Errorf("engine of treatment %s: %s", treatment, diff)
-	}
-	return nil
+	return d.CheckRuntime(treatment, rt)
 }
 
 // AttemptStatus is how a block attempt ended.

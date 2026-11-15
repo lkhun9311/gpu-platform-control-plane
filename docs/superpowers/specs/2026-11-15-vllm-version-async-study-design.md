@@ -28,6 +28,14 @@ It does **not** license:
 | **Still open** | nothing (the engine-path track froze the last four values on 2026-11-15) | `Unfrozen` would list B's and C's image digest and flag review if any were unset; `PreflightRefusal` refuses every manifest and bundle while it lists anything |
 
 The two engine-path fields are `EngineSettings.Image` for treatments B and C, and `EngineFlagReviews`: the sha256 of the effective-argument record that track reviewed against the v0.32.0 image's own flags, confirming that each registered setting maps to a real flag.
+
+**Runtime identity compares arguments, not hashes** (#608).
+- A running engine's command line is reduced by `ParseProfileArgs` to its profile arguments, without the model, port, served name and revisions.
+- `CheckRuntime` compares those arguments, in order, with `ReviewedProfileArgs`:
+  - for B and C, the review records' `renderedProfileArgs`, which `TestReviewedProfileArgsAreTheReviewRecords` holds to the files `EngineFlagReviews` hashes;
+  - for A, the validated v0.27.1 profile.
+- No argv can hash to the review file, so its hash stays provenance.
+- `CheckRuntime` needs no bundle, so a wrong engine is refused at preflight, before calibration. `CompareRuntime` adds the bundle's frozen image.
 B and C run `vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34`, the manifest list Docker Hub's `v0.32.0` tag resolved to on 2026-11-15; the image records the build commit the tag names.
 Their reviews are `hack/engine-flag-reviews/vllm-v0.32.0-async-off.json` (B) and `hack/engine-flag-reviews/vllm-v0.32.0-async-on.json` (C); `TestEngineFlagReviewsAreTheCommittedRecords` recomputes both hashes, and the controller's `TestExperimentalV0320RendersItsReviewedRecord` holds the rendering to the same files.
 That is a source review: no flag's effect on v0.32.0 has been measured here.

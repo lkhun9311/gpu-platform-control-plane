@@ -161,6 +161,11 @@ type VersionStudyDesign struct {
 	//
 	// Empty until that track has read the image's own flags and confirmed each registered setting maps to one; this registration does not guess them.
 	EngineFlagReviews map[string]string
+	// ReviewedProfileArgs is, per treatment, the engine's profile arguments a running engine must show, in order.
+	//
+	// B's and C's are the renderedProfileArgs of the review records EngineFlagReviews hashes; A's is the validated v0.27.1 profile.
+	// Runtime identity compares the arguments observed on the running engine with these, not with a hash of the review file.
+	ReviewedProfileArgs map[string][]string
 	// Primary selects a deployment, Fallback selects only when Primary does not adopt, and Explanatory never selects.
 	Primary, Fallback, Explanatory Comparison
 	// CampaignSeed fixes every block's treatment order and workload before any run, so neither can be redrawn after a bad block.
@@ -210,6 +215,11 @@ func versionAsyncDesign() VersionStudyDesign {
 			TreatmentC: versionStudyEngine("v0.32.0", "vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34", true),
 		},
 		// The sha256 of hack/engine-flag-reviews/vllm-v0.32.0-async-{off,on}.json, which the controller's rendering is tested against.
+		ReviewedProfileArgs: map[string][]string{
+			TreatmentA: versionStudyProfileArgs("--no-async-scheduling"),
+			TreatmentB: versionStudyProfileArgs("--no-async-scheduling"),
+			TreatmentC: versionStudyProfileArgs("--async-scheduling"),
+		},
 		EngineFlagReviews: map[string]string{
 			TreatmentB: "a3c54f90e6e3650966b6734f748d627fc291381374f726d606242c950c98a6f2",
 			TreatmentC: "a51d414bae84b38910962259cb42dec8fc98c83c90ba8a4cd2676afa928806fc",
@@ -255,6 +265,14 @@ func versionAsyncDesign() VersionStudyDesign {
 		},
 		BudgetUSD:  20,
 		ReserveUSD: 2,
+	}
+}
+
+// versionStudyProfileArgs is the measured A10G profile's arguments with the treatment's async flag last, as the controller renders them.
+func versionStudyProfileArgs(async string) []string {
+	return []string{
+		"--dtype=half", "--max-model-len=16384", "--max-num-seqs=64", "--gpu-memory-utilization=0.90",
+		"--no-enable-prefix-caching", "--max-num-batched-tokens=512", "--scheduling-policy=priority", async,
 	}
 }
 
