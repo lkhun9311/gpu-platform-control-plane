@@ -51,7 +51,7 @@ func prefixText(family string, words int) string {
 	r := rand.New(rand.NewSource(int64(h.Sum64()))) //nolint:gosec
 	out := make([]string, 0, words+4)
 	out = append(out, "Context", "for", family+":")
-	for i := 0; i < words; i++ {
+	for range words {
 		out = append(out, vocabulary[r.Intn(len(vocabulary))])
 	}
 	return strings.Join(out, " ")
@@ -106,7 +106,7 @@ func parseUsage(body []byte) (prompt, cached int, err error) {
 // expandPlan turns "F0,F1,F2*3" into a family per request; "*n" repeats so a plan stays one readable flag.
 func expandPlan(plan string) ([]string, error) {
 	var out []string
-	for _, item := range strings.Split(plan, ",") {
+	for item := range strings.SplitSeq(plan, ",") {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			continue
@@ -135,7 +135,8 @@ func main() {
 	words := flag.Int("prefix-words", 300, "words in each family's shared prefix")
 	tag := flag.String("tag", "run", "prefix of every x-request-id, so the EPP log can be joined")
 	target := flag.String("target", "gateway", "label written into each record: gateway or direct:<pod>")
-	gap := flag.Duration("gap", 300*time.Millisecond, "pause between requests, so KV events can land before the next decision")
+	gap := flag.Duration("gap", 300*time.Millisecond,
+		"pause between requests, so KV events can land before the next decision")
 	out := flag.String("out", "", "JSONL file to append to; stdout when empty")
 	flag.Parse()
 
@@ -151,7 +152,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "driver:", err)
 			os.Exit(2)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		w = f
 	}
 	client := &http.Client{Timeout: 60 * time.Second}
@@ -199,7 +200,7 @@ func send(client *http.Client, base, model, family string, words int, requestID,
 		rec.Error = err.Error()
 		return rec
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, _ := io.ReadAll(resp.Body)
 	rec.Status = resp.StatusCode
 	rec.Pod = resp.Header.Get("x-inference-pod")

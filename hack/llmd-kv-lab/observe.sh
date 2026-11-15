@@ -111,7 +111,7 @@ run_arm() {
   # The old pod must be gone, not just a new one Ready, or the gateway could still be talking to the old process.
   k wait --for=delete pod/"$first" --timeout=120s >/dev/null || true
   wait_epp_ready
-  echo "$(epp_pod)" >"$RUN/$ARM/epp-pod-2.txt"
+  epp_pod >"$RUN/$ARM/epp-pod-2.txt"
   snap 8-after-restart
   drive restart "$GATEWAY" gateway "F1,F2,F3,W1,F1,F2,F3,W1"
   snap 9-after-restart-requests

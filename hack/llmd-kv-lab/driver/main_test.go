@@ -8,7 +8,8 @@ import (
 
 // Two scorers are compared on the same prompt sequence, so the prefix must be identical across runs.
 func TestPrefixTextIsDeterministicPerFamily(t *testing.T) {
-	if prefixText("F0", 50) != prefixText("F0", 50) {
+	first, again := prefixText("F0", 50), prefixText("F0", 50)
+	if first != again {
 		t.Fatal("same family produced different prefixes")
 	}
 	if prefixText("F0", 50) == prefixText("F1", 50) {

@@ -138,6 +138,7 @@ prepare_images() {
     local dockerfile=$CHECKOUT/Dockerfile.epp
     if ! docker buildx version >/dev/null 2>&1; then
       dockerfile=$LAB_HOME/Dockerfile.epp.legacy-builder
+      # shellcheck disable=SC2016 # the Dockerfile's own ${BUILDPLATFORM} is matched literally, not expanded
       sed 's/^FROM --platform=\${BUILDPLATFORM} /FROM /' "$CHECKOUT/Dockerfile.epp" >"$dockerfile"
     fi
     docker build --quiet --platform linux/amd64 \
@@ -174,6 +175,7 @@ EOF
 render_config() {
   local mode=$1 out=$2
   [ -f "$LAB_DIR/epp-$mode.yaml" ] || die "no EPP config for mode '$mode' (precise, precise-pull, precise-spec or approx)"
+  # shellcheck disable=SC2016 # envsubst takes the variable names literally
   MODEL_NAME=$MODEL_NAME VLLM_RENDER_URL=http://vllm-render:8082 \
     envsubst '${MODEL_NAME} ${VLLM_RENDER_URL}' <"$LAB_DIR/epp-$mode.yaml" >"$out"
 }
@@ -188,8 +190,9 @@ cmd_up() {
   # KV_CACHE_ENABLED=true is what makes the simulators emit KV events; the EPP config is chosen separately below.
   # SIDECAR_IMAGE is set to the EPP image because the EPD layout deletes the sidecar, and the default :dev tag would
   # otherwise be pulled unpinned only to be loaded and never run.
+  local epp_image=$EPP_IMAGE
   (cd "$CHECKOUT" && CLUSTER_NAME=$CLUSTER GATEWAY_HOST_PORT=$GATEWAY_HOST_PORT KV_CACHE_ENABLED=true \
-    VLLM_IMAGE=$SIM_IMAGE EPP_IMAGE=$EPP_IMAGE SIDECAR_IMAGE=$EPP_IMAGE VLLM_RENDER_IMAGE=$RENDER_IMAGE \
+    VLLM_IMAGE=$SIM_IMAGE EPP_IMAGE=$epp_image SIDECAR_IMAGE=$epp_image VLLM_RENDER_IMAGE=$RENDER_IMAGE \
     VLLM_REPLICA_COUNT_D=$SIM_REPLICAS VLLM_EXTRA_ARGS_D="--kv-cache-size=$SIM_KV_BLOCKS" \
     EPP_CONFIG="$LAB_DIR/epp-$mode.yaml" MODEL_NAME=$MODEL_NAME \
     ./scripts/kind-dev-env.sh) >"$LAB_HOME/kind-dev-env.log" 2>&1 \
@@ -257,8 +260,9 @@ cmd_status() {
   [ "$node_digest" = "$SIM_DIGEST" ] || die "the node's $SIM_IMAGE is $node_digest, pinned $SIM_DIGEST"
   node_id=$(docker exec "$node" crictl images --no-trunc | awk -v r="${SIM_IMAGE%:*}" -v t="${SIM_IMAGE##*:}" '$1==r && $2==t {print $3}')
   ids=$(k get pods -l llm-d.ai/component=decode -o jsonpath='{range .items[*]}{.status.containerStatuses[0].imageID}{"\n"}{end}')
-  [ -n "$node_id" ] && ! echo "$ids" | grep -qvx "$node_id" \
-    || die "a simulator pod runs an image other than the node's $SIM_IMAGE ($node_id): $ids"
+  if [ -z "$node_id" ] || echo "$ids" | grep -qvx "$node_id"; then
+    die "a simulator pod runs an image other than the node's $SIM_IMAGE ($node_id): $ids"
+  fi
   say "simulator pods run $SIM_IMAGE, index $SIM_DIGEST, config $node_id"
 }
 

@@ -75,8 +75,8 @@ eof_count() { k logs "$(epp_pod)" | grep -c 'Failed to receive message from zmq 
 wait_epp_ready() {
   k rollout status deployment/$EPP --timeout=180s >/dev/null
   # The EPP serves only after it has listed the pool's endpoints; a request before that is routed by nothing.
-  local i
-  for i in $(seq 1 60); do
+  local _
+  for _ in $(seq 1 60); do
     curl -sf -o /dev/null "$GATEWAY/v1/models" && return 0
     sleep 2
   done
@@ -92,8 +92,8 @@ fresh_arm() {
   # connected to the EPP pod that mode had just replaced (run 20261115-run1).
   "$LAB" mode "$ARM" | tee -a "$RUN/observe.log"
   # Terminating pods still answer the label selector for a while; wait until only the new ReplicaSet's pods remain.
-  local i
-  for i in $(seq 1 60); do
+  local _
+  for _ in $(seq 1 60); do
     [ "$(k get pods -l llm-d.ai/component=decode --no-headers | wc -l)" = 3 ] && break
     sleep 2
   done
