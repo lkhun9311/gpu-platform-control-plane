@@ -391,21 +391,10 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 	}
 
 	// The write stamp is taken by the transport's own callback, so it marks the request leaving the client rather than Do being called.
-	// The callback runs on the transport's write goroutine, which can still be running when Do returns, so the stamp is guarded.
-	var wroteMu sync.Mutex
-	var wroteAt time.Time
-	traced := httptrace.WithClientTrace(reqCtx, &httptrace.ClientTrace{
-		WroteRequest: func(httptrace.WroteRequestInfo) {
-			now := h.now()
-			wroteMu.Lock()
-			wroteAt = now
-			wroteMu.Unlock()
-		},
-	})
+	stamp := &writeStamp{now: h.now}
+	traced := httptrace.WithClientTrace(reqCtx, &httptrace.ClientTrace{WroteRequest: stamp.wrote})
 	withWrite := func(r SendResult) SendResult {
-		wroteMu.Lock()
-		defer wroteMu.Unlock()
-		r.TransportWriteAt = wroteAt
+		r.TransportWriteAt = stamp.at()
 		return r
 	}
 	req, err := http.NewRequestWithContext(traced, http.MethodPost, h.gatewayURL+"/v1/chat/completions", bytes.NewReader(buf))
@@ -635,3 +624,29 @@ func (r *SendResult) stampEnd(now time.Time) {
 
 // streamErrorNoEndMarker is the StreamError of a stream that ended without its [DONE] marker.
 const streamErrorNoEndMarker = "the stream ended without data: [DONE]"
+
+// writeStamp records when the transport finished writing a request, and only when the write succeeded.
+//
+// The transport calls WroteRequest on a failed write too, with Err set, and a request that was never fully written must not look sent.
+// The callback runs on the transport's write goroutine, which can still be running when Do returns, so the stamp is guarded.
+type writeStamp struct {
+	now func() time.Time
+	mu  sync.Mutex
+	t   time.Time
+}
+
+func (s *writeStamp) wrote(info httptrace.WroteRequestInfo) {
+	if info.Err != nil {
+		return
+	}
+	now := s.now()
+	s.mu.Lock()
+	s.t = now
+	s.mu.Unlock()
+}
+
+func (s *writeStamp) at() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.t
+}

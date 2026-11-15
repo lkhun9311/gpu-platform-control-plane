@@ -3,10 +3,12 @@ package bench
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"slices"
 	"sync"
 	"testing"
@@ -142,5 +144,19 @@ func TestFromIntendedRefusesAMissingStamp(t *testing.T) {
 	}
 	if _, ok := (RequestClock{}).FromIntended(&ten); ok {
 		t.Fatal("a row with no intended arrival gave a latency")
+	}
+}
+
+// TestWriteStampIgnoresAFailedWrite: the transport reports a failed write through the same callback, and that request was never sent in full.
+func TestWriteStampIgnoresAFailedWrite(t *testing.T) {
+	fixed := time.Unix(100, 0)
+	s := &writeStamp{now: func() time.Time { return fixed }}
+	s.wrote(httptrace.WroteRequestInfo{Err: errors.New("broken pipe")})
+	if !s.at().IsZero() {
+		t.Fatalf("a failed write was stamped at %v", s.at())
+	}
+	s.wrote(httptrace.WroteRequestInfo{})
+	if !s.at().Equal(fixed) {
+		t.Fatalf("a completed write was stamped at %v, want %v", s.at(), fixed)
 	}
 }
