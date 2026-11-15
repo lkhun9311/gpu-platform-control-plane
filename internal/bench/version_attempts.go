@@ -24,6 +24,10 @@ const (
 	journalStart   = "start"
 	journalEnd     = "end"
 	journalArchive = "archive"
+	// journalFault records that a write or sync of the journal failed.
+	// Rule 5 makes any durability error invalidate its block and the stop rules end the campaign, so the fault closes the
+	// attempt it touched as stopped: it is not analysed, not replaced, and nothing starts after it.
+	journalFault = "fault"
 )
 
 // journalRecord is one line of the attempt journal.
@@ -50,6 +54,8 @@ type journalState struct {
 	pending *PendingAttempt
 	seen    map[int]bool
 	stopped bool
+	// last is the last record applied, so recovery can tell a fault it already appended.
+	last journalRecord
 }
 
 func newJournalState(campaign string) *journalState {
@@ -62,7 +68,7 @@ func (s *journalState) apply(r journalRecord) error {
 		return fmt.Errorf("record is for campaign %q, the journal for %q", r.Campaign, s.ledger.CampaignID)
 	case r.At.IsZero():
 		return fmt.Errorf("%s record has no time", r.Kind)
-	case s.ledger.Closed:
+	case s.ledger.Closed && r.Kind != journalFault:
 		return fmt.Errorf("%s record after the ledger was archived", r.Kind)
 	}
 	switch r.Kind {
@@ -103,9 +109,53 @@ func (s *journalState) apply(r journalRecord) error {
 			return fmt.Errorf("archive while block %d is still open; recover it first", s.pending.Block)
 		}
 		s.ledger.Closed = true
+	case journalFault:
+		if err := s.applyFault(r); err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("record kind %q is not start, end or archive", r.Kind)
+		return fmt.Errorf("record kind %q is not start, end, archive or fault", r.Kind)
 	}
+	s.last = r
+	return nil
+}
+
+// applyFault closes the attempt the failed record belonged to as stopped, whichever of its records failed.
+//
+// A failed start whose line never reached the file names a block the journal has not seen: no cell ran, so only the
+// campaign stops. A failed end may be whole on disk with its durability unknown, so the attempt it ended is stopped
+// whatever status it gave. A failed archive names block 0 and reopens the ledger, since the archive is not established.
+func (s *journalState) applyFault(r journalRecord) error {
+	if r.Reason == "" {
+		return fmt.Errorf("fault record for block %d has no reason", r.Block)
+	}
+	reason := "recorder failure: " + r.Reason
+	n := len(s.ledger.Attempts)
+	switch {
+	case r.Block == 0:
+		if s.pending != nil {
+			return fmt.Errorf("fault names no block while block %d is open", s.pending.Block)
+		}
+		s.ledger.Closed = false
+	case s.pending != nil && s.pending.Block == r.Block:
+		if !r.At.After(s.pending.StartedAt) {
+			return fmt.Errorf("fault of block %d at %s is not after its start", r.Block, r.At.Format(time.RFC3339Nano))
+		}
+		s.ledger.Attempts = append(s.ledger.Attempts, BlockAttempt{
+			Block: r.Block, Status: AttemptStopped, Reason: reason,
+			StartedAt: s.pending.StartedAt, EndedAt: r.At, Replaces: s.pending.Replaces,
+		})
+		s.pending = nil
+	case s.pending != nil:
+		return fmt.Errorf("fault names block %d while block %d is open", r.Block, s.pending.Block)
+	case n > 0 && s.ledger.Attempts[n-1].Block == r.Block:
+		s.ledger.Attempts[n-1].Status = AttemptStopped
+		s.ledger.Attempts[n-1].Reason = reason
+	case !s.seen[r.Block]:
+	default:
+		return fmt.Errorf("fault names block %d, which is neither open nor the last attempt", r.Block)
+	}
+	s.stopped = true
 	return nil
 }
 
@@ -168,6 +218,7 @@ type journalFile interface {
 // AttemptJournal appends attempt records, each synced before the call returns.
 type AttemptJournal struct {
 	f     journalFile
+	path  string
 	state *journalState
 	// failed is the first write or sync error; after it the file may end in torn bytes a later record would be appended onto.
 	failed error
@@ -181,6 +232,11 @@ func OpenAttemptJournal(path, campaign string) (*AttemptJournal, error) {
 	if campaign == "" {
 		return nil, errors.New("the journal names no campaign")
 	}
+	if _, err := os.Stat(faultMarkerPath(path)); err == nil {
+		return nil, fmt.Errorf("%s records a failed journal write; recover the journal before starting another attempt", faultMarkerPath(path))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
@@ -190,23 +246,21 @@ func OpenAttemptJournal(path, campaign string) (*AttemptJournal, error) {
 		_ = f.Close()
 		return nil, err
 	}
-	l, pending, err := ReadAttemptJournal(path, campaign)
+	// The journal continues from the reader's own fold, so a new record is checked against exactly what a reader would accept.
+	s, tail, _, err := readJournal(path, campaign)
+	if err == nil && len(tail) > 0 {
+		err = fmt.Errorf("%s ends in an unterminated record (%d bytes); recover the journal before starting another attempt", path, len(tail))
+	}
 	if err != nil {
 		_ = f.Close()
 		return nil, err
 	}
-	if pending != nil {
+	if s.pending != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("block %d started at %s and has no recorded end; recover the journal before starting another attempt",
-			pending.Block, pending.StartedAt.Format(time.RFC3339))
+			s.pending.Block, s.pending.StartedAt.Format(time.RFC3339))
 	}
-	s := newJournalState(campaign)
-	s.ledger = l
-	for _, a := range l.Attempts {
-		s.seen[a.Block] = true
-		s.stopped = s.stopped || a.Status == AttemptStopped
-	}
-	return &AttemptJournal{f: f, state: s}, nil
+	return &AttemptJournal{f: f, path: path, state: s}, nil
 }
 
 // Start records that a block attempt has begun; it must return before the attempt's first cell runs.
@@ -242,6 +296,18 @@ func (j *AttemptJournal) append(r journalRecord) error {
 	}
 	if err := writeJournalLine(j.f, r); err != nil {
 		j.failed = err
+		// The marker goes beside the journal, not into it: the journal may now end in torn bytes.
+		block := r.Block
+		if r.Kind == journalArchive {
+			block = 0
+		}
+		fault := journalRecord{
+			Kind: journalFault, Campaign: r.Campaign, Block: block, At: r.At,
+			Reason: fmt.Sprintf("the %s record failed: %v", r.Kind, err),
+		}
+		if merr := writeFaultMarker(j.path, fault); merr != nil {
+			return errors.Join(err, fmt.Errorf("the failure itself could not be recorded, so the runner must stop and report it: %w", merr))
+		}
 		return err
 	}
 	*j.state = next
@@ -269,6 +335,8 @@ type JournalRecovery struct {
 	DroppedTail string
 	// Recovered is the open attempt that was closed as stopped, if there was one.
 	Recovered *PendingAttempt
+	// Fault is the recorded write failure that was moved into the journal, if there was one.
+	Fault string
 }
 
 // RecoverAttemptJournal makes a journal left by a crash readable again, and records the open attempt as stopped.
@@ -288,7 +356,11 @@ func RecoverAttemptJournal(path, campaign string, now time.Time) (JournalRecover
 		return JournalRecovery{}, err
 	}
 	defer func() { _ = f.Close() }()
-	if s.pending != nil && !now.After(s.pending.StartedAt) {
+	fault, hasFault, err := readFaultMarker(path)
+	if err != nil {
+		return JournalRecovery{}, err
+	}
+	if !hasFault && s.pending != nil && !now.After(s.pending.StartedAt) {
 		return JournalRecovery{}, fmt.Errorf("recovery time %s is not after block %d's start at %s",
 			now.Format(time.RFC3339Nano), s.pending.Block, s.pending.StartedAt.Format(time.RFC3339Nano))
 	}
@@ -300,6 +372,24 @@ func RecoverAttemptJournal(path, campaign string, now time.Time) (JournalRecover
 			return JournalRecovery{}, fmt.Errorf("sync %s: %w", path, err)
 		}
 		rec.DroppedTail = string(tail)
+	}
+	if hasFault {
+		// A crash between appending the fault and removing its marker leaves both; the fault is recorded once.
+		if !sameRecord(s.last, fault) {
+			if err := s.apply(fault); err != nil {
+				return JournalRecovery{}, fmt.Errorf("apply %s: %w", faultMarkerPath(path), err)
+			}
+			if err := writeJournalLine(f, fault); err != nil {
+				return JournalRecovery{}, err
+			}
+		}
+		rec.Fault = fault.Reason
+		if err := os.Remove(faultMarkerPath(path)); err != nil {
+			return JournalRecovery{}, err
+		}
+		if err := syncDirOf(path); err != nil {
+			return JournalRecovery{}, err
+		}
 	}
 	if s.pending != nil {
 		p := *s.pending
@@ -325,4 +415,58 @@ func syncDirOf(path string) error {
 	}
 	defer func() { _ = d.Close() }()
 	return d.Sync()
+}
+
+// faultMarkerPath is where a failed journal write is recorded.
+func faultMarkerPath(journal string) string { return journal + ".fault" }
+
+// writeFaultMarker records a failed write in a new file, synced with its directory entry.
+func writeFaultMarker(journal string, r journalRecord) error {
+	line, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(faultMarkerPath(journal), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return syncDirOf(journal)
+}
+
+// readFaultMarker reads a recorded write failure, refusing a marker it cannot read whole.
+func readFaultMarker(journal string) (journalRecord, bool, error) {
+	data, err := os.ReadFile(faultMarkerPath(journal))
+	if errors.Is(err, os.ErrNotExist) {
+		return journalRecord{}, false, nil
+	}
+	if err != nil {
+		return journalRecord{}, false, err
+	}
+	var r journalRecord
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&r); err != nil {
+		return journalRecord{}, false, fmt.Errorf("%s: %w", faultMarkerPath(journal), err)
+	}
+	if _, err := dec.Token(); err != io.EOF || r.Kind != journalFault {
+		return journalRecord{}, false, fmt.Errorf("%s does not hold exactly one fault record", faultMarkerPath(journal))
+	}
+	return r, true, nil
+}
+
+func sameRecord(a, b journalRecord) bool {
+	at := a.At.Equal(b.At)
+	a.At, b.At = time.Time{}, time.Time{}
+	return at && a == b
 }

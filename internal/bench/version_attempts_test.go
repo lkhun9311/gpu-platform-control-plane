@@ -138,6 +138,7 @@ func TestTheJournalRefusesRecordsThatAreNotASequence(t *testing.T) {
 		"start after stopped":  {line(`{"kind":"start","campaign":"camp-1","block":1,"at":"2026-11-20T03:00:00Z"}`) + line(`{"kind":"end","campaign":"camp-1","block":1,"status":"stopped","reason":"deadline","at":"2026-11-20T04:00:00Z"}`) + line(`{"kind":"start","campaign":"camp-1","block":2,"at":"2026-11-20T05:00:00Z"}`), "stopped"},
 		"block started twice":  {line(`{"kind":"start","campaign":"camp-1","block":1,"at":"2026-11-20T03:00:00Z"}`) + line(`{"kind":"end","campaign":"camp-1","block":1,"status":"invalid","reason":"lag","at":"2026-11-20T04:00:00Z"}`) + line(`{"kind":"start","campaign":"camp-1","block":1,"at":"2026-11-20T05:00:00Z"}`), "twice"},
 		"end at its start":     {line(`{"kind":"start","campaign":"camp-1","block":1,"at":"2026-11-20T03:00:00Z"}`) + line(`{"kind":"end","campaign":"camp-1","block":1,"status":"valid","at":"2026-11-20T03:00:00Z"}`), "not after"},
+		"start after a fault":  {line(`{"kind":"fault","campaign":"camp-1","reason":"sync failed","at":"2026-11-20T03:00:00Z"}`) + line(`{"kind":"start","campaign":"camp-1","block":1,"at":"2026-11-20T04:00:00Z"}`), "stopped"},
 		"unknown field":        {line(`{"kind":"start","campaign":"camp-1","block":1,"at":"2026-11-20T03:00:00Z","note":"x"}`), "unknown field"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -236,7 +237,7 @@ func TestAJournalThatFailedAWriteTakesNoMoreRecords(t *testing.T) {
 	}
 	_ = j.Close()
 	rec, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(2*time.Hour))
-	if err != nil || rec.DroppedTail == "" || rec.Recovered == nil {
+	if err != nil || rec.DroppedTail == "" || rec.Fault == "" {
 		t.Fatalf("recovery %+v err %v", rec, err)
 	}
 }
@@ -254,5 +255,125 @@ func TestAJournalLineHoldsExactlyOneRecord(t *testing.T) {
 				t.Fatalf("read %+v from a line with trailing bytes", l)
 			}
 		})
+	}
+}
+
+// syncFailFile writes every byte but fails the sync once, so the record is whole on disk and its durability unknown.
+type syncFailFile struct {
+	*os.File
+	failed bool
+}
+
+func (f *syncFailFile) Sync() error {
+	if !f.failed {
+		f.failed = true
+		return errors.New("input/output error")
+	}
+	return f.File.Sync()
+}
+
+// TestARecorderFailureSurvivesRecovery: rule 5 makes a block with any durability error invalid and the campaign stops,
+// so a whole valid end whose sync failed must not come back from recovery as valid.
+func TestARecorderFailureSurvivesRecovery(t *testing.T) {
+	for name, wrap := range map[string]func(*os.File) journalFile{
+		"sync fails":    func(f *os.File) journalFile { return &syncFailFile{File: f} },
+		"write is torn": func(f *os.File) journalFile { return &tornFile{File: f} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			path, j := openTestJournal(t)
+			if err := j.Start(1, 0, journalT0); err != nil {
+				t.Fatal(err)
+			}
+			j.f = wrap(j.f.(*os.File))
+			if err := j.End(1, AttemptValid, "", journalT0.Add(time.Hour)); err == nil {
+				t.Fatal("a failed end was reported written")
+			}
+			_ = j.Close()
+			if _, err := OpenAttemptJournal(path, "camp-1"); err == nil || !strings.Contains(err.Error(), "recover") {
+				t.Fatalf("a journal with a recorded fault was reopened: %v", err)
+			}
+			if _, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(2*time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			l, pending, err := ReadAttemptJournal(path, "camp-1")
+			if err != nil || pending != nil || len(l.Attempts) != 1 {
+				t.Fatalf("ledger %+v pending %+v err %v", l, pending, err)
+			}
+			if a := l.Attempts[0]; a.Status != AttemptStopped || !strings.Contains(a.Reason, "recorder failure") {
+				t.Fatalf("attempt after a recorder failure: %+v", a)
+			}
+			j2, err := OpenAttemptJournal(path, "camp-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = j2.Close() }()
+			if err := j2.Start(2, 0, journalT0.Add(3*time.Hour)); err == nil {
+				t.Fatal("a block started after a recorder failure")
+			}
+			// Recovering again changes nothing: the fault is recorded once.
+			if _, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(4*time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			if l2, _, _ := ReadAttemptJournal(path, "camp-1"); len(l2.Attempts) != 1 || l2.Attempts[0] != l.Attempts[0] {
+				t.Fatalf("a second recovery changed the ledger: %+v", l2)
+			}
+		})
+	}
+}
+
+// TestAFailedArchiveReopensTheLedgerAndStopsTheCampaign: the archive is not established, and no block may start after the fault.
+func TestAFailedArchiveReopensTheLedgerAndStopsTheCampaign(t *testing.T) {
+	path, j := openTestJournal(t)
+	_ = j.Start(1, 0, journalT0)
+	_ = j.End(1, AttemptValid, "", journalT0.Add(time.Hour))
+	j.f = &syncFailFile{File: j.f.(*os.File)}
+	if err := j.Archive(journalT0.Add(2 * time.Hour)); err == nil {
+		t.Fatal("a failed archive was reported written")
+	}
+	_ = j.Close()
+	if _, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	l, _, err := ReadAttemptJournal(path, "camp-1")
+	if err != nil || l.Closed || l.Attempts[0].Status != AttemptValid {
+		t.Fatalf("ledger %+v err %v; want block 1 valid and the ledger open", l, err)
+	}
+	j2, err := OpenAttemptJournal(path, "camp-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = j2.Close() }()
+	if err := j2.Start(2, 0, journalT0.Add(4*time.Hour)); err == nil {
+		t.Fatal("a block started after a recorder failure")
+	}
+	if err := j2.Archive(journalT0.Add(4 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRecoveryRecordsAFaultOnceAcrossACrash: a crash after the fault is appended and before its marker is removed leaves both.
+func TestRecoveryRecordsAFaultOnceAcrossACrash(t *testing.T) {
+	path, j := openTestJournal(t)
+	_ = j.Start(1, 0, journalT0)
+	j.f = &syncFailFile{File: j.f.(*os.File)}
+	_ = j.End(1, AttemptValid, "", journalT0.Add(time.Hour))
+	_ = j.Close()
+	marker, err := os.ReadFile(faultMarkerPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	_ = os.WriteFile(faultMarkerPath(path), marker, 0o644)
+	if _, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatalf("the fault was appended twice:\n%s", after)
+	}
+	if _, err := os.Stat(faultMarkerPath(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the marker was left: %v", err)
 	}
 }

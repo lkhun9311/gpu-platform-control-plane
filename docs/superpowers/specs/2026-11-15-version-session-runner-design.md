@@ -62,6 +62,12 @@ Every step writes its evidence before the next starts. Every step has the bound 
      - A block's start is synced to it before the block's first cell runs.
      - A crash therefore leaves an open attempt rather than manifests of a block the ledger never saw.
      - `RecoverAttemptJournal` closes that attempt as stopped, so the campaign ends there as an incomplete pilot. It also cuts a torn last line, which was never acknowledged (#612).
+     - A failed write or sync of the journal is itself a recorder failure (rule 5).
+       - It is recorded in a marker beside the journal, because the journal may now end in torn bytes.
+       - The journal takes no more records, and it cannot be reopened until recovery moves the fault into it.
+       - The fault stops the attempt it touched, even one whose valid end is whole on disk with its durability unknown.
+       - A failed archive reopens the ledger, and in both cases no block starts after the fault.
+       - If the marker cannot be written either, the only record left is the runner's error and exit status (#614).
 6. **Close:** archive the ledger, run `CheckVersionCampaign`, write the campaign summary, stop. The verdict is computed offline from the archived evidence, not on the instance.
 
 Stop rules end the campaign as an incomplete pilot:
