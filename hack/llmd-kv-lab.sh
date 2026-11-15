@@ -289,7 +289,8 @@ cmd_down() {
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   case "${1:-}" in
     pins) cmd_pins ;;
-    check) fetch_checkout; cmd_check ;;
+    # check inspects the checkout as it is; only up fetches or moves it, so drift is reported rather than repaired.
+    check) cmd_check ;;
     up) cmd_up "${2:-precise}" ;;
     mode) cmd_mode "${2:-}" ;;
     status) cmd_status ;;

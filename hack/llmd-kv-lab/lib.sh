@@ -32,18 +32,41 @@ lab_init() {
   k proxy --port="$PROXY_PORT" >"$RUN/kubectl-proxy.log" 2>&1 &
   PROXY_PID=$!
   trap lab_cleanup EXIT
-  sleep 2
+  # The proxy must be this run's and must reach this lab's cluster: a port already taken would leave every request to
+  # whatever already listens there, possibly a proxy for another cluster.
+  local _
+  for _ in $(seq 1 20); do
+    kill -0 "$PROXY_PID" 2>/dev/null || { echo "lab: kubectl proxy exited (port $PROXY_PORT taken?); see $RUN/kubectl-proxy.log" >&2; exit 1; }
+    curl -sf -o /dev/null "$PROXY/api/v1/namespaces/kube-system/configmaps/gpuaas-llmd-kv-lab-owner" && return 0
+    sleep 0.5
+  done
+  echo "lab: the proxy on $PROXY_PORT never reached this lab's cluster" >&2
+  exit 1
 }
+
+# FW_TAG marks this run's firewall rules, so cleanup removes exactly them and never an identical rule another run added.
+FW_TAG=llmd-kv-lab-$STAMP-$$
 
 lab_cleanup() {
   kill "$PROXY_PID" 2>/dev/null || true
   # A blocked ZMQ path must never outlive the run, or the next run would measure it without knowing.
-  # Only the rules this run inserted are removed, one deletion per insertion, so nothing it did not add is touched.
-  while [ "${FW_INSERTED:-0}" -gt 0 ]; do
-    docker exec "$NODE" iptables -D FORWARD -p tcp --dport 5557 -j DROP || true
-    docker exec "$NODE" iptables -D FORWARD -p tcp --sport 5557 -j DROP || true
-    FW_INSERTED=$((FW_INSERTED - 1))
-  done
+  fw_remove_own
+}
+
+# fw_block inserts this run's two DROP rules for the ZMQ port, each carrying FW_TAG.
+fw_block() {
+  docker exec "$NODE" iptables -I FORWARD -p tcp --dport 5557 -m comment --comment "$FW_TAG" -j DROP
+  docker exec "$NODE" iptables -I FORWARD -p tcp --sport 5557 -m comment --comment "$FW_TAG" -j DROP
+}
+
+# fw_remove_own deletes every FORWARD rule carrying FW_TAG, and nothing else, however far insertion or removal got.
+fw_remove_own() {
+  local rule
+  docker exec "$NODE" iptables -S FORWARD 2>/dev/null | grep -F -- "--comment $FW_TAG " | sed 's/^-A /-D /' \
+    | while read -r rule; do
+      # shellcheck disable=SC2086 # the rule spec is split into iptables arguments on purpose
+      docker exec "$NODE" iptables $rule || true
+    done
 }
 
 svc() { echo "$PROXY/api/v1/namespaces/default/services/http:$EPP:9090/proxy"; }
