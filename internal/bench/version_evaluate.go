@@ -195,7 +195,7 @@ func (a pooledArm) failureFraction() float64 {
 	return float64(failed) / float64(offered)
 }
 
-// LoadEvidenceFor builds one comparison's evidence at one load, from the cells of the analysed blocks in the same order.
+// LoadEvidenceFor builds one comparison's evidence at one load; reference[i] and candidate[i] must be the same block's cells.
 //
 // The two arms are resampled by the same block counts: a block is the experimental unit both arms ran in, so drawing
 // it draws both, and the effect is recomputed from the pooled populations under every multiset.
@@ -230,26 +230,58 @@ type ComparisonResult struct {
 	Verdict     Verdict
 }
 
-// CampaignCells are the analysed blocks' cell outcomes, by treatment and load, each in the analysed blocks' order.
-type CampaignCells map[string]map[string][][]RequestOutcome
+// CampaignCells are the cells' outcomes by treatment, load and block number.
+//
+// Keyed by block, not by position, so two arms are paired by the block they ran in and never by the order a caller listed them.
+type CampaignCells map[string]map[string]map[int][]RequestOutcome
 
-// Evaluate applies the registered decision to every comparison and selects the engine.
-func (d VersionStudyDesign) Evaluate(windowSeconds int, cells CampaignCells) (map[string]ComparisonResult, string, error) {
+// armBlocks is one arm's cells in the order of blocks, refusing an analysed block the arm has no cell for.
+func (c CampaignCells) armBlocks(treatment, load string, blocks []int) ([][]RequestOutcome, error) {
+	out := make([][]RequestOutcome, 0, len(blocks))
+	for _, b := range blocks {
+		cell, ok := c[treatment][load][b]
+		if !ok {
+			return nil, fmt.Errorf("treatment %s has no %s cell for analysed block %d", treatment, load, b)
+		}
+		out = append(out, cell)
+	}
+	return out, nil
+}
+
+// Evaluate applies the registered decision over the analysed blocks to every comparison and selects the engine.
+//
+// blocks is the set AnalysisSet returned for an archived ledger; nothing else may choose which blocks are analysed.
+func (d VersionStudyDesign) Evaluate(windowSeconds int, blocks []int, cells CampaignCells) (map[string]ComparisonResult, string, error) {
+	if len(blocks) != d.PlannedBlocks {
+		return nil, "", fmt.Errorf("%d analysed blocks, the registration needs %d for a verdict", len(blocks), d.PlannedBlocks)
+	}
 	results := map[string]ComparisonResult{}
-	for name, cmp := range map[string]Comparison{"primary": d.Primary, "fallback": d.Fallback, "explanatory": d.Explanatory} {
+	for _, named := range []struct {
+		name string
+		cmp  Comparison
+	}{{"primary", d.Primary}, {"fallback", d.Fallback}, {"explanatory", d.Explanatory}} {
+		cmp := named.cmp
 		res := ComparisonResult{Comparison: cmp, Assessments: map[string]LoadAssessment{}}
 		var outcomes []LoadOutcome
 		for _, l := range versionStudyLoads {
-			ev, err := d.LoadEvidenceFor(l.Name, windowSeconds, cells[cmp.Reference][l.Name], cells[cmp.Candidate][l.Name])
+			ref, err := cells.armBlocks(cmp.Reference, l.Name, blocks)
 			if err != nil {
-				return nil, "", fmt.Errorf("%s comparison %s vs %s at %s: %w", name, cmp.Candidate, cmp.Reference, l.Name, err)
+				return nil, "", err
+			}
+			cand, err := cells.armBlocks(cmp.Candidate, l.Name, blocks)
+			if err != nil {
+				return nil, "", err
+			}
+			ev, err := d.LoadEvidenceFor(l.Name, windowSeconds, ref, cand)
+			if err != nil {
+				return nil, "", fmt.Errorf("%s comparison %s vs %s at %s: %w", named.name, cmp.Candidate, cmp.Reference, l.Name, err)
 			}
 			a := d.Decision.AssessLoad(ev)
 			res.Assessments[l.Name] = a
 			outcomes = append(outcomes, a.Outcome)
 		}
 		res.Verdict = CombineLoads(outcomes[0], outcomes[1])
-		results[name] = res
+		results[named.name] = res
 	}
 	return results, SelectTreatment(results["primary"].Verdict, results["fallback"].Verdict), nil
 }

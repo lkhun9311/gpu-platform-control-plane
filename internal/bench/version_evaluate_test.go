@@ -222,28 +222,67 @@ func TestAnInfiniteReferenceTailIsNotEvaluable(t *testing.T) {
 	}
 }
 
-// TestEvaluateSelectsByTheRegisteredOrder: C is selected when C vs A adopts; arms must cover every analysed block.
+// TestEvaluateSelectsByTheRegisteredOrder: C is selected when C vs A adopts; every arm needs a cell in every analysed block.
 func TestEvaluateSelectsByTheRegisteredOrder(t *testing.T) {
 	d := versionAsyncDesign()
+	blocks := []int{1, 2, 3, 4, 5, 7}
+	byBlock := func(cells [][]RequestOutcome) map[int][]RequestOutcome {
+		m := map[int][]RequestOutcome{}
+		for i, b := range blocks {
+			m[b] = cells[i]
+		}
+		return m
+	}
 	cells := CampaignCells{}
 	for _, tr := range []string{TreatmentA, TreatmentB, TreatmentC} {
-		cells[tr] = map[string][][]RequestOutcome{}
+		cells[tr] = map[string]map[int][]RequestOutcome{}
 	}
 	for _, l := range versionStudyLoads {
-		cells[TreatmentA][l.Name] = evalCells(400, 1, 0)
-		cells[TreatmentB][l.Name] = evalCells(400, 1, 0)
-		cells[TreatmentC][l.Name] = evalCells(400, 0.8, 0)
+		cells[TreatmentA][l.Name] = byBlock(evalCells(400, 1, 0))
+		cells[TreatmentB][l.Name] = byBlock(evalCells(400, 1, 0))
+		cells[TreatmentC][l.Name] = byBlock(evalCells(400, 0.8, 0))
 	}
-	res, sel, err := d.Evaluate(180, cells)
+	res, sel, err := d.Evaluate(180, blocks, cells)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sel != TreatmentC || res["primary"].Verdict != VerdictAdopt || res["fallback"].Verdict != VerdictEquivalent {
 		t.Fatalf("selection %s, primary %s, fallback %s", sel, res["primary"].Verdict, res["fallback"].Verdict)
 	}
-	cells[TreatmentB][LoadL090] = cells[TreatmentB][LoadL090][:5]
-	if _, _, err := d.Evaluate(180, cells); err == nil || !strings.Contains(err.Error(), "blocks") {
+	if _, _, err := d.Evaluate(180, blocks[:5], cells); err == nil {
+		t.Fatal("a verdict was computed over fewer blocks than registered")
+	}
+	delete(cells[TreatmentB][LoadL090], 7)
+	if _, _, err := d.Evaluate(180, blocks, cells); err == nil || !strings.Contains(err.Error(), "block 7") {
 		t.Fatalf("an arm missing a block was evaluated: %v", err)
+	}
+}
+
+// TestArmsArePairedByBlockNumber: a block-wide slowdown in one block lines up for both arms whatever order the cells were built in.
+func TestArmsArePairedByBlockNumber(t *testing.T) {
+	d := versionAsyncDesign()
+	blocks := []int{1, 2, 3, 4, 5, 6}
+	cells := CampaignCells{}
+	for _, tr := range []string{TreatmentA, TreatmentB, TreatmentC} {
+		cells[tr] = map[string]map[int][]RequestOutcome{}
+		for _, l := range versionStudyLoads {
+			cells[tr][l.Name] = map[int][]RequestOutcome{}
+			f := 1.0
+			if tr == TreatmentC {
+				f = 0.8
+			}
+			for _, b := range blocks {
+				cell := evalCells(200, f*float64(b), 0)[0]
+				cells[tr][l.Name][b] = cell
+			}
+		}
+	}
+	res, _, err := d.Evaluate(180, blocks, cells)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := res["primary"].Assessments[LoadL060]; a.Outcome != OutcomeBenefit {
+		t.Fatalf("paired by block, C is a fifth faster in every block: %s %v", a.Outcome, a.Reasons)
 	}
 }
 
