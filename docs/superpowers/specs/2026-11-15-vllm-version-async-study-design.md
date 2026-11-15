@@ -117,7 +117,7 @@ The artifact (`CalibrationArtifact`: resolved, λ0, every rung with purpose and 
 | length | `max_tokens` = `min_tokens` = the row's cap | output length is a property of the workload |
 
 The harness has never sent a sampling parameter, and v0.27.1 serving this model logged on 2026-10-24 that its defaults "have been overridden by the model's generation_config.json: {'repetition_penalty': 1.05, 'temperature': 0.7, 'top_k': 20, 'top_p': 0.8}" (`hack/mps-capability/2026-10-24-run2/m5c-run/mpscap/diag/logs-engines-m5c-a.txt:59`). top_k is not sent: it has no effect under greedy, and its "disabled" spelling has changed across releases.
-Greedy decoding does not guarantee identical text across versions or batch schedules; output text digests are recorded as diagnostics and are not compared.
+Greedy decoding does not guarantee identical text across versions or batch schedules; output text digests are recorded as diagnostics and are not compared. The sender writes each row's `outputSHA256`, the sha256 of the content text in order (#615). It is empty when no content arrived, and kept for a stream cut off after its content.
 
 Sender interface (owned elsewhere): with `Study.Sampling` set, the sender marshals `SamplingPolicy.RequestFields(row)` into the body, taking `max_tokens` and `min_tokens` from it; nil keeps every earlier study's body unchanged.
 
@@ -127,6 +127,9 @@ Sender interface (owned elsewhere): with `Study.Sampling` set, the sender marsha
 - **Load order is counterbalanced** (`LoadOrder`): odd blocks run l060 then l090, even blocks l090 then l060, the same for every treatment of a block. Each load runs first in three planned blocks. A fixed order would make "l090" mean "l090 after l060", and carry-over need not cancel between versions.
 - **Engine start and readiness.** Every visit starts a fresh engine process, A included. It must be ready within 600 s of process start: `/health` returns 200, and one priming request per input × output class is answered. An engine that misses the deadline is **unavailable** for that visit (see dispositions).
 - **Cache policy.** The model and tokenizer files live in a persistent cache filled during setup. Each image keeps its own compile cache, populated by its preflight start before block 1 and never cleared during the campaign, so every visit in the blocks starts with a warm compile cache for its own image. Prefix caching stays off. GPU temperature and clocks are sampled every 5 s and reported; they are not controlled.
+  - The session runs `nvidia-smi` with `GPUSampleArgs` for the whole campaign.
+  - `ParseGPUSamples` refuses any row it cannot read, rather than skipping it.
+  - `SummarizeGPUWindow` reports each cell's range, and calls the cell uncovered when any gap inside it exceeds twice the interval (#615).
 - **Drain verification.** After a cell's last arrival, the drain ends when the engine's own metrics report no running or waiting request, not when the client's timeouts fire. If it has not ended within 120 s, the engine is restarted (with the same readiness bound) before the next load. The restart is recorded and is not invalidating.
 - **Identity before execution.** Each cell's v3 manifest is written before its trace starts. It records campaign ID, block, treatment position, load position, order seed, λ0, the bundle's sha256, model, tokenizer revision, engine settings and sampling (`CellIdentity`, `RunManifest.Engine`, `Sampling`). `LoadManifest` checks each against the registration and the seeded plan.
 

@@ -20,6 +20,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -478,8 +480,15 @@ func (h *HTTPSender) withAdmissionDecision(resp *http.Response, res SendResult) 
 // vLLM's OpenAI-compatible stream emits one "data: {json}" line per token chunk and a final "data: [DONE]".
 //
 // Each chunk carrying a non-empty content delta counts as one output token, which is an approximation the report labels as such; an exact count needs the tokenizer, deferred to the paid run.
-func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendResult {
-	res := SendResult{HTTPStatus: http.StatusOK}
+func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) (res SendResult) {
+	res = SendResult{HTTPStatus: http.StatusOK}
+	// The digest is set on every return path, so a stream cut off after its content still reports what it delivered.
+	text := sha256.New()
+	defer func() {
+		if res.OutputTokens > 0 {
+			res.OutputSHA256 = hex.EncodeToString(text.Sum(nil))
+		}
+	}()
 	// Deferred, so it runs on every return path and always AFTER that path has stamped EndUnixNanos.
 	//
 	// Ordering is the whole point: draining is bookkeeping for the next request, not part of this one's
@@ -594,6 +603,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 				res.ContentAt = append(res.ContentAt, now)
 			}
 			res.OutputTokens++
+			_, _ = text.Write([]byte(chunk.Choices[0].Delta.Content))
 		}
 	}
 	if err := sc.Err(); err != nil {
