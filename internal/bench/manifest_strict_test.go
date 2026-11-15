@@ -1,6 +1,9 @@
 package bench
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -297,12 +300,50 @@ func TestManifestRefusesExplicitNull(t *testing.T) {
 	}
 }
 
-// TestRegisteredVersionStudyRefusesUntilFrozen checks no cell can load while the owner's decisions are open.
+// TestRegisteredVersionStudyRefusesUntilFrozen checks no cell can load while a registered value is open, and that the registered study now loads.
 func TestRegisteredVersionStudyRefusesUntilFrozen(t *testing.T) {
 	m := versionManifest(t)
 	m.Study = StudyVersionAsync
+	if _, err := LoadManifest(writeManifestFile(t, m, "")); err != nil {
+		t.Fatalf("a cell of the frozen registered study was refused: %v", err)
+	}
+
+	st, _ := LookupStudy(StudyVersionAsync)
+	st.ID = studyVersionFixture + "-unfrozen"
+	st.Version = new(unfrozenVersionDesignFixture())
+	studies[st.ID] = st
+	t.Cleanup(func() { delete(studies, st.ID) })
+	m.Study = st.ID
 	_, err := LoadManifest(writeManifestFile(t, m, ""))
 	if err == nil || !strings.Contains(err.Error(), "not frozen") {
 		t.Fatalf("err = %v, want the unfrozen refusal", err)
+	}
+}
+
+// TestEngineFlagReviewsAreTheCommittedRecords: a registered hash is only evidence if it is the hash of a record a reader can open.
+// internal/controller's TestExperimentalV0320RendersItsReviewedRecord holds the rendering to the same records.
+// Mutation that turns this red: edit a record without updating the registry, or swap B's and C's hashes.
+func TestEngineFlagReviewsAreTheCommittedRecords(t *testing.T) {
+	d := versionAsyncDesign()
+	for tr, file := range map[string]string{TreatmentB: "vllm-v0.32.0-async-off.json", TreatmentC: "vllm-v0.32.0-async-on.json"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "hack", "engine-flag-reviews", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(raw)
+		if got := hex.EncodeToString(sum[:]); got != d.EngineFlagReviews[tr] {
+			t.Errorf("treatment %s registers review %s, %s hashes to %s", tr, d.EngineFlagReviews[tr], file, got)
+		}
+		var rec struct {
+			Image           string `json:"image"`
+			AsyncScheduling string `json:"asyncScheduling"`
+		}
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		wantAsync := map[bool]string{true: "Enabled", false: "Disabled"}[*d.Engines[tr].AsyncScheduling]
+		if rec.Image != d.Engines[tr].Image || rec.AsyncScheduling != wantAsync {
+			t.Errorf("%s reviews %s async %s, treatment %s registers %s async %s", file, rec.Image, rec.AsyncScheduling, tr, d.Engines[tr].Image, wantAsync)
+		}
 	}
 }
