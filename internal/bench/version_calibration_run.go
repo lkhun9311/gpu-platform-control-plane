@@ -152,18 +152,22 @@ func HTTPEngineQueue(client *http.Client, metricsURL string) EngineQueueReader {
 
 // WaitDrained polls the engine until it reports nothing running or waiting, and reports false if the bound passes first.
 //
+// It always reads at least once, on the caller's context, so a bound already used up still tells an idle engine from a busy one.
 // A failed read is not idle: an engine whose queue cannot be read cannot be shown drained.
 func WaitDrained(ctx context.Context, read EngineQueueReader, bound, every time.Duration) bool {
-	ctx, cancel := context.WithTimeout(ctx, bound)
-	defer cancel()
+	deadline := time.Now().Add(bound)
 	for {
 		if running, waiting, err := read(ctx); err == nil && running == 0 && waiting == 0 {
 			return true
 		}
+		left := time.Until(deadline)
+		if left <= 0 {
+			return false
+		}
 		select {
 		case <-ctx.Done():
 			return false
-		case <-time.After(every):
+		case <-time.After(min(every, left)):
 		}
 	}
 }
@@ -207,6 +211,8 @@ func (r *RungRunner) Probe(ctx context.Context, rate float64, ordinal int) RungC
 	}
 	drained := WaitDrained(ctx, r.Queue, r.drainBound(time.Now()), r.PollEvery)
 	if !drained {
+		// The retry gets its own bounded allowance; the ladder budgets every retry as a full rung.
+		r.drainDeadline = time.Time{}
 		return report(nil, RungObservation{OfferedRate: rate}, RungInvalid, errors.New("the engine did not report an empty queue within the drain bound"))
 	}
 	trace, err := r.Design.CalibrationTrace(ordinal, rate)

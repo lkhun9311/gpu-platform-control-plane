@@ -317,3 +317,32 @@ func TestDrainBoundSharesTheRungsDeadline(t *testing.T) {
 		t.Fatalf("bound %v after the deadline passed, want 0", got)
 	}
 }
+
+// TestWaitDrainedReadsOnceWithNoTimeLeft: a passed deadline still allows one real read, so an idle engine is seen idle.
+func TestWaitDrainedReadsOnceWithNoTimeLeft(t *testing.T) {
+	reads := 0
+	idle := func(ctx context.Context) (int, int, error) {
+		reads++
+		if ctx.Err() != nil {
+			return 0, 0, ctx.Err()
+		}
+		return 0, 0, nil
+	}
+	if !WaitDrained(context.Background(), idle, 0, time.Millisecond) || reads != 1 {
+		t.Fatalf("an idle engine with no time left was not seen drained (%d reads)", reads)
+	}
+}
+
+// TestProbeGivesARetryItsOwnDrainAllowance: after a rung could not start drained, its retry is not handed the expired deadline.
+func TestProbeGivesARetryItsOwnDrainAllowance(t *testing.T) {
+	d := fastDesign()
+	busy := func(context.Context) (int, int, error) { return 1, 0, nil }
+	r := &RungRunner{Design: d, Queue: busy, PollEvery: 10 * time.Millisecond}
+	r.drainDeadline = time.Now().Add(-time.Minute)
+	if cls := r.Probe(context.Background(), 1, 1); cls != RungInvalid {
+		t.Fatalf("class %s, want invalid", cls)
+	}
+	if got := r.drainBound(time.Now()); got != time.Duration(d.Calibration.DrainSeconds)*time.Second {
+		t.Fatalf("the retry's drain bound is %v, want its own full allowance", got)
+	}
+}
