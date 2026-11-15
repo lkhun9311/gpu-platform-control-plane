@@ -58,8 +58,10 @@ func versionCalibrate(args []string, out io.Writer) error {
 		Queue:     bench.HTTPEngineQueue(&http.Client{Timeout: 10 * time.Second}, *metricsURL),
 		PollEvery: *poll,
 	}
-	ctx := context.Background()
-	res, err := runVersionCalibration(*dir, st.Version.Calibration, runner, func(rate float64, ordinal int) bench.RungClass {
+	// The ladder's registered ceiling is enforced, not only computed: past it the session's context ends and the ladder stops unresolved.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(st.Version.Calibration.MaxSeconds())*time.Second)
+	defer cancel()
+	res, err := runVersionCalibration(ctx, *dir, st.Version.Calibration, runner, func(ctx context.Context, rate float64, ordinal int) bench.RungClass {
 		return runner.Probe(ctx, rate, ordinal)
 	})
 	if err != nil {
@@ -84,7 +86,7 @@ type rungRecord struct {
 // runVersionCalibration runs the ladder with probe, writes every rung's evidence as it ends, and writes the artifact last.
 //
 // The artifact is written for an unresolved ladder too, because "calibration unresolved, stop" is a registered outcome and must be on record.
-func runVersionCalibration(dir string, rule bench.CalibrationRule, runner *bench.RungRunner, probe func(rate float64, ordinal int) bench.RungClass) (bench.CalibrationResult, error) {
+func runVersionCalibration(ctx context.Context, dir string, rule bench.CalibrationRule, runner *bench.RungRunner, probe func(ctx context.Context, rate float64, ordinal int) bench.RungClass) (bench.CalibrationResult, error) {
 	// The destination is checked before the first request, because a rung whose evidence cannot be kept is paid for and lost.
 	if err := reserveCalibration(dir); err != nil {
 		return bench.CalibrationResult{}, err
@@ -114,11 +116,11 @@ func runVersionCalibration(dir string, rule bench.CalibrationRule, runner *bench
 		writeErr = errors.Join(writeErr, mErr)
 	}
 	// After a failed write every later rung is refused without being sent; the ladder's invalid bound then ends it at no cost.
-	res := rule.Run(func(rate float64, ordinal int) bench.RungClass {
+	res := rule.RunContext(ctx, func(ctx context.Context, rate float64, ordinal int) bench.RungClass {
 		if writeErr != nil {
 			return bench.RungInvalid
 		}
-		return probe(rate, ordinal)
+		return probe(ctx, rate, ordinal)
 	})
 	if writeErr != nil {
 		return res, fmt.Errorf("rung evidence: %w", writeErr)

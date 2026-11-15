@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"context"
 	"fmt"
 	"math"
 )
@@ -252,4 +253,32 @@ func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) Ca
 		needed = 1 + c.Confirmations
 	}
 	return stop("calibration unresolved: no rate confirmed after %d step-downs (%d rungs failed the reliability guardrail)", c.MaxStepDowns, unreliable())
+}
+
+// RunContext runs the ladder like Run, but stops it when ctx ends, the probe receiving ctx for its own steps.
+//
+// Once ctx has ended no further rung is run: each is returned invalid without touching the engine, so the ladder's
+// invalid bound ends it. The result is then unresolved with a reason naming the session, never an engine verdict, so a
+// deadline or an operator stop is not mistaken for a capacity found or missed. A ladder that resolved before ctx ended
+// keeps its result.
+func (c CalibrationRule) RunContext(ctx context.Context, probe func(ctx context.Context, rate float64, ordinal int) RungClass) CalibrationResult {
+	skipped := false
+	res := c.Run(func(rate float64, ordinal int) RungClass {
+		if ctx.Err() != nil {
+			skipped = true
+			return RungInvalid
+		}
+		cls := probe(ctx, rate, ordinal)
+		// A rung the session cut off measured nothing, even if it returned a class, so it never decides the ladder.
+		if ctx.Err() != nil {
+			skipped = true
+			return RungInvalid
+		}
+		return cls
+	})
+	if skipped {
+		res.Resolved, res.Rate = false, 0
+		res.Reason = fmt.Sprintf("calibration stopped: the session ended (%v) before the ladder resolved", context.Cause(ctx))
+	}
+	return res
 }
