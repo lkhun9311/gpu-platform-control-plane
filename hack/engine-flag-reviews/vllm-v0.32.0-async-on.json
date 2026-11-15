@@ -1,0 +1,89 @@
+{
+  "release": "v0.32.0",
+  "image": "vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34",
+  "imageResolvedOn": "2026-11-15",
+  "imageEntrypoint": [
+    "vllm",
+    "serve"
+  ],
+  "buildCommit": "5df63a7203cdb9328d824a27b682e77c7b9928be",
+  "buildCommitIsTag": "git ref tags/v0.32.0 names this commit; compare v0.32.0...5df63a72 is identical",
+  "reviewedSources": {
+    "vllm/engine/arg_utils.py": "c10281277fd9a90dc8b22670db4f1af53708c5caa2aefee7aa861fa579329219",
+    "vllm/config/scheduler.py": "2fb86b1572a4925be59f304d13b4f6ec03d496b67a7c4abbb976ecda2232839a",
+    "vllm/config/vllm.py": "573692a80364d5c373321754c6213b4792ae292ba6aea7d6573ae013c2c71ae9",
+    "vllm/entrypoints/launchers/cli_args.py": "76221e2c10a0c5cffb7820a25c176a436777eb2008737cc5b1effaa014ebad28"
+  },
+  "flags": [
+    {
+      "arg": "--dtype=half",
+      "source": "vllm/engine/arg_utils.py:952",
+      "note": "ModelDType literal includes half (vllm/config/model.py:99)"
+    },
+    {
+      "arg": "--max-model-len=16384",
+      "source": "vllm/engine/arg_utils.py:966"
+    },
+    {
+      "arg": "--max-num-seqs=64",
+      "source": "vllm/engine/arg_utils.py:1717"
+    },
+    {
+      "arg": "--gpu-memory-utilization=0.90",
+      "source": "vllm/engine/arg_utils.py:1357"
+    },
+    {
+      "arg": "--no-enable-prefix-caching",
+      "source": "vllm/engine/arg_utils.py:1370",
+      "note": "bool | None field, so argparse.BooleanOptionalAction adds the --no- form (arg_utils.py:378-380)"
+    },
+    {
+      "arg": "--max-num-batched-tokens=512",
+      "source": "vllm/engine/arg_utils.py:1703"
+    },
+    {
+      "arg": "--scheduling-policy=priority",
+      "source": "vllm/engine/arg_utils.py:1745",
+      "note": "SchedulerPolicy literal fcfs|priority (vllm/config/scheduler.py:21); AsyncScheduler subclasses Scheduler, so the priority queue applies with async on"
+    },
+    {
+      "arg": "--async-scheduling",
+      "source": "vllm/engine/arg_utils.py:1774",
+      "note": "an explicit True hard-fails on any incompatibility instead of being silently dropped (vllm/config/vllm.py:1553-1584); uniproc on one GPU supports it"
+    }
+  ],
+  "perDeploymentFlags": [
+    {
+      "arg": "--port",
+      "source": "vllm/entrypoints/launchers/cli_args.py:285"
+    },
+    {
+      "arg": "--served-model-name",
+      "source": "vllm/engine/arg_utils.py:1006"
+    },
+    {
+      "arg": "--revision",
+      "source": "vllm/engine/arg_utils.py:961"
+    },
+    {
+      "arg": "--tokenizer-revision",
+      "source": "vllm/engine/arg_utils.py:964"
+    },
+    {
+      "arg": "--long-prefill-token-threshold",
+      "source": "vllm/engine/arg_utils.py:1735",
+      "note": "rendered only with HoldCap, which the CRD refuses on the experimental profile"
+    }
+  ],
+  "asyncScheduling": "Enabled",
+  "renderedProfileArgs": [
+    "--dtype=half",
+    "--max-model-len=16384",
+    "--max-num-seqs=64",
+    "--gpu-memory-utilization=0.90",
+    "--no-enable-prefix-caching",
+    "--max-num-batched-tokens=512",
+    "--scheduling-policy=priority",
+    "--async-scheduling"
+  ]
+}
