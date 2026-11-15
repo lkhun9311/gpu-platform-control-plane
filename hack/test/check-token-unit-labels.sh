@@ -161,7 +161,7 @@ if grep -qE 'return \(promptLenChars \+ 3\) / 4' internal/bench/replay.go; then
 else
   bad "EstInputTokensForChars no longer computes (promptLenChars + 3) / 4, so the estimate in the evidence is not the one docs/12 describes"
 fi
-if grep -qE 'EngineInputTokens:[[:space:]]*res\.PromptTokens' internal/bench/replay.go; then
+if grep -qE 'EngineInputTokens(:|[[:space:]]*=)[[:space:]]*res\.PromptTokens' internal/bench/replay.go; then
   ok "internal/bench/replay.go still records what the engine reported"
 else
   bad "replay.go no longer assigns res.PromptTokens; 'the engine's own count' is no longer sourced"
