@@ -268,7 +268,13 @@ func (c CalibrationRule) RunContext(ctx context.Context, probe func(ctx context.
 			skipped = true
 			return RungInvalid
 		}
-		return probe(ctx, rate, ordinal)
+		cls := probe(ctx, rate, ordinal)
+		// A rung the session cut off measured nothing, even if it returned a class, so it never decides the ladder.
+		if ctx.Err() != nil {
+			skipped = true
+			return RungInvalid
+		}
+		return cls
 	})
 	if skipped {
 		res.Resolved, res.Rate = false, 0

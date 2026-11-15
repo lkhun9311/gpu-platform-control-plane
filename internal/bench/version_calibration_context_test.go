@@ -39,3 +39,28 @@ func TestRunContextKeepsAResolvedLadder(t *testing.T) {
 		t.Fatalf("result %+v, want resolved", res)
 	}
 }
+
+// TestRunContextDiscardsAProbeTheSessionInterrupted: a rung cut off by the session is no result, even the last one.
+func TestRunContextDiscardsAProbeTheSessionInterrupted(t *testing.T) {
+	rule := versionAsyncDesign().Calibration
+	full := rule.Run(func(rate float64, _ int) RungClass {
+		if rate <= 2 {
+			return RungStable
+		}
+		return RungUnstable
+	})
+	last := len(full.Rungs)
+	ctx, cancel := context.WithCancel(context.Background())
+	res := rule.RunContext(ctx, func(_ context.Context, rate float64, ordinal int) RungClass {
+		if ordinal == last {
+			cancel()
+		}
+		if rate <= 2 {
+			return RungStable
+		}
+		return RungUnstable
+	})
+	if res.Resolved || !strings.Contains(res.Reason, "session") {
+		t.Fatalf("a ladder whose final confirmation the session cut off came out %+v", res)
+	}
+}
