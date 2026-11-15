@@ -24,6 +24,12 @@ type RequestOutcome struct {
 	E2ENanos float64
 	// Good is a success within the SLO, which goodput counts.
 	Good bool
+	// TPOTNanos is a success's (last − first content) / (completion tokens − 1); NaN when the request has no TPOT.
+	TPOTNanos float64
+	// UsageAfterLastNanos and DoneAfterLastNanos are the completion-through-trailer diagnostic: from the last content
+	// byte to the usage trailer and to [DONE]. NaN when the row has no such stamp.
+	UsageAfterLastNanos float64
+	DoneAfterLastNanos  float64
 }
 
 // CellOutcomes are the outcomes of one cell's population P: its rows whose intended arrival is inside the window.
@@ -67,7 +73,10 @@ func (d VersionStudyDesign) requestOutcome(p SamplingPolicy, r RawRow, tr TraceR
 	if c == nil || c.IntendedNanos == nil {
 		return RequestOutcome{}, errors.New("no intended arrival on the row's clock, so no latency can be measured from it")
 	}
-	o := RequestOutcome{Index: r.Index, Disposition: disp, TTFTNanos: math.Inf(1), E2ENanos: math.Inf(1)}
+	o := RequestOutcome{
+		Index: r.Index, Disposition: disp, TTFTNanos: math.Inf(1), E2ENanos: math.Inf(1),
+		TPOTNanos: math.NaN(), UsageAfterLastNanos: math.NaN(), DoneAfterLastNanos: math.NaN(),
+	}
 	if c.FirstContentNanos != nil {
 		ttft, ok := c.FromIntended(c.FirstContentNanos)
 		if !ok {
@@ -87,6 +96,12 @@ func (d VersionStudyDesign) requestOutcome(p SamplingPolicy, r RawRow, tr TraceR
 		return RequestOutcome{}, errors.New("last content precedes the intended arrival")
 	}
 	o.E2ENanos = float64(e2e)
+	if v, ok := clockSpan(c.LastContentNanos, c.UsageNanos); ok {
+		o.UsageAfterLastNanos = float64(v)
+	}
+	if v, ok := clockSpan(c.LastContentNanos, c.DoneNanos); ok {
+		o.DoneAfterLastNanos = float64(v)
+	}
 	// TPOT needs a second token: with one, the request has no client-observed TPOT and is not counted good (attack item 12).
 	if r.EngineOutputTokens >= 2 {
 		span, ok := clockSpan(c.FirstContentNanos, c.LastContentNanos)
@@ -94,7 +109,8 @@ func (d VersionStudyDesign) requestOutcome(p SamplingPolicy, r RawRow, tr TraceR
 			return RequestOutcome{}, errors.New("last content precedes first content")
 		}
 		ms := float64(time.Millisecond)
-		tpotMs := float64(span) / float64(r.EngineOutputTokens-1) / ms
+		o.TPOTNanos = float64(span) / float64(r.EngineOutputTokens-1)
+		tpotMs := o.TPOTNanos / ms
 		o.Good = GoodRequest(d.SLO, disp, o.TTFTNanos/ms, tpotMs, r.OutputTokens)
 	}
 	return o, nil
