@@ -267,6 +267,19 @@ cmd_status() {
   verify_running_images
 }
 
+# canonical_repo is the name a node lists an image repository under: Docker Hub names gain docker.io/, and a one-part
+# name docker.io/library/. A name whose first part is a registry host is already canonical.
+canonical_repo() {
+  local first=${1%%/*}
+  if [[ $1 != */* ]]; then
+    echo "docker.io/library/$1"
+  elif [[ $first != *.* && $first != *:* && $first != localhost ]]; then
+    echo "docker.io/$1"
+  else
+    echo "$1"
+  fi
+}
+
 # deploy_image_ok checks one Deployment runs the pinned image: its template names the image, and every one of its pods
 # runs the config id the node loaded for that image's tag.
 # A pod reports the config id rather than a registry digest, so the pod side is matched to the node's own image.
@@ -274,7 +287,8 @@ deploy_image_ok() {
   local deploy=$1 image=$2 node=$CLUSTER-control-plane spec node_id sel ids
   spec=$(k get deployment "$deploy" -o jsonpath='{.spec.template.spec.containers[*].image}')
   grep -qxF -- "$image" <<<"${spec// /$'\n'}" || { echo "  drift: deployment/$deploy runs '$spec', pinned $image" >&2; return 1; }
-  node_id=$(docker exec "$node" crictl images --no-trunc | awk -v r="${image%:*}" -v t="${image##*:}" '$1==r && $2==t {print $3}')
+  node_id=$(docker exec "$node" crictl images --no-trunc |
+    awk -v r="${image%:*}" -v c="$(canonical_repo "${image%:*}")" -v t="${image##*:}" '($1==r || $1==c) && $2==t {print $3}')
   # shellcheck disable=SC2016 # the go-template's variables are the template's, not the shell's
   sel=$(k get deployment "$deploy" -o go-template='{{range $k, $v := .spec.selector.matchLabels}}{{$k}}={{$v}},{{end}}')
   ids=$(k get pods -l "${sel%,}" -o jsonpath='{range .items[*]}{.status.containerStatuses[0].imageID}{"\n"}{end}')

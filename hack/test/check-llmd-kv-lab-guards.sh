@@ -169,5 +169,23 @@ else
   ok "a pod running another image than the node's is refused"
 fi
 
+# 8. The node lists an image by its canonical name: docker.io/<repo>, and docker.io/library/<name> for a one-part name.
+local_ok() { (OWNED=1 bash -c "source '$REPO/hack/llmd-kv-lab.sh'; deploy_image_ok vllm-d $1") >/dev/null 2>&1; }
+if SPEC_IMAGE=lab/epp:abc NODE_IMAGE_LINE="docker.io/lab/epp abc sha256:ccc 9MB" POD_IDS="sha256:ccc" local_ok lab/epp:abc; then
+  ok "an image the node lists under docker.io/ passes"
+else
+  bad "an image the node lists under docker.io/ was refused"
+fi
+if SPEC_IMAGE=busybox:1 NODE_IMAGE_LINE="docker.io/library/busybox 1 sha256:ddd 1MB" POD_IDS="sha256:ddd" local_ok busybox:1; then
+  ok "a one-part name the node lists under docker.io/library/ passes"
+else
+  bad "a one-part name the node lists under docker.io/library/ was refused"
+fi
+if SPEC_IMAGE=lab/epp:abc NODE_IMAGE_LINE="docker.io/other/epp abc sha256:ccc 9MB" POD_IDS="sha256:ccc" local_ok lab/epp:abc; then
+  bad "another repository's image passed as the pin"
+else
+  ok "another repository's image is refused"
+fi
+
 [ "$fail" = 0 ] && echo "check-llmd-kv-lab-guards: all checks passed"
 exit "$fail"
