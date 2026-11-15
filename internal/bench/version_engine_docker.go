@@ -56,6 +56,15 @@ func (e *DockerEngine) RunArgs(d VersionStudyDesign, treatment, visit string) ([
 	if s.AsyncScheduling == nil {
 		return nil, fmt.Errorf("treatment %s states no async-scheduling choice", treatment)
 	}
+	// The arguments are rendered for the declared release, so the image launched must be the one that release was reviewed on.
+	// A mirror carrying the same digest is the same image, as the controller's CEL rule also accepts.
+	rel, ok := engineargs.Releases()[s.VLLMVersion]
+	if !ok {
+		return nil, fmt.Errorf("treatment %s names release %q, which has no reviewed arguments", treatment, s.VLLMVersion)
+	}
+	if imageDigest(s.Image) != rel.Digest {
+		return nil, fmt.Errorf("treatment %s runs image %q, but release %s was reviewed on %s", treatment, s.Image, s.VLLMVersion, rel.Digest)
+	}
 	profile, err := engineargs.ProfileArgs(s.VLLMVersion, *s.AsyncScheduling)
 	if err != nil {
 		return nil, err

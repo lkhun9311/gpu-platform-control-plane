@@ -115,3 +115,21 @@ func TestDockerStartRecordsWhatRanAndStopConfirmsItEnded(t *testing.T) {
 		t.Fatal("a container still present after rm was reported stopped")
 	}
 }
+
+// TestDockerRunArgsRefuseAnotherReleasesImage: the arguments are rendered for the declared release, so the image must be that release's.
+func TestDockerRunArgsRefuseAnotherReleasesImage(t *testing.T) {
+	d := versionAsyncDesign()
+	e := testDockerEngine(&recordingDocker{})
+	c := d.Engines[TreatmentC]
+	c.Image = d.Engines[TreatmentA].Image
+	d.Engines[TreatmentC] = c
+	if _, err := e.RunArgs(d, TreatmentC, "v"); err == nil || !strings.Contains(err.Error(), "reviewed") {
+		t.Fatalf("v0.27.1's image under v0.32.0's arguments: %v", err)
+	}
+	// A mirror of the same digest is the same image.
+	c.Image = "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/mirror/vllm-openai@" + imageDigest(versionAsyncDesign().Engines[TreatmentC].Image)
+	d.Engines[TreatmentC] = c
+	if _, err := e.RunArgs(d, TreatmentC, "v"); err != nil {
+		t.Fatalf("a mirror of the reviewed digest was refused: %v", err)
+	}
+}
