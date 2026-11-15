@@ -52,17 +52,10 @@ func TestWriteCampaignBundleWritesWhatLoadCampaignBundleAccepts(t *testing.T) {
 
 // TestWriteCampaignBundleLengthensTheWindowFromTheTraces: a low λ0 needs a longer window, and the traces alone decide how long.
 //
-// It runs on a fixture copy of the study with a 300 s warm-up.
-// Under the registered 60 s warm-up, a λ0 low enough to lengthen the window leaves some block's warm-up short of a class (next test).
+// Before the stratified warm-up, every λ0 low enough for this stopped on an unqualified warm-up under the registered seed.
 func TestWriteCampaignBundleLengthensTheWindowFromTheTraces(t *testing.T) {
-	st, _ := LookupStudy(StudyVersionAsync)
-	d := versionAsyncDesign()
-	d.WarmupSeconds = 300
-	st.ID, st.Version = studyVersionFixture+"-long-warmup", &d
-	studies[st.ID] = st
-	t.Cleanup(func() { delete(studies, st.ID) })
 	dir, in := campaignDir(t, CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 0.5})
-	b, _, err := WriteCampaignBundle(dir, st.ID, in)
+	b, _, err := WriteCampaignBundle(dir, StudyVersionAsync, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,15 +65,14 @@ func TestWriteCampaignBundleLengthensTheWindowFromTheTraces(t *testing.T) {
 	}
 }
 
-// TestWriteCampaignBundleStopsOnAnUnqualifiedWarmup: under the registered design a low λ0 stops the session before anything is frozen.
-func TestWriteCampaignBundleStopsOnAnUnqualifiedWarmup(t *testing.T) {
-	dir, in := campaignDir(t, CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 0.5})
-	_, _, err := WriteCampaignBundle(dir, StudyVersionAsync, in)
-	if err == nil || !strings.Contains(err.Error(), "warm-up") {
-		t.Fatalf("err %v, want the warm-up refusal", err)
+// TestWriteCampaignBundleStopsBelowTheDesignsRange: a λ0 too low for the floor stops the session before anything is frozen.
+func TestWriteCampaignBundleStopsBelowTheDesignsRange(t *testing.T) {
+	dir, in := campaignDir(t, CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 0.1})
+	if _, _, err := WriteCampaignBundle(dir, StudyVersionAsync, in); err == nil {
+		t.Fatal("a λ0 of 0.1 req/s was frozen")
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, CampaignBundleFile)); !os.IsNotExist(statErr) {
-		t.Fatalf("a bundle was written despite the refusal: %v", statErr)
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("the refusal left %d files, want only the calibration artifact", len(entries))
 	}
 }
 

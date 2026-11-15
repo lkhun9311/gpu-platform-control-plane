@@ -10,8 +10,15 @@ import (
 //
 // Every row draws its gap, input length and output length from the stream in a fixed order, and the cut depends only on the arrival time.
 // So a shorter window's trace is a prefix of a longer one's, which ChooseWindow and the bundle check both rely on.
-// A warm-up that does not send every input x output class is refused rather than redrawn, because redrawing would be choosing a workload.
+// The first six warm-up rows take the six input x output classes once each, in an order seeded from the trace's own seed (amendment 2026-11-15).
+// Their arrivals and every later row are the stream's own, so the measured population is what an unstratified trace would hold.
+// A warm-up that still misses a class (fewer than six warm-up arrivals) is refused rather than redrawn, because redrawing would be choosing a workload.
 func (d VersionStudyDesign) VersionTrace(seed int64, offeredRate float64, windowSeconds int) ([]TraceRow, error) {
+	return d.versionStream(seed, offeredRate, windowSeconds, true)
+}
+
+// versionStream is VersionTrace with the warm-up stratification optional, so a test can show that stratifying moves nothing else.
+func (d VersionStudyDesign) versionStream(seed int64, offeredRate float64, windowSeconds int, stratify bool) ([]TraceRow, error) {
 	if math.IsNaN(offeredRate) || math.IsInf(offeredRate, 0) || offeredRate <= 0 {
 		return nil, fmt.Errorf("offered rate %v is not a positive finite number", offeredRate)
 	}
@@ -44,8 +51,11 @@ func (d VersionStudyDesign) VersionTrace(seed int64, offeredRate float64, window
 			PromptLenChars: chars[in], MaxOutputTokens: out, MinOutputTokens: out,
 		})
 	}
+	if stratify {
+		d.stratifyWarmup(rows, seed, windowSeconds, chars)
+	}
 	if missing := d.warmupGaps(rows, windowSeconds); len(missing) > 0 {
-		return nil, fmt.Errorf("the seeded warm-up never sends %v (input, output) tokens at %.3f req/s; the registration qualifies warm-up by content and has no rule to redraw it", missing, offeredRate)
+		return nil, fmt.Errorf("the seeded warm-up never sends %v (input, output) tokens at %.3f req/s; fewer warm-up arrivals than classes, and a warm-up is never redrawn", missing, offeredRate)
 	}
 	return rows, nil
 }
@@ -95,4 +105,24 @@ func (d VersionStudyDesign) warmupGaps(rows []TraceRow, windowSeconds int) [][2]
 		}
 	}
 	return missing
+}
+
+// stratifyWarmup gives the first warm-up rows the input x output classes once each, in an order drawn from its own generator.
+//
+// The order's generator is separate from the stream's, so the stream's draws, and with them every arrival and every later row, are unchanged.
+func (d VersionStudyDesign) stratifyWarmup(rows []TraceRow, seed int64, windowSeconds int, chars map[int]int) {
+	classes := make([][2]int, 0, len(d.InputTokens)*len(d.OutputTokens))
+	for _, in := range d.InputTokens {
+		for _, out := range d.OutputTokens {
+			classes = append(classes, [2]int{in.Tokens, out.Tokens})
+		}
+	}
+	order := rand.New(rand.NewPCG(uint64(seed), 0x0dd5_c1a5_5e5_2026)).Perm(len(classes))
+	for i, k := range order {
+		if i >= len(rows) || d.PhaseOf(rows[i].OffsetMs, windowSeconds) != PhaseWarmup {
+			return
+		}
+		c := classes[k]
+		rows[i].PromptLenChars, rows[i].MaxOutputTokens, rows[i].MinOutputTokens = chars[c[0]], c[1], c[1]
+	}
 }

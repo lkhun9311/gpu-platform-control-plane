@@ -96,10 +96,10 @@ func TestVersionTracePassesTheBundleCheck(t *testing.T) {
 	}
 }
 
-// TestVersionTraceRefusesAWarmupThatMissesAClass: the registration says warm-up qualifies by content, and redrawing until it does would be choosing a workload.
+// TestVersionTraceRefusesAWarmupThatMissesAClass: with fewer than six warm-up arrivals even the stratified warm-up cannot send every class.
 func TestVersionTraceRefusesAWarmupThatMissesAClass(t *testing.T) {
 	d := versionAsyncDesign()
-	_, err := d.VersionTrace(7, 0.05, 300)
+	_, err := d.VersionTrace(7, 0.02, 300)
 	if err == nil || !strings.Contains(err.Error(), "warm-up") {
 		t.Fatalf("err %v, want a refusal naming the warm-up", err)
 	}
@@ -121,6 +121,41 @@ func TestVersionTraceRefusesBadInputs(t *testing.T) {
 	} {
 		if _, err := d.VersionTrace(1, c.rate, c.window); err == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// TestVersionTraceStratifiesTheWarmup: the first six warm-up rows send the six classes once each, and nothing else in the trace moves (amendment 2026-11-15).
+func TestVersionTraceStratifiesTheWarmup(t *testing.T) {
+	d := versionAsyncDesign()
+	tokens := versionStudyExactTokens()
+	for _, rate := range []float64{0.3, 1.2, 3.6} {
+		seed, _ := WorkloadSeed(d.CampaignSeed, 4, LoadL060)
+		rows, err := d.VersionTrace(seed, rate, d.MaxMeasureSeconds)
+		if err != nil {
+			t.Fatalf("rate %v: %v", rate, err)
+		}
+		seen := map[[2]int]bool{}
+		for _, r := range rows[:6] {
+			if d.PhaseOf(r.OffsetMs, d.MaxMeasureSeconds) != PhaseWarmup {
+				t.Fatalf("rate %v: row %d is not in the warm-up", rate, r.Index)
+			}
+			seen[[2]int{tokens[r.PromptLenChars], r.MaxOutputTokens}] = true
+		}
+		if len(seen) != 6 {
+			t.Fatalf("rate %v: the first six rows send %d distinct classes, want 6", rate, len(seen))
+		}
+		plain, err := d.versionStream(seed, rate, d.MaxMeasureSeconds, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(plain) != len(rows) || !slices.Equal(plain[6:], rows[6:]) {
+			t.Fatalf("rate %v: stratifying changed rows after the sixth", rate)
+		}
+		for i := range 6 {
+			if plain[i].OffsetMs != rows[i].OffsetMs {
+				t.Fatalf("rate %v: stratifying moved row %d's arrival", rate, i)
+			}
 		}
 	}
 }
