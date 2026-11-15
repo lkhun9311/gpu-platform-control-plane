@@ -133,17 +133,11 @@ func runVersionCalibration(ctx context.Context, dir string, rule bench.Calibrati
 	return res, writeNew(filepath.Join(dir, calibrationArtifactFile), append(data, '\n'))
 }
 
-// writeNew creates path and writes data, refusing a file that already exists.
+// writeNew creates path durably with data, refusing a file that already exists.
+//
+// Calibration evidence decides λ0, so a crash must leave each record whole or absent, never a torn file under its final name.
 func writeNew(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	return f.Close()
+	return bench.WriteNewFileDurably(path, data)
 }
 
 // calibrationLockFile reserves a campaign directory for one calibration; it stays as the record that the campaign was calibrated.
