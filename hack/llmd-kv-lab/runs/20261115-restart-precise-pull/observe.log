@@ -1,0 +1,6 @@
+probes: === arm precise-pull: EPP on the precise-pull config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise-pull config, behind freshly started simulators
+probes: [precise-pull] epp-restart delete: replacing tinyllama-1-1b-chat-v1-0-endpoint-picker-f457f6595-76jj8
+probes: [precise-pull] epp-restart rollout: replacing tinyllama-1-1b-chat-v1-0-endpoint-picker-f457f6595-5sjls
+probes: [precise-pull] epp-restart sims-then-rollout: replacing tinyllama-1-1b-chat-v1-0-endpoint-picker-68995588d-ls75w
+probes: probe epp-restart on precise-pull written to /tmp/claude-1000/lab598/gpuaas/hack/llmd-kv-lab/runs/20261115-restart-precise-pull

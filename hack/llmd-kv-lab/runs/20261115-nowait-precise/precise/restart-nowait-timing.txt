@@ -1,0 +1,1 @@
+old=tinyllama-1-1b-chat-v1-0-endpoint-picker-6f9684b65d-qfqxw new=tinyllama-1-1b-chat-v1-0-endpoint-picker-846f895f68-tq97l grace=130s new_ready_after=6s old_gone_after=36s

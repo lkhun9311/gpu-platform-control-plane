@@ -1,0 +1,6 @@
+probes: === arm precise: EPP on the precise config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise config, behind freshly started simulators
+probes: [precise] epp-restart delete: replacing tinyllama-1-1b-chat-v1-0-endpoint-picker-7d66dff586-z9cp7
+probes: [precise] epp-restart rollout: replacing tinyllama-1-1b-chat-v1-0-endpoint-picker-7d66dff586-cbtsf
+probes: [precise] epp-restart sims-then-rollout: replacing tinyllama-1-1b-chat-v1-0-endpoint-picker-587469cd9d-7tjrh
+probes: probe epp-restart on precise written to /tmp/claude-1000/lab598/gpuaas/hack/llmd-kv-lab/runs/20261115-restart-precise

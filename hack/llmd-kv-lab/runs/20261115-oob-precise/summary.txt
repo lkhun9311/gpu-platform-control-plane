@@ -1,0 +1,29 @@
+== arm precise: 18 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-oob-1-vllm-d-9759d6fd5-4g4vd-warm-000 O1-vllm-d-9759d6fd5-4g4vd direct     4g4vd       0/370        3.9  
+precise-oob-1-vllm-d-9759d6fd5-4g4vd-warm-001 O1-vllm-d-9759d6fd5-4g4vd direct     4g4vd     352/370        3.3  
+precise-oob-1-vllm-d-9759d6fd5-4g4vd-gw-000 O1-vllm-d-9759d6fd5-4g4vd gateway    4g4vd     352/370        5.0  4g4vd=0.956522 hrr8r=0 ht9m5=0
+precise-oob-1-vllm-d-9759d6fd5-hrr8r-warm-000 O1-vllm-d-9759d6fd5-hrr8r direct     hrr8r       0/370        4.4  
+precise-oob-1-vllm-d-9759d6fd5-hrr8r-warm-001 O1-vllm-d-9759d6fd5-hrr8r direct     hrr8r     352/370        3.1  
+precise-oob-1-vllm-d-9759d6fd5-hrr8r-gw-000 O1-vllm-d-9759d6fd5-hrr8r gateway    hrr8r     352/370        5.6  4g4vd=0.0434783 hrr8r=0.956522 ht9m5=0
+precise-oob-1-vllm-d-9759d6fd5-ht9m5-warm-000 O1-vllm-d-9759d6fd5-ht9m5 direct     ht9m5       0/370        5.1  
+precise-oob-1-vllm-d-9759d6fd5-ht9m5-warm-001 O1-vllm-d-9759d6fd5-ht9m5 direct     ht9m5     352/370        3.4  
+precise-oob-1-vllm-d-9759d6fd5-ht9m5-gw-000 O1-vllm-d-9759d6fd5-ht9m5 gateway    ht9m5     352/370        4.9  4g4vd=0.0434783 hrr8r=0.0434783 ht9m5=0.956522
+precise-oob-2-vllm-d-9759d6fd5-4g4vd-warm-000 O2-vllm-d-9759d6fd5-4g4vd direct     4g4vd       0/370        3.6  
+precise-oob-2-vllm-d-9759d6fd5-4g4vd-warm-001 O2-vllm-d-9759d6fd5-4g4vd direct     4g4vd     352/370        3.2  
+precise-oob-2-vllm-d-9759d6fd5-4g4vd-gw-000 O2-vllm-d-9759d6fd5-4g4vd gateway    4g4vd     352/370        5.0  4g4vd=0.956522 hrr8r=0 ht9m5=0
+precise-oob-2-vllm-d-9759d6fd5-hrr8r-warm-000 O2-vllm-d-9759d6fd5-hrr8r direct     hrr8r       0/370        4.0  
+precise-oob-2-vllm-d-9759d6fd5-hrr8r-warm-001 O2-vllm-d-9759d6fd5-hrr8r direct     hrr8r     352/370        2.9  
+precise-oob-2-vllm-d-9759d6fd5-hrr8r-gw-000 O2-vllm-d-9759d6fd5-hrr8r gateway    hrr8r     352/370        5.0  4g4vd=0.0434783 hrr8r=0.956522 ht9m5=0
+precise-oob-2-vllm-d-9759d6fd5-ht9m5-warm-000 O2-vllm-d-9759d6fd5-ht9m5 direct     ht9m5       0/370        3.5  
+precise-oob-2-vllm-d-9759d6fd5-ht9m5-warm-001 O2-vllm-d-9759d6fd5-ht9m5 direct     ht9m5     352/370        3.4  
+precise-oob-2-vllm-d-9759d6fd5-ht9m5-gw-000 O2-vllm-d-9759d6fd5-ht9m5 gateway    ht9m5     352/370        5.3  4g4vd=0.0434783 hrr8r=0.0434783 ht9m5=0.956522
+   gateway requests joined to EPP scores: 6/6
+   step                                     gateway   hit  predicted  to warm pod
+   precise-oob-1-vllm-d-9759d6fd5-4g4vd-gw        1     1        1/1          1/1
+   precise-oob-1-vllm-d-9759d6fd5-hrr8r-gw        1     1        1/1          1/1
+   precise-oob-1-vllm-d-9759d6fd5-ht9m5-gw        1     1        1/1          1/1
+   precise-oob-2-vllm-d-9759d6fd5-4g4vd-gw        1     1        1/1          1/1
+   precise-oob-2-vllm-d-9759d6fd5-hrr8r-gw        1     1        1/1          1/1
+   precise-oob-2-vllm-d-9759d6fd5-ht9m5-gw        1     1        1/1          1/1
+

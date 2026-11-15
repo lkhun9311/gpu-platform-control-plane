@@ -1,0 +1,45 @@
+== arm precise: 30 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-leave-1-warm-000     V1     direct     k96w5       0/330        3.5  
+precise-leave-1-warm-001     V1     direct     k96w5     320/330        3.2  
+precise-leave-1-gw-000       V1     gateway    k96w5     304/330        6.2  k96w5=0 tn5x6=0
+precise-control-1-warm-000   C1     direct     k96w5       0/329        4.0  
+precise-control-1-warm-001   C1     direct     k96w5     304/329        3.5  
+precise-control-1-gw-000     C1     gateway    k96w5     304/329        5.5  6sfwh=0 k96w5=0.95 tn5x6=0
+precise-leave-2-warm-000     V2     direct     6sfwh       0/330        3.4  
+precise-leave-2-warm-001     V2     direct     6sfwh     320/330        2.9  
+precise-leave-2-gw-000       V2     gateway    6sfwh     304/330        4.7  6sfwh=0 tn5x6=0
+precise-control-2-warm-000   C2     direct     6sfwh       0/329        3.8  
+precise-control-2-warm-001   C2     direct     6sfwh     304/329        3.0  
+precise-control-2-gw-000     C2     gateway    6sfwh     304/329        4.9  6sfwh=0.95 cfbqr=0 tn5x6=0
+precise-leave-3-warm-000     V3     direct     6sfwh       0/330        3.3  
+precise-leave-3-warm-001     V3     direct     6sfwh     320/330        3.7  
+precise-leave-3-gw-000       V3     gateway    tn5x6       0/330        5.2  6sfwh=0 tn5x6=0
+precise-control-3-warm-000   C3     direct     6sfwh       0/329        3.3  
+precise-control-3-warm-001   C3     direct     6sfwh     304/329        2.9  
+precise-control-3-gw-000     C3     gateway    6sfwh     304/329        5.4  6sfwh=0.95 px2pb=0 tn5x6=0
+precise-leave-4-warm-000     V4     direct     6sfwh       0/330        3.1  
+precise-leave-4-warm-001     V4     direct     6sfwh     320/330        2.4  
+precise-leave-4-gw-000       V4     gateway    6sfwh     304/330        5.0  6sfwh=0 tn5x6=0
+precise-control-4-warm-000   C4     direct     6sfwh       0/329        3.8  
+precise-control-4-warm-001   C4     direct     6sfwh     304/329        2.5  
+precise-control-4-gw-000     C4     gateway    6sfwh     304/329        5.4  6sfwh=0.95 fx57r=0 tn5x6=0
+precise-leave-5-warm-000     V5     direct     6sfwh       0/330        3.2  
+precise-leave-5-warm-001     V5     direct     6sfwh     320/330        3.2  
+precise-leave-5-gw-000       V5     gateway    tn5x6       0/330        5.2  6sfwh=0 tn5x6=0
+precise-control-5-warm-000   C5     direct     6sfwh       0/329        4.7  
+precise-control-5-warm-001   C5     direct     6sfwh     304/329        3.4  
+precise-control-5-gw-000     C5     gateway    6sfwh     304/329        5.7  6sfwh=0.95 rqxv9=0 tn5x6=0
+   gateway requests joined to EPP scores: 10/10
+   step                                     gateway   hit  predicted  to warm pod
+   precise-leave-1-gw                             1     1        0/1          1/1
+   precise-control-1-gw                           1     1        1/1          1/1
+   precise-leave-2-gw                             1     1        0/1          1/1
+   precise-control-2-gw                           1     1        1/1          1/1
+   precise-leave-3-gw                             1     0        0/1          0/1
+   precise-control-3-gw                           1     1        1/1          1/1
+   precise-leave-4-gw                             1     1        0/1          1/1
+   precise-control-4-gw                           1     1        1/1          1/1
+   precise-leave-5-gw                             1     0        0/1          0/1
+   precise-control-5-gw                           1     1        1/1          1/1
+

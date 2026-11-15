@@ -1,0 +1,59 @@
+== arm approx: 36 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+approx-lag-0.1-1-000         L0.1r1 gateway    6sh58       0/335        4.8  6sh58=0 bq7px=0 wvldd=0
+approx-lag-0.1-1-001         L0.1r1 gateway    6sh58     320/335        3.3  6sh58=0.714286 bq7px=0 wvldd=0
+approx-lag-0.1-2-000         L0.1r2 gateway    wvldd       0/335        4.3  6sh58=0 bq7px=0 wvldd=0
+approx-lag-0.1-2-001         L0.1r2 gateway    wvldd     320/335        7.7  6sh58=0 bq7px=0 wvldd=0.857143
+approx-lag-0.1-3-000         L0.1r3 gateway    bq7px       0/335        7.3  6sh58=0 bq7px=0 wvldd=0
+approx-lag-0.1-3-001         L0.1r3 gateway    bq7px     320/335        4.2  6sh58=0 bq7px=0.857143 wvldd=0
+approx-lag-0.3-1-000         L0.3r1 gateway    6sh58       0/335        3.9  6sh58=0 bq7px=0 wvldd=0
+approx-lag-0.3-1-001         L0.3r1 gateway    6sh58     320/335        4.4  6sh58=0.857143 bq7px=0 wvldd=0
+approx-lag-0.3-2-000         L0.3r2 gateway    wvldd       0/335        4.6  6sh58=0 bq7px=0 wvldd=0
+approx-lag-0.3-2-001         L0.3r2 gateway    wvldd     320/335        4.6  6sh58=0 bq7px=0 wvldd=0.857143
+approx-lag-0.3-3-000         L0.3r3 gateway    bq7px       0/335        3.3  6sh58=0 bq7px=0 wvldd=0
+approx-lag-0.3-3-001         L0.3r3 gateway    bq7px     320/335        2.9  6sh58=0 bq7px=0.857143 wvldd=0
+approx-lag-0.6-1-000         L0.6r1 gateway    6sh58       0/335        3.7  6sh58=0 bq7px=0 wvldd=0
+approx-lag-0.6-1-001         L0.6r1 gateway    6sh58     320/335        3.3  6sh58=0.857143 bq7px=0 wvldd=0
+approx-lag-0.6-2-000         L0.6r2 gateway    wvldd       0/335        3.6  6sh58=0 bq7px=0 wvldd=0
+approx-lag-0.6-2-001         L0.6r2 gateway    wvldd     320/335        3.2  6sh58=0 bq7px=0 wvldd=0.857143
+approx-lag-0.6-3-000         L0.6r3 gateway    bq7px       0/335        3.6  6sh58=0 bq7px=0 wvldd=0
+approx-lag-0.6-3-001         L0.6r3 gateway    bq7px     320/335        3.5  6sh58=0 bq7px=0.857143 wvldd=0
+approx-lag-1.0-1-000         L1.0r1 gateway    6sh58       0/335        3.4  6sh58=0 bq7px=0 wvldd=0
+approx-lag-1.0-1-001         L1.0r1 gateway    6sh58     320/335        3.2  6sh58=0.857143 bq7px=0 wvldd=0
+approx-lag-1.0-2-000         L1.0r2 gateway    wvldd       0/335        6.6  6sh58=0 bq7px=0 wvldd=0
+approx-lag-1.0-2-001         L1.0r2 gateway    wvldd     320/335        4.0  6sh58=0 bq7px=0 wvldd=0.857143
+approx-lag-1.0-3-000         L1.0r3 gateway    bq7px       0/335        6.8  6sh58=0 bq7px=0 wvldd=0
+approx-lag-1.0-3-001         L1.0r3 gateway    bq7px     320/335        4.8  6sh58=0 bq7px=0.857143 wvldd=0
+approx-lag-1.5-1-000         L1.5r1 gateway    6sh58       0/335        9.1  6sh58=0 bq7px=0 wvldd=0
+approx-lag-1.5-1-001         L1.5r1 gateway    6sh58     320/335        4.3  6sh58=0.857143 bq7px=0 wvldd=0
+approx-lag-1.5-2-000         L1.5r2 gateway    wvldd       0/335        5.8  6sh58=0 bq7px=0 wvldd=0
+approx-lag-1.5-2-001         L1.5r2 gateway    wvldd     320/335        3.0  6sh58=0 bq7px=0 wvldd=0.857143
+approx-lag-1.5-3-000         L1.5r3 gateway    bq7px       0/335        3.5  6sh58=0 bq7px=0 wvldd=0
+approx-lag-1.5-3-001         L1.5r3 gateway    bq7px     320/335        3.4  6sh58=0 bq7px=0.857143 wvldd=0
+approx-lag-2.5-1-000         L2.5r1 gateway    6sh58       0/335        3.8  6sh58=0 bq7px=0 wvldd=0
+approx-lag-2.5-1-001         L2.5r1 gateway    6sh58     320/335        3.1  6sh58=0.857143 bq7px=0 wvldd=0
+approx-lag-2.5-2-000         L2.5r2 gateway    wvldd       0/335        4.0  6sh58=0 bq7px=0 wvldd=0
+approx-lag-2.5-2-001         L2.5r2 gateway    wvldd     320/335        3.1  6sh58=0 bq7px=0 wvldd=0.857143
+approx-lag-2.5-3-000         L2.5r3 gateway    bq7px       0/335        4.1  6sh58=0 bq7px=0 wvldd=0
+approx-lag-2.5-3-001         L2.5r3 gateway    bq7px     320/335        3.6  6sh58=0 bq7px=0.857143 wvldd=0
+   gateway requests joined to EPP scores: 36/36
+   step                                     gateway   hit  predicted  to warm pod
+   approx-lag-0.1-1                               2     1        1/2            -
+   approx-lag-0.1-2                               2     1        1/2            -
+   approx-lag-0.1-3                               2     1        1/2            -
+   approx-lag-0.3-1                               2     1        1/2            -
+   approx-lag-0.3-2                               2     1        1/2            -
+   approx-lag-0.3-3                               2     1        1/2            -
+   approx-lag-0.6-1                               2     1        1/2            -
+   approx-lag-0.6-2                               2     1        1/2            -
+   approx-lag-0.6-3                               2     1        1/2            -
+   approx-lag-1.0-1                               2     1        1/2            -
+   approx-lag-1.0-2                               2     1        1/2            -
+   approx-lag-1.0-3                               2     1        1/2            -
+   approx-lag-1.5-1                               2     1        1/2            -
+   approx-lag-1.5-2                               2     1        1/2            -
+   approx-lag-1.5-3                               2     1        1/2            -
+   approx-lag-2.5-1                               2     1        1/2            -
+   approx-lag-2.5-2                               2     1        1/2            -
+   approx-lag-2.5-3                               2     1        1/2            -
+

@@ -1,0 +1,29 @@
+== arm precise-pull: 18 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-pull-oob-1-vllm-d-5d59cbd5d7-654f8-warm-000 O1-vllm-d-5d59cbd5d7-654f8 direct     654f8       0/376        3.6  
+precise-pull-oob-1-vllm-d-5d59cbd5d7-654f8-warm-001 O1-vllm-d-5d59cbd5d7-654f8 direct     654f8     352/376        6.3  
+precise-pull-oob-1-vllm-d-5d59cbd5d7-654f8-gw-000 O1-vllm-d-5d59cbd5d7-654f8 gateway    654f8     352/376        6.1  654f8=0.956522 ls4wn=0 vfcdk=0
+precise-pull-oob-1-vllm-d-5d59cbd5d7-ls4wn-warm-000 O1-vllm-d-5d59cbd5d7-ls4wn direct     ls4wn       0/372        3.9  
+precise-pull-oob-1-vllm-d-5d59cbd5d7-ls4wn-warm-001 O1-vllm-d-5d59cbd5d7-ls4wn direct     ls4wn     352/372        3.1  
+precise-pull-oob-1-vllm-d-5d59cbd5d7-ls4wn-gw-000 O1-vllm-d-5d59cbd5d7-ls4wn gateway    ls4wn     352/372        4.5  654f8=0.0434783 ls4wn=0.956522 vfcdk=0
+precise-pull-oob-1-vllm-d-5d59cbd5d7-vfcdk-warm-000 O1-vllm-d-5d59cbd5d7-vfcdk direct     vfcdk       0/374        4.4  
+precise-pull-oob-1-vllm-d-5d59cbd5d7-vfcdk-warm-001 O1-vllm-d-5d59cbd5d7-vfcdk direct     vfcdk     352/374        3.1  
+precise-pull-oob-1-vllm-d-5d59cbd5d7-vfcdk-gw-000 O1-vllm-d-5d59cbd5d7-vfcdk gateway    vfcdk     352/374        6.0  654f8=0.0434783 ls4wn=0.0434783 vfcdk=0.956522
+precise-pull-oob-2-vllm-d-5d59cbd5d7-654f8-warm-000 O2-vllm-d-5d59cbd5d7-654f8 direct     654f8       0/376        3.6  
+precise-pull-oob-2-vllm-d-5d59cbd5d7-654f8-warm-001 O2-vllm-d-5d59cbd5d7-654f8 direct     654f8     352/376        3.1  
+precise-pull-oob-2-vllm-d-5d59cbd5d7-654f8-gw-000 O2-vllm-d-5d59cbd5d7-654f8 gateway    654f8     352/376        5.6  654f8=0.956522 ls4wn=0 vfcdk=0
+precise-pull-oob-2-vllm-d-5d59cbd5d7-ls4wn-warm-000 O2-vllm-d-5d59cbd5d7-ls4wn direct     ls4wn       0/372        3.9  
+precise-pull-oob-2-vllm-d-5d59cbd5d7-ls4wn-warm-001 O2-vllm-d-5d59cbd5d7-ls4wn direct     ls4wn     352/372        3.6  
+precise-pull-oob-2-vllm-d-5d59cbd5d7-ls4wn-gw-000 O2-vllm-d-5d59cbd5d7-ls4wn gateway    ls4wn     352/372        4.4  654f8=0.0434783 ls4wn=0.956522 vfcdk=0
+precise-pull-oob-2-vllm-d-5d59cbd5d7-vfcdk-warm-000 O2-vllm-d-5d59cbd5d7-vfcdk direct     vfcdk       0/374        3.8  
+precise-pull-oob-2-vllm-d-5d59cbd5d7-vfcdk-warm-001 O2-vllm-d-5d59cbd5d7-vfcdk direct     vfcdk     352/374        3.4  
+precise-pull-oob-2-vllm-d-5d59cbd5d7-vfcdk-gw-000 O2-vllm-d-5d59cbd5d7-vfcdk gateway    vfcdk     352/374        5.7  654f8=0.0434783 ls4wn=0.0434783 vfcdk=0.956522
+   gateway requests joined to EPP scores: 6/6
+   step                                     gateway   hit  predicted  to warm pod
+   precise-pull-oob-1-vllm-d-5d59cbd5d7-654f8-gw       1     1        1/1          1/1
+   precise-pull-oob-1-vllm-d-5d59cbd5d7-ls4wn-gw       1     1        1/1          1/1
+   precise-pull-oob-1-vllm-d-5d59cbd5d7-vfcdk-gw       1     1        1/1          1/1
+   precise-pull-oob-2-vllm-d-5d59cbd5d7-654f8-gw       1     1        1/1          1/1
+   precise-pull-oob-2-vllm-d-5d59cbd5d7-ls4wn-gw       1     1        1/1          1/1
+   precise-pull-oob-2-vllm-d-5d59cbd5d7-vfcdk-gw       1     1        1/1          1/1
+

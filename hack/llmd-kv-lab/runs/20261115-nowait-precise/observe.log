@@ -1,0 +1,4 @@
+probes: === arm precise: EPP on the precise config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise config, behind freshly started simulators
+probes: [precise] epp-restart rollout-nowait: replacing tinyllama-1-1b-chat-v1-0-endpoint-picker-6f9684b65d-qfqxw (grace 130s) and testing before it exits
+probes: probe rollout-nowait on precise written to /tmp/claude-1000/lab598/gpuaas/hack/llmd-kv-lab/runs/20261115-nowait-precise

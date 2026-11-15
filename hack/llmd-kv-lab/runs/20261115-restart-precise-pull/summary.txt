@@ -1,0 +1,41 @@
+== arm precise-pull: 27 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-pull-restart-delete-vllm-d-6946776b86-9hqlc-warm-000 R-delete-vllm-d-6946776b86-9hqlc direct     9hqlc       0/377        3.3  
+precise-pull-restart-delete-vllm-d-6946776b86-9hqlc-warm-001 R-delete-vllm-d-6946776b86-9hqlc direct     9hqlc     352/377        2.8  
+precise-pull-restart-delete-vllm-d-6946776b86-9hqlc-gw-000 R-delete-vllm-d-6946776b86-9hqlc gateway    9hqlc     352/377        6.4  9hqlc=0.956522 tr72j=0 zk6vx=0
+precise-pull-restart-delete-vllm-d-6946776b86-tr72j-warm-000 R-delete-vllm-d-6946776b86-tr72j direct     tr72j       0/377        5.3  
+precise-pull-restart-delete-vllm-d-6946776b86-tr72j-warm-001 R-delete-vllm-d-6946776b86-tr72j direct     tr72j     352/377        4.5  
+precise-pull-restart-delete-vllm-d-6946776b86-tr72j-gw-000 R-delete-vllm-d-6946776b86-tr72j gateway    tr72j     352/377        6.1  9hqlc=0.0434783 tr72j=0.956522 zk6vx=0
+precise-pull-restart-delete-vllm-d-6946776b86-zk6vx-warm-000 R-delete-vllm-d-6946776b86-zk6vx direct     zk6vx       0/377        9.4  
+precise-pull-restart-delete-vllm-d-6946776b86-zk6vx-warm-001 R-delete-vllm-d-6946776b86-zk6vx direct     zk6vx     352/377        4.0  
+precise-pull-restart-delete-vllm-d-6946776b86-zk6vx-gw-000 R-delete-vllm-d-6946776b86-zk6vx gateway    zk6vx     352/377        5.0  9hqlc=0.0434783 tr72j=0.0434783 zk6vx=0.956522
+precise-pull-restart-rollout-vllm-d-6946776b86-9hqlc-warm-000 R-rollout-vllm-d-6946776b86-9hqlc direct     9hqlc       0/379        3.6  
+precise-pull-restart-rollout-vllm-d-6946776b86-9hqlc-warm-001 R-rollout-vllm-d-6946776b86-9hqlc direct     9hqlc     368/379        3.4  
+precise-pull-restart-rollout-vllm-d-6946776b86-9hqlc-gw-000 R-rollout-vllm-d-6946776b86-9hqlc gateway    9hqlc     352/379        8.4  9hqlc=0.956522 tr72j=0 zk6vx=0
+precise-pull-restart-rollout-vllm-d-6946776b86-tr72j-warm-000 R-rollout-vllm-d-6946776b86-tr72j direct     tr72j       0/379        4.3  
+precise-pull-restart-rollout-vllm-d-6946776b86-tr72j-warm-001 R-rollout-vllm-d-6946776b86-tr72j direct     tr72j     368/379        5.4  
+precise-pull-restart-rollout-vllm-d-6946776b86-tr72j-gw-000 R-rollout-vllm-d-6946776b86-tr72j gateway    tr72j     352/379        5.3  9hqlc=0.0434783 tr72j=0.956522 zk6vx=0
+precise-pull-restart-rollout-vllm-d-6946776b86-zk6vx-warm-000 R-rollout-vllm-d-6946776b86-zk6vx direct     zk6vx       0/379        5.3  
+precise-pull-restart-rollout-vllm-d-6946776b86-zk6vx-warm-001 R-rollout-vllm-d-6946776b86-zk6vx direct     zk6vx     368/379        4.0  
+precise-pull-restart-rollout-vllm-d-6946776b86-zk6vx-gw-000 R-rollout-vllm-d-6946776b86-zk6vx gateway    zk6vx     352/379        5.1  9hqlc=0.0434783 tr72j=0.0434783 zk6vx=0.956522
+precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-n5ksg-warm-000 R-sims-then-rollout-vllm-d-84b4d48d6b-n5ksg direct     n5ksg       0/389        3.8  
+precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-n5ksg-warm-001 R-sims-then-rollout-vllm-d-84b4d48d6b-n5ksg direct     n5ksg     368/389        3.3  
+precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-n5ksg-gw-000 R-sims-then-rollout-vllm-d-84b4d48d6b-n5ksg gateway    n5ksg     368/389        9.1  n5ksg=0.958333 qzxwg=0 xbb2l=0
+precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-qzxwg-warm-000 R-sims-then-rollout-vllm-d-84b4d48d6b-qzxwg direct     qzxwg       0/391        5.0  
+precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-qzxwg-warm-001 R-sims-then-rollout-vllm-d-84b4d48d6b-qzxwg direct     qzxwg     368/391        4.1  
+precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-qzxwg-gw-000 R-sims-then-rollout-vllm-d-84b4d48d6b-qzxwg gateway    qzxwg     368/391        4.8  n5ksg=0.0416667 qzxwg=0.958333 xbb2l=0
+precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-xbb2l-warm-000 R-sims-then-rollout-vllm-d-84b4d48d6b-xbb2l direct     xbb2l       0/389        3.6  
+precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-xbb2l-warm-001 R-sims-then-rollout-vllm-d-84b4d48d6b-xbb2l direct     xbb2l     368/389        3.5  
+precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-xbb2l-gw-000 R-sims-then-rollout-vllm-d-84b4d48d6b-xbb2l gateway    xbb2l     368/389        5.4  n5ksg=0.0416667 qzxwg=0.0416667 xbb2l=0.958333
+   gateway requests joined to EPP scores: 9/9
+   step                                     gateway   hit  predicted  to warm pod
+   precise-pull-restart-delete-vllm-d-6946776b86-9hqlc-gw       1     1        1/1          1/1
+   precise-pull-restart-delete-vllm-d-6946776b86-tr72j-gw       1     1        1/1          1/1
+   precise-pull-restart-delete-vllm-d-6946776b86-zk6vx-gw       1     1        1/1          1/1
+   precise-pull-restart-rollout-vllm-d-6946776b86-9hqlc-gw       1     1        1/1          1/1
+   precise-pull-restart-rollout-vllm-d-6946776b86-tr72j-gw       1     1        1/1          1/1
+   precise-pull-restart-rollout-vllm-d-6946776b86-zk6vx-gw       1     1        1/1          1/1
+   precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-n5ksg-gw       1     1        1/1          1/1
+   precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-qzxwg-gw       1     1        1/1          1/1
+   precise-pull-restart-sims-then-rollout-vllm-d-84b4d48d6b-xbb2l-gw       1     1        1/1          1/1
+

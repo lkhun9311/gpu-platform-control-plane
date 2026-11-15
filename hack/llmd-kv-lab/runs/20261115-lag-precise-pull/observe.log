@@ -1,0 +1,3 @@
+probes: === arm precise-pull: EPP on the precise-pull config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise-pull config, behind freshly started simulators
+probes: probe lag on precise-pull written to /tmp/claude-1000/lab598/gpuaas/hack/llmd-kv-lab/runs/20261115-lag-precise-pull

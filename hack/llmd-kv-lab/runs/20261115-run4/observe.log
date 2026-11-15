@@ -1,0 +1,11 @@
+observe: === arm precise-pull: EPP on the precise-pull config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise-pull config, behind freshly started simulators
+observe: [precise-pull] affinity: F0..F3 interleaved, four rounds, through the gateway
+observe: [precise-pull] oob: W1 warmed directly on vllm-d-85b6dc6d-kcrt7, then three requests through the gateway
+observe: [precise-pull] evict: vllm-d-85b6dc6d-9tv4w holds F0; flooding it directly with twelve other prefixes
+observe: [precise-pull] zmq-block: dropping tcp/5557 in gpuaas-llmd-kv-lab-control-plane FORWARD; warming W2 directly on vllm-d-85b6dc6d-npr9r
+observe: [precise-pull] zmq-block: restored; waiting 20s for any buffered events
+observe: [precise-pull] publisher-leave: deleting vllm-d-85b6dc6d-kcrt7, then warming W3 directly on vllm-d-85b6dc6d-9tv4w
+observe: [precise-pull] restart: deleting EPP pod tinyllama-1-1b-chat-v1-0-endpoint-picker-6ffb764569-qc866
+observe: [precise-pull] restart: R1 warmed directly on vllm-d-85b6dc6d-9tv4w after the restart, then through the gateway
+observe: run written to /tmp/claude-1000/lab598/gpuaas/hack/llmd-kv-lab/runs/20261115-run4
