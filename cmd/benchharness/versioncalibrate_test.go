@@ -128,3 +128,23 @@ func TestRunVersionCalibrationSendsNothingItCannotRecord(t *testing.T) {
 		t.Fatalf("write failure at rung 2: err %v after %d probes, want an error and no probe after rung 2", err, probes)
 	}
 }
+
+// TestCalibrationReservationAdmitsOneOfTwoConcurrentRuns: two calibrations of one campaign would load the engine together and corrupt both.
+func TestCalibrationReservationAdmitsOneOfTwoConcurrentRuns(t *testing.T) {
+	for range 20 {
+		dir := t.TempDir()
+		results := make(chan error, 2)
+		for range 2 {
+			go func() { results <- reserveCalibration(dir) }()
+		}
+		ok := 0
+		for range 2 {
+			if <-results == nil {
+				ok++
+			}
+		}
+		if ok != 1 {
+			t.Fatalf("%d of two concurrent calibrations reserved the campaign, want exactly 1", ok)
+		}
+	}
+}

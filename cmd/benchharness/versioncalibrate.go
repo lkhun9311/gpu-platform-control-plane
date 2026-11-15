@@ -86,7 +86,7 @@ type rungRecord struct {
 // The artifact is written for an unresolved ladder too, because "calibration unresolved, stop" is a registered outcome and must be on record.
 func runVersionCalibration(dir string, rule bench.CalibrationRule, runner *bench.RungRunner, probe func(rate float64, ordinal int) bench.RungClass) (bench.CalibrationResult, error) {
 	// The destination is checked before the first request, because a rung whose evidence cannot be kept is paid for and lost.
-	if err := calibrationDestinationReady(dir); err != nil {
+	if err := reserveCalibration(dir); err != nil {
 		return bench.CalibrationResult{}, err
 	}
 	var writeErr error
@@ -144,8 +144,13 @@ func writeNew(path string, data []byte) error {
 	return f.Close()
 }
 
-// calibrationDestinationReady refuses a directory that is missing, not writable, or already holds calibration evidence.
-func calibrationDestinationReady(dir string) error {
+// calibrationLockFile reserves a campaign directory for one calibration; it stays as the record that the campaign was calibrated.
+const calibrationLockFile = "calibration.lock"
+
+// reserveCalibration refuses a directory that is missing or already holds calibration evidence, then reserves it atomically.
+//
+// The reservation is an exclusive create, so of two calibrations started together exactly one sends traffic.
+func reserveCalibration(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return fmt.Errorf("calibration directory: %w", err)
@@ -160,11 +165,8 @@ func calibrationDestinationReady(dir string) error {
 	if len(existing) > 0 {
 		return fmt.Errorf("%s already holds calibration evidence (%s); a campaign is calibrated once, into an empty place", dir, filepath.Base(existing[0]))
 	}
-	probe, err := os.CreateTemp(dir, ".write-check-*")
-	if err != nil {
-		return fmt.Errorf("calibration directory %s is not writable: %w", dir, err)
+	if err := writeNew(filepath.Join(dir, calibrationLockFile), []byte(time.Now().UTC().Format(time.RFC3339)+"\n")); err != nil {
+		return fmt.Errorf("reserve calibration directory %s: %w", dir, err)
 	}
-	name := probe.Name()
-	_ = probe.Close()
-	return os.Remove(name)
+	return nil
 }
