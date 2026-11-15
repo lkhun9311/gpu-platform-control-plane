@@ -186,6 +186,10 @@ type RawRow struct {
 	// Empty is its own fact and NOT "stop": it means the engine reported no reason, or no response arrived
 	// at all. A report that reads empty as a normal stop would turn an instrument gap into a measurement.
 	FinishReason string `json:"finishReason,omitempty"`
+	// OutputSHA256 is the sha256 of the response's content text, a diagnostic the version study records and never compares.
+	//
+	// Greedy decoding need not give the same text across releases or batch schedules, so a difference is reported, not scored.
+	OutputSHA256 string `json:"outputSHA256,omitempty"`
 	// BackendState is the pressure reading the guard's decision was made from, verbatim as the gateway
 	// reported it: "kv=0.834,waiting=7,engaged=0,fresh=1".
 	//
@@ -280,6 +284,8 @@ type SendResult struct {
 	EngineOutputTokens int
 	// UsageReported says the stream carried a usage chunk at all, whatever counts it held.
 	UsageReported bool
+	// OutputSHA256 is the sha256 of the content the stream delivered, in order; empty when none arrived.
+	OutputSHA256 string
 	// FinishReason is why the engine stopped, empty when it reported none.
 	//
 	// Empty and "stop" are different facts: the first means nothing said, the second means the model
@@ -471,6 +477,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 			r.EngineOutputTokens = res.EngineOutputTokens
 			r.EngineUsageReported = &res.UsageReported
 			r.FinishReason = res.FinishReason
+			r.OutputSHA256 = res.OutputSHA256
 			r.BackendState = res.BackendState
 			r.OutputTokens = res.OutputTokens
 			r.HTTPStatus = res.HTTPStatus
