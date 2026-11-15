@@ -133,3 +133,53 @@ func TestDockerRunArgsRefuseAnotherReleasesImage(t *testing.T) {
 		t.Fatalf("a mirror of the reviewed digest was refused: %v", err)
 	}
 }
+
+// TestDockerStartCleansUpAFailedStart: a container the daemon created holds the GPU and the port even when the CLI failed.
+func TestDockerStartCleansUpAFailedStart(t *testing.T) {
+	d := versionAsyncDesign()
+	removed := false
+	r := &recordingDocker{answer: func(args []string) ([]byte, error) {
+		switch args[0] {
+		case "run":
+			return nil, context.DeadlineExceeded
+		case "rm":
+			removed = true
+		case "inspect":
+			if removed {
+				return nil, errors.New("No such object")
+			}
+			return []byte("running\n"), nil
+		}
+		return nil, nil
+	}}
+	e := testDockerEngine(r)
+	if _, err := e.Start(context.Background(), d, TreatmentA, "b1-A"); err == nil {
+		t.Fatal("a failed docker run started an engine")
+	}
+	if !removed {
+		t.Fatalf("the attempted container was not removed: %v", r.calls)
+	}
+	var rm []string
+	for _, c := range r.calls {
+		if len(c) > 1 && c[1] == "rm" {
+			rm = c
+		}
+	}
+	if !slices.Contains(rm, "s1-test-b1-A") {
+		t.Fatalf("cleanup removed %v, want the container by its name", rm)
+	}
+	// A cleanup that leaves the container behind is reported, so the session stops rather than sharing the GPU.
+	removed = false
+	r.answer = func(args []string) ([]byte, error) {
+		switch args[0] {
+		case "run":
+			return []byte(""), nil
+		case "inspect":
+			return []byte("running\n"), nil
+		}
+		return nil, nil
+	}
+	if _, err := e.Start(context.Background(), d, TreatmentA, "b2-A"); err == nil || !strings.Contains(err.Error(), "still present") {
+		t.Fatalf("a start whose cleanup left the container: %v", err)
+	}
+}

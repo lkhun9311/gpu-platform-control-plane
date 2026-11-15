@@ -94,16 +94,18 @@ func (e *DockerEngine) Start(ctx context.Context, d VersionStudyDesign, treatmen
 	if err != nil {
 		return EngineStart{}, err
 	}
+	name := e.NamePrefix + "-" + visit
 	out, err := e.Run(ctx, "docker", args...)
-	if err != nil {
-		return EngineStart{}, fmt.Errorf("docker run for %s: %w", treatment, err)
-	}
 	id := strings.TrimSpace(string(out))
-	if id == "" {
-		return EngineStart{}, errors.New("docker run returned no container id")
+	if err != nil || id == "" {
+		if err == nil {
+			err = errors.New("docker run returned no container id")
+		}
+		// The daemon may have created the container before the CLI failed, and it would keep the GPU and the port.
+		return EngineStart{}, errors.Join(fmt.Errorf("docker run for %s: %w", treatment, err), e.remove(name))
 	}
 	return EngineStart{
-		Treatment: treatment, Name: e.NamePrefix + "-" + visit, ContainerID: id,
+		Treatment: treatment, Name: name, ContainerID: id,
 		Image: d.Engines[treatment].Image, RunArgs: args, StartedAt: time.Now().UTC(),
 	}, nil
 }
@@ -115,6 +117,20 @@ func (e *DockerEngine) Stop(ctx context.Context, s EngineStart) error {
 	}
 	if _, err := e.Run(ctx, "docker", "inspect", "--format={{.State.Status}}", s.ContainerID); err == nil {
 		return fmt.Errorf("container %s is still present after docker rm", s.ContainerID)
+	}
+	return nil
+}
+
+// dockerCleanupTimeout bounds removing an attempted container, on its own context so a start that failed by its context expiring still cleans up.
+const dockerCleanupTimeout = 60 * time.Second
+
+// remove deletes a container by name and confirms it is gone, whether or not it was ever created.
+func (e *DockerEngine) remove(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), dockerCleanupTimeout)
+	defer cancel()
+	_, _ = e.Run(ctx, "docker", "rm", "--force", name)
+	if _, err := e.Run(ctx, "docker", "inspect", "--format={{.State.Status}}", name); err == nil {
+		return fmt.Errorf("container %s is still present after cleanup; it may hold the GPU", name)
 	}
 	return nil
 }
