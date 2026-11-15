@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -128,6 +129,10 @@ func readJournal(path, campaign string) (*journalState, []byte, int64, error) {
 		if err := dec.Decode(&r); err != nil {
 			return nil, nil, 0, fmt.Errorf("%s line %d: %w", path, n, err)
 		}
+		// Decode stops after the first value, so anything after it on the line would otherwise be skipped unread.
+		if _, err := dec.Token(); err != io.EOF {
+			return nil, nil, 0, fmt.Errorf("%s line %d holds more than one record", path, n)
+		}
 		if err := s.apply(r); err != nil {
 			return nil, nil, 0, fmt.Errorf("%s line %d: %w", path, n, err)
 		}
@@ -152,10 +157,20 @@ func ReadAttemptJournal(path, campaign string) (AttemptLedger, *PendingAttempt, 
 	return s.ledger, s.pending, nil
 }
 
+// journalFile is the journal's open file; tests replace it to fail a write partway.
+type journalFile interface {
+	Write(p []byte) (int, error)
+	Sync() error
+	Close() error
+	Name() string
+}
+
 // AttemptJournal appends attempt records, each synced before the call returns.
 type AttemptJournal struct {
-	f     *os.File
+	f     journalFile
 	state *journalState
+	// failed is the first write or sync error; after it the file may end in torn bytes a later record would be appended onto.
+	failed error
 }
 
 // OpenAttemptJournal opens or creates a campaign's journal for new attempts.
@@ -214,6 +229,9 @@ func (j *AttemptJournal) Close() error { return j.f.Close() }
 
 // append checks the record against the history before writing it, so the file never holds a record its reader would refuse.
 func (j *AttemptJournal) append(r journalRecord) error {
+	if j.failed != nil {
+		return fmt.Errorf("the journal failed a write (%v) and takes no more records; close it and recover it", j.failed)
+	}
 	r.Campaign = j.state.ledger.CampaignID
 	next := *j.state
 	next.ledger.Attempts = append([]BlockAttempt(nil), j.state.ledger.Attempts...)
@@ -223,13 +241,14 @@ func (j *AttemptJournal) append(r journalRecord) error {
 		return err
 	}
 	if err := writeJournalLine(j.f, r); err != nil {
+		j.failed = err
 		return err
 	}
 	*j.state = next
 	return nil
 }
 
-func writeJournalLine(f *os.File, r journalRecord) error {
+func writeJournalLine(f journalFile, r journalRecord) error {
 	line, err := json.Marshal(r)
 	if err != nil {
 		return err

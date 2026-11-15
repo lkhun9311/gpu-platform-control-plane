@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,5 +203,56 @@ func TestAFailedWriteLeavesTheJournalStateUnchanged(t *testing.T) {
 	}
 	if j.state.seen[1] || j.state.pending != nil {
 		t.Fatalf("the failed start changed the state: seen %v pending %+v", j.state.seen, j.state.pending)
+	}
+}
+
+// tornFile writes only part of the first record it is given and fails, as a full disk or a size limit would.
+type tornFile struct {
+	*os.File
+	tore bool
+}
+
+func (f *tornFile) Write(p []byte) (int, error) {
+	if !f.tore {
+		f.tore = true
+		n, _ := f.File.Write(p[:len(p)/2])
+		return n, errors.New("no space left on device")
+	}
+	return f.File.Write(p)
+}
+
+// TestAJournalThatFailedAWriteTakesNoMoreRecords: a later record would land on the torn bytes and make the history unreadable.
+func TestAJournalThatFailedAWriteTakesNoMoreRecords(t *testing.T) {
+	path, j := openTestJournal(t)
+	if err := j.Start(1, 0, journalT0); err != nil {
+		t.Fatal(err)
+	}
+	j.f = &tornFile{File: j.f.(*os.File)}
+	if err := j.End(1, AttemptValid, "", journalT0.Add(time.Hour)); err == nil {
+		t.Fatal("a torn end was reported written")
+	}
+	if err := j.End(1, AttemptStopped, "recorder failure", journalT0.Add(time.Hour)); err == nil || !strings.Contains(err.Error(), "recover") {
+		t.Fatalf("a journal with a torn tail took another record: %v", err)
+	}
+	_ = j.Close()
+	rec, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(2*time.Hour))
+	if err != nil || rec.DroppedTail == "" || rec.Recovered == nil {
+		t.Fatalf("recovery %+v err %v", rec, err)
+	}
+}
+
+// TestAJournalLineHoldsExactlyOneRecord: trailing bytes after a record are a malformed line, not something to skip.
+func TestAJournalLineHoldsExactlyOneRecord(t *testing.T) {
+	for name, body := range map[string]string{
+		"garbage":       `{"kind":"archive","campaign":"camp-1","at":"2026-11-20T03:00:00Z"} GARBAGE` + "\n",
+		"second record": `{"kind":"archive","campaign":"camp-1","at":"2026-11-20T03:00:00Z"}{"kind":"archive"}` + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "attempts.jsonl")
+			_ = os.WriteFile(path, []byte(body), 0o644)
+			if l, _, err := ReadAttemptJournal(path, "camp-1"); err == nil {
+				t.Fatalf("read %+v from a line with trailing bytes", l)
+			}
+		})
 	}
 }
