@@ -136,6 +136,21 @@ type Study struct {
 	// when it was published: switching the count for those studies would move results nobody re-registered.
 	// A new study opts into OutputCountEngineTokens by naming it here, which travels with its rows as their Study.
 	OutputCount OutputCountContract
+
+	// ManifestSchema is the manifest schema version this study's runs must be recorded under.
+	//
+	// Empty means ManifestSchemaV2, the shape every study registered before 2026-11-15 wrote.
+	// A study that needs typed engine, sampling and cell identity names ManifestSchemaV3, and LoadManifest refuses its runs in any other shape.
+	ManifestSchema string
+
+	// Sampling is the frozen generation policy every request of the study is sent with, nil where none was registered.
+	//
+	// Nil keeps the body earlier studies sent, which left sampling to the engine's defaults.
+	// Those defaults moved between vLLM versions, so a study comparing versions has to send its own.
+	Sampling *SamplingPolicy
+
+	// Version is the A/B/C engine-version study's registered design, nil for every other study.
+	Version *VersionStudyDesign
 }
 
 // OutputCountContract names how a report counts the output a response delivered.
@@ -420,6 +435,11 @@ const (
 	// and it answers whether MPS engages, not what the split costs, so a row of it pooled into a sharing report would
 	// report a latency for a load that study never offered.
 	StudyMPSCapability = "mps-capability-2026-10-24"
+	// StudyVersionAsync is the A/B/C engine-version and async-scheduling comparison pre-registered in
+	// docs/superpowers/specs/2026-11-15-vllm-version-async-study-design.md.
+	//
+	// Its arms are a treatment and an offered load, so a row says both which engine and which fraction of capacity it saw.
+	StudyVersionAsync = "vllm-version-async-2026-11-15"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -642,6 +662,10 @@ func ArmComparisonGroup(arm string) string {
 	// The instrument check replays a different trace per episode type by design, and the same trace across the modes of one type.
 	if t, ok := InstrumentValidationEpisode(arm); ok {
 		return string(t)
+	}
+	// The version study offers two loads, and its three treatments share one trace per load and block.
+	if _, load, ok := ParseVersionStudyArm(arm); ok {
+		return load
 	}
 	return ""
 }
@@ -1099,6 +1123,22 @@ var studies = map[string]Study{
 		ID:       StudyThroughputLadderIndependent,
 		Arms:     throughputLadderArms(),
 		Arrivals: ArrivalsIndependent,
+	},
+	// Registered in docs/superpowers/specs/2026-11-15-vllm-version-async-study-design.md before any run.
+	// The token contract is set because the newer engine may put several tokens in one frame (audit finding 1).
+	StudyVersionAsync: {
+		ID:                     StudyVersionAsync,
+		Arms:                   versionStudyArms(),
+		OutputCount:            OutputCountEngineTokens,
+		ManifestSchema:         ManifestSchemaV3,
+		MinRepetitions:         versionStudyPlannedBlocks,
+		PublishesInterval:      true,
+		TracesVaryByRepetition: true,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		FrozenExactTokens:      versionStudyExactTokens(),
+		Sampling:               versionStudySampling(),
+		Version:                new(versionAsyncDesign()),
 	},
 }
 
