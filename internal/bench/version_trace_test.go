@@ -162,3 +162,12 @@ func TestVersionTraceStratifiesTheWarmup(t *testing.T) {
 		}
 	}
 }
+
+// TestVersionTraceBoundsItsRows: a finite but absurd λ0 from a calibration artifact must be refused before it exhausts memory.
+func TestVersionTraceBoundsItsRows(t *testing.T) {
+	d := versionAsyncDesign()
+	_, err := d.VersionTrace(1, 1e9, d.MaxMeasureSeconds)
+	if err == nil || !strings.Contains(err.Error(), "rows") {
+		t.Fatalf("err %v, want the row-bound refusal", err)
+	}
+}

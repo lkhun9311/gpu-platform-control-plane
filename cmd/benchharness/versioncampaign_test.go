@@ -119,3 +119,45 @@ func TestVersionManifestTracesPassTheReplaysFrozenTokenCheck(t *testing.T) {
 		}
 	}
 }
+
+// TestVersionCampaignSurvivesBeingMoved: an archived campaign is moved or copied whole, and its frozen manifests must still load.
+func TestVersionCampaignSurvivesBeingMoved(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "campaign")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	art, _ := json.Marshal(bench.CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2.0})
+	if err := os.WriteFile(filepath.Join(dir, "calibration.json"), art, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := versionBundle([]string{"-dir", dir, "-campaign-id", "s1-test", "-price-usd-per-hour", "1.237",
+		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	mdir := filepath.Join(dir, "manifests")
+	if err := os.Mkdir(mdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := versionManifests([]string{"-bundle", filepath.Join(dir, bench.CampaignBundleFile), "-engine-url", "http://127.0.0.1:8000",
+		"-blocks", "1", "-out", mdir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(root, "archived")
+	if err := os.Rename(dir, moved); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := bench.LoadCampaignBundle(filepath.Join(moved, bench.CampaignBundleFile)); err != nil {
+		t.Fatalf("moved bundle: %v", err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(moved, "manifests"))
+	for _, e := range entries {
+		if _, err := bench.LoadManifest(filepath.Join(moved, "manifests", e.Name())); err != nil {
+			t.Fatalf("moved manifest %s: %v", e.Name(), err)
+		}
+	}
+	if len(entries) != 6 {
+		t.Fatalf("%d manifests, want 6", len(entries))
+	}
+}

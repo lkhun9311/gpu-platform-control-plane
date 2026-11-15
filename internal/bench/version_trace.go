@@ -46,6 +46,10 @@ func (d VersionStudyDesign) versionStream(seed int64, offeredRate float64, windo
 		if t >= end {
 			break
 		}
+		// A finite but absurd λ0 passes every check above, so the row count is what stops it before memory does.
+		if len(rows) >= maxTraceRows {
+			return nil, tooManyRows(int64(end))
+		}
 		rows = append(rows, TraceRow{
 			Index: len(rows), OffsetMs: int64(t), Tenant: PremiumTenant,
 			PromptLenChars: chars[in], MaxOutputTokens: out, MinOutputTokens: out,

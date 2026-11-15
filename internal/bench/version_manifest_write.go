@@ -74,7 +74,19 @@ func VersionCellManifest(b *CampaignBundle, bundleSHA, bundleDir string, block i
 }
 
 // WriteManifestFile writes m as YAML to a new file, refusing to replace one: a frozen cell's record is never rewritten.
+//
+// The trace path is written relative to the manifest, ".." included, because LoadManifest resolves it against the manifest's directory.
+// An archived campaign is moved or copied whole, and an absolute path would tie its frozen records to the machine that wrote them.
 func WriteManifestFile(path string, m RunManifest) error {
+	if filepath.IsAbs(m.TracePath) {
+		dir, err := filepath.Abs(filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		if rel, err := filepath.Rel(dir, m.TracePath); err == nil {
+			m.TracePath = rel
+		}
+	}
 	data, err := yaml.Marshal(m)
 	if err != nil {
 		return err
