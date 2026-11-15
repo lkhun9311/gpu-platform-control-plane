@@ -24,6 +24,8 @@ lab_init() {
   # Ownership is checked before any cleanup is armed, so a run refused on someone else's cluster leaves it untouched.
   k -n kube-system get configmap gpuaas-llmd-kv-lab-owner >/dev/null 2>&1 \
     || { echo "lab: $CTX has no gpuaas-llmd-kv-lab-owner marker; not running probes against a cluster this lab did not create" >&2; exit 1; }
+  # A run's evidence is written once; a reused STAMP is refused before anything in it is touched.
+  [ ! -e "$RUN" ] || { echo "lab: $RUN exists; use a new STAMP rather than overwrite a recorded run" >&2; exit 1; }
   mkdir -p "$RUN"
   go build -o "$DRIVER" "$REPO/hack/llmd-kv-lab/driver"
   "$LAB" pins >"$RUN/pins.txt"
@@ -38,7 +40,12 @@ lab_init() {
   local _
   for _ in $(seq 1 20); do
     kill -0 "$PROXY_PID" 2>/dev/null || { echo "lab: kubectl proxy exited (port $PROXY_PORT taken?); see $RUN/kubectl-proxy.log" >&2; exit 1; }
-    curl -sf -o /dev/null "$PROXY/api/v1/namespaces/kube-system/configmaps/gpuaas-llmd-kv-lab-owner" && return 0
+    # Only this proxy's own "Starting to serve" line shows it holds the port; an answer alone could come from a listener
+    # that was there first while this one is still failing to bind.
+    if grep -q "Starting to serve on 127.0.0.1:$PROXY_PORT" "$RUN/kubectl-proxy.log" 2>/dev/null \
+      && curl -sf -o /dev/null "$PROXY/api/v1/namespaces/kube-system/configmaps/gpuaas-llmd-kv-lab-owner"; then
+      return 0
+    fi
     sleep 0.5
   done
   echo "lab: the proxy on $PROXY_PORT never reached this lab's cluster" >&2
@@ -51,25 +58,37 @@ FW_TAG=llmd-kv-lab-$STAMP-$$
 lab_cleanup() {
   kill "$PROXY_PID" 2>/dev/null || true
   # A blocked ZMQ path must never outlive the run, or the next run would measure it without knowing.
-  fw_remove_own
+  # A rule left behind turns the run's exit into a failure, so nobody reads a finished run as clean.
+  fw_remove_own || { echo "lab: firewall cleanup failed; check $NODE's FORWARD chain for $FW_TAG" >&2; exit 1; }
 }
 
-# fw_block inserts this run's two DROP rules for the ZMQ port, each carrying FW_TAG.
+# fw_block inserts this run's two DROP rules for the ZMQ port, each carrying FW_TAG; -w waits for the xtables lock.
 fw_block() {
-  docker exec "$NODE" iptables -I FORWARD -p tcp --dport 5557 -m comment --comment "$FW_TAG" -j DROP
-  docker exec "$NODE" iptables -I FORWARD -p tcp --sport 5557 -m comment --comment "$FW_TAG" -j DROP
+  docker exec "$NODE" iptables -w -I FORWARD -p tcp --dport 5557 -m comment --comment "$FW_TAG" -j DROP
+  docker exec "$NODE" iptables -w -I FORWARD -p tcp --sport 5557 -m comment --comment "$FW_TAG" -j DROP
 }
 
-# fw_remove_own deletes every FORWARD rule carrying FW_TAG, and nothing else, however far insertion or removal got.
+# fw_own_rules lists the FORWARD rules carrying FW_TAG, and fails when the chain cannot be read at all.
+fw_own_rules() {
+  local listing
+  listing=$(docker exec "$NODE" iptables -w -S FORWARD) || return 1
+  grep -F -- "--comment $FW_TAG " <<<"$listing" || true
+}
+
+# fw_remove_own deletes every FORWARD rule carrying FW_TAG and nothing else, then fails unless none is left.
+#
+# No tagged rule left is the normal end of a run, so an empty match is success; a rule that stays, or a chain that
+# cannot be read, is a failure, because a recovery measured behind a DROP rule would be measuring the block.
 fw_remove_own() {
-  local listing rule
-  # No tagged rule left is the normal end of a run, so an empty match is success; only a rule that stays is not.
-  listing=$(docker exec "$NODE" iptables -S FORWARD 2>/dev/null || true)
+  local rules rule
+  rules=$(fw_own_rules) || { echo "lab: cannot read $NODE's FORWARD chain; the ZMQ path may still be blocked" >&2; return 1; }
   while read -r rule; do
     [ -n "$rule" ] || continue
     # shellcheck disable=SC2086 # the rule spec is split into iptables arguments on purpose
-    docker exec "$NODE" iptables ${rule/#-A /-D } || true
-  done < <(grep -F -- "--comment $FW_TAG " <<<"$listing" || true)
+    docker exec "$NODE" iptables -w ${rule/#-A /-D } || true
+  done <<<"$rules"
+  rules=$(fw_own_rules) || { echo "lab: cannot re-read $NODE's FORWARD chain after removal" >&2; return 1; }
+  [ -z "$rules" ] || { echo "lab: tagged DROP rules remain in $NODE: $rules" >&2; return 1; }
 }
 
 svc() { echo "$PROXY/api/v1/namespaces/default/services/http:$EPP:9090/proxy"; }

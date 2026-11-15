@@ -2,9 +2,12 @@
 # shellcheck disable=SC2016 # the stub bodies are written literally; they expand when the stubs run
 # Checks the llm-d KV routing lab's isolation guards with docker, kubectl, curl and git stubbed, so no cluster is needed:
 #   1. lab_init refuses a cluster without the lab's owner marker before it arms any cleanup, so nothing is deleted there;
-#   2. cleanup removes this run's tagged firewall rules and nothing else, however far insertion or removal got;
+#   2. cleanup removes this run's tagged firewall rules and nothing else, exits 0 when none is left, and fails when one
+#      stays or the chain cannot be read;
 #   3. up refuses a dirty router checkout before building anything from it;
-#   4. lab_init refuses a kubectl proxy that does not start, rather than using whatever listens on its port.
+#   4. lab_init refuses a kubectl proxy that does not start, or one that never says it serves on the port;
+#   5. the PID cleanup stops is the proxy's own;
+#   6. a reused STAMP is refused before any of its recorded files is written, and a reused arm before anything restarts.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 TMP=$(mktemp -d)
@@ -14,23 +17,39 @@ ok() { echo "ok: $*"; }
 bad() { echo "FAIL: $*"; fail=1; }
 
 mkdir -p "$TMP/bin"
-# The docker stub logs every call; asked for the FORWARD chain, it lists this run's two rules, another run's identical
-# rule, and an unrelated one.
+# The docker stub logs every call and keeps the node's FORWARD chain in a file: -S lists it, -D removes the matching
+# line unless STUCK=1 (a deletion that does not take), and UNREADABLE=1 makes -S fail.
 printf '%s\n' '#!/usr/bin/env bash' \
   'echo "docker $*" >>"$CALLS"' \
-  'if [[ "$*" == *"iptables -S FORWARD"* ]]; then' \
-  '  echo "-P FORWARD ACCEPT"' \
-  '  echo "-A FORWARD -p tcp -m tcp --dport 5557 -m comment --comment ${OWN_TAG:-none} -j DROP"' \
-  '  echo "-A FORWARD -p tcp -m tcp --sport 5557 -m comment --comment ${OWN_TAG:-none} -j DROP"' \
-  '  echo "-A FORWARD -p tcp -m tcp --dport 5557 -m comment --comment llmd-kv-lab-other-run -j DROP"' \
-  '  echo "-A FORWARD -j KUBE-FORWARD"' \
-  'fi' >"$TMP/bin/docker"
-# The kubectl stub answers ownership as OWNED says, and a proxy started through it exits at once.
+  'args="$*"' \
+  'case "$args" in' \
+  '  *"iptables -w -S FORWARD"*) [ "${UNREADABLE:-0}" = 1 ] && exit 4; cat "$CHAIN" ;;' \
+  '  *"iptables -w -D "*) [ "${STUCK:-0}" = 1 ] && exit 0; rule="-A ${args#*iptables -w -D }"; grep -vxF -- "$rule" "$CHAIN" >"$CHAIN.new" || true; mv "$CHAIN.new" "$CHAIN" ;;' \
+  'esac' >"$TMP/bin/docker"
+# The kubectl stub answers ownership as OWNED says; a proxy prints its serving line when SERVE_LINE=1 and stays up.
 printf '%s\n' '#!/usr/bin/env bash' \
   'echo "kubectl $*" >>"$CALLS"' \
+  'port=; for a in "$@"; do case "$a" in --port=*) port=${a#--port=} ;; esac; done' \
+  'case "$*" in *" proxy "*) [ "${SERVE_LINE:-1}" = 1 ] && echo "Starting to serve on 127.0.0.1:${port}"; exec sleep 30 ;; esac' \
   '[ "${OWNED:-0}" = 1 ] || exit 1' >"$TMP/bin/kubectl"
-chmod +x "$TMP/bin/docker" "$TMP/bin/kubectl"
-export PATH=$TMP/bin:$PATH CALLS=$TMP/calls LAB_HOME=$TMP/home
+printf '%s\n' '#!/usr/bin/env bash' 'exit "${CURL_EXIT:-7}"' >"$TMP/bin/curl"
+chmod +x "$TMP/bin/docker" "$TMP/bin/kubectl" "$TMP/bin/curl"
+export PATH=$TMP/bin:$PATH CALLS=$TMP/calls CHAIN=$TMP/chain LAB_HOME=$TMP/home
+
+# chain_with writes a FORWARD chain holding this run's two rules (when given a tag), another run's identical rule and an
+# unrelated one.
+chain_with() {
+  {
+    echo "-P FORWARD ACCEPT"
+    if [ -n "$1" ]; then
+      echo "-A FORWARD -p tcp -m tcp --dport 5557 -m comment --comment $1 -j DROP"
+      echo "-A FORWARD -p tcp -m tcp --sport 5557 -m comment --comment $1 -j DROP"
+    fi
+    echo "-A FORWARD -p tcp -m tcp --dport 5557 -m comment --comment llmd-kv-lab-other-run -j DROP"
+    echo "-A FORWARD -j KUBE-FORWARD"
+  } >"$CHAIN"
+}
+cleanup_as() { bash -c "set -euo pipefail; source '$REPO/hack/llmd-kv-lab/lib.sh'; FW_TAG=$1 PROXY_PID= lab_cleanup" 2>/dev/null; }
 
 # 1. No owner marker: lab_init exits, and its exit runs no cleanup against the cluster.
 : >"$CALLS"
@@ -42,24 +61,34 @@ else
   ok "lab_init refuses an unowned cluster and touches nothing"
 fi
 
-# 2. Cleanup deletes this run's tagged rules and nothing else.
+# 2. Cleanup removes this run's tagged rules and nothing else, under the callers' own set -euo pipefail.
+chain_with llmd-kv-lab-test-1
 : >"$CALLS"
-OWN_TAG=llmd-kv-lab-test-1 bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; FW_TAG=llmd-kv-lab-test-1 PROXY_PID= lab_cleanup" 2>/dev/null
-deletes=$(grep "iptables -D" "$CALLS" || true)
-if [ "$(grep -c . <<<"$deletes")" = 2 ] && ! grep -q -e other-run -e KUBE <<<"$deletes" \
-  && [ "$(grep -c 'llmd-kv-lab-test-1' <<<"$deletes")" = 2 ]; then
+if cleanup_as llmd-kv-lab-test-1 && ! grep -q test-1 "$CHAIN" && grep -q other-run "$CHAIN" && grep -q KUBE "$CHAIN" \
+  && [ "$(grep -c 'iptables -w -D' "$CALLS")" = 2 ]; then
   ok "cleanup removed this run's two tagged rules and nothing else"
 else
-  bad "cleanup deleted: ${deletes:-nothing}"
+  bad "cleanup left: $(cat "$CHAIN") after: $(grep 'iptables' "$CALLS")"
 fi
+chain_with ""
 : >"$CALLS"
-# Under the callers' own set -euo pipefail, a run with nothing to remove must still exit 0.
-if ! OWN_TAG=absent bash -c "set -euo pipefail; source '$REPO/hack/llmd-kv-lab/lib.sh'; FW_TAG=llmd-kv-lab-test-2 PROXY_PID= lab_cleanup" 2>/dev/null; then
-  bad "cleanup with no tagged rule failed under pipefail"
-elif grep -q "iptables -D" "$CALLS"; then
-  bad "a run that inserted nothing deleted: $(grep 'iptables -D' "$CALLS")"
+if ! cleanup_as llmd-kv-lab-test-2; then
+  bad "cleanup with no tagged rule failed"
+elif grep -q "iptables -w -D" "$CALLS"; then
+  bad "a run that inserted nothing deleted: $(grep 'iptables -w -D' "$CALLS")"
 else
   ok "a run that inserted nothing deletes nothing and exits 0"
+fi
+chain_with llmd-kv-lab-test-3
+if STUCK=1 cleanup_as llmd-kv-lab-test-3; then
+  bad "cleanup reported success with its DROP rules still installed"
+else
+  ok "cleanup fails when a tagged rule stays"
+fi
+if UNREADABLE=1 cleanup_as llmd-kv-lab-test-3; then
+  bad "cleanup reported success without reading the chain"
+else
+  ok "cleanup fails when the chain cannot be read"
 fi
 
 # 3. A dirty checkout is refused before prepare_images builds anything.
@@ -78,27 +107,37 @@ else
   bad "up did not refuse a dirty checkout: $out"
 fi
 
-# 4. The proxy dies at once and nothing answers on its port: lab_init must stop, not carry on.
-printf '%s\n' '#!/usr/bin/env bash' 'exit 7' >"$TMP/bin/curl"
-chmod +x "$TMP/bin/curl"
-if (OWNED=1 STAMP=guard PROXY_PORT=1 bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; RUN='$TMP/run'; SAY_AS=test lab_init") >/dev/null 2>&1; then
+# 4. A proxy that never answers, and one that never says it serves while something else answers, both end the run.
+init_as() { (OWNED=1 STAMP=$1 bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; RUN='$TMP/$1'; SAY_AS=test lab_init") >/dev/null 2>&1; }
+if CURL_EXIT=7 init_as guard-a; then
   bad "lab_init returned with a proxy that never reached the cluster"
 else
-  ok "lab_init refuses a proxy that does not start"
+  ok "lab_init refuses a proxy that does not answer"
+fi
+if CURL_EXIT=0 SERVE_LINE=0 PROXY_PORT=18999 init_as guard-b; then
+  bad "lab_init accepted an answer while its own proxy never said it serves on the port"
+else
+  ok "lab_init refuses an answer from a listener it cannot show is its own"
 fi
 
-# 5. The PID cleanup stops is kubectl's own, not a wrapper's: the stub proxy stays up until killed.
-printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$TMP/bin/curl"
-printf '%s\n' '#!/usr/bin/env bash' 'echo "kubectl $*" >>"$CALLS"' \
-  'case "$*" in *" proxy "*) exec sleep 30 ;; esac' '[ "${OWNED:-0}" = 1 ] || exit 1' >"$TMP/bin/kubectl"
-args=$(OWNED=1 STAMP=guard2 bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; RUN='$TMP/run2'; SAY_AS=test lab_init >/dev/null 2>&1; ps -o args= -p \"\$PROXY_PID\"; trap - EXIT; kill \"\$PROXY_PID\"" 2>/dev/null || true)
+# 5. The PID cleanup stops is the proxy process itself: the stub proxy stays up until killed.
+args=$(OWNED=1 CURL_EXIT=0 STAMP=guard-c bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; RUN='$TMP/guard-c'; SAY_AS=test lab_init >/dev/null 2>&1; ps -o args= -p \"\$PROXY_PID\"; trap - EXIT; kill \"\$PROXY_PID\"" 2>/dev/null || true)
 if grep -q "sleep 30" <<<"$args"; then
   ok "PROXY_PID is the proxy process itself"
 else
   bad "PROXY_PID is not the proxy process: '$args'"
 fi
 
-# 6. A reused STAMP is refused before the arm restarts anything, so two executions never share one evidence directory.
+# 6. A reused STAMP leaves the recorded run untouched; a reused arm is refused before anything restarts.
+mkdir -p "$TMP/guard-d"
+echo original >"$TMP/guard-d/pins.txt"
+if (OWNED=1 CURL_EXIT=0 STAMP=guard-d bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; RUN='$TMP/guard-d'; SAY_AS=test lab_init") >/dev/null 2>&1; then
+  bad "lab_init reused an existing run directory"
+elif [ "$(cat "$TMP/guard-d/pins.txt")" != original ] || [ -e "$TMP/guard-d/kubectl-proxy.log" ]; then
+  bad "a refused run still wrote into the recorded one"
+else
+  ok "a reused STAMP is refused before anything in it is written"
+fi
 mkdir -p "$TMP/run3/precise"
 : >"$CALLS"
 if (bash -c "source '$REPO/hack/llmd-kv-lab/lib.sh'; RUN='$TMP/run3'; SAY_AS=test fresh_arm precise") >/dev/null 2>&1; then
