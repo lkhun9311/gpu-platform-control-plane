@@ -281,7 +281,11 @@ The registered protocol is not executable at this head (attack item 1). Before a
 - **The writers:** the trace generator, the bundle writer and the v3 manifest writer are done in code.
   - `VersionTrace` and `WriteCampaignBundle` write the bundle (`benchharness version-bundle`), and `VersionCellManifest` writes the cell manifests (`benchharness version-manifests`).
   - Each round-trips through `LoadCampaignBundle`, `LoadManifest` and `CheckVersionCampaign`.
-  - **The calibration runner** is still missing. It is the one that drives a live engine through the ladder and writes the artifact `WriteCampaignBundle` reads λ0 from.
+  - **The calibration runner:** done in code (`benchharness version-calibrate`).
+    - Each rung waits until the engine's own `vllm:num_requests_running` and `vllm:num_requests_waiting` read 0 (`WaitDrained`). A rung that cannot start drained sends nothing and is invalid.
+    - The rung then replays `CalibrationTrace` at the rung's rate. `ObserveRung` reads arrivals, departures, outstanding work and its trend, failures and unresolved requests off the rows' own monotonic clock.
+    - Every rung's rows and record are written as it ends. The artifact is written for an unresolved ladder too.
+    - It has only been run against stub engines. A live engine is the rehearsal's job, and its readiness the paid preflight's (#594).
 - **An engine path** that runs v0.32.0 with the registered settings: done. The `experimental-a10g` profile renders release `v0.32.0` on its pinned digest with either async choice (#586 and this change). What remains is showing it in the free rehearsal.
 - **The watchdog** enforces the absolute teardown deadline.
 

@@ -19,12 +19,30 @@ func (d VersionStudyDesign) VersionTrace(seed int64, offeredRate float64, window
 
 // versionStream is VersionTrace with the warm-up stratification optional, so a test can show that stratifying moves nothing else.
 func (d VersionStudyDesign) versionStream(seed int64, offeredRate float64, windowSeconds int, stratify bool) ([]TraceRow, error) {
-	if math.IsNaN(offeredRate) || math.IsInf(offeredRate, 0) || offeredRate <= 0 {
-		return nil, fmt.Errorf("offered rate %v is not a positive finite number", offeredRate)
-	}
 	if windowSeconds < d.MinMeasureSeconds || windowSeconds > d.MaxMeasureSeconds || (windowSeconds-d.MinMeasureSeconds)%60 != 0 {
 		return nil, fmt.Errorf("window %d s is not one ChooseWindow can pick (%d to %d s in 60 s steps)", windowSeconds, d.MinMeasureSeconds, d.MaxMeasureSeconds)
 	}
+	chars, err := d.promptChars()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := d.arrivalStream(seed, offeredRate, float64(d.WarmupSeconds+windowSeconds)*1000, chars)
+	if err != nil {
+		return nil, err
+	}
+	if stratify {
+		d.stratifyWarmup(rows, seed, windowSeconds, chars)
+	}
+	// Stamped after stratifying, which changes prompt lengths, and before anything hashes the rows.
+	stampExactTokens(rows)
+	if missing := d.warmupGaps(rows, windowSeconds); len(missing) > 0 {
+		return nil, fmt.Errorf("the seeded warm-up never sends %v (input, output) tokens at %.3f req/s; fewer warm-up arrivals than classes, and a warm-up is never redrawn", missing, offeredRate)
+	}
+	return rows, nil
+}
+
+// promptChars maps each registered input length in tokens to the prompt size in characters that resolves to it.
+func (d VersionStudyDesign) promptChars() (map[int]int, error) {
 	chars := map[int]int{}
 	for c, tokens := range versionStudyExactTokens() {
 		chars[tokens] = c
@@ -34,39 +52,44 @@ func (d VersionStudyDesign) versionStream(seed int64, offeredRate float64, windo
 			return nil, fmt.Errorf("input length %d tokens has no resolved prompt size", lw.Tokens)
 		}
 	}
+	return chars, nil
+}
+
+// arrivalStream draws Poisson arrivals and the registered lengths from one seeded stream until endMs.
+//
+// Every row draws its gap, input length and output length in a fixed order, and the cut depends only on the arrival time, so a shorter cut is a prefix of a longer one.
+func (d VersionStudyDesign) arrivalStream(seed int64, offeredRate, endMs float64, chars map[int]int) ([]TraceRow, error) {
+	if math.IsNaN(offeredRate) || math.IsInf(offeredRate, 0) || offeredRate <= 0 {
+		return nil, fmt.Errorf("offered rate %v is not a positive finite number", offeredRate)
+	}
 	// The stream's second word is fixed, so the seed alone names the trace.
 	rng := rand.New(rand.NewPCG(uint64(seed), 0x5eed_7a11_0f1e_2026))
-	end := float64(d.WarmupSeconds+windowSeconds) * 1000
 	var rows []TraceRow
 	t := 0.0
 	for {
 		t += rng.ExpFloat64() / offeredRate * 1000
 		in := drawLength(rng, d.InputTokens)
 		out := drawLength(rng, d.OutputTokens)
-		if t >= end {
-			break
+		if t >= endMs {
+			return rows, nil
 		}
-		// A finite but absurd λ0 passes every check above, so the row count is what stops it before memory does.
+		// A finite but absurd rate passes every check above, so the row count is what stops it before memory does.
 		if len(rows) >= maxTraceRows {
-			return nil, tooManyRows(int64(end))
+			return nil, tooManyRows(int64(endMs))
 		}
 		rows = append(rows, TraceRow{
 			Index: len(rows), OffsetMs: int64(t), Tenant: PremiumTenant,
 			PromptLenChars: chars[in], MaxOutputTokens: out, MinOutputTokens: out,
 		})
 	}
-	if stratify {
-		d.stratifyWarmup(rows, seed, windowSeconds, chars)
-	}
-	// Stamped after stratifying, which changes prompt lengths, and before anything hashes the rows.
-	// The study freezes these counts, and the replay refuses a row without the frozen one before sending anything.
+}
+
+// stampExactTokens puts the study's frozen input-token count on every row; the replay refuses a row without it before sending anything.
+func stampExactTokens(rows []TraceRow) {
+	exact := versionStudyExactTokens()
 	for i := range rows {
-		rows[i].ExactInputTokens = versionStudyExactTokens()[rows[i].PromptLenChars]
+		rows[i].ExactInputTokens = exact[rows[i].PromptLenChars]
 	}
-	if missing := d.warmupGaps(rows, windowSeconds); len(missing) > 0 {
-		return nil, fmt.Errorf("the seeded warm-up never sends %v (input, output) tokens at %.3f req/s; fewer warm-up arrivals than classes, and a warm-up is never redrawn", missing, offeredRate)
-	}
-	return rows, nil
 }
 
 // MeasuredRows counts the rows whose intended arrival falls in the window, the population every endpoint is computed over.
