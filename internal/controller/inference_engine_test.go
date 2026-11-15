@@ -196,6 +196,49 @@ func experimentalInfD(async string) *platformv1.InferenceDeployment {
 	return infd
 }
 
+// The version study's arms B and C claim to differ from A only in the release, so v0.32.0 must render A's settings flag for flag.
+// The review record names each flag's source line at the image's build commit, and the study registers that record's sha256.
+// Mutation that turns this red: change, drop or reorder any argument of the v0.32.0 row, or edit a record's argument list.
+func TestExperimentalV0320RendersItsReviewedRecord(t *testing.T) {
+	for async, file := range map[string]string{
+		platformv1.AsyncSchedulingDisabled: "vllm-v0.32.0-async-off.json",
+		platformv1.AsyncSchedulingEnabled:  "vllm-v0.32.0-async-on.json",
+	} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "hack", "engine-flag-reviews", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rec struct {
+			Release             string   `json:"release"`
+			Image               string   `json:"image"`
+			AsyncScheduling     string   `json:"asyncScheduling"`
+			RenderedProfileArgs []string `json:"renderedProfileArgs"`
+		}
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		if rec.Release != platformv1.VLLMReleaseV0320 || rec.Image != platformv1.VLLMV0320Image || rec.AsyncScheduling != async {
+			t.Fatalf("%s reviews %s %s async %s, not %s %s async %s", file, rec.Release, rec.Image, rec.AsyncScheduling,
+				platformv1.VLLMReleaseV0320, platformv1.VLLMV0320Image, async)
+		}
+		infd := experimentalInfD(async)
+		infd.Spec.Image = platformv1.VLLMV0320Image
+		infd.Spec.Engine.VLLM.Experimental.Release = platformv1.VLLMReleaseV0320
+		got, ok := engineProfile(infd)
+		if !ok {
+			t.Fatalf("v0.32.0 with async %s has no rendering", async)
+		}
+		if !slices.Equal(got.args, rec.RenderedProfileArgs) {
+			t.Fatalf("v0.32.0 async %s renders %v, its review record %v", async, got.args, rec.RenderedProfileArgs)
+		}
+		v0271 := experimentalInfD(async)
+		want, _ := engineProfile(v0271)
+		if !slices.Equal(got.args, want.args) {
+			t.Fatalf("v0.32.0 async %s renders %v, v0.27.1 renders %v; the release may be the only difference", async, got.args, want.args)
+		}
+	}
+}
+
 // A study arm on the experimental profile is comparable with the validated engine only if, on the same release with async off, it is that engine.
 // Mutation that turns this red: change any argument of the v0.27.1 release row.
 func TestExperimentalV0271WithAsyncOffRendersTheValidatedEngine(t *testing.T) {

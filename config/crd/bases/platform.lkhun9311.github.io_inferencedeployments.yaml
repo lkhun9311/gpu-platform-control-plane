@@ -109,6 +109,7 @@ spec:
                               A newer release may rename or drop flags, so it is added by reviewing its argument set in the controller, not by naming it here.
                             enum:
                             - v0.27.1
+                            - v0.32.0
                             type: string
                         required:
                         - asyncScheduling
@@ -244,8 +245,9 @@ spec:
                 || self.image.endsWith(''@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967'')'
             - message: engine.vllm.experimental requires spec.image pinned to the
                 digest reviewed for its release, from any registry
-              rule: '!has(self.engine) || !has(self.engine.vllm.experimental) || (self.engine.vllm.experimental.release
-                == ''v0.27.1'' && self.image.endsWith(''@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967''))'
+              rule: '!has(self.engine) || !has(self.engine.vllm.experimental) || ((self.engine.vllm.experimental.release
+                == ''v0.27.1'' && self.image.endsWith(''@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967''))
+                || (self.engine.vllm.experimental.release == ''v0.32.0'' && self.image.endsWith(''@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34'')))'
             - message: 'admission.mode HoldCap requires engine profile v0.27.1-a10g:
                 HoldCap was measured with prefix caching off'
               rule: '!has(self.admission) || self.admission.mode != ''HoldCap'' ||

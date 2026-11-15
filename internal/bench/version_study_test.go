@@ -89,11 +89,14 @@ func TestVersionStudyEnginesDifferOnlyWhereRegistered(t *testing.T) {
 	}
 }
 
-// TestVersionStudyNamesWhatIsNotYetFrozen keeps the owner's open decisions visible and refusing.
+// TestVersionStudyNamesWhatIsNotYetFrozen keeps open values visible and refusing, and the registered design free of them.
 //
-// The list is literal so that freezing a value is a visible edit here as well as in the registry.
+// The list is literal so that unfreezing a value is a visible edit here as well as in the registry.
 func TestVersionStudyNamesWhatIsNotYetFrozen(t *testing.T) {
-	d := versionAsyncDesign()
+	if u := versionAsyncDesign().Unfrozen(); len(u) != 0 {
+		t.Fatalf("the registered design still has open values: %v", u)
+	}
+	d := unfrozenVersionDesignFixture()
 	want := []string{
 		"treatment B image digest (engine-path track)",
 		"treatment B flag review (engine-path track)",
@@ -307,16 +310,19 @@ var pinnedArmOrder20261115 = [][]string{
 	{TreatmentC, TreatmentB, TreatmentA},
 }
 
-// frozenVersionDesignFixture is the registered design with the engine-path track's values filled by placeholders.
-//
-// The digest and review hashes are test inputs, not the v0.32.0 image's.
+// frozenVersionDesignFixture is the registered design, which the engine-path track has frozen.
 func frozenVersionDesignFixture() VersionStudyDesign {
+	return versionAsyncDesign()
+}
+
+// unfrozenVersionDesignFixture is the registered design with the engine-path track's values removed again, so the refusal stays tested.
+func unfrozenVersionDesignFixture() VersionStudyDesign {
 	d := versionAsyncDesign()
 	for _, tr := range []string{TreatmentB, TreatmentC} {
 		e := d.Engines[tr]
-		e.Image = "vllm/vllm-openai@sha256:" + strings.Repeat("b", 64)
+		e.Image = ""
 		d.Engines[tr] = e
-		d.EngineFlagReviews[tr] = strings.Repeat(strings.ToLower(tr), 64)
+		d.EngineFlagReviews[tr] = ""
 	}
 	return d
 }

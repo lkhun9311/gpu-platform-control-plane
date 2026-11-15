@@ -205,11 +205,15 @@ func versionAsyncDesign() VersionStudyDesign {
 		ChatTemplateSHA256: "cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f",
 		Engines: map[string]EngineSettings{
 			TreatmentA: versionStudyEngine("v0.27.1", "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967", false),
-			// The owner chose v0.32.0; its digest is filled by the engine-path track, and an empty one refuses every B and C manifest.
-			TreatmentB: versionStudyEngine("v0.32.0", "", false),
-			TreatmentC: versionStudyEngine("v0.32.0", "", true),
+			// The owner chose v0.32.0; the engine-path track pinned the digest Docker Hub's v0.32.0 tag resolved to on 2026-11-15.
+			TreatmentB: versionStudyEngine("v0.32.0", "vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34", false),
+			TreatmentC: versionStudyEngine("v0.32.0", "vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34", true),
 		},
-		EngineFlagReviews:    map[string]string{TreatmentB: "", TreatmentC: ""},
+		// The sha256 of hack/engine-flag-reviews/vllm-v0.32.0-async-{off,on}.json, which the controller's rendering is tested against.
+		EngineFlagReviews: map[string]string{
+			TreatmentB: "a3c54f90e6e3650966b6734f748d627fc291381374f726d606242c950c98a6f2",
+			TreatmentC: "a51d414bae84b38910962259cb42dec8fc98c83c90ba8a4cd2676afa928806fc",
+		},
 		Primary:              Comparison{Candidate: TreatmentC, Reference: TreatmentA},
 		Fallback:             Comparison{Candidate: TreatmentB, Reference: TreatmentA},
 		Explanatory:          Comparison{Candidate: TreatmentC, Reference: TreatmentB},
