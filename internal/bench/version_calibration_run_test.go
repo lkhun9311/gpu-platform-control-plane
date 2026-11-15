@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -217,5 +218,42 @@ func TestRungRunnerClassifiesAgainstAStubEngine(t *testing.T) {
 				t.Fatalf("%d requests were sent to an engine that never reported idle", served.Load())
 			}
 		})
+	}
+}
+
+// TestRungRunnerSendsTheRequestIDsItRecords: calibration rows are joined to the engine's own log by request id, so the id must be on the wire.
+func TestRungRunnerSendsTheRequestIDsItRecords(t *testing.T) {
+	var mu sync.Mutex
+	ids := map[string]bool{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		ids[r.Header.Get("X-Request-Id")] = true
+		mu.Unlock()
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"a"}}]}`+"\n\ndata: [DONE]\n\n")
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "vllm:num_requests_running 0\nvllm:num_requests_waiting 0\n")
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	var rows []RawRow
+	r := &RungRunner{
+		Design:    fastDesign(),
+		Sender:    NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true}),
+		Queue:     HTTPEngineQueue(srv.Client(), srv.URL+"/metrics"),
+		PollEvery: 10 * time.Millisecond,
+		OnRung:    func(_ int, rs []RawRow, _ RungObservation, _ RungClass, _ error) { rows = rs },
+	}
+	r.Probe(context.Background(), 3, 4)
+	if len(rows) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, row := range rows {
+		if row.RequestID == "" || !ids[row.RequestID] {
+			t.Fatalf("row %d records id %q, which was never sent", row.Index, row.RequestID)
+		}
 	}
 }

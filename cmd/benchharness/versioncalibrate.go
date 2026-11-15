@@ -84,6 +84,10 @@ type rungRecord struct {
 //
 // The artifact is written for an unresolved ladder too, because "calibration unresolved, stop" is a registered outcome and must be on record.
 func runVersionCalibration(dir string, rule bench.CalibrationRule, runner *bench.RungRunner, probe func(rate float64, ordinal int) bench.RungClass) (bench.CalibrationResult, error) {
+	// The destination is checked before the first request, because a rung whose evidence cannot be kept is paid for and lost.
+	if err := calibrationDestinationReady(dir); err != nil {
+		return bench.CalibrationResult{}, err
+	}
 	var writeErr error
 	runner.OnRung = func(ordinal int, rows []bench.RawRow, o bench.RungObservation, cls bench.RungClass, err error) {
 		rec := rungRecord{Ordinal: ordinal, Class: cls, Observation: o}
@@ -108,7 +112,13 @@ func runVersionCalibration(dir string, rule bench.CalibrationRule, runner *bench
 		}
 		writeErr = errors.Join(writeErr, mErr)
 	}
-	res := rule.Run(probe)
+	// After a failed write every later rung is refused without being sent; the ladder's invalid bound then ends it at no cost.
+	res := rule.Run(func(rate float64, ordinal int) bench.RungClass {
+		if writeErr != nil {
+			return bench.RungInvalid
+		}
+		return probe(rate, ordinal)
+	})
 	if writeErr != nil {
 		return res, fmt.Errorf("rung evidence: %w", writeErr)
 	}
@@ -131,4 +141,29 @@ func writeNew(path string, data []byte) error {
 		return err
 	}
 	return f.Close()
+}
+
+// calibrationDestinationReady refuses a directory that is missing, not writable, or already holds calibration evidence.
+func calibrationDestinationReady(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("calibration directory: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("calibration directory %s is not a directory", dir)
+	}
+	existing, err := filepath.Glob(filepath.Join(dir, "calibration*"))
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		return fmt.Errorf("%s already holds calibration evidence (%s); a campaign is calibrated once, into an empty place", dir, filepath.Base(existing[0]))
+	}
+	probe, err := os.CreateTemp(dir, ".write-check-*")
+	if err != nil {
+		return fmt.Errorf("calibration directory %s is not writable: %w", dir, err)
+	}
+	name := probe.Name()
+	_ = probe.Close()
+	return os.Remove(name)
 }

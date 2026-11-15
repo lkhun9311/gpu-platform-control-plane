@@ -198,7 +198,12 @@ func (r *RungRunner) Probe(ctx context.Context, rate float64, ordinal int) RungC
 	if err != nil {
 		return report(nil, RungObservation{OfferedRate: rate}, RungInvalid, err)
 	}
-	rows := Replay(ctx, r.Sender, trace, ReplayOptions{Arm: fmt.Sprintf("calibration-%d", ordinal), RequestIDPrefix: fmt.Sprintf("cal%d", ordinal)})
+	// The prefix goes on the wire as well as on the rows, so each row can be joined to the engine's own log.
+	prefix := fmt.Sprintf("cal%d", ordinal)
+	if s, ok := r.Sender.(interface{ SetRequestIDPrefix(string) }); ok {
+		s.SetRequestIDPrefix(prefix)
+	}
+	rows := Replay(ctx, r.Sender, trace, ReplayOptions{Arm: fmt.Sprintf("calibration-%d", ordinal), RequestIDPrefix: prefix})
 	o, err := ObserveRung(rows, rate, rule, drained)
 	if err != nil {
 		return report(rows, o, RungInvalid, err)

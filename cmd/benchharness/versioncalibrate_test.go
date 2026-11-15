@@ -38,8 +38,8 @@ func TestRunVersionCalibrationWritesTheArtifactVersionBundleReads(t *testing.T) 
 		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
 		t.Fatalf("version-bundle could not freeze the calibration it was given: %v", err)
 	}
-	if _, err := runVersionCalibration(dir, rule, &bench.RungRunner{}, probe); err == nil || !strings.Contains(err.Error(), "exists") {
-		t.Fatalf("second calibration: %v, want a refusal because the artifact exists", err)
+	if _, err := runVersionCalibration(dir, rule, &bench.RungRunner{}, probe); err == nil || !strings.Contains(err.Error(), "already holds calibration evidence") {
+		t.Fatalf("second calibration: %v, want a refusal because the campaign was calibrated", err)
 	}
 }
 
@@ -92,5 +92,39 @@ func TestRunVersionCalibrationKeepsEachRungsEvidence(t *testing.T) {
 		if err := json.Unmarshal(data, &rec); err != nil || rec.Class != bench.RungInvalid || !strings.Contains(rec.Error, "drain") {
 			t.Fatalf("rung %d record %+v err %v", i, rec, err)
 		}
+	}
+}
+
+// TestRunVersionCalibrationSendsNothingItCannotRecord: on a paid engine a rung whose evidence cannot be kept is money spent for nothing.
+func TestRunVersionCalibrationSendsNothingItCannotRecord(t *testing.T) {
+	st, _ := bench.LookupStudy(bench.StudyVersionAsync)
+	rule := st.Version.Calibration
+	probes := 0
+	counting := func(rate float64, ordinal int) bench.RungClass { probes++; return bench.RungStable }
+	if _, err := runVersionCalibration(filepath.Join(t.TempDir(), "missing"), rule, &bench.RungRunner{}, counting); err == nil || probes != 0 {
+		t.Fatalf("missing directory: err %v after %d probes, want a refusal before any", err, probes)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "calibration-rung-2.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	probes = 0
+	if _, err := runVersionCalibration(dir, rule, &bench.RungRunner{}, counting); err == nil || probes != 0 {
+		t.Fatalf("leftover rung file: err %v after %d probes, want a refusal before any", err, probes)
+	}
+	// A write that fails mid-ladder stops every later probe.
+	dir = t.TempDir()
+	runner := &bench.RungRunner{}
+	probes = 0
+	_, err := runVersionCalibration(dir, rule, runner, func(rate float64, ordinal int) bench.RungClass {
+		probes++
+		if ordinal == 2 {
+			_ = os.WriteFile(filepath.Join(dir, "calibration-rung-2.json"), []byte("{}"), 0o600)
+		}
+		runner.OnRung(ordinal, nil, bench.RungObservation{OfferedRate: rate}, bench.RungStable, nil)
+		return bench.RungStable
+	})
+	if err == nil || probes != 2 {
+		t.Fatalf("write failure at rung 2: err %v after %d probes, want an error and no probe after rung 2", err, probes)
 	}
 }
