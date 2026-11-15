@@ -125,3 +125,19 @@ func TestDescribeNamesWhatItCannotReport(t *testing.T) {
 		t.Fatal("described a block no arm has")
 	}
 }
+
+// TestASingleFrameResponseHasNoTPOT: first and last content coincide, so a TPOT of 0 would be invented, not measured.
+func TestASingleFrameResponseHasNoTPOT(t *testing.T) {
+	d := versionAsyncDesign()
+	p := *versionStudySampling()
+	tr := evalTraceRow(0, 0)
+	r := timedRow(tr, 0, 100, 100)
+	r.OutputTokens = 1
+	out, err := d.CellOutcomes(p, 180, []TraceRow{tr}, []RawRow{r})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !math.IsNaN(out[0].TPOTNanos) || out[0].Good {
+		t.Fatalf("a one-frame response has tpot %v and good %v", out[0].TPOTNanos, out[0].Good)
+	}
+}

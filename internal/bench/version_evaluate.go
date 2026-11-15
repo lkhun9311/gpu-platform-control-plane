@@ -102,8 +102,9 @@ func (d VersionStudyDesign) requestOutcome(p SamplingPolicy, r RawRow, tr TraceR
 	if v, ok := clockSpan(c.LastContentNanos, c.DoneNanos); ok {
 		o.DoneAfterLastNanos = float64(v)
 	}
-	// TPOT needs a second token: with one, the request has no client-observed TPOT and is not counted good (attack item 12).
-	if r.EngineOutputTokens >= 2 {
+	// TPOT needs a second token and a second content frame: with either missing, first and last content coincide, so the
+	// request has no client-observed TPOT and is not counted good, never given a TPOT of 0 (attack item 12).
+	if r.EngineOutputTokens >= 2 && r.OutputTokens >= 2 {
 		span, ok := clockSpan(c.FirstContentNanos, c.LastContentNanos)
 		if !ok {
 			return RequestOutcome{}, errors.New("last content precedes first content")
