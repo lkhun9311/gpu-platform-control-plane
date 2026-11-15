@@ -112,6 +112,10 @@ func main() {
 		err = fitPilotRate(os.Args[2:], os.Stdout)
 	case "stub-serve":
 		err = stubServe(os.Args[2:])
+	case "version-bundle":
+		err = versionBundle(os.Args[2:], os.Stdout)
+	case "version-manifests":
+		err = versionManifests(os.Args[2:], os.Stdout)
 	default:
 		usage()
 		os.Exit(2)

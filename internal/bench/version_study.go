@@ -288,7 +288,7 @@ func (d VersionStudyDesign) Unfrozen() []string {
 		if d.Engines[t].Image == "" {
 			out = append(out, "treatment "+t+" image digest (engine-path track)")
 		}
-		if review, ok := d.EngineFlagReviews[t]; ok && !lowerHex(review, 64) {
+		if review, ok := d.EngineFlagReviews[t]; ok && !isSHA256Hex(review) {
 			out = append(out, "treatment "+t+" flag review (engine-path track)")
 		}
 	}

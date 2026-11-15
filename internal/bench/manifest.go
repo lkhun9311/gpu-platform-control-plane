@@ -528,7 +528,7 @@ func (m *RunManifest) validateCell(d *VersionStudyDesign, treatment, load string
 	if m.Seed != wantSeed {
 		return fmt.Errorf("seed %d is not block %d's workload seed %d at %s", m.Seed, c.Block, wantSeed, load)
 	}
-	if !lowerHex(c.BundleSHA256, 64) {
+	if !isSHA256Hex(c.BundleSHA256) {
 		return fmt.Errorf("cell.bundleSHA256 %q is not a sha256; a cell runs under a frozen campaign bundle", c.BundleSHA256)
 	}
 	rate, err := OfferedRate(load, c.StableRateRequestsPerSec)
@@ -582,7 +582,7 @@ func GatewayIdentityRefusal(binarySHA256, base string) error {
 		return nil
 	case binarySHA256 == "" || base == "":
 		return fmt.Errorf("manifest records gatewayBinarySHA256 %q and gatewayBase %q; the gateway's identity is both or neither", binarySHA256, base)
-	case !lowerHex(binarySHA256, 64):
+	case !isSHA256Hex(binarySHA256):
 		return fmt.Errorf("manifest records gatewayBinarySHA256 %q, which is not 64 lowercase hex characters", binarySHA256)
 	case !digestPinned(base):
 		return fmt.Errorf("manifest records gatewayBase %q, which is not pinned by digest; a tag names whatever was pushed under it most recently", base)
@@ -590,9 +590,9 @@ func GatewayIdentityRefusal(binarySHA256, base string) error {
 	return nil
 }
 
-// lowerHex reports whether s is exactly n lowercase hex characters.
-func lowerHex(s string, n int) bool {
-	if len(s) != n {
+// isSHA256Hex reports whether s is a sha256 written as 64 lowercase hex characters.
+func isSHA256Hex(s string) bool {
+	if len(s) != 64 {
 		return false
 	}
 	for _, c := range s {
