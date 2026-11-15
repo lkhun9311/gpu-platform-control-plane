@@ -304,6 +304,11 @@ type stubProfile struct {
 	// part of each prompt. Both exist for the routing study's rehearsal, whose endpoints are those counters.
 	prefixCache *stubPrefixCache
 	prefill     *stubPrefill
+	// finishReasons puts vLLM's finish reason on each response's last content chunk: "length" when the response
+	// reached the request's max_tokens, "stop" otherwise. The version study refuses a completion without one.
+	finishReasons bool
+	// capacity, when set, lets only so many requests run at once and queues the rest, as an engine's batch does.
+	capacity *stubCapacity
 }
 
 // stubPromptTokens is the token count a stub reports for a prompt of n characters.
@@ -600,6 +605,8 @@ func stubServe(args []string) error {
 	kvTokens := fs.Int("stub-kv-capacity-tokens", 393232, "with --enable-prefix-caching: the modelled cache's capacity in tokens (default the A10G engine's measured capacity)")
 	prefillUs := fs.Int("stub-prefill-us-per-token", 0, "with --enable-prefix-caching: microseconds of prefill per uncached token, added before the first token")
 	serialPrefill := fs.Bool("stub-serial-prefill", false, "with --enable-prefix-caching: prefill one request at a time, as one engine's steps do")
+	finishReasons := fs.Bool("stub-finish-reasons", false, "end each response's last content chunk with vLLM's finish reason, as the version study requires")
+	maxRunning := fs.Int("stub-max-running", 0, "run at most this many requests at once and queue the rest, reported in vLLM's running and waiting gauges; 0 is unlimited")
 	stopStepLogAt := fs.String("stub-stop-step-log-at", "", "pilot mode: stop the step log at the first request whose ID contains this, to rehearse an ineligible arm")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -661,6 +668,13 @@ func stubServe(args []string) error {
 		profile.prefixCache = newStubPrefixCache(*kvTokens)
 		profile.prefill = &stubPrefill{perToken: time.Duration(*prefillUs) * time.Microsecond, isSerial: *serialPrefill}
 	}
+	profile.finishReasons = *finishReasons
+	if *maxRunning < 0 {
+		return fmt.Errorf("--stub-max-running %d is negative", *maxRunning)
+	}
+	if *maxRunning > 0 {
+		profile.capacity = newStubCapacity(*maxRunning)
+	}
 	mux := stubMux(profile, stats)
 	fmt.Printf("stub backend listening on %s (tokens=%d ttft=%s itl=%s readyAfter=%s)\n", *addr, profile.tokens, profile.ttft, profile.itl, profile.readyAfter)
 	srv := &http.Server{
@@ -685,6 +699,34 @@ func stubResponseTokens(profile stubProfile, raw []byte) int {
 		return pr.MaxTokens
 	}
 	return profile.tokens
+}
+
+// stubHealth answers 503 until readyAfter has passed since startedAt, then 200.
+func stubHealth(readyAfter time.Duration, startedAt time.Time) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		if readyAfter > 0 && time.Since(startedAt) < readyAfter {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// stubContentChunk is the i-th of tokens content chunks; with finish reasons on, the last one carries vLLM's reason.
+func stubContentChunk(profile stubProfile, raw []byte, i, tokens int) string {
+	if profile.finishReasons && i == tokens-1 {
+		return fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":%q}]}\n\n", stubFinishReason(raw, tokens))
+	}
+	return "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"
+}
+
+// stubFinishReason is vLLM's reason for a response of tokens tokens: "length" when it reached the request's max_tokens.
+func stubFinishReason(raw []byte, tokens int) string {
+	var pr stubPilotRequest
+	if json.Unmarshal(raw, &pr) == nil && pr.MaxTokens > 0 && tokens >= pr.MaxTokens {
+		return "length"
+	}
+	return "stop"
 }
 
 // stubMux builds the stub backend's routes, separated from stubServe so the handlers can be exercised
@@ -768,6 +810,11 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			profile.pilot.add(id, pr.Priority, promptTokens)
 			profile.pilot.stepFor(id, max(promptTokens, 1), 0, true)
 		}
+		release, admitted := profile.capacity.admit(r.Context())
+		if !admitted {
+			return
+		}
+		defer release()
 		if !profile.prefill.run(profile.prefixCache, raw, wait) {
 			return
 		}
@@ -793,7 +840,7 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			if i > 0 && profile.pilot != nil {
 				profile.pilot.stepFor("chatcmpl-"+r.Header.Get("X-Request-Id"), 1, promptTokens+i, false)
 			}
-			if !emit("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n") {
+			if !emit(stubContentChunk(profile, raw, i, tokens)) {
 				return
 			}
 		}
@@ -811,14 +858,7 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 	// still loading. Without that this stub is ready the instant it binds, and a scenario that kills a Pod
 	// has nothing observable to show: the replacement is healthy before the next poll, and the evidence
 	// trail records a platform that never changed.
-	startedAt := time.Now()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		if profile.readyAfter > 0 && time.Since(startedAt) < profile.readyAfter {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	})
+	mux.HandleFunc("/health", stubHealth(profile.readyAfter, time.Now()))
 	if profile.metrics {
 		// One counter, in the name vLLM gives it, and nothing that would pass for a latency: a stub's timings
 		// are its configuration, and a histogram of them would look like a measurement in an archive.
@@ -830,7 +870,8 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			// The three series the hold-cap product study reads to decide an engine is idle and to count preemptions.
 			// Running is the stub's own in-flight count; a stub queues nothing and preempts nothing, so the other two
 			// are zero by construction, which makes them a check of the reader, not of any engine.
-			_, _ = fmt.Fprintf(w, "vllm:num_requests_running %d\nvllm:num_requests_waiting 0\nvllm:num_preemptions_total 0\n", snap.InFlight)
+			running, waiting := profile.capacity.gauges(snap.InFlight)
+			_, _ = fmt.Fprintf(w, "vllm:num_requests_running %d\nvllm:num_requests_waiting %d\nvllm:num_preemptions_total 0\n", running, waiting)
 			profile.prefixCache.writeMetrics(w)
 		})
 	}
