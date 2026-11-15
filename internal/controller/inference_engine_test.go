@@ -181,9 +181,9 @@ func TestEveryReleaseDigestIsTheOneTheCRDPins(t *testing.T) {
 		t.Fatal(err)
 	}
 	for r, rel := range experimentalReleases {
-		pair := "self.engine.vllm.experimental.release == '" + r + "' && self.image.endsWith('@" + rel.digest + "')"
+		pair := "self.engine.vllm.experimental.release == '" + r + "' && self.image.endsWith('@" + rel.Digest + "')"
 		if !strings.Contains(string(raw), pair) {
-			t.Errorf("the CEL rule does not pin release %s to %s", r, rel.digest)
+			t.Errorf("the CEL rule does not pin release %s to %s", r, rel.Digest)
 		}
 	}
 }
@@ -366,7 +366,7 @@ func TestEveryRenderedProfileSchedulesByPriority(t *testing.T) {
 		}
 	}
 	for name, rel := range experimentalReleases {
-		if !slices.Contains(rel.args, "--scheduling-policy=priority") {
+		if !slices.Contains(rel.Args, "--scheduling-policy=priority") {
 			t.Errorf("release %s does not schedule by priority, and the gateway binds a tier on every rendered engine", name)
 		}
 	}
