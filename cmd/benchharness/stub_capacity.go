@@ -43,7 +43,7 @@ func (c *stubCapacity) acquire(ctx context.Context) bool {
 	}
 }
 
-// release ends a running request; its count drops before its place is freed, so the next request cannot be counted twice.
+// release ends a running request; its count drops before its place is freed, so the running gauge never exceeds the capacity.
 func (c *stubCapacity) release() {
 	c.mu.Lock()
 	c.running--
