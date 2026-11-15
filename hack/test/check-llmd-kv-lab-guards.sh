@@ -25,12 +25,14 @@ printf '%s\n' '#!/usr/bin/env bash' \
   'case "$args" in' \
   '  *"iptables -w -S FORWARD"*) [ "${UNREADABLE:-0}" = 1 ] && exit 4; cat "$CHAIN" ;;' \
   '  *"iptables -w -D "*) [ "${STUCK:-0}" = 1 ] && exit 0; rule="-A ${args#*iptables -w -D }"; grep -vxF -- "$rule" "$CHAIN" >"$CHAIN.new" || true; mv "$CHAIN.new" "$CHAIN" ;;' \
+  '  *"crictl images"*) echo "IMAGE TAG IMAGE-ID SIZE"; echo "${NODE_IMAGE_LINE:-}" ;;' \
   'esac' >"$TMP/bin/docker"
 # The kubectl stub answers ownership as OWNED says; a proxy prints its serving line when SERVE_LINE=1 and stays up.
 printf '%s\n' '#!/usr/bin/env bash' \
   'echo "kubectl $*" >>"$CALLS"' \
   'port=; for a in "$@"; do case "$a" in --port=*) port=${a#--port=} ;; esac; done' \
   'case "$*" in *" proxy "*) [ "${SERVE_LINE:-1}" = 1 ] && echo "Starting to serve on 127.0.0.1:${port}"; exec sleep 30 ;; esac' \
+  'case "$*" in *"get deployment"*"jsonpath"*) echo "${SPEC_IMAGE:-}"; exit 0 ;; *"get deployment"*"go-template"*) echo "app=x,"; exit 0 ;; *"get pods"*) printf "%s\\n" ${POD_IDS:-}; exit 0 ;; esac' \
   '[ "${OWNED:-0}" = 1 ] || exit 1' >"$TMP/bin/kubectl"
 printf '%s\n' '#!/usr/bin/env bash' 'exit "${CURL_EXIT:-7}"' >"$TMP/bin/curl"
 chmod +x "$TMP/bin/docker" "$TMP/bin/kubectl" "$TMP/bin/curl"
@@ -146,6 +148,25 @@ elif grep -q -e "kubectl" -e "docker" "$CALLS"; then
   bad "a refused arm still touched the cluster: $(cat "$CALLS")"
 else
   ok "a reused arm directory is refused before anything restarts"
+fi
+
+# 7. A Deployment runs the pinned image only if its template names it and every pod runs the node's image for that tag.
+image_ok() { (OWNED=1 bash -c "source '$REPO/hack/llmd-kv-lab.sh'; deploy_image_ok vllm-d ghcr.io/x/sim:v1") >/dev/null 2>&1; }
+line="ghcr.io/x/sim v1 sha256:aaa 10MB"
+if SPEC_IMAGE=ghcr.io/x/sim:v1 NODE_IMAGE_LINE=$line POD_IDS="sha256:aaa sha256:aaa" image_ok; then
+  ok "a deployment on its pinned image passes"
+else
+  bad "a deployment on its pinned image was refused"
+fi
+if SPEC_IMAGE=ghcr.io/x/sim:v2 NODE_IMAGE_LINE=$line POD_IDS="sha256:aaa" image_ok; then
+  bad "a deployment whose template names another image passed"
+else
+  ok "a deployment edited to another image is refused"
+fi
+if SPEC_IMAGE=ghcr.io/x/sim:v1 NODE_IMAGE_LINE=$line POD_IDS="sha256:aaa sha256:bbb" image_ok; then
+  bad "a pod running another image passed"
+else
+  ok "a pod running another image than the node's is refused"
 fi
 
 [ "$fail" = 0 ] && echo "check-llmd-kv-lab-guards: all checks passed"

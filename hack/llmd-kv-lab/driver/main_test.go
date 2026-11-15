@@ -53,8 +53,14 @@ func TestExpandPlan(t *testing.T) {
 
 // Zero cached tokens is a real observation, so an absent field must be an error rather than a silent zero.
 func TestParseUsageRefusesMissingDetails(t *testing.T) {
-	if _, _, err := parseUsage([]byte(`{"usage":{"prompt_tokens":10}}`)); err == nil {
-		t.Fatal("missing prompt_tokens_details was read as zero cached tokens")
+	for _, body := range []string{
+		`{"usage":{"prompt_tokens":10}}`,
+		`{"usage":{"prompt_tokens":10,"prompt_tokens_details":{}}}`,
+		`{"usage":{"prompt_tokens":10,"prompt_tokens_details":{"cached_tokens":null}}}`,
+	} {
+		if _, _, err := parseUsage([]byte(body)); err == nil {
+			t.Fatalf("%s was read as zero cached tokens", body)
+		}
 	}
 	p, c, err := parseUsage([]byte(`{"usage":{"prompt_tokens":10,"prompt_tokens_details":{"cached_tokens":0}}}`))
 	if err != nil || p != 10 || c != 0 {

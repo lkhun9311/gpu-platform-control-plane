@@ -87,7 +87,8 @@ type completionResponse struct {
 	Usage struct {
 		PromptTokens        int `json:"prompt_tokens"`
 		PromptTokensDetails *struct {
-			CachedTokens int `json:"cached_tokens"`
+			// A pointer, so an absent or null count is told apart from a real zero.
+			CachedTokens *int `json:"cached_tokens"`
 		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 }
@@ -102,7 +103,10 @@ func parseUsage(body []byte) (prompt, cached int, err error) {
 	if cr.Usage.PromptTokensDetails == nil {
 		return cr.Usage.PromptTokens, 0, errors.New("response has no prompt_tokens_details")
 	}
-	return cr.Usage.PromptTokens, cr.Usage.PromptTokensDetails.CachedTokens, nil
+	if cr.Usage.PromptTokensDetails.CachedTokens == nil {
+		return cr.Usage.PromptTokens, 0, errors.New("response has no cached_tokens count")
+	}
+	return cr.Usage.PromptTokens, *cr.Usage.PromptTokensDetails.CachedTokens, nil
 }
 
 // expandPlan turns "F0,F1,F2*3" into a family per request; "*n" repeats so a plan stays one readable flag.

@@ -254,6 +254,8 @@ cmd_mode() {
   if [ "$mode" = precise-pull ]; then set_sim_zmq pull; else set_sim_zmq push; fi
   k rollout restart deployment/vllm-d >/dev/null
   k rollout status deployment/vllm-d --timeout=300s >/dev/null
+  # The arm measures only after the restarted pods are shown to run the pinned images.
+  verify_running_images
   k -n kube-system patch configmap "$OWNER_CM" --type merge -p "{\"data\":{\"mode\":\"$mode\"}}" >/dev/null
   say "EPP now runs the $mode config, behind freshly started simulators"
 }
@@ -262,18 +264,39 @@ cmd_status() {
   owned || die "$CLUSTER is not up, or not ours"
   say "mode: $(k -n kube-system get configmap "$OWNER_CM" -o jsonpath='{.data.mode}')"
   k get inferencepool,pods -o wide
-  # The running simulator must be the pinned digest, not whatever the tag resolved to when the node loaded it.
-  # A pod reports the image's config id rather than the registry digest, so the chain is checked in two links:
-  # the node's image for the tag has the pinned index digest, and every pod runs that image's config id.
-  local node=$CLUSTER-control-plane node_digest node_id ids
-  node_digest=$(docker exec "$node" ctr -n k8s.io images ls "name==$SIM_IMAGE" | awk 'NR==2 {print $3}')
-  [ "$node_digest" = "$SIM_DIGEST" ] || die "the node's $SIM_IMAGE is $node_digest, pinned $SIM_DIGEST"
-  node_id=$(docker exec "$node" crictl images --no-trunc | awk -v r="${SIM_IMAGE%:*}" -v t="${SIM_IMAGE##*:}" '$1==r && $2==t {print $3}')
-  ids=$(k get pods -l llm-d.ai/component=decode -o jsonpath='{range .items[*]}{.status.containerStatuses[0].imageID}{"\n"}{end}')
-  if [ -z "$node_id" ] || echo "$ids" | grep -qvx "$node_id"; then
-    die "a simulator pod runs an image other than the node's $SIM_IMAGE ($node_id): $ids"
+  verify_running_images
+}
+
+# deploy_image_ok checks one Deployment runs the pinned image: its template names the image, and every one of its pods
+# runs the config id the node loaded for that image's tag.
+# A pod reports the config id rather than a registry digest, so the pod side is matched to the node's own image.
+deploy_image_ok() {
+  local deploy=$1 image=$2 node=$CLUSTER-control-plane spec node_id sel ids
+  spec=$(k get deployment "$deploy" -o jsonpath='{.spec.template.spec.containers[*].image}')
+  grep -qxF -- "$image" <<<"${spec// /$'\n'}" || { echo "  drift: deployment/$deploy runs '$spec', pinned $image" >&2; return 1; }
+  node_id=$(docker exec "$node" crictl images --no-trunc | awk -v r="${image%:*}" -v t="${image##*:}" '$1==r && $2==t {print $3}')
+  # shellcheck disable=SC2016 # the go-template's variables are the template's, not the shell's
+  sel=$(k get deployment "$deploy" -o go-template='{{range $k, $v := .spec.selector.matchLabels}}{{$k}}={{$v}},{{end}}')
+  ids=$(k get pods -l "${sel%,}" -o jsonpath='{range .items[*]}{.status.containerStatuses[0].imageID}{"\n"}{end}')
+  if [ -z "$node_id" ] || [ -z "$ids" ] || grep -qvxF -- "$node_id" <<<"$ids"; then
+    echo "  drift: a pod of deployment/$deploy runs an image other than the node's $image ($node_id): $ids" >&2
+    return 1
   fi
-  say "simulator pods run $SIM_IMAGE, index $SIM_DIGEST, config $node_id"
+}
+
+# verify_running_images refuses a cluster whose simulator, EPP or renderer is not the pinned image, as they run now.
+#
+# check reads only the host's images and checkout; a Deployment edited after up would otherwise be measured under
+# "all pins match". The simulator's node image is also held to its pinned registry digest.
+verify_running_images() {
+  local node=$CLUSTER-control-plane node_digest bad=0
+  node_digest=$(docker exec "$node" ctr -n k8s.io images ls "name==$SIM_IMAGE" | awk 'NR==2 {print $3}')
+  [ "$node_digest" = "$SIM_DIGEST" ] || { echo "  drift: the node's $SIM_IMAGE is $node_digest, pinned $SIM_DIGEST" >&2; bad=1; }
+  deploy_image_ok vllm-d "$SIM_IMAGE" || bad=1
+  deploy_image_ok "$EPP_NAME" "$EPP_IMAGE" || bad=1
+  deploy_image_ok vllm-render "$RENDER_IMAGE" || bad=1
+  [ "$bad" = 0 ] || die "running images drifted from the pins (above)"
+  say "simulator, EPP and renderer pods run their pinned images"
 }
 
 cmd_down() {
