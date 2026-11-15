@@ -30,13 +30,22 @@ type RequestClock struct {
 	//
 	// It is never subtracted from; it says which replay the elapsed times are measured from, so rows of two replays are never differenced.
 	OriginUnixNanos int64 `json:"originUnixNanos"`
+	// IntendedNanos is the request's intended arrival, the trace offset on this clock; nil on rows written before it was recorded.
+	//
+	// An open-loop study measures from here rather than from dispatch, so a sender that falls behind schedule shows up as latency instead of hiding it.
+	IntendedNanos *int64 `json:"intendedNanos,omitempty"`
 	// SendNanos is when the scheduler dispatched the request; nil only for a request that was never sent.
 	SendNanos *int64 `json:"sendNanos,omitempty"`
+	// TransportWriteNanos is when the HTTP client finished writing the request, so client-side delay before the server saw it is visible.
+	TransportWriteNanos *int64 `json:"transportWriteNanos,omitempty"`
 	// FirstContentNanos and LastContentNanos are the first and the last content frame's arrival; nil when none arrived.
 	//
 	// The last content frame is kept apart from the stream's end because the usage chunk and the end marker follow it, and that trailer is not output.
 	FirstContentNanos *int64 `json:"firstContentNanos,omitempty"`
 	LastContentNanos  *int64 `json:"lastContentNanos,omitempty"`
+	// UsageNanos and DoneNanos are the usage trailer's and the [DONE] marker's arrival, the completion-through-trailer diagnostic.
+	UsageNanos *int64 `json:"usageNanos,omitempty"`
+	DoneNanos  *int64 `json:"doneNanos,omitempty"`
 	// EndNanos is when the response stream finished or broke, the same instant as RawRow.EndUnixNanos; nil when no stream ended.
 	EndNanos *int64 `json:"endNanos,omitempty"`
 	// TerminalNanos is when the request reached its final disposition, on every outcome.
@@ -44,6 +53,13 @@ type RequestClock struct {
 	// It is when the sender returned: for a refusal or a failure before any header, the only end the request has.
 	// For an unsent request it is when the replay stopped dispatching, so every scheduled request has one.
 	TerminalNanos *int64 `json:"terminalNanos,omitempty"`
+}
+
+// FromIntended is an event's latency from the request's intended arrival, and whether both were stamped.
+//
+// A missing event is reported as absent, never as zero, because the endpoints count a request with no content as +∞.
+func (c RequestClock) FromIntended(event *int64) (int64, bool) {
+	return clockSpan(c.IntendedNanos, event)
 }
 
 // elapsedSince is t measured from origin on the monotonic clock, or nil when t was never stamped.
