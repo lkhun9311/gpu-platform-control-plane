@@ -134,52 +134,62 @@ func TestDockerRunArgsRefuseAnotherReleasesImage(t *testing.T) {
 	}
 }
 
-// TestDockerStartCleansUpAFailedStart: a container the daemon created holds the GPU and the port even when the CLI failed.
-func TestDockerStartCleansUpAFailedStart(t *testing.T) {
+// TestDockerStartCleansUpOnlyItsOwnFailedStart: a container the daemon created for this attempt holds the GPU and is removed;
+// a container that already had the name is another engine and is left alone; an unreachable daemon is reported.
+func TestDockerStartCleansUpOnlyItsOwnFailedStart(t *testing.T) {
 	d := versionAsyncDesign()
-	removed := false
-	r := &recordingDocker{answer: func(args []string) ([]byte, error) {
-		switch args[0] {
-		case "run":
-			return nil, context.DeadlineExceeded
-		case "rm":
-			removed = true
-		case "inspect":
-			if removed {
-				return nil, errors.New("No such object")
+	notFound := errors.New("Error: No such object: s1-test-b1-A")
+	for name, c := range map[string]struct {
+		label      string
+		labelErr   error
+		wantRemove bool
+		wantErr    string
+	}{
+		"created by this attempt": {label: "tok1", wantRemove: true, wantErr: "docker run"},
+		"never created":           {labelErr: notFound, wantErr: "docker run"},
+		"another engine's name":   {label: "tok0", wantErr: "not created by this attempt"},
+		"daemon unreachable":      {labelErr: errors.New("Cannot connect to the Docker daemon"), wantErr: "cannot tell"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			removed := false
+			r := &recordingDocker{answer: func(args []string) ([]byte, error) {
+				switch {
+				case args[0] == "run":
+					return nil, context.DeadlineExceeded
+				case args[0] == "inspect" && strings.Contains(args[1], "Labels"):
+					return []byte(c.label + "\n"), c.labelErr
+				case args[0] == "rm":
+					removed = true
+				case args[0] == "inspect":
+					if removed {
+						return nil, notFound
+					}
+					return []byte("running\n"), nil
+				}
+				return nil, nil
+			}}
+			e := testDockerEngine(r)
+			e.NewToken = func() string { return "tok1" }
+			_, err := e.Start(context.Background(), d, TreatmentA, "b1-A")
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("err %v, want it to mention %q", err, c.wantErr)
 			}
-			return []byte("running\n"), nil
+			if removed != c.wantRemove {
+				t.Fatalf("removed %v, want %v (calls %v)", removed, c.wantRemove, r.calls)
+			}
+		})
+	}
+}
+
+// TestDockerStopNeedsDockerToSayTheContainerIsGone: an inspect that fails for another reason is not proof of absence.
+func TestDockerStopNeedsDockerToSayTheContainerIsGone(t *testing.T) {
+	r := &recordingDocker{answer: func(args []string) ([]byte, error) {
+		if args[0] == "inspect" {
+			return nil, errors.New("Cannot connect to the Docker daemon")
 		}
 		return nil, nil
 	}}
-	e := testDockerEngine(r)
-	if _, err := e.Start(context.Background(), d, TreatmentA, "b1-A"); err == nil {
-		t.Fatal("a failed docker run started an engine")
-	}
-	if !removed {
-		t.Fatalf("the attempted container was not removed: %v", r.calls)
-	}
-	var rm []string
-	for _, c := range r.calls {
-		if len(c) > 1 && c[1] == "rm" {
-			rm = c
-		}
-	}
-	if !slices.Contains(rm, "s1-test-b1-A") {
-		t.Fatalf("cleanup removed %v, want the container by its name", rm)
-	}
-	// A cleanup that leaves the container behind is reported, so the session stops rather than sharing the GPU.
-	removed = false
-	r.answer = func(args []string) ([]byte, error) {
-		switch args[0] {
-		case "run":
-			return []byte(""), nil
-		case "inspect":
-			return []byte("running\n"), nil
-		}
-		return nil, nil
-	}
-	if _, err := e.Start(context.Background(), d, TreatmentA, "b2-A"); err == nil || !strings.Contains(err.Error(), "still present") {
-		t.Fatalf("a start whose cleanup left the container: %v", err)
+	if err := testDockerEngine(r).Stop(context.Background(), EngineStart{ContainerID: "abc"}); err == nil || !strings.Contains(err.Error(), "cannot confirm") {
+		t.Fatalf("stop with an unreachable daemon: %v", err)
 	}
 }

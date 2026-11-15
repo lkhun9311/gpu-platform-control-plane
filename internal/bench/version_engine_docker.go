@@ -2,9 +2,12 @@ package bench
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +31,8 @@ type DockerEngine struct {
 	Port             int32
 	// NamePrefix names the session's containers, so a container is traced to its campaign and visit.
 	NamePrefix string
+	// NewToken makes an attempt token; nil uses a random one.
+	NewToken func() string
 }
 
 // EngineStart is the record of one engine start, written before the engine is used.
@@ -88,12 +93,22 @@ func (e *DockerEngine) RunArgs(d VersionStudyDesign, treatment, visit string) ([
 	return append(args, command...), nil
 }
 
+// attemptLabel marks the container one start attempt created, so cleanup removes that container and never another of the same name.
+const attemptLabel = "platform.lkhun9311.github.io/attempt"
+
 // Start runs a treatment's container and returns its start record; readiness is the caller's next step.
+//
+// Each attempt labels its container with a fresh token. If docker run fails, the daemon may still have created the
+// container, which would keep the GPU and the port; cleanup removes it only if it carries this attempt's token, so a
+// name conflict with a container already running is reported and left alone.
 func (e *DockerEngine) Start(ctx context.Context, d VersionStudyDesign, treatment, visit string) (EngineStart, error) {
 	args, err := e.RunArgs(d, treatment, visit)
 	if err != nil {
 		return EngineStart{}, err
 	}
+	token := e.token()
+	image := slices.Index(args, d.Engines[treatment].Image)
+	args = slices.Insert(args, image, "--label="+attemptLabel+"="+token)
 	name := e.NamePrefix + "-" + visit
 	out, err := e.Run(ctx, "docker", args...)
 	id := strings.TrimSpace(string(out))
@@ -101,8 +116,7 @@ func (e *DockerEngine) Start(ctx context.Context, d VersionStudyDesign, treatmen
 		if err == nil {
 			err = errors.New("docker run returned no container id")
 		}
-		// The daemon may have created the container before the CLI failed, and it would keep the GPU and the port.
-		return EngineStart{}, errors.Join(fmt.Errorf("docker run for %s: %w", treatment, err), e.remove(name))
+		return EngineStart{}, errors.Join(fmt.Errorf("docker run for %s: %w", treatment, err), e.removeOwned(name, token))
 	}
 	return EngineStart{
 		Treatment: treatment, Name: name, ContainerID: id,
@@ -110,27 +124,64 @@ func (e *DockerEngine) Start(ctx context.Context, d VersionStudyDesign, treatmen
 	}, nil
 }
 
+// token is a fresh attempt token; NewToken replaces it in tests.
+func (e *DockerEngine) token() string {
+	if e.NewToken != nil {
+		return e.NewToken()
+	}
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 // Stop removes the container and confirms it is gone, because an engine left running would share the GPU with the next.
 func (e *DockerEngine) Stop(ctx context.Context, s EngineStart) error {
 	if _, err := e.Run(ctx, "docker", "rm", "--force", s.ContainerID); err != nil {
 		return fmt.Errorf("docker rm %s: %w", s.ContainerID, err)
 	}
-	if _, err := e.Run(ctx, "docker", "inspect", "--format={{.State.Status}}", s.ContainerID); err == nil {
-		return fmt.Errorf("container %s is still present after docker rm", s.ContainerID)
-	}
-	return nil
+	return e.confirmGone(ctx, s.ContainerID)
 }
 
 // dockerCleanupTimeout bounds removing an attempted container, on its own context so a start that failed by its context expiring still cleans up.
 const dockerCleanupTimeout = 60 * time.Second
 
-// remove deletes a container by name and confirms it is gone, whether or not it was ever created.
-func (e *DockerEngine) remove(name string) error {
+// removeOwned deletes the container named name if this attempt created it, and confirms it is gone.
+func (e *DockerEngine) removeOwned(name, token string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), dockerCleanupTimeout)
 	defer cancel()
-	_, _ = e.Run(ctx, "docker", "rm", "--force", name)
-	if _, err := e.Run(ctx, "docker", "inspect", "--format={{.State.Status}}", name); err == nil {
-		return fmt.Errorf("container %s is still present after cleanup; it may hold the GPU", name)
+	out, err := e.Run(ctx, "docker", "inspect", "--format={{index .Config.Labels \""+attemptLabel+"\"}}", name)
+	switch {
+	case err != nil && dockerNotFound(err):
+		// Nothing was created, so nothing holds the GPU.
+		return nil
+	case err != nil:
+		return fmt.Errorf("cannot tell whether container %s was created: %w", name, err)
+	case strings.TrimSpace(string(out)) != token:
+		return fmt.Errorf("container %s exists but was not created by this attempt; it is left running", name)
 	}
-	return nil
+	if _, err := e.Run(ctx, "docker", "rm", "--force", name); err != nil {
+		return fmt.Errorf("docker rm %s after a failed start: %w", name, err)
+	}
+	return e.confirmGone(ctx, name)
+}
+
+// confirmGone succeeds only on Docker's own not-found answer; any other inspect failure leaves the container's state unknown.
+func (e *DockerEngine) confirmGone(ctx context.Context, ref string) error {
+	_, err := e.Run(ctx, "docker", "inspect", "--format={{.State.Status}}", ref)
+	switch {
+	case err == nil:
+		return fmt.Errorf("container %s is still present after docker rm; it may hold the GPU", ref)
+	case dockerNotFound(err):
+		return nil
+	default:
+		return fmt.Errorf("cannot confirm container %s is gone: %w", ref, err)
+	}
+}
+
+// dockerNotFound reads Docker's answer for an object that does not exist.
+//
+// A CommandRunner must put the command's standard error into its error, which is where Docker writes this.
+func dockerNotFound(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "No such object") || strings.Contains(msg, "No such container")
 }
