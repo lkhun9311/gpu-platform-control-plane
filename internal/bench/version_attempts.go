@@ -155,6 +155,7 @@ func (s *journalState) applyFault(r journalRecord) error {
 	default:
 		return fmt.Errorf("fault names block %d, which is neither open nor the last attempt", r.Block)
 	}
+	s.ledger.RecorderFaults = append(s.ledger.RecorderFaults, reason)
 	s.stopped = true
 	return nil
 }
@@ -356,26 +357,63 @@ func RecoverAttemptJournal(path, campaign string, now time.Time) (JournalRecover
 	if err != nil {
 		return JournalRecovery{}, err
 	}
+	pendingBlock := 0
+	if s.pending != nil {
+		pendingBlock = s.pending.Block
+	}
+	rec, refused, ioErr := recoverJournal(path, campaign, now, s, tail, whole)
+	if refused != nil {
+		return JournalRecovery{}, refused
+	}
+	if ioErr == nil {
+		return rec, nil
+	}
+	// Recovery's own failed write is a recorder failure too; without a marker a retry would find nothing left to stop on.
+	// A marker already present stops the campaign by itself, so it is kept rather than replaced.
+	if _, err := os.Stat(faultMarkerPath(path)); errors.Is(err, os.ErrNotExist) {
+		fault := journalRecord{
+			Kind: journalFault, Campaign: campaign, Block: pendingBlock, At: now.UTC(),
+			Reason: fmt.Sprintf("recovery failed: %v", ioErr),
+		}
+		if merr := writeFaultMarker(path, fault); merr != nil {
+			return JournalRecovery{}, errors.Join(ioErr, fmt.Errorf("the failure itself could not be recorded, so the runner must stop and report it: %w", merr))
+		}
+	}
+	return JournalRecovery{}, ioErr
+}
+
+// recoveryFile is the journal opened for recovery; tests replace it to fail a sync.
+type recoveryFile interface {
+	journalFile
+	Truncate(size int64) error
+}
+
+var openForRecovery = func(path string) (recoveryFile, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+}
+
+// recoverJournal returns a refusal, which changed nothing, separately from an I/O failure, which may have.
+func recoverJournal(path, campaign string, now time.Time, s *journalState, tail []byte, whole int64) (JournalRecovery, error, error) {
 	var rec JournalRecovery
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	f, err := openForRecovery(path)
 	if err != nil {
-		return JournalRecovery{}, err
+		return JournalRecovery{}, nil, err
 	}
 	defer func() { _ = f.Close() }()
 	fault, hasFault, err := readFaultMarker(path)
 	if err != nil {
-		return JournalRecovery{}, err
+		return JournalRecovery{}, err, nil
 	}
 	if s.pending != nil && !now.After(s.pending.StartedAt) {
 		return JournalRecovery{}, fmt.Errorf("recovery time %s is not after block %d's start at %s",
-			now.Format(time.RFC3339Nano), s.pending.Block, s.pending.StartedAt.Format(time.RFC3339Nano))
+			now.Format(time.RFC3339Nano), s.pending.Block, s.pending.StartedAt.Format(time.RFC3339Nano)), nil
 	}
 	if len(tail) > 0 {
 		if err := f.Truncate(whole); err != nil {
-			return JournalRecovery{}, fmt.Errorf("cut the torn tail of %s: %w", path, err)
+			return JournalRecovery{}, nil, fmt.Errorf("cut the torn tail of %s: %w", path, err)
 		}
 		if err := f.Sync(); err != nil {
-			return JournalRecovery{}, fmt.Errorf("sync %s: %w", path, err)
+			return JournalRecovery{}, nil, fmt.Errorf("sync %s: %w", path, err)
 		}
 		rec.DroppedTail = string(tail)
 	}
@@ -387,22 +425,22 @@ func RecoverAttemptJournal(path, campaign string, now time.Time) (JournalRecover
 		// A crash between appending the fault and removing its marker leaves both; the fault is recorded once.
 		if !sameFault(s.last, fault) {
 			if err := s.apply(fault); err != nil {
-				return JournalRecovery{}, fmt.Errorf("apply %s: %w", faultMarkerPath(path), err)
+				return JournalRecovery{}, fmt.Errorf("apply %s: %w", faultMarkerPath(path), err), nil
 			}
 			if err := writeJournalLine(f, fault); err != nil {
-				return JournalRecovery{}, err
+				return JournalRecovery{}, nil, err
 			}
 		}
 		rec.Fault = fault.Reason
 		// The line may be whole but unsynced from a recovery that crashed, and the marker is the only other copy of the fault.
 		if err := f.Sync(); err != nil {
-			return JournalRecovery{}, fmt.Errorf("sync %s before removing its fault marker: %w", path, err)
+			return JournalRecovery{}, nil, fmt.Errorf("sync %s before removing its fault marker: %w", path, err)
 		}
 		if err := os.Remove(faultMarkerPath(path)); err != nil {
-			return JournalRecovery{}, err
+			return JournalRecovery{}, nil, err
 		}
 		if err := syncDirOf(path); err != nil {
-			return JournalRecovery{}, err
+			return JournalRecovery{}, nil, err
 		}
 	}
 	if s.pending != nil {
@@ -412,14 +450,14 @@ func RecoverAttemptJournal(path, campaign string, now time.Time) (JournalRecover
 			Reason: fmt.Sprintf("interrupted: no end was recorded; the attempt was closed by recovery at %s", now.UTC().Format(time.RFC3339)),
 		}
 		if err := s.apply(r); err != nil {
-			return JournalRecovery{}, err
+			return JournalRecovery{}, err, nil
 		}
 		if err := writeJournalLine(f, r); err != nil {
-			return JournalRecovery{}, err
+			return JournalRecovery{}, nil, err
 		}
 		rec.Recovered = &p
 	}
-	return rec, nil
+	return rec, nil, nil
 }
 
 func syncDirOf(path string) error {

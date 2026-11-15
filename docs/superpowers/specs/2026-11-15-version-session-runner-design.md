@@ -67,6 +67,7 @@ Every step writes its evidence before the next starts. Every step has the bound 
        - The journal takes no more records, and it cannot be reopened until recovery moves the fault into it.
        - The fault stops the attempt it touched, even one whose valid end is whole on disk with its durability unknown.
        - A failed archive reopens the ledger, and in both cases no block starts after the fault.
+       - Every fault stays in the ledger (`RecorderFaults`). `AnalysisSet` then reports an incomplete pilot, as the stop rules require, even when every block was valid.
        - If the marker cannot be written either, the only record left is the runner's error and exit status (#614).
 6. **Close:** archive the ledger, run `CheckVersionCampaign`, write the campaign summary, stop. The verdict is computed offline from the archived evidence, not on the instance.
 

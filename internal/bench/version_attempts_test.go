@@ -410,3 +410,83 @@ func TestAJournalWithAPendingFaultIsNotRead(t *testing.T) {
 		t.Fatalf("read %+v while a fault was pending: %v", l, err)
 	}
 }
+
+// TestARecorderFailureLeavesNoVerdict: the stop rules make any recorder error an incomplete pilot, even after every block was valid.
+func TestARecorderFailureLeavesNoVerdict(t *testing.T) {
+	d := versionAsyncDesign()
+	path, j := openTestJournal(t)
+	at := journalT0
+	for b := 1; b <= d.PlannedBlocks; b++ {
+		_ = j.Start(b, 0, at)
+		at = at.Add(time.Hour)
+		_ = j.End(b, AttemptValid, "", at)
+		at = at.Add(time.Minute)
+	}
+	j.f = &syncFailFile{File: j.f.(*os.File)}
+	_ = j.Archive(at)
+	_ = j.Close()
+	if _, err := RecoverAttemptJournal(path, "camp-1", at.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	j2, err := OpenAttemptJournal(path, "camp-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j2.Archive(at.Add(2 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	_ = j2.Close()
+	l, _, err := ReadAttemptJournal(path, "camp-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := d.AnalysisSet(l)
+	if len(set) != d.PlannedBlocks || err == nil || !strings.Contains(err.Error(), "recorder failure") {
+		t.Fatalf("analysis set %v err %v; want every block and no verdict", set, err)
+	}
+}
+
+// TestAFailedRecoveryIsItselfARecorderFailure: a recovery whose sync fails must leave a fault a retry still stops on.
+func TestAFailedRecoveryIsItselfARecorderFailure(t *testing.T) {
+	d := versionAsyncDesign()
+	path, j := openTestJournal(t)
+	at := journalT0
+	for b := 1; b <= d.PlannedBlocks; b++ {
+		_ = j.Start(b, 0, at)
+		at = at.Add(time.Hour)
+		_ = j.End(b, AttemptValid, "", at)
+		at = at.Add(time.Minute)
+	}
+	_ = j.Close()
+	// The process died while writing the archive, so no marker was left.
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	_, _ = f.WriteString(`{"kind":"archive","campaign":"camp-1"`)
+	_ = f.Close()
+
+	open := openForRecovery
+	openForRecovery = func(p string) (recoveryFile, error) {
+		f, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND, 0)
+		return &syncFailFile{File: f}, err
+	}
+	_, err := RecoverAttemptJournal(path, "camp-1", at.Add(time.Hour))
+	openForRecovery = open
+	if err == nil {
+		t.Fatal("a recovery whose sync failed was reported done")
+	}
+	if _, err := RecoverAttemptJournal(path, "camp-1", at.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	j2, err := OpenAttemptJournal(path, "camp-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = j2.Archive(at.Add(3 * time.Hour))
+	_ = j2.Close()
+	l, _, err := ReadAttemptJournal(path, "camp-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.AnalysisSet(l); err == nil || !strings.Contains(err.Error(), "recorder failure") {
+		t.Fatalf("analysis after a failed recovery: %v", err)
+	}
+}

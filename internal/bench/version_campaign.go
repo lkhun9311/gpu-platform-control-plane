@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/yaml"
@@ -334,6 +335,8 @@ type AttemptLedger struct {
 	CampaignID string
 	Attempts   []BlockAttempt
 	Closed     bool
+	// RecorderFaults are the journal's own write failures; any one ends the campaign as an incomplete pilot (the stop rules).
+	RecorderFaults []string
 }
 
 // AnalysisSet derives the analysed blocks from the ledger alone (attack item 9).
@@ -342,6 +345,17 @@ type AttemptLedger struct {
 // So a valid block is never rerun and there is never a choice between valid blocks.
 // Fewer valid blocks than planned is an error that still returns them, for a descriptive report with no verdict.
 func (d VersionStudyDesign) AnalysisSet(l AttemptLedger) ([]int, error) {
+	valid, err := d.analysedBlocks(l)
+	// A failed archive leaves every block valid, so only the ledger's own record of the failure keeps the stop rule.
+	if len(l.RecorderFaults) > 0 && (valid != nil || err == nil) {
+		return valid, errors.Join(err, fmt.Errorf("incomplete pilot: the campaign stopped on a recorder failure (%s); no adopt, equivalent or reject is computed",
+			strings.Join(l.RecorderFaults, "; ")))
+	}
+	return valid, err
+}
+
+// analysedBlocks applies the ledger's ordering and replacement rules.
+func (d VersionStudyDesign) analysedBlocks(l AttemptLedger) ([]int, error) {
 	if !l.Closed {
 		return nil, fmt.Errorf("the ledger is not archived; archive it before computing anything from it")
 	}
