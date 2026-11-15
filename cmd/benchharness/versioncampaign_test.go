@@ -82,3 +82,40 @@ func TestVersionManifestsWithARelativeBundlePath(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestVersionManifestTracesPassTheReplaysFrozenTokenCheck: the loaders accept a trace with no token counts, and the replay then refuses every cell.
+func TestVersionManifestTracesPassTheReplaysFrozenTokenCheck(t *testing.T) {
+	dir := t.TempDir()
+	art, _ := json.Marshal(bench.CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2.0})
+	if err := os.WriteFile(filepath.Join(dir, "calibration.json"), art, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := versionBundle([]string{"-dir", dir, "-campaign-id", "s1-test", "-price-usd-per-hour", "1.237",
+		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	mdir := filepath.Join(dir, "manifests")
+	if err := os.Mkdir(mdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := versionManifests([]string{"-bundle", filepath.Join(dir, bench.CampaignBundleFile), "-engine-url", "http://127.0.0.1:8000",
+		"-blocks", "1", "-out", mdir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := bench.LookupStudy(bench.StudyVersionAsync)
+	for path := range strings.FieldsSeq(out.String()) {
+		m, err := bench.LoadManifest(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := bench.ReadTraceFileVerified(m.TracePath, m.TraceChecksum)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := frozenTokenRefusal(rows, st, m.TracePath); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+}

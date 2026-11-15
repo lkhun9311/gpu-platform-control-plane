@@ -54,6 +54,11 @@ func (d VersionStudyDesign) versionStream(seed int64, offeredRate float64, windo
 	if stratify {
 		d.stratifyWarmup(rows, seed, windowSeconds, chars)
 	}
+	// Stamped after stratifying, which changes prompt lengths, and before anything hashes the rows.
+	// The study freezes these counts, and the replay refuses a row without the frozen one before sending anything.
+	for i := range rows {
+		rows[i].ExactInputTokens = versionStudyExactTokens()[rows[i].PromptLenChars]
+	}
 	if missing := d.warmupGaps(rows, windowSeconds); len(missing) > 0 {
 		return nil, fmt.Errorf("the seeded warm-up never sends %v (input, output) tokens at %.3f req/s; fewer warm-up arrivals than classes, and a warm-up is never redrawn", missing, offeredRate)
 	}

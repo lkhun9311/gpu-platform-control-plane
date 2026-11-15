@@ -66,6 +66,9 @@ func TestVersionTraceFollowsTheRegisteredWorkload(t *testing.T) {
 		if r.Tenant != PremiumTenant || r.IsNoisy || r.MinOutputTokens != r.MaxOutputTokens {
 			t.Fatalf("row %d: tenant %q noisy %v min %d max %d", i, r.Tenant, r.IsNoisy, r.MinOutputTokens, r.MaxOutputTokens)
 		}
+		if want := versionStudyExactTokens()[r.PromptLenChars]; r.ExactInputTokens != want {
+			t.Fatalf("row %d: %d exact input tokens for %d characters, the study froze %d", i, r.ExactInputTokens, r.PromptLenChars, want)
+		}
 		inChars[r.PromptLenChars]++
 		outs[r.MaxOutputTokens]++
 	}
