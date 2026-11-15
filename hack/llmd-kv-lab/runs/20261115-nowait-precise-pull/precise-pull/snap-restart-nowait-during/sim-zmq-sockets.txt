@@ -1,0 +1,6 @@
+vllm-d-6bdd465f5c-gdp8v ESTAB 0      0      [::ffff:10.244.0.136]:5557 [::ffff:10.244.0.137]:41034
+vllm-d-6bdd465f5c-gdp8v ESTAB 0      0      [::ffff:10.244.0.136]:5557 [::ffff:10.244.0.133]:41662
+vllm-d-6bdd465f5c-sdmq8 ESTAB 0      0      [::ffff:10.244.0.135]:5557 [::ffff:10.244.0.133]:33512
+vllm-d-6bdd465f5c-sdmq8 ESTAB 0      0      [::ffff:10.244.0.135]:5557 [::ffff:10.244.0.137]:43648
+vllm-d-6bdd465f5c-mh5wp ESTAB 0      0      [::ffff:10.244.0.134]:5557 [::ffff:10.244.0.133]:38052
+vllm-d-6bdd465f5c-mh5wp ESTAB 0      0      [::ffff:10.244.0.134]:5557 [::ffff:10.244.0.137]:48496

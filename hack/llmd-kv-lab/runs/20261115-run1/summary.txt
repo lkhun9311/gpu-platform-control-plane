@@ -1,0 +1,121 @@
+== arm precise: 56 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-affinity-000         F0     gateway    7jbw8       0/325       10.1  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-001         F1     gateway    cbbnl       0/325        5.2  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-002         F2     gateway    vs48z       0/325        5.5  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-003         F3     gateway    7jbw8       0/325        4.3  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-004         F0     gateway    cbbnl       0/325        4.2  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-005         F1     gateway    vs48z       0/325        4.1  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-006         F2     gateway    7jbw8       0/325        4.2  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-007         F3     gateway    cbbnl       0/325        4.5  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-008         F0     gateway    vs48z       0/325        4.2  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-009         F1     gateway    7jbw8       0/325        4.8  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-010         F2     gateway    cbbnl       0/325        4.9  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-011         F3     gateway    vs48z       0/325        4.2  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-012         F0     gateway    7jbw8     304/325        4.2  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-013         F1     gateway    cbbnl     304/325        4.2  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-014         F2     gateway    vs48z     304/325        4.3  7jbw8=0 cbbnl=0 vs48z=0
+precise-affinity-015         F3     gateway    7jbw8     304/325        4.4  7jbw8=0 cbbnl=0 vs48z=0
+precise-oob-warm-000         W1     direct     cbbnl       0/328        3.1  
+precise-oob-warm-001         W1     direct     cbbnl     304/328        2.7  
+precise-oob-000              W1     gateway    cbbnl     304/325        5.3  7jbw8=0 cbbnl=0 vs48z=0
+precise-oob-001              W1     gateway    vs48z       0/325        4.3  7jbw8=0 cbbnl=0 vs48z=0
+precise-oob-002              W1     gateway    7jbw8       0/325        5.2  7jbw8=0 cbbnl=0 vs48z=0
+precise-evict-flood-000      E0     direct     7jbw8       0/329        3.0  
+precise-evict-flood-001      E1     direct     7jbw8       0/329        3.6  
+precise-evict-flood-002      E2     direct     7jbw8       0/329        3.4  
+precise-evict-flood-003      E3     direct     7jbw8       0/329        3.2  
+precise-evict-flood-004      E4     direct     7jbw8       0/329        3.2  
+precise-evict-flood-005      E5     direct     7jbw8       0/329        3.1  
+precise-evict-flood-006      E6     direct     7jbw8       0/329        3.3  
+precise-evict-flood-007      E7     direct     7jbw8       0/329        3.6  
+precise-evict-flood-008      E8     direct     7jbw8       0/329        3.4  
+precise-evict-flood-009      E9     direct     7jbw8       0/329        3.5  
+precise-evict-flood-010      E10    direct     7jbw8       0/330        3.8  
+precise-evict-flood-011      E11    direct     7jbw8       0/330        3.6  
+precise-evict-000            F0     gateway    cbbnl     304/325        7.2  7jbw8=0 cbbnl=0 vs48z=0
+precise-evict-001            F0     gateway    vs48z     304/325        5.3  7jbw8=0 cbbnl=0 vs48z=0
+precise-block-warm-000       W2     direct     cbbnl       0/327        3.2  
+precise-block-warm-001       W2     direct     cbbnl     304/327        3.5  
+precise-block-gw-000         W2     gateway    7jbw8       0/327        5.5  7jbw8=0 cbbnl=0 vs48z=0
+precise-restore-gw-000       W2     gateway    cbbnl     304/328        9.7  7jbw8=0 cbbnl=0 vs48z=0
+precise-restore-gw-001       W2     gateway    vs48z       0/328        6.8  7jbw8=0 cbbnl=0 vs48z=0
+precise-leave-warm-000       W3     direct     cbbnl       0/328        4.8  
+precise-leave-warm-001       W3     direct     cbbnl     304/328        4.3  
+precise-leave-gw-000         W3     gateway    cbbnl     304/328        6.3  cbbnl=0 rw7dc=0 vs48z=0
+precise-leave-gw-001         W3     gateway    rw7dc       0/328        6.7  cbbnl=0 rw7dc=0 vs48z=0
+precise-leave-control-warm-000 W4     direct     cbbnl       0/330        4.5  
+precise-leave-control-warm-001 W4     direct     cbbnl     320/330        3.5  
+precise-leave-control-gw-000 W4     gateway    vs48z       0/330        5.6  cbbnl=0 rw7dc=0 vs48z=0
+precise-leave-control-gw-001 W4     gateway    cbbnl     304/330        5.2  cbbnl=0 rw7dc=0 vs48z=0
+precise-restart-000          F1     gateway    cbbnl     304/325        9.4  cbbnl=0 rw7dc=0 vs48z=0
+precise-restart-001          F2     gateway    rw7dc       0/325        6.0  cbbnl=0 rw7dc=0 vs48z=0
+precise-restart-002          F3     gateway    vs48z     304/325        6.3  cbbnl=0 rw7dc=0 vs48z=0
+precise-restart-003          W1     gateway    cbbnl     304/325        5.5  cbbnl=0 rw7dc=0 vs48z=0
+precise-restart-004          F1     gateway    rw7dc       0/325        5.7  cbbnl=0 rw7dc=0 vs48z=0
+precise-restart-005          F2     gateway    rw7dc     304/325        5.6  cbbnl=0 rw7dc=0.95 vs48z=0
+precise-restart-006          F3     gateway    cbbnl     304/325        5.0  cbbnl=0 rw7dc=0 vs48z=0
+precise-restart-007          W1     gateway    rw7dc       0/325        4.9  cbbnl=0 rw7dc=0 vs48z=0
+   gateway requests joined to EPP scores: 36/36
+   step                                     gateway   hit  predicted  to warm pod
+   precise-affinity                              16     4       0/16            -
+   precise-oob                                    3     1        0/3          1/3
+   precise-evict                                  2     2        0/2            -
+   precise-block-gw                               1     0        0/1          0/1
+   precise-restore-gw                             2     1        0/2          1/2
+   precise-leave-gw                               2     1        0/2          1/2
+   precise-leave-control-gw                       2     1        0/2          1/2
+   precise-restart                                8     5        1/8          1/2
+
+== arm approx: 43 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+approx-affinity-000          F0     gateway    f9l22       0/326        9.8  f9l22=0 trphw=0 v6tx4=0
+approx-affinity-001          F1     gateway    trphw       0/326        4.2  f9l22=0 trphw=0 v6tx4=0
+approx-affinity-002          F2     gateway    v6tx4       0/326        5.3  f9l22=0 trphw=0 v6tx4=0
+approx-affinity-003          F3     gateway    f9l22       0/326        3.9  f9l22=0 trphw=0 v6tx4=0
+approx-affinity-004          F0     gateway    f9l22     304/326        3.9  f9l22=0.857143 trphw=0 v6tx4=0
+approx-affinity-005          F1     gateway    trphw     304/326        4.0  f9l22=0 trphw=0.857143 v6tx4=0
+approx-affinity-006          F2     gateway    v6tx4     304/326        4.0  f9l22=0 trphw=0 v6tx4=0.857143
+approx-affinity-007          F3     gateway    f9l22     304/326        4.3  f9l22=0.857143 trphw=0 v6tx4=0
+approx-affinity-008          F0     gateway    f9l22     304/326        3.6  f9l22=0.857143 trphw=0 v6tx4=0
+approx-affinity-009          F1     gateway    trphw     304/326        3.6  f9l22=0 trphw=0.857143 v6tx4=0
+approx-affinity-010          F2     gateway    v6tx4     304/326        3.9  f9l22=0 trphw=0 v6tx4=0.857143
+approx-affinity-011          F3     gateway    f9l22     304/326        3.2  f9l22=0.857143 trphw=0 v6tx4=0
+approx-affinity-012          F0     gateway    f9l22     304/326        3.7  f9l22=0.857143 trphw=0 v6tx4=0
+approx-affinity-013          F1     gateway    trphw     304/326        3.6  f9l22=0 trphw=0.857143 v6tx4=0
+approx-affinity-014          F2     gateway    v6tx4     304/326        3.4  f9l22=0 trphw=0 v6tx4=0.857143
+approx-affinity-015          F3     gateway    f9l22     304/326        3.3  f9l22=0.857143 trphw=0 v6tx4=0
+approx-oob-warm-000          W1     direct     trphw       0/329        3.7  
+approx-oob-warm-001          W1     direct     trphw     304/329        4.9  
+approx-oob-000               W1     gateway    trphw     304/326        3.7  f9l22=0 trphw=0 v6tx4=0
+approx-oob-001               W1     gateway    trphw     304/326        3.9  f9l22=0 trphw=0.857143 v6tx4=0
+approx-oob-002               W1     gateway    trphw     304/326        3.5  f9l22=0 trphw=0.857143 v6tx4=0
+approx-evict-flood-000       E0     direct     f9l22       0/330        3.6  
+approx-evict-flood-001       E1     direct     f9l22       0/330        3.3  
+approx-evict-flood-002       E2     direct     f9l22       0/330        3.5  
+approx-evict-flood-003       E3     direct     f9l22       0/330        3.3  
+approx-evict-flood-004       E4     direct     f9l22       0/330        3.2  
+approx-evict-flood-005       E5     direct     f9l22       0/330        3.2  
+approx-evict-flood-006       E6     direct     f9l22       0/330        3.2  
+approx-evict-flood-007       E7     direct     f9l22       0/330        4.3  
+approx-evict-flood-008       E8     direct     f9l22       0/330        4.3  
+approx-evict-flood-009       E9     direct     f9l22       0/330        4.5  
+approx-evict-flood-010       E10    direct     f9l22       0/331        4.3  
+approx-evict-flood-011       E11    direct     f9l22       0/331        3.5  
+approx-evict-000             F0     gateway    f9l22       0/326        3.4  f9l22=0.857143 trphw=0 v6tx4=0
+approx-evict-001             F0     gateway    f9l22     304/326        3.4  f9l22=0.857143 trphw=0 v6tx4=0
+approx-restart-000           F1     gateway    f9l22       0/326        4.3  f9l22=0 trphw=0 v6tx4=0
+approx-restart-001           F2     gateway    trphw       0/326        3.9  f9l22=0 trphw=0 v6tx4=0
+approx-restart-002           F3     gateway    v6tx4       0/326        7.9  f9l22=0 trphw=0 v6tx4=0
+approx-restart-003           W1     gateway    f9l22       0/326        3.5  f9l22=0 trphw=0 v6tx4=0
+approx-restart-004           F1     gateway    f9l22     304/326        3.6  f9l22=0.857143 trphw=0 v6tx4=0
+approx-restart-005           F2     gateway    trphw     304/326        3.5  f9l22=0 trphw=0.857143 v6tx4=0
+approx-restart-006           F3     gateway    v6tx4     304/326        3.9  f9l22=0 trphw=0 v6tx4=0.857143
+approx-restart-007           W1     gateway    f9l22     304/326        3.4  f9l22=0.857143 trphw=0 v6tx4=0
+   gateway requests joined to EPP scores: 29/29
+   step                                     gateway   hit  predicted  to warm pod
+   approx-affinity                               16    12      12/16            -
+   approx-oob                                     3     3        2/3          3/3
+   approx-evict                                   2     1        1/2            -
+   approx-restart                                 8     4        4/8          0/2
+

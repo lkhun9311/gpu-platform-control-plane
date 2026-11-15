@@ -1,0 +1,14 @@
+router checkout: 3d0b21d51d29c2f773556c924e5aaf3ee32cc344
+kubectl: Client Version: v1.36.3 Kustomize Version: v5.8.1 
+
+$ kubectl kustomize --enable-helm test/e2e/artifacts/environments/dev/epd | grep -n -e render-url -e VLLM_EXTRA_ARGS_D
+30:        - --render-url=${VLLM_RENDER_URL}
+31:        - ${VLLM_EXTRA_ARGS_D}
+
+$ grep -n 'match($0' scripts/kind-dev-env.sh  # the splitter only matches a quoted list item
+443:    /^[[:space:]]*-[[:space:]]+".*"[[:space:]]*$/ {
+446:      sub(/^[[:space:]]*-[[:space:]]+"/, "", content)
+
+$ docker run --rm ghcr.io/llm-d/llm-d-inference-sim:v1.2.0 --model=TinyLlama/TinyLlama-1.1B-Chat-v1.0 "--kv-cache-size=256 --enable-request-id-headers"
+container exit status: 0
+E1115 04:12:12.112413       1 cmd.go:54] "failed to read configuration" err="invalid argument \"256 --enable-request-id-headers\" for \"--kv-cache-size\" flag: strconv.ParseInt: parsing \"256 --enable-request-id-headers\": invalid syntax"

@@ -1,0 +1,45 @@
+== arm precise-pull: 30 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-pull-leave-1-warm-000 V1     direct     9fnlk       0/332        3.4  
+precise-pull-leave-1-warm-001 V1     direct     9fnlk     320/332        3.1  
+precise-pull-leave-1-gw-000  V1     gateway    9fnlk     304/332        5.8  9fnlk=0.95 ckkfc=0 ph72q=0
+precise-pull-control-1-warm-000 C1     direct     9fnlk       0/331        4.0  
+precise-pull-control-1-warm-001 C1     direct     9fnlk     320/331        3.5  
+precise-pull-control-1-gw-000 C1     gateway    9fnlk     304/331        5.5  9fnlk=0.95 ckkfc=0 ph72q=0
+precise-pull-leave-2-warm-000 V2     direct     9fnlk       0/332        9.7  
+precise-pull-leave-2-warm-001 V2     direct     9fnlk     320/332        3.3  
+precise-pull-leave-2-gw-000  V2     gateway    9fnlk     304/332        5.5  5x7hj=0 9fnlk=0.95 ph72q=0
+precise-pull-control-2-warm-000 C2     direct     9fnlk       0/331        3.8  
+precise-pull-control-2-warm-001 C2     direct     9fnlk     320/331        3.5  
+precise-pull-control-2-gw-000 C2     gateway    9fnlk     304/331        6.3  5x7hj=0 9fnlk=0.95 ph72q=0
+precise-pull-leave-3-warm-000 V3     direct     5x7hj       0/332        4.1  
+precise-pull-leave-3-warm-001 V3     direct     5x7hj     320/332        3.4  
+precise-pull-leave-3-gw-000  V3     gateway    5x7hj     304/332        6.2  5x7hj=0.95 d6hjt=0 ph72q=0
+precise-pull-control-3-warm-000 C3     direct     5x7hj       0/331        4.0  
+precise-pull-control-3-warm-001 C3     direct     5x7hj     320/331        3.7  
+precise-pull-control-3-gw-000 C3     gateway    5x7hj     304/331        6.0  5x7hj=0.95 d6hjt=0 ph72q=0
+precise-pull-leave-4-warm-000 V4     direct     5x7hj       0/332        3.4  
+precise-pull-leave-4-warm-001 V4     direct     5x7hj     320/332        3.4  
+precise-pull-leave-4-gw-000  V4     gateway    5x7hj     304/332        6.0  5x7hj=0.95 9qr8p=0 ph72q=0
+precise-pull-control-4-warm-000 C4     direct     5x7hj       0/331        4.0  
+precise-pull-control-4-warm-001 C4     direct     5x7hj     320/331        3.8  
+precise-pull-control-4-gw-000 C4     gateway    5x7hj     304/331        5.7  5x7hj=0.95 9qr8p=0 ph72q=0
+precise-pull-leave-5-warm-000 V5     direct     5x7hj       0/332        3.4  
+precise-pull-leave-5-warm-001 V5     direct     5x7hj     320/332        3.5  
+precise-pull-leave-5-gw-000  V5     gateway    5x7hj     304/332        5.1  5x7hj=0.95 ph72q=0 xn5qc=0
+precise-pull-control-5-warm-000 C5     direct     5x7hj       0/331        3.9  
+precise-pull-control-5-warm-001 C5     direct     5x7hj     320/331        3.1  
+precise-pull-control-5-gw-000 C5     gateway    5x7hj     304/331        5.1  5x7hj=0.95 ph72q=0 xn5qc=0
+   gateway requests joined to EPP scores: 10/10
+   step                                     gateway   hit  predicted  to warm pod
+   precise-pull-leave-1-gw                        1     1        1/1          1/1
+   precise-pull-control-1-gw                      1     1        1/1          1/1
+   precise-pull-leave-2-gw                        1     1        1/1          1/1
+   precise-pull-control-2-gw                      1     1        1/1          1/1
+   precise-pull-leave-3-gw                        1     1        1/1          1/1
+   precise-pull-control-3-gw                      1     1        1/1          1/1
+   precise-pull-leave-4-gw                        1     1        1/1          1/1
+   precise-pull-control-4-gw                      1     1        1/1          1/1
+   precise-pull-leave-5-gw                        1     1        1/1          1/1
+   precise-pull-control-5-gw                      1     1        1/1          1/1
+

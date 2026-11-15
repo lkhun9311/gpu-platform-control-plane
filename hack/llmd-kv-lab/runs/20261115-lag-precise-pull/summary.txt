@@ -1,0 +1,59 @@
+== arm precise-pull: 36 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-pull-lag-0.1-1-000   L0.1r1 gateway    5v922       0/336        5.5  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.1-1-001   L0.1r1 gateway    7l6zs       0/336        5.8  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.1-2-000   L0.1r2 gateway    zf55g       0/336        5.7  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.1-2-001   L0.1r2 gateway    zf55g     320/336        4.3  5v922=0 7l6zs=0 zf55g=0.952381
+precise-pull-lag-0.1-3-000   L0.1r3 gateway    7l6zs       0/336        5.4  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.1-3-001   L0.1r3 gateway    zf55g       0/336        4.8  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.3-1-000   L0.3r1 gateway    5v922       0/336        4.6  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.3-1-001   L0.3r1 gateway    7l6zs       0/336        5.2  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.3-2-000   L0.3r2 gateway    zf55g       0/336        4.7  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.3-2-001   L0.3r2 gateway    zf55g     320/336        5.0  5v922=0 7l6zs=0 zf55g=0.952381
+precise-pull-lag-0.3-3-000   L0.3r3 gateway    7l6zs       0/336        5.3  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.3-3-001   L0.3r3 gateway    zf55g       0/336        5.0  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.6-1-000   L0.6r1 gateway    5v922       0/336        5.5  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.6-1-001   L0.6r1 gateway    7l6zs       0/336        5.5  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.6-2-000   L0.6r2 gateway    zf55g       0/336        4.6  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.6-2-001   L0.6r2 gateway    zf55g     320/336        5.0  5v922=0 7l6zs=0 zf55g=0.952381
+precise-pull-lag-0.6-3-000   L0.6r3 gateway    7l6zs       0/336        4.6  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-0.6-3-001   L0.6r3 gateway    7l6zs     320/336        4.5  5v922=0 7l6zs=0.952381 zf55g=0
+precise-pull-lag-1.0-1-000   L1.0r1 gateway    5v922       0/336        4.8  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-1.0-1-001   L1.0r1 gateway    5v922     320/336        4.8  5v922=0.952381 7l6zs=0 zf55g=0
+precise-pull-lag-1.0-2-000   L1.0r2 gateway    zf55g       0/336        4.3  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-1.0-2-001   L1.0r2 gateway    zf55g     320/336        4.5  5v922=0 7l6zs=0 zf55g=0.952381
+precise-pull-lag-1.0-3-000   L1.0r3 gateway    7l6zs       0/336        4.8  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-1.0-3-001   L1.0r3 gateway    7l6zs     320/336        4.4  5v922=0 7l6zs=0.952381 zf55g=0
+precise-pull-lag-1.5-1-000   L1.5r1 gateway    5v922       0/336        5.4  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-1.5-1-001   L1.5r1 gateway    5v922     320/336        4.5  5v922=0.952381 7l6zs=0 zf55g=0
+precise-pull-lag-1.5-2-000   L1.5r2 gateway    zf55g       0/336        5.1  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-1.5-2-001   L1.5r2 gateway    zf55g     320/336        5.1  5v922=0 7l6zs=0 zf55g=0.952381
+precise-pull-lag-1.5-3-000   L1.5r3 gateway    7l6zs       0/336        5.4  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-1.5-3-001   L1.5r3 gateway    7l6zs     320/336        4.4  5v922=0 7l6zs=0.952381 zf55g=0
+precise-pull-lag-2.5-1-000   L2.5r1 gateway    5v922       0/336        5.4  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-2.5-1-001   L2.5r1 gateway    5v922     320/336        4.7  5v922=0.952381 7l6zs=0 zf55g=0
+precise-pull-lag-2.5-2-000   L2.5r2 gateway    zf55g       0/336        4.8  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-2.5-2-001   L2.5r2 gateway    zf55g     320/336        4.8  5v922=0 7l6zs=0 zf55g=0.952381
+precise-pull-lag-2.5-3-000   L2.5r3 gateway    7l6zs       0/336        6.4  5v922=0 7l6zs=0 zf55g=0
+precise-pull-lag-2.5-3-001   L2.5r3 gateway    7l6zs     320/336        6.2  5v922=0 7l6zs=0.952381 zf55g=0
+   gateway requests joined to EPP scores: 36/36
+   step                                     gateway   hit  predicted  to warm pod
+   precise-pull-lag-0.1-1                         2     0        0/2            -
+   precise-pull-lag-0.1-2                         2     1        1/2            -
+   precise-pull-lag-0.1-3                         2     0        0/2            -
+   precise-pull-lag-0.3-1                         2     0        0/2            -
+   precise-pull-lag-0.3-2                         2     1        1/2            -
+   precise-pull-lag-0.3-3                         2     0        0/2            -
+   precise-pull-lag-0.6-1                         2     0        0/2            -
+   precise-pull-lag-0.6-2                         2     1        1/2            -
+   precise-pull-lag-0.6-3                         2     1        1/2            -
+   precise-pull-lag-1.0-1                         2     1        1/2            -
+   precise-pull-lag-1.0-2                         2     1        1/2            -
+   precise-pull-lag-1.0-3                         2     1        1/2            -
+   precise-pull-lag-1.5-1                         2     1        1/2            -
+   precise-pull-lag-1.5-2                         2     1        1/2            -
+   precise-pull-lag-1.5-3                         2     1        1/2            -
+   precise-pull-lag-2.5-1                         2     1        1/2            -
+   precise-pull-lag-2.5-2                         2     1        1/2            -
+   precise-pull-lag-2.5-3                         2     1        1/2            -
+

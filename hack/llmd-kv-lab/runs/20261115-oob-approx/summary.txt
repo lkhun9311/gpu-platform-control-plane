@@ -1,0 +1,29 @@
+== arm approx: 18 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+approx-oob-1-vllm-d-7f5894886b-7tp94-warm-000 O1-vllm-d-7f5894886b-7tp94 direct     7tp94       0/375        4.2  
+approx-oob-1-vllm-d-7f5894886b-7tp94-warm-001 O1-vllm-d-7f5894886b-7tp94 direct     7tp94     352/375        3.5  
+approx-oob-1-vllm-d-7f5894886b-7tp94-gw-000 O1-vllm-d-7f5894886b-7tp94 gateway    7tp94     352/375        4.1  7tp94=0 dtnpv=0 p5dhz=0
+approx-oob-1-vllm-d-7f5894886b-dtnpv-warm-000 O1-vllm-d-7f5894886b-dtnpv direct     dtnpv       0/373        4.7  
+approx-oob-1-vllm-d-7f5894886b-dtnpv-warm-001 O1-vllm-d-7f5894886b-dtnpv direct     dtnpv     352/373        3.6  
+approx-oob-1-vllm-d-7f5894886b-dtnpv-gw-000 O1-vllm-d-7f5894886b-dtnpv gateway    dtnpv     352/373        4.0  7tp94=0 dtnpv=0 p5dhz=0
+approx-oob-1-vllm-d-7f5894886b-p5dhz-warm-000 O1-vllm-d-7f5894886b-p5dhz direct     p5dhz       0/375        4.0  
+approx-oob-1-vllm-d-7f5894886b-p5dhz-warm-001 O1-vllm-d-7f5894886b-p5dhz direct     p5dhz     352/375        3.2  
+approx-oob-1-vllm-d-7f5894886b-p5dhz-gw-000 O1-vllm-d-7f5894886b-p5dhz gateway    p5dhz     352/375        4.0  7tp94=0 dtnpv=0 p5dhz=0
+approx-oob-2-vllm-d-7f5894886b-7tp94-warm-000 O2-vllm-d-7f5894886b-7tp94 direct     7tp94       0/375        3.6  
+approx-oob-2-vllm-d-7f5894886b-7tp94-warm-001 O2-vllm-d-7f5894886b-7tp94 direct     7tp94     352/375        3.4  
+approx-oob-2-vllm-d-7f5894886b-7tp94-gw-000 O2-vllm-d-7f5894886b-7tp94 gateway    7tp94     352/375        3.8  7tp94=0 dtnpv=0 p5dhz=0
+approx-oob-2-vllm-d-7f5894886b-dtnpv-warm-000 O2-vllm-d-7f5894886b-dtnpv direct     dtnpv       0/373        4.0  
+approx-oob-2-vllm-d-7f5894886b-dtnpv-warm-001 O2-vllm-d-7f5894886b-dtnpv direct     dtnpv     352/373        3.6  
+approx-oob-2-vllm-d-7f5894886b-dtnpv-gw-000 O2-vllm-d-7f5894886b-dtnpv gateway    dtnpv     352/373        3.8  7tp94=0 dtnpv=0 p5dhz=0
+approx-oob-2-vllm-d-7f5894886b-p5dhz-warm-000 O2-vllm-d-7f5894886b-p5dhz direct     p5dhz       0/375        3.6  
+approx-oob-2-vllm-d-7f5894886b-p5dhz-warm-001 O2-vllm-d-7f5894886b-p5dhz direct     p5dhz     352/375        3.1  
+approx-oob-2-vllm-d-7f5894886b-p5dhz-gw-000 O2-vllm-d-7f5894886b-p5dhz gateway    p5dhz     352/375        4.4  7tp94=0 dtnpv=0 p5dhz=0
+   gateway requests joined to EPP scores: 6/6
+   step                                     gateway   hit  predicted  to warm pod
+   approx-oob-1-vllm-d-7f5894886b-7tp94-gw        1     1        0/1          1/1
+   approx-oob-1-vllm-d-7f5894886b-dtnpv-gw        1     1        0/1          1/1
+   approx-oob-1-vllm-d-7f5894886b-p5dhz-gw        1     1        0/1          1/1
+   approx-oob-2-vllm-d-7f5894886b-7tp94-gw        1     1        0/1          1/1
+   approx-oob-2-vllm-d-7f5894886b-dtnpv-gw        1     1        0/1          1/1
+   approx-oob-2-vllm-d-7f5894886b-p5dhz-gw        1     1        0/1          1/1
+

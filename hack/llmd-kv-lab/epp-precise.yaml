@@ -1,0 +1,35 @@
+# The precise (KV-event) arm of the lab.
+# It is llm-d-router's test/e2e/artifacts/config/sim-epp-kvcache-config.yaml at the pinned commit with one change:
+# enableMetrics is true, because the kv_cache_events_* and kv_cache_index_* counters are only registered when it is,
+# and they are the lab's evidence that events arrive.
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+plugins:
+- type: token-producer
+  parameters:
+    modelName: ${MODEL_NAME}
+    vllm:
+      url: ${VLLM_RENDER_URL}
+- type: precise-prefix-cache-producer
+  parameters:
+    tokenProcessorConfig:
+      blockSizeTokens: 16
+    kvEventsConfig:
+      zmqEndpoint: tcp://0.0.0.0:5557
+    indexerConfig:
+      kvBlockIndexConfig:
+        enableMetrics: true
+        metricsLoggingInterval: 60000000000
+- type: prefix-cache-scorer
+  parameters:
+    prefixMatchInfoProducerName: precise-prefix-cache-producer
+- type: decode-filter
+- type: max-score-picker
+- type: single-profile-handler
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: max-score-picker
+  - pluginRef: prefix-cache-scorer
+    weight: 10

@@ -1,0 +1,8 @@
+probes: === arm precise-pull: EPP on the precise-pull config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise-pull config, behind freshly started simulators
+probes: [precise-pull] leave 1: deleting vllm-d-6dd6c579c9-547n4, warming V1 on vllm-d-6dd6c579c9-4cpkx
+probes: [precise-pull] leave 2: deleting vllm-d-6dd6c579c9-fv58q, warming V2 on vllm-d-6dd6c579c9-4cpkx
+probes: [precise-pull] leave 3: deleting vllm-d-6dd6c579c9-dbnbw, warming V3 on vllm-d-6dd6c579c9-4cpkx
+probes: [precise-pull] leave 4: deleting vllm-d-6dd6c579c9-fzl76, warming V4 on vllm-d-6dd6c579c9-4cpkx
+probes: [precise-pull] leave 5: deleting vllm-d-6dd6c579c9-t9dc5, warming V5 on vllm-d-6dd6c579c9-4cpkx
+probes: probe leave on precise-pull written to /tmp/claude-1000/lab598/gpuaas/hack/llmd-kv-lab/runs/20261115-leave-precise-pull-immediate

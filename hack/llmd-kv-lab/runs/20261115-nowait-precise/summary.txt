@@ -1,0 +1,29 @@
+== arm precise: 18 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-nowait-during-vllm-d-69468bf9c4-89tzn-warm-000 N-during-vllm-d-69468bf9c4-89tzn direct     89tzn       0/375        4.1  
+precise-nowait-during-vllm-d-69468bf9c4-89tzn-warm-001 N-during-vllm-d-69468bf9c4-89tzn direct     89tzn     352/375        3.6  
+precise-nowait-during-vllm-d-69468bf9c4-89tzn-gw-000 N-during-vllm-d-69468bf9c4-89tzn gateway    89tzn     352/375       11.7  89tzn=0 v7tzz=0 vklwm=0
+precise-nowait-during-vllm-d-69468bf9c4-v7tzz-warm-000 N-during-vllm-d-69468bf9c4-v7tzz direct     v7tzz       0/375        3.9  
+precise-nowait-during-vllm-d-69468bf9c4-v7tzz-warm-001 N-during-vllm-d-69468bf9c4-v7tzz direct     v7tzz     352/375        3.1  
+precise-nowait-during-vllm-d-69468bf9c4-v7tzz-gw-000 N-during-vllm-d-69468bf9c4-v7tzz gateway    v7tzz     352/375        5.7  89tzn=0 v7tzz=0 vklwm=0
+precise-nowait-during-vllm-d-69468bf9c4-vklwm-warm-000 N-during-vllm-d-69468bf9c4-vklwm direct     vklwm       0/375        5.0  
+precise-nowait-during-vllm-d-69468bf9c4-vklwm-warm-001 N-during-vllm-d-69468bf9c4-vklwm direct     vklwm     352/375        5.5  
+precise-nowait-during-vllm-d-69468bf9c4-vklwm-gw-000 N-during-vllm-d-69468bf9c4-vklwm gateway    vklwm     352/375        6.1  89tzn=0 v7tzz=0 vklwm=0
+precise-nowait-after-vllm-d-69468bf9c4-89tzn-warm-000 N-after-vllm-d-69468bf9c4-89tzn direct     89tzn       0/373        3.4  
+precise-nowait-after-vllm-d-69468bf9c4-89tzn-warm-001 N-after-vllm-d-69468bf9c4-89tzn direct     89tzn     352/373        3.0  
+precise-nowait-after-vllm-d-69468bf9c4-89tzn-gw-000 N-after-vllm-d-69468bf9c4-89tzn gateway    89tzn     352/373        8.5  89tzn=0.956522 v7tzz=0 vklwm=0
+precise-nowait-after-vllm-d-69468bf9c4-v7tzz-warm-000 N-after-vllm-d-69468bf9c4-v7tzz direct     v7tzz       0/373        3.9  
+precise-nowait-after-vllm-d-69468bf9c4-v7tzz-warm-001 N-after-vllm-d-69468bf9c4-v7tzz direct     v7tzz     352/373        3.0  
+precise-nowait-after-vllm-d-69468bf9c4-v7tzz-gw-000 N-after-vllm-d-69468bf9c4-v7tzz gateway    v7tzz     352/373        7.2  89tzn=0.0434783 v7tzz=0.956522 vklwm=0
+precise-nowait-after-vllm-d-69468bf9c4-vklwm-warm-000 N-after-vllm-d-69468bf9c4-vklwm direct     vklwm       0/373        4.1  
+precise-nowait-after-vllm-d-69468bf9c4-vklwm-warm-001 N-after-vllm-d-69468bf9c4-vklwm direct     vklwm     352/373        3.1  
+precise-nowait-after-vllm-d-69468bf9c4-vklwm-gw-000 N-after-vllm-d-69468bf9c4-vklwm gateway    vklwm     352/373        4.1  89tzn=0.0434783 v7tzz=0.0434783 vklwm=0.956522
+   gateway requests joined to EPP scores: 6/6
+   step                                     gateway   hit  predicted  to warm pod
+   precise-nowait-during-vllm-d-69468bf9c4-89tzn-gw       1     1        0/1          1/1
+   precise-nowait-during-vllm-d-69468bf9c4-v7tzz-gw       1     1        0/1          1/1
+   precise-nowait-during-vllm-d-69468bf9c4-vklwm-gw       1     1        0/1          1/1
+   precise-nowait-after-vllm-d-69468bf9c4-89tzn-gw       1     1        1/1          1/1
+   precise-nowait-after-vllm-d-69468bf9c4-v7tzz-gw       1     1        1/1          1/1
+   precise-nowait-after-vllm-d-69468bf9c4-vklwm-gw       1     1        1/1          1/1
+

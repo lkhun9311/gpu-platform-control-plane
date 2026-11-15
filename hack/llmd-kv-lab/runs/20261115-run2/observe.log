@@ -1,0 +1,28 @@
+observe: === arm precise: EPP on the precise config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise config, behind freshly started simulators
+observe: [precise] affinity: F0..F3 interleaved, four rounds, through the gateway
+observe: [precise] oob: W1 warmed directly on vllm-d-6f76c67c64-lfh45, then three requests through the gateway
+observe: [precise] evict: vllm-d-6f76c67c64-9zvfd holds F0; flooding it directly with twelve other prefixes
+observe: [precise] zmq-block: dropping tcp/5557 in gpuaas-llmd-kv-lab-control-plane FORWARD; warming W2 directly on vllm-d-6f76c67c64-s9j4c
+observe: [precise] zmq-block: restored; waiting 20s for any buffered events
+observe: [precise] publisher-leave: deleting vllm-d-6f76c67c64-lfh45, then warming W3 directly on vllm-d-6f76c67c64-9zvfd
+observe: [precise] restart: deleting EPP pod tinyllama-1-1b-chat-v1-0-endpoint-picker-798f57fbf7-rjjk4
+observe: [precise] restart: R1 warmed directly on vllm-d-6f76c67c64-9zvfd after the restart, then through the gateway
+observe: [precise] recovery: probing vllm-d-6f76c67c64-5b4lh once a minute for 20 minutes
+observe: === arm precise-pull: EPP on the precise-pull config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise-pull config, behind freshly started simulators
+observe: [precise-pull] affinity: F0..F3 interleaved, four rounds, through the gateway
+observe: [precise-pull] oob: W1 warmed directly on vllm-d-658bfbf974-b6qmq, then three requests through the gateway
+observe: [precise-pull] evict: vllm-d-658bfbf974-248v4 holds F0; flooding it directly with twelve other prefixes
+observe: [precise-pull] zmq-block: dropping tcp/5557 in gpuaas-llmd-kv-lab-control-plane FORWARD; warming W2 directly on vllm-d-658bfbf974-b6qmq
+observe: [precise-pull] zmq-block: restored; waiting 20s for any buffered events
+observe: [precise-pull] publisher-leave: deleting vllm-d-658bfbf974-248v4, then warming W3 directly on vllm-d-658bfbf974-b6qmq
+observe: [precise-pull] restart: deleting EPP pod tinyllama-1-1b-chat-v1-0-endpoint-picker-7bdc8565dc-pjjrn
+observe: [precise-pull] restart: R1 warmed directly on vllm-d-658bfbf974-b6qmq after the restart, then through the gateway
+observe: === arm approx: EPP on the approx config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the approx config, behind freshly started simulators
+observe: [approx] affinity: F0..F3 interleaved, four rounds, through the gateway
+observe: [approx] oob: W1 warmed directly on vllm-d-68b45b6cd9-l6npm, then three requests through the gateway
+observe: [approx] evict: vllm-d-68b45b6cd9-kcdvl holds F0; flooding it directly with twelve other prefixes
+observe: [approx] restart: deleting EPP pod tinyllama-1-1b-chat-v1-0-endpoint-picker-5b4cc8d986-7s5vd
+observe: run written to /tmp/claude-1000/lab598/gpuaas/hack/llmd-kv-lab/runs/20261115-run2

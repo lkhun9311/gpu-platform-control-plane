@@ -1,0 +1,49 @@
+# The precise arm in pull mode: the EPP dials each pool pod's ZMQ PUB socket instead of binding one socket for all.
+# It is epp-precise.yaml without kvEventsConfig.zmqEndpoint and with the endpoint-notification wiring, so kvEventsConfig
+# keeps upstream's defaults (discoverPods true, socketPort 5557); hack/llmd-kv-lab.sh makes the simulators bind
+# tcp://*:5557 to match.
+# This is the topology llm-d-router#4105 proposes moving the e2e overlays to, and the one its guides use.
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+plugins:
+- type: token-producer
+  parameters:
+    modelName: ${MODEL_NAME}
+    vllm:
+      url: ${VLLM_RENDER_URL}
+# The producer subscribes per pod only when it is wired as this source's extractor under dataLayer below.
+# Without the source (run 20261115-run2), and with the source but without the dataLayer entry (run 20261115-run3), the
+# EPP started, logged no error and held zero subscribers, so every score was 0.
+# The wiring is copied from upstream's test/e2e/artifacts/config/epp-precise-prefix-cache-config.yaml.
+- type: endpoint-notification-source
+- type: metrics-data-source
+- type: core-metrics-extractor
+- type: precise-prefix-cache-producer
+  parameters:
+    tokenProcessorConfig:
+      blockSizeTokens: 16
+    indexerConfig:
+      kvBlockIndexConfig:
+        enableMetrics: true
+        metricsLoggingInterval: 60000000000
+- type: prefix-cache-scorer
+  parameters:
+    prefixMatchInfoProducerName: precise-prefix-cache-producer
+- type: decode-filter
+- type: max-score-picker
+- type: single-profile-handler
+dataLayer:
+  sources:
+  - pluginRef: metrics-data-source
+    extractors:
+    - pluginRef: core-metrics-extractor
+  - pluginRef: endpoint-notification-source
+    extractors:
+    - pluginRef: precise-prefix-cache-producer
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: max-score-picker
+  - pluginRef: prefix-cache-scorer
+    weight: 10

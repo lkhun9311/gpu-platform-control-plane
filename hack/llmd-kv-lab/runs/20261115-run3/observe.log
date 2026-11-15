@@ -1,0 +1,22 @@
+observe: === arm precise-pull: EPP on the precise-pull config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise-pull config, behind freshly started simulators
+observe: [precise-pull] affinity: F0..F3 interleaved, four rounds, through the gateway
+observe: [precise-pull] oob: W1 warmed directly on vllm-d-79c57bc7bf-r7z2h, then three requests through the gateway
+observe: [precise-pull] evict: vllm-d-79c57bc7bf-qh4fd holds F0; flooding it directly with twelve other prefixes
+observe: [precise-pull] zmq-block: dropping tcp/5557 in gpuaas-llmd-kv-lab-control-plane FORWARD; warming W2 directly on vllm-d-79c57bc7bf-r7z2h
+observe: [precise-pull] zmq-block: restored; waiting 20s for any buffered events
+observe: [precise-pull] publisher-leave: deleting vllm-d-79c57bc7bf-qh4fd, then warming W3 directly on vllm-d-79c57bc7bf-r7z2h
+observe: [precise-pull] restart: deleting EPP pod tinyllama-1-1b-chat-v1-0-endpoint-picker-849f4758d8-b9sp6
+observe: [precise-pull] restart: R1 warmed directly on vllm-d-79c57bc7bf-mcjvz after the restart, then through the gateway
+observe: run written to /tmp/claude-1000/lab598/gpuaas/hack/llmd-kv-lab/runs/20261115-run3
+observe: === arm precise-spec: EPP on the precise-spec config, then fresh simulator pods
+llmd-kv-lab: EPP now runs the precise-spec config, behind freshly started simulators
+observe: [precise-spec] affinity: F0..F3 interleaved, four rounds, through the gateway
+observe: [precise-spec] oob: W1 warmed directly on vllm-d-796b6f7854-k9kjf, then three requests through the gateway
+observe: [precise-spec] evict: vllm-d-796b6f7854-2ld8h holds F0; flooding it directly with twelve other prefixes
+observe: [precise-spec] zmq-block: dropping tcp/5557 in gpuaas-llmd-kv-lab-control-plane FORWARD; warming W2 directly on vllm-d-796b6f7854-khxzf
+observe: [precise-spec] zmq-block: restored; waiting 20s for any buffered events
+observe: [precise-spec] publisher-leave: deleting vllm-d-796b6f7854-k9kjf, then warming W3 directly on vllm-d-796b6f7854-2ld8h
+observe: [precise-spec] restart: deleting EPP pod tinyllama-1-1b-chat-v1-0-endpoint-picker-7dd54cb9f9-k6w98
+observe: [precise-spec] restart: R1 warmed directly on vllm-d-796b6f7854-khxzf after the restart, then through the gateway
+observe: run written to /tmp/claude-1000/lab598/gpuaas/hack/llmd-kv-lab/runs/20261115-run3

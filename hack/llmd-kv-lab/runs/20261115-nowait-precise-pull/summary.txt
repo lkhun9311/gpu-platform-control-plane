@@ -1,0 +1,29 @@
+== arm precise-pull: 18 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-pull-nowait-during-vllm-d-6bdd465f5c-gdp8v-warm-000 N-during-vllm-d-6bdd465f5c-gdp8v direct     gdp8v       0/377        3.4  
+precise-pull-nowait-during-vllm-d-6bdd465f5c-gdp8v-warm-001 N-during-vllm-d-6bdd465f5c-gdp8v direct     gdp8v     352/377        4.0  
+precise-pull-nowait-during-vllm-d-6bdd465f5c-gdp8v-gw-000 N-during-vllm-d-6bdd465f5c-gdp8v gateway    gdp8v     352/377        9.7  gdp8v=0.956522 mh5wp=0 sdmq8=0
+precise-pull-nowait-during-vllm-d-6bdd465f5c-mh5wp-warm-000 N-during-vllm-d-6bdd465f5c-mh5wp direct     mh5wp       0/377        6.4  
+precise-pull-nowait-during-vllm-d-6bdd465f5c-mh5wp-warm-001 N-during-vllm-d-6bdd465f5c-mh5wp direct     mh5wp     352/377        3.7  
+precise-pull-nowait-during-vllm-d-6bdd465f5c-mh5wp-gw-000 N-during-vllm-d-6bdd465f5c-mh5wp gateway    mh5wp     352/377        5.1  gdp8v=0.0434783 mh5wp=0.956522 sdmq8=0
+precise-pull-nowait-during-vllm-d-6bdd465f5c-sdmq8-warm-000 N-during-vllm-d-6bdd465f5c-sdmq8 direct     sdmq8       0/375        4.3  
+precise-pull-nowait-during-vllm-d-6bdd465f5c-sdmq8-warm-001 N-during-vllm-d-6bdd465f5c-sdmq8 direct     sdmq8     352/375        3.1  
+precise-pull-nowait-during-vllm-d-6bdd465f5c-sdmq8-gw-000 N-during-vllm-d-6bdd465f5c-sdmq8 gateway    sdmq8     352/375        4.8  gdp8v=0.0434783 mh5wp=0.0434783 sdmq8=0.956522
+precise-pull-nowait-after-vllm-d-6bdd465f5c-gdp8v-warm-000 N-after-vllm-d-6bdd465f5c-gdp8v direct     gdp8v       0/375        4.1  
+precise-pull-nowait-after-vllm-d-6bdd465f5c-gdp8v-warm-001 N-after-vllm-d-6bdd465f5c-gdp8v direct     gdp8v     352/375        4.6  
+precise-pull-nowait-after-vllm-d-6bdd465f5c-gdp8v-gw-000 N-after-vllm-d-6bdd465f5c-gdp8v gateway    gdp8v     352/375        7.5  gdp8v=0.956522 mh5wp=0 sdmq8=0
+precise-pull-nowait-after-vllm-d-6bdd465f5c-mh5wp-warm-000 N-after-vllm-d-6bdd465f5c-mh5wp direct     mh5wp       0/375        5.7  
+precise-pull-nowait-after-vllm-d-6bdd465f5c-mh5wp-warm-001 N-after-vllm-d-6bdd465f5c-mh5wp direct     mh5wp     352/375        3.3  
+precise-pull-nowait-after-vllm-d-6bdd465f5c-mh5wp-gw-000 N-after-vllm-d-6bdd465f5c-mh5wp gateway    mh5wp     352/375        7.9  gdp8v=0.0434783 mh5wp=0.956522 sdmq8=0
+precise-pull-nowait-after-vllm-d-6bdd465f5c-sdmq8-warm-000 N-after-vllm-d-6bdd465f5c-sdmq8 direct     sdmq8       0/373        5.0  
+precise-pull-nowait-after-vllm-d-6bdd465f5c-sdmq8-warm-001 N-after-vllm-d-6bdd465f5c-sdmq8 direct     sdmq8     352/373        8.2  
+precise-pull-nowait-after-vllm-d-6bdd465f5c-sdmq8-gw-000 N-after-vllm-d-6bdd465f5c-sdmq8 gateway    sdmq8     352/373        4.9  gdp8v=0.0434783 mh5wp=0.0434783 sdmq8=0.956522
+   gateway requests joined to EPP scores: 6/6
+   step                                     gateway   hit  predicted  to warm pod
+   precise-pull-nowait-during-vllm-d-6bdd465f5c-gdp8v-gw       1     1        1/1          1/1
+   precise-pull-nowait-during-vllm-d-6bdd465f5c-mh5wp-gw       1     1        1/1          1/1
+   precise-pull-nowait-during-vllm-d-6bdd465f5c-sdmq8-gw       1     1        1/1          1/1
+   precise-pull-nowait-after-vllm-d-6bdd465f5c-gdp8v-gw       1     1        1/1          1/1
+   precise-pull-nowait-after-vllm-d-6bdd465f5c-mh5wp-gw       1     1        1/1          1/1
+   precise-pull-nowait-after-vllm-d-6bdd465f5c-sdmq8-gw       1     1        1/1          1/1
+
