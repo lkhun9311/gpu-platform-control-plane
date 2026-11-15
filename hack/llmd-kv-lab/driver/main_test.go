@@ -1,0 +1,52 @@
+package main
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+// Two scorers are compared on the same prompt sequence, so the prefix must be identical across runs.
+func TestPrefixTextIsDeterministicPerFamily(t *testing.T) {
+	if prefixText("F0", 50) != prefixText("F0", 50) {
+		t.Fatal("same family produced different prefixes")
+	}
+	if prefixText("F0", 50) == prefixText("F1", 50) {
+		t.Fatal("different families produced the same prefix")
+	}
+}
+
+// A hit must come only from the shared prefix, so two requests of a family differ only after it.
+func TestPromptsShareExactlyTheFamilyPrefix(t *testing.T) {
+	a, b := promptFor("F0", 40, "r-1"), promptFor("F0", 40, "r-2")
+	p := prefixText("F0", 40)
+	if !strings.HasPrefix(a, p) || !strings.HasPrefix(b, p) || a == b {
+		t.Fatalf("prompts do not share exactly the prefix:\n%q\n%q", a, b)
+	}
+}
+
+func TestExpandPlan(t *testing.T) {
+	got, err := expandPlan("F0,F1*2, W ,")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"F0", "F1", "F1", "W"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for _, bad := range []string{"", "F0*0", "F0*x"} {
+		if _, err := expandPlan(bad); err == nil {
+			t.Fatalf("plan %q was accepted", bad)
+		}
+	}
+}
+
+// Zero cached tokens is a real observation, so an absent field must be an error rather than a silent zero.
+func TestParseUsageRefusesMissingDetails(t *testing.T) {
+	if _, _, err := parseUsage([]byte(`{"usage":{"prompt_tokens":10}}`)); err == nil {
+		t.Fatal("missing prompt_tokens_details was read as zero cached tokens")
+	}
+	p, c, err := parseUsage([]byte(`{"usage":{"prompt_tokens":10,"prompt_tokens_details":{"cached_tokens":0}}}`))
+	if err != nil || p != 10 || c != 0 {
+		t.Fatalf("got %d %d %v", p, c, err)
+	}
+}
