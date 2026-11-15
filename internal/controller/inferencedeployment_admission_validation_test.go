@@ -167,6 +167,26 @@ var _ = Describe("InferenceDeployment HoldCap validation", func() {
 		Expect(k8sClient.Create(ctx, o)).To(Succeed())
 	})
 
+	// The version study's arms B and C run v0.32.0 with each async choice, on its own digest.
+	It("accepts v0.32.0 on its reviewed digest with either async choice", func() {
+		for _, async := range []string{platformv1.AsyncSchedulingEnabled, platformv1.AsyncSchedulingDisabled} {
+			o := experimental("exp-v0320-"+strings.ToLower(async), async)
+			o.Spec.Engine.VLLM.Experimental.Release = platformv1.VLLMReleaseV0320
+			o.Spec.Image = platformv1.VLLMV0320Image
+			Expect(k8sClient.Create(ctx, o)).To(Succeed())
+		}
+	})
+
+	// Each release was reviewed against one image, so a release on the other release's digest would render flags nobody checked there.
+	It("refuses a reviewed release on the other reviewed release's digest", func() {
+		o := experimental("exp-v0320-on-v0271", platformv1.AsyncSchedulingEnabled)
+		o.Spec.Engine.VLLM.Experimental.Release = platformv1.VLLMReleaseV0320
+		refused(o, "digest reviewed for its release")
+		o = experimental("exp-v0271-on-v0320", platformv1.AsyncSchedulingEnabled)
+		o.Spec.Image = platformv1.VLLMV0320Image
+		refused(o, "digest reviewed for its release")
+	})
+
 	// A digest the release was not reviewed against may spell its flags differently, so the pair is pinned together.
 	It("refuses the experimental profile on any image but its release's digest", func() {
 		for _, img := range []string{"vllm/vllm-openai:v0.27.1", "vllm/vllm-openai@sha256:" + "00" + platformv1.VLLMV0271Digest[9:]} {

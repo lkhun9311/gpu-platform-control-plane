@@ -36,7 +36,7 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.gpuCount == 1",message="spec.engine requires gpuCount 1: its only profile is one engine on one A10G"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.model.storageUri.matches('^hf://[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$')",message="spec.engine requires model.storageUri of the form hf://<org>/<repo>"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.engine.vllm.profile == 'experimental-a10g' || self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967')",message="spec.engine requires spec.image pinned to the vLLM v0.27.1 digest the profile was measured on, from any registry"
-// +kubebuilder:validation:XValidation:rule="!has(self.engine) || !has(self.engine.vllm.experimental) || (self.engine.vllm.experimental.release == 'v0.27.1' && self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967'))",message="engine.vllm.experimental requires spec.image pinned to the digest reviewed for its release, from any registry"
+// +kubebuilder:validation:XValidation:rule="!has(self.engine) || !has(self.engine.vllm.experimental) || ((self.engine.vllm.experimental.release == 'v0.27.1' && self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967')) || (self.engine.vllm.experimental.release == 'v0.32.0' && self.image.endsWith('@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34')))",message="engine.vllm.experimental requires spec.image pinned to the digest reviewed for its release, from any registry"
 // +kubebuilder:validation:XValidation:rule="!has(self.admission) || self.admission.mode != 'HoldCap' || !has(self.engine) || self.engine.vllm.profile == 'v0.27.1-a10g'",message="admission.mode HoldCap requires engine profile v0.27.1-a10g: HoldCap was measured with prefix caching off"
 type InferenceDeploymentSpec struct {
 	// model is the model to serve.
@@ -134,8 +134,11 @@ const VLLMProfileV0271A10GPrefixCache = "v0.27.1-a10g-prefix-cache"
 // The CRD refuses HoldCap on it, because HoldCap was measured on v0.27.1-a10g only.
 const VLLMProfileExperimentalA10G = "experimental-a10g"
 
-// VLLMReleaseV0271 is the release the validated profiles run, and the only one whose flags have been reviewed so far.
+// VLLMReleaseV0271 is the release the validated profiles run.
 const VLLMReleaseV0271 = "v0.27.1"
+
+// VLLMReleaseV0320 is the newer release of the version study's arms B and C, reviewed against its own source but never measured here.
+const VLLMReleaseV0320 = "v0.32.0"
 
 // The async-scheduling choices of the experimental profile.
 const (
@@ -148,6 +151,13 @@ const VLLMV0271Digest = "sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8
 
 // VLLMV0271Image is that digest on Docker Hub; a mirror of the same digest is accepted too.
 const VLLMV0271Image = "vllm/vllm-openai@" + VLLMV0271Digest
+
+// VLLMV0320Digest is the manifest list Docker Hub's vllm/vllm-openai:v0.32.0 resolved to on 2026-11-15.
+// Its image records VLLM_BUILD_COMMIT 5df63a7203cdb9328d824a27b682e77c7b9928be, the commit the v0.32.0 tag names, so the reviewed source is the built one.
+const VLLMV0320Digest = "sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34"
+
+// VLLMV0320Image is that digest on Docker Hub; a mirror of the same digest is accepted too.
+const VLLMV0320Image = "vllm/vllm-openai@" + VLLMV0320Digest
 
 // InferenceEngine selects an engine the controller renders.
 type InferenceEngine struct {
@@ -181,7 +191,7 @@ type VLLMEngine struct {
 type VLLMExperimental struct {
 	// release is a vLLM release whose flags the controller has been reviewed against, and the CRD pins spec.image to that release's digest.
 	// A newer release may rename or drop flags, so it is added by reviewing its argument set in the controller, not by naming it here.
-	// +kubebuilder:validation:Enum=v0.27.1
+	// +kubebuilder:validation:Enum=v0.27.1;v0.32.0
 	// +required
 	Release string `json:"release"`
 

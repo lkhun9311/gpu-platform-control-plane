@@ -114,6 +114,23 @@ var experimentalReleases = map[string]vllmRelease{
 		asyncOn:  "--async-scheduling",
 		asyncOff: "--no-async-scheduling",
 	},
+	// Reviewed against the source at the image's build commit, flag by flag, in hack/engine-flag-reviews/vllm-v0.32.0-async-*.json.
+	// The list equals v0.27.1's because every setting kept its spelling; it is still written out so the next release is read, not inherited.
+	// Async is rendered either way, because v0.32.0 enables it by default when the flag is absent.
+	platformv1.VLLMReleaseV0320: {
+		digest: platformv1.VLLMV0320Digest,
+		args: []string{
+			"--dtype=half",
+			"--max-model-len=16384",
+			"--max-num-seqs=64",
+			"--gpu-memory-utilization=0.90",
+			"--no-enable-prefix-caching",
+			"--max-num-batched-tokens=512",
+			"--scheduling-policy=priority",
+		},
+		asyncOn:  "--async-scheduling",
+		asyncOff: "--no-async-scheduling",
+	},
 }
 
 // engineProfile resolves the spec's engine to a rendering, or reports false for any combination nobody reviewed.
