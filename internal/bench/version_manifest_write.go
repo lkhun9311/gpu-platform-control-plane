@@ -38,13 +38,18 @@ func VersionCellManifest(b *CampaignBundle, bundleSHA, bundleDir string, block i
 	if err != nil {
 		return RunManifest{}, err
 	}
+	// Absolute, because LoadManifest resolves a relative trace path against the manifest's directory, which is not the bundle's.
+	tracePath, err := filepath.Abs(filepath.Join(bundleDir, tr.Path))
+	if err != nil {
+		return RunManifest{}, err
+	}
 	engine := d.Engines[treatment]
 	return RunManifest{
 		SchemaVersion:   ManifestSchemaV3,
 		Study:           b.Study,
 		Arm:             VersionStudyArm(treatment, load),
 		GatewayURL:      engineURL,
-		TracePath:       filepath.Join(bundleDir, tr.Path),
+		TracePath:       tracePath,
 		TraceChecksum:   tr.SHA256,
 		Model:           d.Model,
 		TokenizerRev:    d.TokenizerRevision,

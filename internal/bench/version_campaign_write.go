@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"time"
 
 	"sigs.k8s.io/yaml"
 )
@@ -42,8 +44,15 @@ func WriteCampaignBundle(dir, study string, in CampaignInputs) (*CampaignBundle,
 	if in.CampaignID == "" {
 		return nil, "", errors.New("campaignId is empty")
 	}
-	if !(in.PriceUSDPerHour > 0) || in.PriceSource == "" {
+	// Every input the bundle check will hold is checked here first, because after the first file is written a retry meets an existing campaign.
+	if !(in.PriceUSDPerHour > 0) || math.IsInf(in.PriceUSDPerHour, 0) || in.PriceSource == "" {
 		return nil, "", fmt.Errorf("price %v from %q is not a read price", in.PriceUSDPerHour, in.PriceSource)
+	}
+	if _, err := time.Parse(time.RFC3339, in.PriceReadAt); err != nil {
+		return nil, "", fmt.Errorf("priceReadAt %q: %w", in.PriceReadAt, err)
+	}
+	if !(in.OtherChargesUSDPerHour >= 0) || math.IsInf(in.OtherChargesUSDPerHour, 0) {
+		return nil, "", fmt.Errorf("otherChargesUSDPerHour %v is not a non-negative rate", in.OtherChargesUSDPerHour)
 	}
 	art, artSum, err := readCalibration(filepath.Join(dir, in.CalibrationArtifact))
 	if err != nil {

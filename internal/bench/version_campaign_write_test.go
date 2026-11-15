@@ -2,6 +2,7 @@ package bench
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,6 +95,10 @@ func TestWriteCampaignBundleRefuses(t *testing.T) {
 		"no campaign id":         {CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2}, func(in *CampaignInputs) { in.CampaignID = "" }, "campaignId"},
 		"no price":               {CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2}, func(in *CampaignInputs) { in.PriceUSDPerHour = 0 }, "price"},
 		"missing artifact":       {CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2}, func(in *CampaignInputs) { in.CalibrationArtifact = "nope.json" }, "calibration"},
+		"no price time":          {CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2}, func(in *CampaignInputs) { in.PriceReadAt = "" }, "priceReadAt"},
+		"malformed price time":   {CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2}, func(in *CampaignInputs) { in.PriceReadAt = "yesterday" }, "priceReadAt"},
+		"negative other charges": {CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2}, func(in *CampaignInputs) { in.OtherChargesUSDPerHour = -1 }, "otherCharges"},
+		"infinite price":         {CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2}, func(in *CampaignInputs) { in.PriceUSDPerHour = math.Inf(1) }, "price"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir, in := campaignDir(t, c.art)

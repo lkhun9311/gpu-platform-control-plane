@@ -57,3 +57,28 @@ func TestVersionManifestsRefusesBadBlocks(t *testing.T) {
 		t.Fatalf("missing dir: %v", err)
 	}
 }
+
+// TestVersionManifestsWithARelativeBundlePath: LoadManifest resolves a relative trace path against the manifest's directory, so the writer must not record one relative to the working directory.
+func TestVersionManifestsWithARelativeBundlePath(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := os.MkdirAll(filepath.Join("campaign"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	art, _ := json.Marshal(bench.CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2.0})
+	if err := os.WriteFile(filepath.Join("campaign", "calibration.json"), art, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := versionBundle([]string{"-dir", "campaign", "-campaign-id", "s1-test", "-price-usd-per-hour", "1.237",
+		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir("manifests", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := versionManifests([]string{"-bundle", filepath.Join("campaign", bench.CampaignBundleFile), "-engine-url", "http://127.0.0.1:8000",
+		"-blocks", "1", "-out", "manifests"}, &out); err != nil {
+		t.Fatal(err)
+	}
+}
