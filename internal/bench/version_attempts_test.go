@@ -533,3 +533,21 @@ func TestAFailedDirectorySyncAtOpenIsARecorderFailure(t *testing.T) {
 		t.Fatalf("ledger %+v err %v; want the open's failure recorded", l, err)
 	}
 }
+
+// TestAnOpenFailureOnAnInterruptedJournalIsRecoverable: a fault naming no block stops whatever attempt is open.
+func TestAnOpenFailureOnAnInterruptedJournalIsRecoverable(t *testing.T) {
+	path, j := openTestJournal(t)
+	_ = j.Start(1, 0, journalT0)
+	_ = j.Close()
+	sync := syncJournalDir
+	syncJournalDir = func(string) error { return errors.New("input/output error") }
+	_, _ = OpenAttemptJournal(path, "camp-1")
+	syncJournalDir = sync
+	if _, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	l, pending, err := ReadAttemptJournal(path, "camp-1")
+	if err != nil || pending != nil || l.Attempts[0].Status != AttemptStopped || !strings.Contains(l.Attempts[0].Reason, "recorder failure") {
+		t.Fatalf("ledger %+v pending %+v err %v", l, pending, err)
+	}
+}

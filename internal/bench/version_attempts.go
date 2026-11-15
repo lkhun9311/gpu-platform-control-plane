@@ -132,12 +132,8 @@ func (s *journalState) applyFault(r journalRecord) error {
 	reason := "recorder failure: " + r.Reason
 	n := len(s.ledger.Attempts)
 	switch {
-	case r.Block == 0:
-		if s.pending != nil {
-			return fmt.Errorf("fault names no block while block %d is open", s.pending.Block)
-		}
-		s.ledger.Closed = false
-	case s.pending != nil && s.pending.Block == r.Block:
+	// A fault that names no block, such as a failed open, stops whatever attempt is open, as any recorder failure would.
+	case s.pending != nil && (r.Block == 0 || s.pending.Block == r.Block):
 		if !r.At.After(s.pending.StartedAt) {
 			return fmt.Errorf("fault of block %d at %s is not after its start", r.Block, r.At.Format(time.RFC3339Nano))
 		}
@@ -148,6 +144,8 @@ func (s *journalState) applyFault(r journalRecord) error {
 		s.pending = nil
 	case s.pending != nil:
 		return fmt.Errorf("fault names block %d while block %d is open", r.Block, s.pending.Block)
+	case r.Block == 0:
+		s.ledger.Closed = false
 	case n > 0 && s.ledger.Attempts[n-1].Block == r.Block:
 		s.ledger.Attempts[n-1].Status = AttemptStopped
 		s.ledger.Attempts[n-1].Reason = reason
