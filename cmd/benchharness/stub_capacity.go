@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"sync/atomic"
+	"sync"
 )
 
 // stubCapacity is the stub's capacity model: at most a fixed number of requests run, and the rest wait their turn.
@@ -11,9 +11,12 @@ import (
 // ladder against it could never find an upper bracket, and its drain check met gauges that never showed a queue.
 // With a fixed service time S and n running places, the stub sustains n/S requests a second and queues beyond it.
 type stubCapacity struct {
-	slots   chan struct{}
-	running atomic.Int64
-	waiting atomic.Int64
+	slots chan struct{}
+	// mu guards both counts together: a request moves from waiting to running in one step, and a scrape reads both in
+	// one step, so no scrape can catch a request between the two and report an engine that looks drained.
+	mu      sync.Mutex
+	running int64
+	waiting int64
 }
 
 func newStubCapacity(running int) *stubCapacity {
@@ -22,19 +25,29 @@ func newStubCapacity(running int) *stubCapacity {
 
 // acquire waits for a running place, or gives up when the client goes away; a request that gave up never counts as running.
 func (c *stubCapacity) acquire(ctx context.Context) bool {
-	c.waiting.Add(1)
-	defer c.waiting.Add(-1)
+	c.mu.Lock()
+	c.waiting++
+	c.mu.Unlock()
 	select {
 	case c.slots <- struct{}{}:
-		c.running.Add(1)
+		c.mu.Lock()
+		c.waiting--
+		c.running++
+		c.mu.Unlock()
 		return true
 	case <-ctx.Done():
+		c.mu.Lock()
+		c.waiting--
+		c.mu.Unlock()
 		return false
 	}
 }
 
+// release ends a running request; its count drops before its place is freed, so the next request cannot be counted twice.
 func (c *stubCapacity) release() {
-	c.running.Add(-1)
+	c.mu.Lock()
+	c.running--
+	c.mu.Unlock()
 	<-c.slots
 }
 
@@ -54,5 +67,7 @@ func (c *stubCapacity) gauges(inFlight int64) (running, waiting int64) {
 	if c == nil {
 		return inFlight, 0
 	}
-	return c.running.Load(), c.waiting.Load()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.running, c.waiting
 }
