@@ -172,7 +172,7 @@ func readJournal(path, campaign string) (*journalState, []byte, int64, error) {
 	whole := int64(bytes.LastIndexByte(data, '\n') + 1)
 	s := newJournalState(campaign)
 	sc := bufio.NewScanner(bytes.NewReader(data[:whole]))
-	sc.Buffer(make([]byte, 0, 4096), 1<<20)
+	sc.Buffer(make([]byte, 0, 4096), maxJournalLine)
 	for n := 1; sc.Scan(); n++ {
 		var r journalRecord
 		dec := json.NewDecoder(bytes.NewReader(sc.Bytes()))
@@ -249,8 +249,13 @@ func OpenAttemptJournal(path, campaign string) (*AttemptJournal, error) {
 		return nil, err
 	}
 	// The new entry must survive a crash too, or a synced record could sit in a file the directory never names.
-	if err := syncDirOf(path); err != nil {
+	if err := syncJournalDir(path); err != nil {
 		_ = f.Close()
+		// A journal whose entry may not be durable is a recorder failure; reopening it later must not look like a clean start.
+		fault := journalRecord{Kind: journalFault, Campaign: campaign, At: time.Now().UTC(), Reason: fmt.Sprintf("opening the journal failed: %v", err)}
+		if merr := writeFaultMarker(path, fault); merr != nil {
+			return nil, errors.Join(err, fmt.Errorf("the failure itself could not be recorded, so the runner must stop and report it: %w", merr))
+		}
 		return nil, err
 	}
 	// The journal continues from the reader's own fold, so a new record is checked against exactly what a reader would accept.
@@ -301,6 +306,10 @@ func (j *AttemptJournal) append(r journalRecord) error {
 	if err := next.apply(r); err != nil {
 		return err
 	}
+	// Refused here, before the file changes, so an oversized record is a refusal and not a write failure.
+	if _, err := encodeJournalLine(r); err != nil {
+		return err
+	}
 	if err := writeJournalLine(j.f, r); err != nil {
 		j.failed = err
 		// The marker goes beside the journal, not into it: the journal may now end in torn bytes.
@@ -321,8 +330,20 @@ func (j *AttemptJournal) append(r journalRecord) error {
 	return nil
 }
 
-func writeJournalLine(f journalFile, r journalRecord) error {
+// encodeJournalLine is the record's line, refused if the reader could not read it back.
+func encodeJournalLine(r journalRecord) ([]byte, error) {
 	line, err := json.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	if len(line)+1 > maxJournalLine {
+		return nil, fmt.Errorf("the %s record of block %d is %d bytes, longer than the %d a journal line may hold", r.Kind, r.Block, len(line)+1, maxJournalLine)
+	}
+	return line, nil
+}
+
+func writeJournalLine(f journalFile, r journalRecord) error {
+	line, err := encodeJournalLine(r)
 	if err != nil {
 		return err
 	}
@@ -522,3 +543,9 @@ func sameFault(a, b journalRecord) bool {
 	a.At, b.At = time.Time{}, time.Time{}
 	return a == b
 }
+
+// maxJournalLine is the longest line the reader accepts, its newline included.
+const maxJournalLine = 1 << 20
+
+// syncJournalDir syncs the journal's directory; tests replace it to fail.
+var syncJournalDir = syncDirOf

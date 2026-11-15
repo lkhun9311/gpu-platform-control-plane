@@ -490,3 +490,46 @@ func TestAFailedRecoveryIsItselfARecorderFailure(t *testing.T) {
 		t.Fatalf("analysis after a failed recovery: %v", err)
 	}
 }
+
+// TestARecordTheReaderCannotReadIsNeverWritten: every acknowledged record must stay readable, so an oversized one is refused before the file changes.
+func TestARecordTheReaderCannotReadIsNeverWritten(t *testing.T) {
+	path, j := openTestJournal(t)
+	_ = j.Start(1, 0, journalT0)
+	before, _ := os.ReadFile(path)
+	if err := j.End(1, AttemptInvalid, strings.Repeat("x", maxJournalLine), journalT0.Add(time.Hour)); err == nil {
+		t.Fatal("an end longer than the reader's line limit was written")
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatal("a refused record changed the journal")
+	}
+	// A refusal is not a write failure: the journal still takes a record.
+	if err := j.End(1, AttemptInvalid, "lag", journalT0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadAttemptJournal(path, "camp-1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAFailedDirectorySyncAtOpenIsARecorderFailure: a journal whose name may not be durable cannot be reopened as if nothing failed.
+func TestAFailedDirectorySyncAtOpenIsARecorderFailure(t *testing.T) {
+	path, j := openTestJournal(t)
+	_ = j.Close()
+	sync := syncJournalDir
+	syncJournalDir = func(string) error { return errors.New("input/output error") }
+	_, err := OpenAttemptJournal(path, "camp-1")
+	syncJournalDir = sync
+	if err == nil {
+		t.Fatal("open reported success after its directory sync failed")
+	}
+	if _, err := OpenAttemptJournal(path, "camp-1"); err == nil || !strings.Contains(err.Error(), "recover") {
+		t.Fatalf("reopened without recovery: %v", err)
+	}
+	if _, err := RecoverAttemptJournal(path, "camp-1", journalT0); err != nil {
+		t.Fatal(err)
+	}
+	l, _, err := ReadAttemptJournal(path, "camp-1")
+	if err != nil || len(l.RecorderFaults) != 1 {
+		t.Fatalf("ledger %+v err %v; want the open's failure recorded", l, err)
+	}
+}
