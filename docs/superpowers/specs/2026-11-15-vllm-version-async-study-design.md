@@ -162,6 +162,11 @@ All latencies are client-observed durations on the client's monotonic clock, fro
 - TPOT is a client streaming measure: it depends on how content is chunked into frames. Frames per response are recorded, and a response delivered in fewer than two content frames has no TPOT and is **not good** (`GoodRequest`), never TPOT 0.
 - Time from the last content byte to `[DONE]` and to the usage trailer is reported as a completion-through-trailer diagnostic.
 - Realised denominators are checked: each cell's P must equal its trace's measured count (rule 1 below), so the offered floor of 1,000 per load is met in fact.
+- Implemented offline from the raw rows (#615) as follows:
+  - `CellOutcomes` gives each row of P its TTFT and E2E from intended arrival, with failures at +∞, and whether it is good.
+  - `LoadEvidenceFor` resamples both arms by the same block counts and takes each pooled nearest-rank p99 by weighted rank, without building the multiset.
+  - `Evaluate` applies `AssessLoad`, `CombineLoads` and `SelectTreatment`.
+  - The existing `TTFTNanos` and `E2ENanos` fields are not used: they are measured from the send, and their E2E ends at the stream's end.
 - Price: the on-demand price of the instance in its region, read from the AWS Price List API at session start and frozen in the bundle with its source and time, plus the session's other charges per hour.
 
 ## Analysis
