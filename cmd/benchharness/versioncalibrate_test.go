@@ -20,13 +20,13 @@ func TestRunVersionCalibrationWritesTheArtifactVersionBundleReads(t *testing.T) 
 	rule := st.Version.Calibration
 	dir := t.TempDir()
 	// A fake engine whose capacity is 2 req/s: every rung at or below it is stable.
-	probe := func(rate float64, ordinal int) bench.RungClass {
+	probe := func(_ context.Context, rate float64, ordinal int) bench.RungClass {
 		if rate <= 2 {
 			return bench.RungStable
 		}
 		return bench.RungUnstable
 	}
-	res, err := runVersionCalibration(dir, rule, &bench.RungRunner{}, probe)
+	res, err := runVersionCalibration(context.Background(), dir, rule, &bench.RungRunner{}, probe)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestRunVersionCalibrationWritesTheArtifactVersionBundleReads(t *testing.T) 
 		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
 		t.Fatalf("version-bundle could not freeze the calibration it was given: %v", err)
 	}
-	if _, err := runVersionCalibration(dir, rule, &bench.RungRunner{}, probe); err == nil || !strings.Contains(err.Error(), "already holds calibration evidence") {
+	if _, err := runVersionCalibration(context.Background(), dir, rule, &bench.RungRunner{}, probe); err == nil || !strings.Contains(err.Error(), "already holds calibration evidence") {
 		t.Fatalf("second calibration: %v, want a refusal because the campaign was calibrated", err)
 	}
 }
@@ -47,7 +47,7 @@ func TestRunVersionCalibrationWritesTheArtifactVersionBundleReads(t *testing.T) 
 func TestRunVersionCalibrationRecordsAnUnresolvedStop(t *testing.T) {
 	st, _ := bench.LookupStudy(bench.StudyVersionAsync)
 	dir := t.TempDir()
-	res, err := runVersionCalibration(dir, st.Version.Calibration, &bench.RungRunner{}, func(float64, int) bench.RungClass { return bench.RungInvalid })
+	res, err := runVersionCalibration(context.Background(), dir, st.Version.Calibration, &bench.RungRunner{}, func(context.Context, float64, int) bench.RungClass { return bench.RungInvalid })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,8 +74,8 @@ func TestRunVersionCalibrationKeepsEachRungsEvidence(t *testing.T) {
 	dir := t.TempDir()
 	busy := func(context.Context) (int, int, error) { return 1, 0, nil }
 	runner := &bench.RungRunner{Design: d, Queue: busy, PollEvery: 100 * time.Millisecond}
-	res, err := runVersionCalibration(dir, d.Calibration, runner, func(rate float64, ordinal int) bench.RungClass {
-		return runner.Probe(context.Background(), rate, ordinal)
+	res, err := runVersionCalibration(context.Background(), dir, d.Calibration, runner, func(ctx context.Context, rate float64, ordinal int) bench.RungClass {
+		return runner.Probe(ctx, rate, ordinal)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,8 +100,8 @@ func TestRunVersionCalibrationSendsNothingItCannotRecord(t *testing.T) {
 	st, _ := bench.LookupStudy(bench.StudyVersionAsync)
 	rule := st.Version.Calibration
 	probes := 0
-	counting := func(rate float64, ordinal int) bench.RungClass { probes++; return bench.RungStable }
-	if _, err := runVersionCalibration(filepath.Join(t.TempDir(), "missing"), rule, &bench.RungRunner{}, counting); err == nil || probes != 0 {
+	counting := func(_ context.Context, rate float64, ordinal int) bench.RungClass { probes++; return bench.RungStable }
+	if _, err := runVersionCalibration(context.Background(), filepath.Join(t.TempDir(), "missing"), rule, &bench.RungRunner{}, counting); err == nil || probes != 0 {
 		t.Fatalf("missing directory: err %v after %d probes, want a refusal before any", err, probes)
 	}
 	dir := t.TempDir()
@@ -109,14 +109,14 @@ func TestRunVersionCalibrationSendsNothingItCannotRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	probes = 0
-	if _, err := runVersionCalibration(dir, rule, &bench.RungRunner{}, counting); err == nil || probes != 0 {
+	if _, err := runVersionCalibration(context.Background(), dir, rule, &bench.RungRunner{}, counting); err == nil || probes != 0 {
 		t.Fatalf("leftover rung file: err %v after %d probes, want a refusal before any", err, probes)
 	}
 	// A write that fails mid-ladder stops every later probe.
 	dir = t.TempDir()
 	runner := &bench.RungRunner{}
 	probes = 0
-	_, err := runVersionCalibration(dir, rule, runner, func(rate float64, ordinal int) bench.RungClass {
+	_, err := runVersionCalibration(context.Background(), dir, rule, runner, func(_ context.Context, rate float64, ordinal int) bench.RungClass {
 		probes++
 		if ordinal == 2 {
 			_ = os.WriteFile(filepath.Join(dir, "calibration-rung-2.json"), []byte("{}"), 0o600)
