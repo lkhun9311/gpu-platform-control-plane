@@ -534,7 +534,7 @@ func TestCompareRuntime(t *testing.T) {
 		return RuntimeIdentity{
 			VLLMVersion: "v0.32.0", Image: b.Images[TreatmentC], ModelRevision: d.ModelRevision,
 			TokenizerRevision: d.TokenizerRevision, ChatTemplateSHA256: d.ChatTemplateSHA256,
-			EffectiveArgsSHA256: d.EngineFlagReviews[TreatmentC], Settings: d.Engines[TreatmentC],
+			ProfileArgs: d.ReviewedProfileArgs[TreatmentC], Settings: d.Engines[TreatmentC],
 		}
 	}
 	if err := b.CompareRuntime(d, TreatmentC, good()); err != nil {
@@ -545,7 +545,9 @@ func TestCompareRuntime(t *testing.T) {
 		"another image":      func(r *RuntimeIdentity) { r.Image = b.Images[TreatmentA] },
 		"another template":   func(r *RuntimeIdentity) { r.ChatTemplateSHA256 = strings.Repeat("e", 64) },
 		"another revision":   func(r *RuntimeIdentity) { r.ModelRevision = strings.Repeat("e", 40) },
-		"unreviewed args":    func(r *RuntimeIdentity) { r.EffectiveArgsSHA256 = strings.Repeat("e", 64) },
+		"unreviewed args":    func(r *RuntimeIdentity) { r.ProfileArgs = append(slices.Clone(r.ProfileArgs), "--enforce-eager") },
+		"async flag dropped": func(r *RuntimeIdentity) { r.ProfileArgs = r.ProfileArgs[:len(r.ProfileArgs)-1] },
+		"no args observed":   func(r *RuntimeIdentity) { r.ProfileArgs = nil },
 		"async off on C":     func(r *RuntimeIdentity) { r.Settings.AsyncScheduling = new(false) },
 		"another batch size": func(r *RuntimeIdentity) { r.Settings.MaxNumBatchedTokens = 2048 },
 	} {
