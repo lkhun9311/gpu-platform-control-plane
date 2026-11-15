@@ -90,6 +90,11 @@ The artifact (`CalibrationArtifact`: resolved, λ0, every rung with purpose and 
 - **All traces are generated after λ0 and before block 1**, the replacement blocks' included: one per block and load, seed `WorkloadSeed(20261115, block, load)`, shared by A, B and C.
 - **W is chosen from those traces alone** (`ChooseWindow`): from 300 s in 60 s steps until the six planned blocks' traces offer at least 1,000 measured requests at each load, at most 1,800 s, otherwise the session stops. The floor is therefore met by the actual traces, not expected from a rate; the window is never lengthened after outcomes are seen. The generator must be prefix-stable, so that a shorter window's trace is a prefix of a longer one's; `LoadCampaignBundle` recomputes the choice from the traces and refuses a bundle whose W differs.
 - Every trace is checked by content: its rows are in order, every length is registered, no row falls outside warm-up plus window, its measured count is as declared, and **its warm-up sends every one of the six input × output classes** (warm-up qualification is a property of the trace, decided before any outcome).
+- **Open: warm-up qualification at a low λ0.** `VersionTrace` refuses a trace whose warm-up misses a class rather than redrawing it, because redrawing would be choosing a workload, and the registration has no other rule.
+  - Assuming independent Poisson counts per class, the chance that one 60 s warm-up at 0.6 λ0 misses a class is about 41% at λ0 = 0.5, 9% at 0.9, 1% at 1.5 and 0.15% at 2. The rarest class is (2,048, 64) at 10%.
+  - Under seed `20261115`, every λ0 low enough to lengthen the window past 300 s (below about 0.93) already fails on at least one of the 16 traces. Calibrations at 0.9, 0.85, 0.8, 0.75 and 0.5 each stop.
+  - So the window-lengthening rule cannot run as registered.
+  - An amendment must choose before the paid run. Options: a stratified warm-up whose first six rows take the six classes in a seeded order, leaving the measured population unchanged; a warm-up that lengthens with λ0; or accepting the stop.
 
 ## Sampling and stop condition
 
@@ -272,7 +277,10 @@ The registered protocol is not executable at this head (attack item 1). Before a
   - Every row records, on the monotonic clock, the intended arrival (`RequestClock.IntendedNanos`), the transport write, first and last content, and the usage trailer and `[DONE]`. `RequestClock.FromIntended` gives a latency from intended arrival, or reports it absent.
   - Since #587 each row also carries a terminal disposition and usage presence.
 - **Replay accepts v3:** done. An empty `matchTolerance` on a v3 manifest is stamped as 0 (`replayMatchTolerance`); every earlier schema is still parsed and range-checked.
-- **A v3 manifest writer, the calibration runner, the trace generator and the bundle writer** exist; `gen-trace` and `prepare-traces` still write v2.
+- **The writers:** the trace generator, the bundle writer and the v3 manifest writer are done in code.
+  - `VersionTrace` and `WriteCampaignBundle` write the bundle (`benchharness version-bundle`), and `VersionCellManifest` writes the cell manifests (`benchharness version-manifests`).
+  - Each round-trips through `LoadCampaignBundle`, `LoadManifest` and `CheckVersionCampaign`.
+  - **The calibration runner** is still missing. It is the one that drives a live engine through the ladder and writes the artifact `WriteCampaignBundle` reads λ0 from.
 - **An engine path** that runs v0.32.0 with the registered settings: done. The `experimental-a10g` profile renders release `v0.32.0` on its pinned digest with either async choice (#586 and this change). What remains is showing it in the free rehearsal.
 - **The watchdog** enforces the absolute teardown deadline.
 
