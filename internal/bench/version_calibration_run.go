@@ -246,7 +246,7 @@ func (r *RungRunner) Probe(ctx context.Context, rate float64, ordinal int) RungC
 	return report(rows, o, rule.ClassifyRung(o), nil)
 }
 
-// checkConformance runs every replayed row through ClassifyRow, the study's own conformance rule, against its trace row.
+// checkConformance runs every replayed row through StudyDisposition, the study's own rule, against its trace row.
 func (r *RungRunner) checkConformance(trace []TraceRow, rows []RawRow) error {
 	byIndex := make(map[int]TraceRow, len(trace))
 	for _, t := range trace {
@@ -257,27 +257,9 @@ func (r *RungRunner) checkConformance(trace []TraceRow, rows []RawRow) error {
 		if !ok {
 			return fmt.Errorf("row %d is not in the rung's trace", row.Index)
 		}
-		if _, err := ClassifyRow(r.Sampling, rowFacts(row, tr)); err != nil {
+		if _, err := StudyDisposition(r.Sampling, row, tr); err != nil {
 			return fmt.Errorf("row %d does not conform: %w", row.Index, err)
 		}
 	}
 	return nil
-}
-
-// rowFacts is what ClassifyRow needs from one replayed row and the trace row it was sent from.
-func rowFacts(row RawRow, tr TraceRow) RowFacts {
-	return RowFacts{
-		Dispatched:           row.Clock != nil && row.Clock.SendNanos != nil,
-		HTTPStatus:           row.HTTPStatus,
-		StreamCompleted:      row.Disposition == DispositionCompleted,
-		TimedOut:             row.ErrorKind == "timeout",
-		TransportError:       row.ErrorKind == "transport",
-		UsagePresent:         row.EngineUsageReported != nil && *row.EngineUsageReported,
-		PromptTokens:         row.EngineInputTokens,
-		ExpectedPromptTokens: tr.ExactInputTokens,
-		CompletionTokens:     row.EngineOutputTokens,
-		CapTokens:            tr.MaxOutputTokens,
-		FinishReason:         row.FinishReason,
-		ContentFrames:        row.OutputTokens,
-	}
 }
