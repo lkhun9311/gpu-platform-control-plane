@@ -708,13 +708,12 @@ func replay(args []string) error {
 	// The frozen manifest's provenance is stamped into every raw row.
 	//
 	// That lets the report enforce trace identity and read the pre-registered knobs from the evidence.
-	tol, err := strconv.ParseFloat(m.MatchTolerance, 64)
+	tol, err := replayMatchTolerance(m)
 	if err != nil {
-		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
-	}
-	// ParseFloat accepts "NaN" and "Inf", and the manifest's own check only parses, so the range is enforced here before any request.
-	if err := bench.ValidateMatchTolerance(tol); err != nil {
 		return fmt.Errorf("manifest %s: %w", *manifestPath, err)
+	}
+	if err := applyStudySampling(sender, study, studyKnown); err != nil {
+		return err
 	}
 	if studyKnown && study.FrozenExactTokens != nil {
 		// Refused before the first request: a row whose count is not the frozen one was not generated for this study.
@@ -2499,4 +2498,36 @@ func openLiveRowsIf(recordTiming bool, rawOut string) (*liveRows, error) {
 		return nil, nil
 	}
 	return openLiveRows(filepath.Join(filepath.Dir(rawOut), "live-"+filepath.Base(rawOut)))
+}
+
+// replayMatchTolerance is the admission-match tolerance a replay stamps into its rows.
+//
+// A v3 manifest must leave it empty, because the version study has no admission arm to match, so it stamps zero rather than refusing the run.
+// Every earlier schema keeps the parse, and ParseFloat accepts "NaN" and "Inf", so the range is still enforced before any request.
+func replayMatchTolerance(m *bench.RunManifest) (float64, error) {
+	if m.SchemaVersion == bench.ManifestSchemaV3 && m.MatchTolerance == "" {
+		return 0, nil
+	}
+	tol, err := strconv.ParseFloat(m.MatchTolerance, 64)
+	if err != nil {
+		return 0, fmt.Errorf("matchTolerance %q is not a number: %w", m.MatchTolerance, err)
+	}
+	if err := bench.ValidateMatchTolerance(tol); err != nil {
+		return 0, err
+	}
+	return tol, nil
+}
+
+// applyStudySampling puts a study's registered generation policy on every request, and does nothing for a study without one.
+//
+// It is printed because which body a run sent is part of what its rows mean.
+func applyStudySampling(sender *bench.HTTPSender, study bench.Study, known bool) error {
+	if !known || study.Sampling == nil {
+		return nil
+	}
+	if err := sender.SetSampling(study.Sampling); err != nil {
+		return fmt.Errorf("study %s sampling policy: %w", study.ID, err)
+	}
+	fmt.Printf("sampling: %+v\n", *study.Sampling)
+	return nil
 }

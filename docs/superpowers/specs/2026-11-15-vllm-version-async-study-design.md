@@ -267,8 +267,11 @@ The registered protocol is not executable at this head (attack item 1). Before a
   - `CheckVersionCampaign`, the exact bootstrap and the verdict.
 
   A two-block rehearsal must expect "incomplete pilot"; showing a verdict needs six blocks.
-- **The sender** (owned elsewhere) sends `RequestFields` and records the fields above. Since #587 it records every latency on the monotonic clock (`RequestClock`), with a terminal disposition and usage presence for every request. It still sends no sampling parameter, measures from dispatch (`SendNanos`) rather than from intended arrival, and records no transport-write or trailer stamp.
-- **Replay accepts v3:** `cmd/benchharness` parses `matchTolerance` as a number unconditionally before replay, so a valid v3 manifest, which must leave it empty, is refused there.
+- **The sender:** done in code, still to be shown in the rehearsal.
+  - When a study registers a policy, the replay puts it on every request (`HTTPSender.SetSampling`, from `RequestFields`). A study without one sends the body it always sent.
+  - Every row records, on the monotonic clock, the intended arrival (`RequestClock.IntendedNanos`), the transport write, first and last content, and the usage trailer and `[DONE]`. `RequestClock.FromIntended` gives a latency from intended arrival, or reports it absent.
+  - Since #587 each row also carries a terminal disposition and usage presence.
+- **Replay accepts v3:** done. An empty `matchTolerance` on a v3 manifest is stamped as 0 (`replayMatchTolerance`); every earlier schema is still parsed and range-checked.
 - **A v3 manifest writer, the calibration runner, the trace generator and the bundle writer** exist; `gen-trace` and `prepare-traces` still write v2.
 - **An engine path** that runs v0.32.0 with the registered settings: done. The `experimental-a10g` profile renders release `v0.32.0` on its pinned digest with either async choice (#586 and this change). What remains is showing it in the free rehearsal.
 - **The watchdog** enforces the absolute teardown deadline.

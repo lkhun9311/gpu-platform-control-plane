@@ -26,8 +26,10 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/http/httptrace"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway"
@@ -39,9 +41,11 @@ import (
 type HTTPSender struct {
 	// recordContentTimes keeps every content frame's arrival time (SetRecordContentTimes).
 	recordContentTimes bool
-	client             *http.Client
-	gatewayURL         string
-	model              string
+	// sampling is the study's frozen generation policy (SetSampling); nil sends the body earlier studies sent.
+	sampling   *SamplingPolicy
+	client     *http.Client
+	gatewayURL string
+	model      string
 	// apiKeys maps a trace tenant to the API key the gateway resolves it from, so one sender can drive premium and standard tenants through the real identity chain.
 	apiKeys map[string]string
 	// priorities maps a trace tenant to the scheduling priority sent with its requests; absent means none.
@@ -193,6 +197,20 @@ func (h *HTTPSender) SetRequestIDPrefix(p string) { h.requestIDPrefix = p }
 // reported one by one: an average per request hides one long gap among many short ones.
 func (h *HTTPSender) SetRecordContentTimes(on bool) { h.recordContentTimes = on }
 
+// SetSampling makes every request carry the policy's generation fields, refusing an invalid policy before anything is sent.
+//
+// Without it the engine falls back to the model's generation_config, which is how an earlier run sampled at temperature 0.7.
+func (h *HTTPSender) SetSampling(p *SamplingPolicy) error {
+	if p == nil {
+		return errors.New("a nil sampling policy; leave SetSampling uncalled to send no generation fields")
+	}
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	h.sampling = p
+	return nil
+}
+
 // RequestIDFor is the X-Request-Id a row is sent with, and the one its raw row records: the two must agree, so
 // both are built here. The gateway forwards it and vLLM makes it the engine's id, as "chatcmpl-<id>-<8 random>".
 // The prefix must be unique per cell and phase, because a trace index alone repeats in every cell.
@@ -319,6 +337,14 @@ type chatRequest struct {
 	// tenant would make every request equally urgent under a policy that reads the field, which is a control
 	// arm that is not a control.
 	Priority *int `json:"priority,omitempty"`
+	// The generation fields of a registered SamplingPolicy, pointers so a study without one sends none of them.
+	//
+	// A pointer is also what lets temperature 0 be sent: it is the greedy setting, not an absent one.
+	Temperature       *float64 `json:"temperature,omitempty"`
+	TopP              *float64 `json:"top_p,omitempty"`
+	RepetitionPenalty *float64 `json:"repetition_penalty,omitempty"`
+	Seed              *int64   `json:"seed,omitempty"`
+	IgnoreEOS         *bool    `json:"ignore_eos,omitempty"`
 }
 
 // streamOptions is the OpenAI streaming extension vLLM implements for usage reporting.
@@ -349,12 +375,29 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 	if p, ok := h.priorities[row.Tenant]; ok {
 		body.Priority = &p
 	}
+	if h.sampling != nil {
+		// The policy is the one source of both length bounds, so the row's own min_tokens is not consulted.
+		f, err := h.sampling.RequestFields(row)
+		if err != nil {
+			return SendResult{ErrorKind: "encode"}
+		}
+		body.MaxTokens, body.MinTokens = f.MaxTokens, f.MinTokens
+		body.Temperature, body.TopP, body.RepetitionPenalty = &f.Temperature, &f.TopP, &f.RepetitionPenalty
+		body.Seed, body.IgnoreEOS = f.Seed, &f.IgnoreEOS
+	}
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return SendResult{ErrorKind: "encode"}
 	}
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, h.gatewayURL+"/v1/chat/completions", bytes.NewReader(buf))
+	// The write stamp is taken by the transport's own callback, so it marks the request leaving the client rather than Do being called.
+	stamp := &writeStamp{now: h.now}
+	traced := httptrace.WithClientTrace(reqCtx, &httptrace.ClientTrace{WroteRequest: stamp.wrote})
+	withWrite := func(r SendResult) SendResult {
+		r.TransportWriteAt = stamp.at()
+		return r
+	}
+	req, err := http.NewRequestWithContext(traced, http.MethodPost, h.gatewayURL+"/v1/chat/completions", bytes.NewReader(buf))
 	if err != nil {
 		return SendResult{ErrorKind: "transport"}
 	}
@@ -371,13 +414,13 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 	resp, err := h.client.Do(req)
 	if err != nil {
 		if errors.Is(reqCtx.Err(), context.DeadlineExceeded) {
-			return SendResult{ErrorKind: "timeout"}
+			return withWrite(SendResult{ErrorKind: "timeout"})
 		}
 		// The replay itself was stopped, which says nothing about the system under test.
 		if errors.Is(ctx.Err(), context.Canceled) {
-			return SendResult{ErrorKind: errKindCancelled}
+			return withWrite(SendResult{ErrorKind: errKindCancelled})
 		}
-		return SendResult{ErrorKind: "transport"}
+		return withWrite(SendResult{ErrorKind: "transport"})
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -403,10 +446,10 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusRequestEntityTooLarge {
 			kind = errKindRejected
 		}
-		return h.withAdmissionDecision(resp, SendResult{HTTPStatus: resp.StatusCode, ErrorKind: kind})
+		return withWrite(h.withAdmissionDecision(resp, SendResult{HTTPStatus: resp.StatusCode, ErrorKind: kind}))
 	}
 
-	return h.withAdmissionDecision(resp, h.readStream(reqCtx, resp))
+	return withWrite(h.withAdmissionDecision(resp, h.readStream(reqCtx, resp)))
 }
 
 // withAdmissionDecision copies the gateway's reported tier and refusal reason onto a result.
@@ -454,6 +497,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
+			res.DoneAt = h.now()
 			// RECORDED, not merely used to leave the loop.
 			//
 			// Measured 2026-10-04 by calling this function with three bodies: a clean stream, one cut off
@@ -525,6 +569,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 			return res
 		}
 		if chunk.Usage != nil {
+			res.UsageAt = h.now()
 			// Presence is recorded on its own, and the output count verbatim, so a zero or negative count stays visible instead of reading as no count.
 			res.UsageReported = true
 			res.EngineOutputTokens = chunk.Usage.CompletionTokens
@@ -579,3 +624,29 @@ func (r *SendResult) stampEnd(now time.Time) {
 
 // streamErrorNoEndMarker is the StreamError of a stream that ended without its [DONE] marker.
 const streamErrorNoEndMarker = "the stream ended without data: [DONE]"
+
+// writeStamp records when the transport finished writing a request, and only when the write succeeded.
+//
+// The transport calls WroteRequest on a failed write too, with Err set, and a request that was never fully written must not look sent.
+// The callback runs on the transport's write goroutine, which can still be running when Do returns, so the stamp is guarded.
+type writeStamp struct {
+	now func() time.Time
+	mu  sync.Mutex
+	t   time.Time
+}
+
+func (s *writeStamp) wrote(info httptrace.WroteRequestInfo) {
+	if info.Err != nil {
+		return
+	}
+	now := s.now()
+	s.mu.Lock()
+	s.t = now
+	s.mu.Unlock()
+}
+
+func (s *writeStamp) at() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.t
+}

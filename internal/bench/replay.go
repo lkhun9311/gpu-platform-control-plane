@@ -268,6 +268,8 @@ type SendResult struct {
 	// Replay measures every elapsed time from them, so a sender must take them from time.Now and never rebuild them from unix nanoseconds.
 	// Zero means the event did not happen, or the sender does not report them, and the row then keeps the wall-clock arithmetic.
 	FirstContentAt, LastContentAt, EndAt time.Time
+	// TransportWriteAt, UsageAt and DoneAt are when the request was fully written, and when the usage trailer and [DONE] arrived; zero when not observed.
+	TransportWriteAt, UsageAt, DoneAt time.Time
 	// ContentAt is every content frame's arrival, kept only when the sender was asked to.
 	ContentAt []time.Time
 	// OutputTokens is the number of SSE frames that carried content; EngineOutputTokens is the token count.
@@ -449,12 +451,17 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 			r.ReturnedUnixNanos = returned
 			r.ContentGapsMicros = gaps
 			r.Clock = &RequestClock{
-				OriginUnixNanos:   start.UnixNano(),
-				SendNanos:         elapsedSince(start, sendAt),
-				FirstContentNanos: elapsedSince(start, res.FirstContentAt),
-				LastContentNanos:  elapsedSince(start, res.LastContentAt),
-				EndNanos:          elapsedSince(start, res.EndAt),
-				TerminalNanos:     elapsedSince(start, returnedAt),
+				OriginUnixNanos: start.UnixNano(),
+				// fireAt is start plus the trace offset, so it keeps start's monotonic reading.
+				IntendedNanos:       elapsedSince(start, fireAt),
+				SendNanos:           elapsedSince(start, sendAt),
+				TransportWriteNanos: elapsedSince(start, res.TransportWriteAt),
+				FirstContentNanos:   elapsedSince(start, res.FirstContentAt),
+				LastContentNanos:    elapsedSince(start, res.LastContentAt),
+				UsageNanos:          elapsedSince(start, res.UsageAt),
+				DoneNanos:           elapsedSince(start, res.DoneAt),
+				EndNanos:            elapsedSince(start, res.EndAt),
+				TerminalNanos:       elapsedSince(start, returnedAt),
 			}
 			r.Disposition = dispositionOf(res)
 			r.SendUnixNanos = sendNanos
