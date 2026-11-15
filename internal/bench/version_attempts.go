@@ -197,6 +197,12 @@ func readJournal(path, campaign string) (*journalState, []byte, int64, error) {
 //
 // An unterminated last line is refused: it is a torn write, and reading past it would decide what the crash left undecided.
 func ReadAttemptJournal(path, campaign string) (AttemptLedger, *PendingAttempt, error) {
+	// A recorded failure the journal does not yet hold could reverse what it says, such as an archive whose sync failed.
+	if _, err := os.Stat(faultMarkerPath(path)); err == nil {
+		return AttemptLedger{}, nil, fmt.Errorf("%s records a failed journal write; recover the journal before reading it", faultMarkerPath(path))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return AttemptLedger{}, nil, err
+	}
 	s, tail, _, err := readJournal(path, campaign)
 	if err != nil {
 		return AttemptLedger{}, nil, err
@@ -360,7 +366,7 @@ func RecoverAttemptJournal(path, campaign string, now time.Time) (JournalRecover
 	if err != nil {
 		return JournalRecovery{}, err
 	}
-	if !hasFault && s.pending != nil && !now.After(s.pending.StartedAt) {
+	if s.pending != nil && !now.After(s.pending.StartedAt) {
 		return JournalRecovery{}, fmt.Errorf("recovery time %s is not after block %d's start at %s",
 			now.Format(time.RFC3339Nano), s.pending.Block, s.pending.StartedAt.Format(time.RFC3339Nano))
 	}
@@ -374,8 +380,12 @@ func RecoverAttemptJournal(path, campaign string, now time.Time) (JournalRecover
 		rec.DroppedTail = string(tail)
 	}
 	if hasFault {
+		// The record is stamped at the recovery time, like an interrupted attempt's end: a failed start's marker carries the
+		// start's own time, which no end can equal, and the failure's own time stays in the reason.
+		fault.Reason = fmt.Sprintf("%s (at %s)", fault.Reason, fault.At.UTC().Format(time.RFC3339Nano))
+		fault.At = now.UTC()
 		// A crash between appending the fault and removing its marker leaves both; the fault is recorded once.
-		if !sameRecord(s.last, fault) {
+		if !sameFault(s.last, fault) {
 			if err := s.apply(fault); err != nil {
 				return JournalRecovery{}, fmt.Errorf("apply %s: %w", faultMarkerPath(path), err)
 			}
@@ -384,6 +394,10 @@ func RecoverAttemptJournal(path, campaign string, now time.Time) (JournalRecover
 			}
 		}
 		rec.Fault = fault.Reason
+		// The line may be whole but unsynced from a recovery that crashed, and the marker is the only other copy of the fault.
+		if err := f.Sync(); err != nil {
+			return JournalRecovery{}, fmt.Errorf("sync %s before removing its fault marker: %w", path, err)
+		}
 		if err := os.Remove(faultMarkerPath(path)); err != nil {
 			return JournalRecovery{}, err
 		}
@@ -465,8 +479,8 @@ func readFaultMarker(journal string) (journalRecord, bool, error) {
 	return r, true, nil
 }
 
-func sameRecord(a, b journalRecord) bool {
-	at := a.At.Equal(b.At)
+// sameFault reports whether the journal's last record is this fault, whatever recovery time stamped it.
+func sameFault(a, b journalRecord) bool {
 	a.At, b.At = time.Time{}, time.Time{}
-	return at && a == b
+	return a == b
 }

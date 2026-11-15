@@ -377,3 +377,36 @@ func TestRecoveryRecordsAFaultOnceAcrossACrash(t *testing.T) {
 		t.Fatalf("the marker was left: %v", err)
 	}
 }
+
+// TestAFailedStartIsRecoverable: a start whole on disk with a failed sync is closed at the recovery time, after its start.
+func TestAFailedStartIsRecoverable(t *testing.T) {
+	path, j := openTestJournal(t)
+	j.f = &syncFailFile{File: j.f.(*os.File)}
+	if err := j.Start(1, 0, journalT0); err == nil {
+		t.Fatal("a failed start was reported written")
+	}
+	_ = j.Close()
+	if _, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	l, pending, err := ReadAttemptJournal(path, "camp-1")
+	if err != nil || pending != nil {
+		t.Fatalf("pending %+v err %v", pending, err)
+	}
+	if a := l.Attempts[0]; a.Status != AttemptStopped || !a.EndedAt.Equal(journalT0.Add(time.Hour)) || !strings.Contains(a.Reason, "recorder failure") {
+		t.Fatalf("attempt %+v", a)
+	}
+}
+
+// TestAJournalWithAPendingFaultIsNotRead: a whole archive line whose sync failed must not be read as a closed ledger.
+func TestAJournalWithAPendingFaultIsNotRead(t *testing.T) {
+	path, j := openTestJournal(t)
+	_ = j.Start(1, 0, journalT0)
+	_ = j.End(1, AttemptValid, "", journalT0.Add(time.Hour))
+	j.f = &syncFailFile{File: j.f.(*os.File)}
+	_ = j.Archive(journalT0.Add(2 * time.Hour))
+	_ = j.Close()
+	if l, _, err := ReadAttemptJournal(path, "camp-1"); err == nil || !strings.Contains(err.Error(), "recover") {
+		t.Fatalf("read %+v while a fault was pending: %v", l, err)
+	}
+}
