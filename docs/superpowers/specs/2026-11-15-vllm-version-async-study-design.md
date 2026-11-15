@@ -208,7 +208,13 @@ These rules decide validity without looking at endpoint values. They apply with 
 3. **Protocol fault:** a nonconforming completed stream, or a request not dispatched without a recorded engine-unavailable visit.
 4. **Identity:** a manifest that `LoadManifest` refuses is never run. A running engine that `CampaignBundle.CompareRuntime` refuses (version, image digest, model revision, tokenizer, chat template, reviewed effective arguments, any registered setting) invalidates its visit's cells.
 5. **Recorder failure:** any write or durability error, or backlog overflow.
-6. **External cause:** a crash or unavailability shown by the instance's own event log to have an external cause (instance retirement, host failure), decided from that log alone.
+6. **External cause:** decided by an automatic predicate (amendment 2026-11-15, owner).
+   - A block is invalid for an external cause only if, within its time range, AWS reported one of these for the instance:
+     - an EC2 scheduled event, such as instance retirement or a system reboot;
+     - a failed system status check;
+     - a spot interruption notice.
+   - Nothing else counts as external. Any other crash or unavailability is an engine outcome.
+   - The predicate is fixed before any run and reads only those AWS records, so it cannot be applied after seeing results. Before, a human decided from the instance's event log, which an append-only ledger that decides replacement could not accommodate.
 
 Engine-caused failures, crashes and missed readiness deadlines are **outcomes**, not invalidity. Replacement is reserved for instrumentation, protocol and external failures.
 
