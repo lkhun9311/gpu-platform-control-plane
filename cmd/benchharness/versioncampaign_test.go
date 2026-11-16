@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,10 +14,7 @@ import (
 // TestVersionBundleThenManifests drives both subcommands as a session would, and every written manifest loads.
 func TestVersionBundleThenManifests(t *testing.T) {
 	dir := t.TempDir()
-	art, _ := json.Marshal(bench.CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2.0})
-	if err := os.WriteFile(filepath.Join(dir, "calibration.json"), art, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	calibrateFake(t, dir)
 	var out bytes.Buffer
 	err := versionBundle([]string{"-dir", dir, "-campaign-id", "s1-test", "-price-usd-per-hour", "1.237",
 		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out)
@@ -65,10 +62,7 @@ func TestVersionManifestsWithARelativeBundlePath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join("campaign"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	art, _ := json.Marshal(bench.CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2.0})
-	if err := os.WriteFile(filepath.Join("campaign", "calibration.json"), art, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	calibrateFake(t, "campaign")
 	var out bytes.Buffer
 	if err := versionBundle([]string{"-dir", "campaign", "-campaign-id", "s1-test", "-price-usd-per-hour", "1.237",
 		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
@@ -86,10 +80,7 @@ func TestVersionManifestsWithARelativeBundlePath(t *testing.T) {
 // TestVersionManifestTracesPassTheReplaysFrozenTokenCheck: the loaders accept a trace with no token counts, and the replay then refuses every cell.
 func TestVersionManifestTracesPassTheReplaysFrozenTokenCheck(t *testing.T) {
 	dir := t.TempDir()
-	art, _ := json.Marshal(bench.CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2.0})
-	if err := os.WriteFile(filepath.Join(dir, "calibration.json"), art, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	calibrateFake(t, dir)
 	var out bytes.Buffer
 	if err := versionBundle([]string{"-dir", dir, "-campaign-id", "s1-test", "-price-usd-per-hour", "1.237",
 		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
@@ -127,10 +118,7 @@ func TestVersionCampaignSurvivesBeingMoved(t *testing.T) {
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	art, _ := json.Marshal(bench.CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2.0})
-	if err := os.WriteFile(filepath.Join(dir, "calibration.json"), art, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	calibrateFake(t, dir)
 	var out bytes.Buffer
 	if err := versionBundle([]string{"-dir", dir, "-campaign-id", "s1-test", "-price-usd-per-hour", "1.237",
 		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
@@ -165,10 +153,7 @@ func TestVersionCampaignSurvivesBeingMoved(t *testing.T) {
 // TestVersionManifestsWritesNothingForABadBlockList: a typo in one block must not leave the others frozen, or the corrected retry meets existing files.
 func TestVersionManifestsWritesNothingForABadBlockList(t *testing.T) {
 	dir := t.TempDir()
-	art, _ := json.Marshal(bench.CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 2.0})
-	if err := os.WriteFile(filepath.Join(dir, "calibration.json"), art, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	calibrateFake(t, dir)
 	var out bytes.Buffer
 	if err := versionBundle([]string{"-dir", dir, "-campaign-id", "s1-test", "-price-usd-per-hour", "1.237",
 		"-price-source", "aws-pricing-api", "-price-read-at", "2026-11-20T01:00:00Z"}, &out); err != nil {
@@ -184,5 +169,24 @@ func TestVersionManifestsWritesNothingForABadBlockList(t *testing.T) {
 		if entries, _ := os.ReadDir(mdir); len(entries) != 0 {
 			t.Fatalf("-blocks %s: refused but left %d files", blocks, len(entries))
 		}
+	}
+}
+
+// calibrateFake runs version-calibrate's ladder against a fake engine stable up to 2 req/s, writing the evidence a real
+// run writes: the probe reports each rung to the runner as RungRunner.Probe does.
+func calibrateFake(t *testing.T, dir string) {
+	t.Helper()
+	st, _ := bench.LookupStudy(bench.StudyVersionAsync)
+	runner := &bench.RungRunner{}
+	probe := func(_ context.Context, rate float64, ordinal int) bench.RungClass {
+		cls := bench.RungStable
+		if rate > 2 {
+			cls = bench.RungUnstable
+		}
+		runner.OnRung(ordinal, nil, bench.RungObservation{OfferedRate: rate}, cls, nil)
+		return cls
+	}
+	if _, err := runVersionCalibration(context.Background(), dir, st.Version.Calibration, runner, probe); err != nil {
+		t.Fatal(err)
 	}
 }

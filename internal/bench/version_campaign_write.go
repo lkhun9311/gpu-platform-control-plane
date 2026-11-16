@@ -54,7 +54,7 @@ func WriteCampaignBundle(dir, study string, in CampaignInputs) (*CampaignBundle,
 	if !(in.OtherChargesUSDPerHour >= 0) || math.IsInf(in.OtherChargesUSDPerHour, 0) {
 		return nil, "", fmt.Errorf("otherChargesUSDPerHour %v is not a non-negative rate", in.OtherChargesUSDPerHour)
 	}
-	art, artSum, err := readCalibration(filepath.Join(dir, in.CalibrationArtifact))
+	art, artSum, err := readCalibration(filepath.Join(dir, in.CalibrationArtifact), d.Calibration)
 	if err != nil {
 		return nil, "", err
 	}
@@ -135,8 +135,9 @@ func WriteCampaignBundle(dir, study string, in CampaignInputs) (*CampaignBundle,
 	return LoadCampaignBundle(path)
 }
 
-// readCalibration reads a resolved calibration artifact and its sha256 from one read of its bytes.
-func readCalibration(path string) (CalibrationArtifact, string, error) {
+// readCalibration reads a resolved calibration artifact and its sha256 from one read of its bytes, and checks the
+// ladder evidence beside it produced it.
+func readCalibration(path string, rule CalibrationRule) (CalibrationArtifact, string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return CalibrationArtifact{}, "", fmt.Errorf("calibration artifact: %w", err)
@@ -147,6 +148,9 @@ func readCalibration(path string) (CalibrationArtifact, string, error) {
 	}
 	if !art.Resolved {
 		return CalibrationArtifact{}, "", fmt.Errorf("calibration was unresolved (%s); the session stops without a λ0", art.Reason)
+	}
+	if err := rule.VerifyCalibrationEvidence(filepath.Dir(path), art); err != nil {
+		return CalibrationArtifact{}, "", fmt.Errorf("calibration artifact: %w", err)
 	}
 	return art, Checksum(data), nil
 }

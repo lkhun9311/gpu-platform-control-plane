@@ -9,13 +9,44 @@ import (
 	"testing"
 )
 
+// ladderEvidence runs the registered ladder against an engine stable up to capacity, and records its rungs, lock and
+// artifact in dir as version-calibrate does, so the bundle's provenance check reads what a real ladder writes.
+func ladderEvidence(t *testing.T, dir string, capacity float64) CalibrationArtifact {
+	t.Helper()
+	write := func(name string, data []byte) {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(CalibrationLockFile, []byte("2026-11-20T00:00:00Z\n"))
+	res := versionAsyncDesign().Calibration.Run(func(rate float64, ordinal int) RungClass {
+		cls := RungStable
+		if rate > capacity {
+			cls = RungUnstable
+		}
+		rec, _ := json.Marshal(CalibrationRungRecord{Ordinal: ordinal, Class: cls, Observation: RungObservation{OfferedRate: rate}})
+		write(CalibrationRungFile(ordinal), rec)
+		write(CalibrationRungRowsFile(ordinal), nil)
+		return cls
+	})
+	art := CalibrationArtifact{Resolved: res.Resolved, StableRateRequestsPerSec: res.Rate, Reason: res.Reason, Rungs: res.Rungs}
+	data, _ := json.Marshal(art)
+	write(CalibrationArtifactFile, data)
+	return art
+}
+
 // campaignDir is a new directory holding a calibration artifact, and the inputs a session would have read by then.
+// A resolved artifact with no rungs stands for a ladder run against an engine stable up to its λ0.
 func campaignDir(t *testing.T, art CalibrationArtifact) (string, CampaignInputs) {
 	t.Helper()
 	dir := t.TempDir()
-	data, _ := json.Marshal(art)
-	if err := os.WriteFile(filepath.Join(dir, "calibration.json"), data, 0o600); err != nil {
-		t.Fatal(err)
+	if art.Resolved && len(art.Rungs) == 0 {
+		ladderEvidence(t, dir, art.StableRateRequestsPerSec)
+	} else {
+		data, _ := json.Marshal(art)
+		if err := os.WriteFile(filepath.Join(dir, CalibrationArtifactFile), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return dir, CampaignInputs{
 		CampaignID: "s1-20261120", CalibrationArtifact: "calibration.json",
@@ -66,13 +97,18 @@ func TestWriteCampaignBundleLengthensTheWindowFromTheTraces(t *testing.T) {
 }
 
 // TestWriteCampaignBundleStopsBelowTheDesignsRange: a λ0 too low for the floor stops the session before anything is frozen.
+//
+// The ladder's lowest resolvable rate is its second fallback, 0.125 req/s, which offers 6 x 0.075 x 1,800 = 810 measured
+// requests at the longest window, below the floor of 1,000.
 func TestWriteCampaignBundleStopsBelowTheDesignsRange(t *testing.T) {
-	dir, in := campaignDir(t, CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 0.1})
-	if _, _, err := WriteCampaignBundle(dir, StudyVersionAsync, in); err == nil {
-		t.Fatal("a λ0 of 0.1 req/s was frozen")
+	dir, in := campaignDir(t, CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 0.126})
+	before, _ := os.ReadDir(dir)
+	_, _, err := WriteCampaignBundle(dir, StudyVersionAsync, in)
+	if err == nil || strings.Contains(err.Error(), "calibration") {
+		t.Fatalf("a λ0 below the floor gave %v, want a refusal at the floor", err)
 	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
-		t.Fatalf("the refusal left %d files, want only the calibration artifact", len(entries))
+	if after, _ := os.ReadDir(dir); len(after) != len(before) {
+		t.Fatalf("the refusal left %d files, want only the calibration evidence's %d", len(after), len(before))
 	}
 }
 
@@ -97,13 +133,14 @@ func TestWriteCampaignBundleRefuses(t *testing.T) {
 			if c.edit != nil {
 				c.edit(&in)
 			}
+			before, _ := os.ReadDir(dir)
 			_, _, err := WriteCampaignBundle(dir, StudyVersionAsync, in)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("err %v, want a refusal mentioning %q", err, c.want)
 			}
-			// Refused before anything is written, so a later corrected run starts from an empty campaign directory.
-			if entries, _ := os.ReadDir(dir); len(entries) != 1 {
-				t.Fatalf("the refusal left %d files, want only the calibration artifact", len(entries))
+			// Refused before anything is written, so a later corrected run starts from the calibration evidence alone.
+			if after, _ := os.ReadDir(dir); len(after) != len(before) {
+				t.Fatalf("the refusal left %d files, want the calibration evidence's %d", len(after), len(before))
 			}
 		})
 	}

@@ -19,14 +19,18 @@ func TestRunVersionCalibrationWritesTheArtifactVersionBundleReads(t *testing.T) 
 	st, _ := bench.LookupStudy(bench.StudyVersionAsync)
 	rule := st.Version.Calibration
 	dir := t.TempDir()
-	// A fake engine whose capacity is 2 req/s: every rung at or below it is stable.
+	// A fake engine whose capacity is 2 req/s: every rung at or below it is stable. Each rung is reported to the runner as
+	// RungRunner.Probe does, so the rung evidence a real run writes is written here too.
+	runner := &bench.RungRunner{}
 	probe := func(_ context.Context, rate float64, ordinal int) bench.RungClass {
-		if rate <= 2 {
-			return bench.RungStable
+		cls := bench.RungStable
+		if rate > 2 {
+			cls = bench.RungUnstable
 		}
-		return bench.RungUnstable
+		runner.OnRung(ordinal, nil, bench.RungObservation{OfferedRate: rate}, cls, nil)
+		return cls
 	}
-	res, err := runVersionCalibration(context.Background(), dir, rule, &bench.RungRunner{}, probe)
+	res, err := runVersionCalibration(context.Background(), dir, rule, runner, probe)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +92,7 @@ func TestRunVersionCalibrationKeepsEachRungsEvidence(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var rec rungRecord
+		var rec bench.CalibrationRungRecord
 		if err := json.Unmarshal(data, &rec); err != nil || rec.Class != bench.RungInvalid || !strings.Contains(rec.Error, "drain") {
 			t.Fatalf("rung %d record %+v err %v", i, rec, err)
 		}
