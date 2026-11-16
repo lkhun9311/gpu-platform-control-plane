@@ -44,21 +44,21 @@ type CalibrationRule struct {
 
 // RungObservation is what the runner measured over one rung's window.
 type RungObservation struct {
-	OfferedRate   float64
-	WindowSeconds float64
+	OfferedRate   float64 `json:"offeredRate"`
+	WindowSeconds float64 `json:"windowSeconds"`
 	// StartedDrained is true when the client had nothing outstanding and the engine reported no running or waiting request when the rung began.
-	StartedDrained bool
+	StartedDrained bool `json:"startedDrained"`
 	// Arrivals are the requests whose intended arrival fell in the window; Departures the requests that reached a terminal outcome in it, whenever they arrived.
-	Arrivals   int
-	Departures int
+	Arrivals   int `json:"arrivals"`
+	Departures int `json:"departures"`
 	// OutstandingStart and OutstandingEnd are requests in flight at the window's edges, and OutstandingSlopePerSec their least-squares trend over 1 s samples.
-	OutstandingStart       int
-	OutstandingEnd         int
-	OutstandingSlopePerSec float64
+	OutstandingStart       int     `json:"outstandingStart"`
+	OutstandingEnd         int     `json:"outstandingEnd"`
+	OutstandingSlopePerSec float64 `json:"outstandingSlopePerSec"`
 	// Failures are the window's arrivals that ended in an HTTP error, stream error, transport error or timeout.
-	Failures int
+	Failures int `json:"failures"`
 	// UnresolvedAtDrain are the window's arrivals with no terminal outcome when the drain deadline passed.
-	UnresolvedAtDrain int
+	UnresolvedAtDrain int `json:"unresolvedAtDrain"`
 }
 
 // RungClass is the classification of one rung.

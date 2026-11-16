@@ -54,8 +54,9 @@ func versionManifests(args []string, out io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *bundlePath == "" || *outDir == "" || *blocks == "" {
-		return errors.New("-bundle, -blocks and -out are required")
+	// The engine URL is checked here because the miss would otherwise surface per cell, after the bundle was loaded.
+	if *bundlePath == "" || *outDir == "" || *blocks == "" || *engineURL == "" {
+		return errors.New("-bundle, -blocks, -out and -engine-url are required")
 	}
 	b, sum, err := bench.LoadCampaignBundle(*bundlePath)
 	if err != nil {
