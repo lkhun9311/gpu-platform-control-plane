@@ -89,7 +89,7 @@ func TestParseVLLMRuntimeRefusesWhatItCannotRead(t *testing.T) {
 		return out
 	}
 	keys := map[string][]string{
-		"model_config":     {"revision", "tokenizer_revision", "dtype", "max_model_len"},
+		"model_config":     {"model", "tokenizer", "revision", "tokenizer_revision", "dtype", "max_model_len"},
 		"scheduler_config": {"max_num_seqs", "max_num_batched_tokens", "policy", "async_scheduling"},
 		"cache_config":     {"gpu_memory_utilization", "enable_prefix_caching"},
 	}
@@ -105,6 +105,15 @@ func TestParseVLLMRuntimeRefusesWhatItCannotRead(t *testing.T) {
 				t.Errorf("%s.%s of another type: parsed", section, key)
 			}
 		}
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(si, &doc); err != nil {
+		t.Fatal(err)
+	}
+	delete(doc["vllm_config"].(map[string]any), "instance_id")
+	noInstance, _ := json.Marshal(doc)
+	if _, err := ParseVLLMRuntime(noInstance, v); err == nil || !strings.Contains(err.Error(), "instance_id") {
+		t.Errorf("no instance_id: %v", err)
 	}
 	if _, err := ParseVLLMRuntime(edit("cache_config", "gpu_memory_utilization", "0.9", false), v); err == nil {
 		t.Error("a memory fraction sent as a string parsed")
@@ -198,5 +207,81 @@ func TestFetchVLLMIdentityNeedsDevMode(t *testing.T) {
 	devMode = false
 	if _, err := FetchVLLMIdentity(context.Background(), srv.Client(), srv.URL); err == nil || !strings.Contains(err.Error(), "VLLM_SERVER_DEV_MODE") {
 		t.Fatalf("dev mode off: %v, want a refusal naming it", err)
+	}
+}
+
+// TestCheckObservedRuntimeRefusesAnotherModel: a revision string alone does not name the weights, since vLLM ignores it for a local path.
+func TestCheckObservedRuntimeRefusesAnotherModel(t *testing.T) {
+	d := versionAsyncDesign()
+	si, v := vllmCapture(t, TreatmentA)
+	for key, want := range map[string]string{"model": "model", "tokenizer": "tokenizer"} {
+		var doc map[string]any
+		if err := json.Unmarshal(si, &doc); err != nil {
+			t.Fatal(err)
+		}
+		doc["vllm_config"].(map[string]any)["model_config"].(map[string]any)[key] = "/models/different-checkpoint"
+		edited, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rt, err := ParseVLLMRuntime(edited, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.CheckObservedRuntime(TreatmentA, rt); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("A with another %s: %v", key, err)
+		}
+	}
+}
+
+// TestParseVLLMRuntimeReadsTheProcess: every start reports its own instance id, which is how a replaced engine is told from the one checked.
+func TestParseVLLMRuntimeReadsTheProcess(t *testing.T) {
+	seen := map[string]string{}
+	for _, tr := range versionStudyTreatments {
+		si, v := vllmCapture(t, tr)
+		rt, err := ParseVLLMRuntime(si, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rt.InstanceID == "" || seen[rt.InstanceID] != "" {
+			t.Fatalf("%s: instance id %q, already seen on %s", tr, rt.InstanceID, seen[rt.InstanceID])
+		}
+		seen[rt.InstanceID] = tr
+	}
+}
+
+// TestFetchVLLMIdentityReadsOnlyTheEngineItWasGiven: a redirect would let one engine's identity stand for another that serves the requests.
+func TestFetchVLLMIdentityReadsOnlyTheEngineItWasGiven(t *testing.T) {
+	si, v := vllmCapture(t, TreatmentA)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/server_info":
+			http.Redirect(w, r, "/elsewhere/server_info?config_format=json", http.StatusFound)
+		case "/elsewhere/server_info":
+			_, _ = w.Write(si)
+		case "/version":
+			_, _ = w.Write(v)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	if _, err := FetchVLLMIdentity(context.Background(), srv.Client(), srv.URL); err == nil || !strings.Contains(err.Error(), "302") {
+		t.Fatalf("a redirected /server_info: %v, want a refusal", err)
+	}
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/server_info":
+			_, _ = w.Write(si)
+		case "/version":
+			_, _ = w.Write(v)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer direct.Close()
+	// The sender trims every trailing slash, so the identity must be read from the same engine for the same flag.
+	if _, err := FetchVLLMIdentity(context.Background(), direct.Client(), direct.URL+"//"); err != nil {
+		t.Fatalf("a base URL with trailing slashes: %v", err)
 	}
 }

@@ -39,8 +39,13 @@ const maxIdentityBody = 4 << 20
 // FetchVLLMIdentity reads the two identity responses from a running vLLM engine at baseURL.
 //
 // Anything but 200 is an error, because a missing configuration cannot be replaced by the registration's values.
+// A redirect is not followed, because the identity must come from the engine at baseURL, which is the one the requests go to.
 func FetchVLLMIdentity(ctx context.Context, client *http.Client, baseURL string) (VLLMIdentityResponses, error) {
-	base := strings.TrimSuffix(baseURL, "/")
+	noRedirect := *client
+	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	client = &noRedirect
+	// The sender trims every trailing slash from the same flag, so the identity is read from the paths the requests use.
+	base := strings.TrimRight(baseURL, "/")
 	si, err := getIdentityBody(ctx, client, base+"/server_info?config_format=json")
 	if err != nil {
 		var status statusError
@@ -93,7 +98,10 @@ func getIdentityBody(ctx context.Context, client *http.Client, url string) ([]by
 // Every field is a pointer so a missing or null key is told apart from a zero or false the registration might hold.
 type vllmServerInfo struct {
 	VLLMConfig *struct {
+		InstanceID  *string `json:"instance_id"`
 		ModelConfig *struct {
+			Model             *string `json:"model"`
+			Tokenizer         *string `json:"tokenizer"`
 			Revision          *string `json:"revision"`
 			TokenizerRevision *string `json:"tokenizer_revision"`
 			Dtype             *string `json:"dtype"`
@@ -152,6 +160,9 @@ func ParseVLLMRuntime(serverInfo, version []byte) (RuntimeIdentity, error) {
 	need(c != nil, "vllm_config")
 	if c != nil {
 		m, s, k := c.ModelConfig, c.SchedulerConfig, c.CacheConfig
+		need(c.InstanceID != nil && *c.InstanceID != "", "vllm_config.instance_id")
+		need(m != nil && m.Model != nil, "model_config.model")
+		need(m != nil && m.Tokenizer != nil, "model_config.tokenizer")
 		need(m != nil && m.Revision != nil, "model_config.revision")
 		need(m != nil && m.TokenizerRevision != nil, "model_config.tokenizer_revision")
 		need(m != nil && m.Dtype != nil, "model_config.dtype")
@@ -182,6 +193,9 @@ func ParseVLLMRuntime(serverInfo, version []byte) (RuntimeIdentity, error) {
 		dtype = flag
 	}
 	return RuntimeIdentity{
+		Model:      *c.ModelConfig.Model,
+		Tokenizer:  *c.ModelConfig.Tokenizer,
+		InstanceID: *c.InstanceID,
 		// The registration names releases by their tag, which is the version with a leading v.
 		VLLMVersion:       "v" + *v.Version,
 		ModelRevision:     *c.ModelConfig.Revision,

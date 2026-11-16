@@ -100,6 +100,11 @@ func (d VersionStudyDesign) CheckObservedRuntime(treatment string, rt RuntimeIde
 		skip[name] = true
 	}
 	switch {
+	// A revision alone does not name the weights: vLLM ignores --revision for a local path, so the model itself is compared.
+	case rt.Model != d.Model:
+		return nil, fmt.Errorf("engine serves model %q, the registration %q", rt.Model, d.Model)
+	case rt.Tokenizer != d.Model:
+		return nil, fmt.Errorf("engine uses tokenizer %q, the registration's model is %q", rt.Tokenizer, d.Model)
 	case rt.ModelRevision != d.ModelRevision:
 		return nil, fmt.Errorf("engine serves model revision %q, the registration %q", rt.ModelRevision, d.ModelRevision)
 	case rt.TokenizerRevision != d.TokenizerRevision:

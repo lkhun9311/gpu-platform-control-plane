@@ -36,16 +36,23 @@ The two engine-path fields are `EngineSettings.Image` for treatments B and C, an
   - for A, the validated v0.27.1 profile.
 - No argv can hash to the review file, so its hash stays provenance.
 - `CheckRuntime` needs no bundle, so a wrong engine is refused at preflight, before calibration. `CompareRuntime` adds the bundle's frozen image.
+B and C run `vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34`, the manifest list Docker Hub's `v0.32.0` tag resolved to on 2026-11-15; the image records the build commit the tag names.
+Their reviews are `hack/engine-flag-reviews/vllm-v0.32.0-async-off.json` (B) and `hack/engine-flag-reviews/vllm-v0.32.0-async-on.json` (C); `TestEngineFlagReviewsAreTheCommittedRecords` recomputes both hashes, and the controller's `TestExperimentalV0320RendersItsReviewedRecord` holds the rendering to the same files.
+That is a source review: no flag's effect on v0.32.0 has been measured here.
 
 **What the engine's own responses prove, and what they do not** (#645, 2026-11-16).
-- `ParseVLLMRuntime` reads a `RuntimeIdentity` from `GET /server_info?config_format=json` and `GET /version`, which `FetchVLLMIdentity` fetches. The key names are those of the 2026-11-16 readiness captures, kept in `internal/bench/testdata/vllm-runtime`.
+- `ParseVLLMRuntime` reads a `RuntimeIdentity` from `GET /server_info?config_format=json` and `GET /version`.
+  - `FetchVLLMIdentity` fetches both from the given base URL and follows no redirect, so they come from the engine the requests go to.
+  - The key names are those of the 2026-11-16 readiness captures, kept in `internal/bench/testdata/vllm-runtime`.
 - **Proven by the responses:**
   - the release, from `/version`, which must equal `system_env.vllm_version` and be a plain release number;
+  - the model and tokenizer (`model_config.model`, `tokenizer`), which must both be the registered model, because vLLM ignores a revision for a local path;
   - the model and tokenizer revisions (`model_config.revision`, `tokenizer_revision`);
   - every registered setting: `dtype`, `max_model_len`, `max_num_seqs`, `max_num_batched_tokens`, the scheduling `policy`, `async_scheduling`, `gpu_memory_utilization` and `enable_prefix_caching`.
 - How two of them are read:
   - The engine reports the resolved `torch.float16`, which vLLM produces for both `half` and `float16`, so it is reported as the registered `half`.
   - The memory fraction comes back as `0.9`, so `EngineSettings.Diff` compares that field by exact decimal value.
+- The response also carries `vllm_config.instance_id`, which differs on every start in the captures. It names the process, and the registration does not fix it.
 - A key that is missing, null or of another type is an error, never a zero. An engine without dev mode answers 404 and is refused.
 - **Not proven by the responses**, and so left empty and named in `RuntimeIdentity.Unproven`, never filled from the registration:
   - the image digest, which neither response names;
@@ -54,16 +61,23 @@ The two engine-path fields are `EngineSettings.Image` for treatments B and C, an
 - **`CheckRuntime` stays the complete check**, and it refuses an identity with any unproven field. Preflight, the in-session `CalibrationPhase` and `CompareRuntime` use it, so none of them accepts this gap.
 - **`CheckObservedRuntime`** compares everything observed with the same rules and returns the unproven fields.
   - Only those three fields may be unproven, and each only if it is empty.
-  - The release, the revisions and every setting must be observed.
+  - The model, the release, the revisions and every setting must be observed.
 
 **The standalone `benchharness version-calibrate` checks A's identity before the first rung** (#645).
 - Before #645 it ran the ladder against any URL. B and C serve the same model, so their capacity could have been frozen as A's λ0.
-- It now reads the engine's responses and calls `CheckObservedRuntime` for A. It refuses an unreadable engine or any mismatch, with no rung sent and no file written. The release tells B and C from A, and `async_scheduling` tells C from B.
-- When A passes, the calibration directory holds an identity record (`CalibrationIdentityFile`), written before the first rung. It keeps both raw responses, the identity read from them, and the unproven fields.
-- **So a λ0 from this command is A's release, revisions and settings as the engine reports them. It is not proof of the image, the chat template or the absence of an unreviewed flag.** `version-bundle` does not yet read the identity record (open, #645).
-B and C run `vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34`, the manifest list Docker Hub's `v0.32.0` tag resolved to on 2026-11-15; the image records the build commit the tag names.
-Their reviews are `hack/engine-flag-reviews/vllm-v0.32.0-async-off.json` (B) and `hack/engine-flag-reviews/vllm-v0.32.0-async-on.json` (C); `TestEngineFlagReviewsAreTheCommittedRecords` recomputes both hashes, and the controller's `TestExperimentalV0320RendersItsReviewedRecord` holds the rendering to the same files.
-That is a source review: no flag's effect on v0.32.0 has been measured here.
+- It now reads the engine's responses and calls `CheckObservedRuntime` for A.
+  - It refuses an unreadable engine or any mismatch, with no rung sent and no file written.
+  - The release tells B and C from A, and `async_scheduling` tells C from B.
+- When A passes, the calibration directory holds an identity record (`CalibrationIdentityFile`), written before the first rung. It keeps both responses byte for byte, the identity read from them, and the unproven fields.
+- After every rung it reads the engine again.
+  - Any change to the identity, the instance id included, ends the ladder unresolved, so that rung and every later one never decide λ0.
+  - A replacement that is undone within one rung is not seen.
+- **So a λ0 from this command is A's release, model, revisions and settings as the engine reports them, from one engine process.** It is not proof of:
+  - the image;
+  - the chat template;
+  - the absence of an unreviewed flag;
+  - which engine `-metrics-url` reads. The drained check is not tied to the checked engine.
+- `version-bundle` does not yet read the identity record (open, #645).
 
 ## Arms and what may differ
 

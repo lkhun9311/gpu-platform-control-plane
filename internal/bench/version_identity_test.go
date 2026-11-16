@@ -73,6 +73,7 @@ func TestParseProfileArgsStripsWhatEveryDeploymentSets(t *testing.T) {
 func TestCheckRuntimeNeedsNoBundle(t *testing.T) {
 	d := versionAsyncDesign()
 	rt := RuntimeIdentity{
+		Model: d.Model, Tokenizer: d.Model,
 		VLLMVersion: "v0.27.1", Image: d.Engines[TreatmentA].Image, ModelRevision: d.ModelRevision,
 		TokenizerRevision: d.TokenizerRevision, ChatTemplateSHA256: d.ChatTemplateSHA256,
 		ProfileArgs: d.ReviewedProfileArgs[TreatmentA], Settings: d.Engines[TreatmentA],

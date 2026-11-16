@@ -281,6 +281,11 @@ func (d *VersionStudyDesign) checkTraceRows(t BundleTrace, rows []TraceRow, wind
 
 // RuntimeIdentity is what the running engine reports about itself, read by the engine-path track at every start.
 type RuntimeIdentity struct {
+	// Model and Tokenizer are what the engine loaded; the controller passes no --tokenizer, so both must be the registered model.
+	Model     string
+	Tokenizer string
+	// InstanceID names the engine process the identity was read from, so a restarted or replaced engine is told apart; the registration does not fix it.
+	InstanceID         string
 	VLLMVersion        string
 	Image              string
 	ModelRevision      string

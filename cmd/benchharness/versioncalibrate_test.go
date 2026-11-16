@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -252,8 +253,12 @@ func TestCalibrateTreatmentAKeepsWhatItChecked(t *testing.T) {
 	if rec.Treatment != bench.TreatmentA || len(rec.Unproven) == 0 || len(rec.ServerInfo) == 0 || len(rec.Version) == 0 {
 		t.Fatalf("identity record %+v, want A's responses and what they leave unproven", rec)
 	}
+	served, _ := os.ReadFile(filepath.Join("..", "..", "internal", "bench", "testdata", "vllm-runtime", "A.server-info.json"))
+	if !bytes.Equal(rec.ServerInfo, served) {
+		t.Fatal("the record does not keep the engine's /server_info byte for byte")
+	}
 	again, err := bench.ParseVLLMRuntime(rec.ServerInfo, rec.Version)
-	if err != nil || again.Settings.Diff(rec.Runtime.Settings) != "" {
+	if err != nil || again.Settings.Diff(rec.Runtime.Settings) != "" || again.InstanceID != rec.Runtime.InstanceID {
 		t.Fatalf("the kept responses do not read back as the recorded identity: %v", err)
 	}
 }
@@ -286,5 +291,64 @@ func TestVersionCalibrateChecksTheEngineItIsGiven(t *testing.T) {
 	}
 	if left, _ := os.ReadDir(dir); len(left) != 0 {
 		t.Fatalf("a refused engine left %d files", len(left))
+	}
+}
+
+// TestCalibrateTreatmentAStopsWhenTheEngineChanges: the engine is read again after every rung, so a replaced engine never decides λ0.
+//
+// The replacement is A restarted (another instance id) or B behind the same URL; either ends the ladder unresolved.
+func TestCalibrateTreatmentAStopsWhenTheEngineChanges(t *testing.T) {
+	st, _ := bench.LookupStudy(bench.StudyVersionAsync)
+	dir := filepath.Join("..", "..", "internal", "bench", "testdata", "vllm-runtime")
+	read := func(name string) []byte {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	aInfo, aVersion := read("A.server-info.json"), read("A.version.json")
+	restarted := []byte(strings.Replace(string(aInfo), `"instance_id":"1794830358496174231"`, `"instance_id":"1794830358496174232"`, 1))
+	if bytes.Equal(restarted, aInfo) {
+		t.Fatal("the capture does not carry the instance id this test replaces")
+	}
+	for name, c := range map[string]struct {
+		info, version []byte
+		want          string
+	}{
+		"A restarted":      {restarted, aVersion, "instance"},
+		"B behind the URL": {read("B.server-info.json"), read("B.version.json"), "vllmVersion"},
+	} {
+		var reads atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// The first read is the check before the ladder and the second the one after rung 1; the engine changes after that.
+			switch {
+			case r.URL.Path == "/server_info" && reads.Add(1) <= 2:
+				_, _ = w.Write(aInfo)
+			case r.URL.Path == "/server_info":
+				_, _ = w.Write(c.info)
+			case r.URL.Path == "/version" && reads.Load() <= 2:
+				_, _ = w.Write(aVersion)
+			case r.URL.Path == "/version":
+				_, _ = w.Write(c.version)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		runner := &bench.RungRunner{}
+		probes := 0
+		probe := func(_ context.Context, rate float64, ordinal int) bench.RungClass {
+			probes++
+			runner.OnRung(ordinal, nil, bench.RungObservation{OfferedRate: rate}, bench.RungStable, nil)
+			return bench.RungStable
+		}
+		res, err := calibrateTreatmentA(context.Background(), t.TempDir(), *st.Version, srv.Client(), srv.URL, runner, probe)
+		srv.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if res.Resolved || !strings.Contains(res.Reason, c.want) || probes != 2 {
+			t.Errorf("%s: resolved %v after %d probes, reason %q; want an unresolved stop naming %s after rung 2", name, res.Resolved, probes, res.Reason, c.want)
+		}
 	}
 }

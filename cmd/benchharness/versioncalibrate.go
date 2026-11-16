@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"time"
@@ -119,9 +120,11 @@ type calibrationIdentity struct {
 	// Unproven is what the responses do not carry and the check therefore did not compare.
 	Unproven []string              `json:"unproven"`
 	Runtime  bench.RuntimeIdentity `json:"runtime"`
-	// ServerInfo and Version are the engine's /server_info?config_format=json and /version bodies, verbatim.
-	ServerInfo json.RawMessage `json:"serverInfo"`
-	Version    json.RawMessage `json:"version"`
+	// ServerInfo and Version are the engine's /server_info?config_format=json and /version bodies.
+	//
+	// They are bytes, written as base64, because a json.RawMessage would be re-encoded and the record would no longer hold what the engine sent.
+	ServerInfo []byte `json:"serverInfo"`
+	Version    []byte `json:"version"`
 }
 
 // calibrationRun is a ladder's result with the identity fields its engine left unproven.
@@ -135,18 +138,26 @@ type calibrationRun struct {
 // Only A's capacity may become λ0, and B and C serve the same model at the same URL shape, so an engine is identified by what it reports before any rung (#645).
 // A refused or unreadable engine gets no rung and leaves dir untouched, so the campaign can still be calibrated against the right one.
 // The responses cannot prove the image, the chat template or the command line, so the check is CheckObservedRuntime and the gap is recorded beside the rungs.
+// The engine is read again after every rung, and a change, its instance id included, ends the ladder unresolved, so a replaced engine never decides λ0.
 func calibrateTreatmentA(ctx context.Context, dir string, d bench.VersionStudyDesign, client *http.Client, engineURL string, runner *bench.RungRunner, probe func(ctx context.Context, rate float64, ordinal int) bench.RungClass) (calibrationRun, error) {
-	resp, err := bench.FetchVLLMIdentity(ctx, client, engineURL)
-	if err != nil {
-		return calibrationRun{}, fmt.Errorf("reading the engine's identity: %w", err)
+	read := func(ctx context.Context) (bench.VLLMIdentityResponses, bench.RuntimeIdentity, []string, error) {
+		resp, err := bench.FetchVLLMIdentity(ctx, client, engineURL)
+		if err != nil {
+			return resp, bench.RuntimeIdentity{}, nil, fmt.Errorf("reading the engine's identity: %w", err)
+		}
+		rt, err := bench.ParseVLLMRuntime(resp.ServerInfo, resp.Version)
+		if err != nil {
+			return resp, rt, nil, fmt.Errorf("reading the engine's identity: %w", err)
+		}
+		unproven, err := d.CheckObservedRuntime(bench.TreatmentA, rt)
+		if err != nil {
+			return resp, rt, nil, fmt.Errorf("the engine at %s is not treatment A, so it is not calibrated: %w", engineURL, err)
+		}
+		return resp, rt, unproven, nil
 	}
-	rt, err := bench.ParseVLLMRuntime(resp.ServerInfo, resp.Version)
+	resp, rt, unproven, err := read(ctx)
 	if err != nil {
-		return calibrationRun{}, fmt.Errorf("reading the engine's identity: %w", err)
-	}
-	unproven, err := d.CheckObservedRuntime(bench.TreatmentA, rt)
-	if err != nil {
-		return calibrationRun{}, fmt.Errorf("the engine at %s is not treatment A, so it is not calibrated: %w", engineURL, err)
+		return calibrationRun{}, err
 	}
 	rec, err := json.MarshalIndent(calibrationIdentity{
 		Treatment: bench.TreatmentA, EngineURL: engineURL, ReadAt: time.Now().UTC(),
@@ -155,7 +166,24 @@ func calibrateTreatmentA(ctx context.Context, dir string, d bench.VersionStudyDe
 	if err != nil {
 		return calibrationRun{}, err
 	}
-	res, err := runVersionCalibration(ctx, dir, d.Calibration, runner, probe, append(rec, '\n'))
+	// Ending the ladder's context is how a rung is kept from deciding it: RunContext treats a rung its context cut as invalid and the ladder as unresolved.
+	lctx, stopLadder := context.WithCancelCause(ctx)
+	defer stopLadder(nil)
+	checked := func(ctx context.Context, rate float64, ordinal int) bench.RungClass {
+		cls := probe(ctx, rate, ordinal)
+		// The engine is read after the rung, so one replaced before or during it is caught before its class counts.
+		_, again, _, err := read(ctx)
+		switch {
+		case err != nil:
+			stopLadder(fmt.Errorf("after rung %d: %w", ordinal, err))
+		case again.InstanceID != rt.InstanceID:
+			stopLadder(fmt.Errorf("after rung %d the engine is instance %s, not the checked instance %s", ordinal, again.InstanceID, rt.InstanceID))
+		case !reflect.DeepEqual(again, rt):
+			stopLadder(fmt.Errorf("after rung %d the engine reports another identity than the one checked", ordinal))
+		}
+		return cls
+	}
+	res, err := runVersionCalibration(lctx, dir, d.Calibration, runner, checked, append(rec, '\n'))
 	return calibrationRun{CalibrationResult: res, unproven: unproven}, err
 }
 
