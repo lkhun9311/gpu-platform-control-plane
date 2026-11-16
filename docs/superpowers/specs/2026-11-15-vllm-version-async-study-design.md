@@ -148,6 +148,7 @@ Every scheduled request gets exactly one disposition (`ClassifyRow`, `RowDisposi
 | Layer | Result |
 |---|---|
 | not dispatched, engine missed its readiness deadline | `engine-unavailable`: a failure of the arm, recorded without pretending the request was sent |
+| labelled `engine-unavailable` but carrying anything a dispatch or a response records (a send or transport-write time, content, an HTTP status, tokens), or a terminal time other than its origin | protocol fault: the cell is invalid, never the arm's failure (clarified 2026-11-16, #645; `StudyDisposition`) |
 | not dispatched for any other reason | protocol fault: the cell is invalid |
 | timed out (whole-request deadline) / transport error / non-200 / stream without `[DONE]` | `timeout` / `transport-error` / `http-error` / `stream-error`: failures of the arm |
 | stream completed | **conformance is checked here, before success**: usage chunk present, `prompt_tokens` equal to the registered count, `completion_tokens` equal to the cap and `finish_reason` `length` (`CheckCompletion`). Any miss is a protocol fault and invalidates the cell; it is never reclassified as an arm failure |
@@ -230,7 +231,7 @@ These rules decide validity without looking at endpoint values. They apply with 
 1. **Incomplete accounting:** a scheduled row without exactly one disposition, or a measured population that differs from the trace's.
    - Clarified 2026-11-16, before any run (#645): a row whose clock places its intended arrival anywhere but its trace offset, or that was sent without one, does not account for its trace either (`ReconcileRecording`). Lag, TTFT and E2E are all measured from that stamp, so a later one would hide the client's lag and shorten every latency. Validity, `CellOutcomes` and preflight all reconcile first, so none of them reads such a row.
 2. **Dispatch lag:** transport write − intended arrival, p99 over P above 10 ms or maximum above 100 ms. The client shares the instance with the engine, so lag could become treatment-dependent. If lag invalidates cells of the same treatment in two blocks, the campaign stops as an incomplete pilot rather than replacing blocks that a treatment keeps invalidating.
-3. **Protocol fault:** a nonconforming completed stream, or a request not dispatched without a recorded engine-unavailable visit.
+3. **Protocol fault:** a nonconforming completed stream, a request not dispatched without a recorded engine-unavailable visit, or a row labelled engine-unavailable that shows it was dispatched (#645).
 4. **Identity:** a manifest that `LoadManifest` refuses is never run. A running engine that `CampaignBundle.CompareRuntime` refuses (version, image digest, model revision, tokenizer, chat template, reviewed effective arguments, any registered setting) invalidates its visit's cells.
 5. **Recorder failure:** any write or durability error, or backlog overflow.
    - Clarified 2026-11-16, before any run (#607): a recorder failure closes its block as **stopped** and ends the campaign as an incomplete pilot. The block is not replaced. This is how a failed journal write was already handled (#612). A recorder that has lost a write is not trusted to record the replacements either.
