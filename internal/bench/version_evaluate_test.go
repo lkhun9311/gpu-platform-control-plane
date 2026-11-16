@@ -131,6 +131,32 @@ func TestCellOutcomesRefuseEvidenceAValidCellCannotHold(t *testing.T) {
 	}
 }
 
+// TestCellOutcomesClassifyTheWarmupToo: a warm-up row the study cannot classify invalidates the cell, as CellValidity says.
+//
+// Only P is measured, but the evidence is the whole cell, so filtering to the window first let a warm-up protocol fault through.
+func TestCellOutcomesClassifyTheWarmupToo(t *testing.T) {
+	d := versionAsyncDesign()
+	p := *versionStudySampling()
+	warm := TraceRow{Index: 0, OffsetMs: 1000, PromptLenChars: 1174, MaxOutputTokens: 64, MinOutputTokens: 64, ExactInputTokens: 256}
+	trace := []TraceRow{warm, evalTraceRow(1, 0)}
+	for name, mutate := range map[string]func(*RawRow){
+		"a sent warm-up row labelled unavailable": func(r *RawRow) { r.Disposition, r.ErrorKind = errKindEngineUnavailable, errKindEngineUnavailable },
+		"a nonconforming warm-up row":             func(r *RawRow) { r.EngineInputTokens = 255 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := timedRow(warm, 0, 10, 20)
+			mutate(&bad)
+			rows := []RawRow{bad, timedRow(trace[1], 0, 100, 1000)}
+			if reason, _ := d.CellValidity(p, 180, trace, rows); !strings.Contains(reason, "protocol fault") {
+				t.Fatalf("cell validity %q, want a protocol fault, so the evaluator is the only thing under test", reason)
+			}
+			if out, err := d.CellOutcomes(p, 180, trace, rows); err == nil {
+				t.Fatalf("outcomes %+v from a cell whose warm-up has a protocol fault", out)
+			}
+		})
+	}
+}
+
 // TestPooledP99IsTheP99OfTheDrawnMultiset: the weighted rank equals building the resampled population and taking its nearest-rank p99.
 func TestPooledP99IsTheP99OfTheDrawnMultiset(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))

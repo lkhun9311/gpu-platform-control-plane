@@ -175,7 +175,7 @@ All latencies are client-observed durations on the client's monotonic clock, fro
 - Time from the last content byte to `[DONE]` and to the usage trailer is reported as a completion-through-trailer diagnostic.
 - Realised denominators are checked: each cell's P must equal its trace's measured count (rule 1 below), so the offered floor of 1,000 per load is met in fact.
 - Implemented offline from the raw rows (#615) as follows:
-  - `CellOutcomes` gives each row of P its TTFT and E2E from intended arrival, with failures at +∞, and whether it is good.
+  - `CellOutcomes` gives each row of P its TTFT and E2E from intended arrival, with failures at +∞, and whether it is good. It classifies the warm-up rows too and refuses the cell if any of them is a protocol fault, as validity does (#645).
   - `LoadEvidenceFor` resamples both arms by the same block counts and takes each pooled nearest-rank p99 by weighted rank, without building the multiset.
   - `Evaluate` applies `AssessLoad`, `CombineLoads` and `SelectTreatment`.
   - The existing `TTFTNanos` and `E2ENanos` fields are not used: they are measured from the send, and their E2E ends at the stream's end.
@@ -230,7 +230,7 @@ These rules decide validity without looking at endpoint values. They apply with 
 
 1. **Incomplete accounting:** a scheduled row without exactly one disposition, or a measured population that differs from the trace's.
    - Clarified 2026-11-16, before any run (#645): a row whose clock places its intended arrival anywhere but its trace offset, or that was sent without one, does not account for its trace either (`ReconcileRecording`). Lag, TTFT and E2E are all measured from that stamp, so a later one would hide the client's lag and shorten every latency. Validity, `CellOutcomes` and preflight all reconcile first, so none of them reads such a row.
-2. **Dispatch lag:** transport write − intended arrival, p99 over P above 10 ms or maximum above 100 ms. The client shares the instance with the engine, so lag could become treatment-dependent. If lag invalidates cells of the same treatment in two blocks, the campaign stops as an incomplete pilot rather than replacing blocks that a treatment keeps invalidating.
+2. **Dispatch lag:** transport write − intended arrival, p99 over P above 10 ms or maximum above 100 ms. The reader refuses a row whose transport write precedes its send, which would shorten the lag (#645). The client shares the instance with the engine, so lag could become treatment-dependent. If lag invalidates cells of the same treatment in two blocks, the campaign stops as an incomplete pilot rather than replacing blocks that a treatment keeps invalidating.
 3. **Protocol fault:** a nonconforming completed stream, a request not dispatched without a recorded engine-unavailable visit, or a row labelled engine-unavailable that shows it was dispatched (#645).
 4. **Identity:** a manifest that `LoadManifest` refuses is never run. A running engine that `CampaignBundle.CompareRuntime` refuses (version, image digest, model revision, tokenizer, chat template, reviewed effective arguments, any registered setting) invalidates its visit's cells.
 5. **Recorder failure:** any write or durability error, or backlog overflow.

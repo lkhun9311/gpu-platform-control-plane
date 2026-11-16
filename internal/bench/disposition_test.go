@@ -208,7 +208,13 @@ func TestReadRawRowsRefusesSemanticallyInvalidCurrentRows(t *testing.T) {
 	mislabelled[0].ErrorKind = "timeout"
 	unknown := append([]RawRow{}, rows...)
 	unknown[1].Disposition = "fine"
-	for name, rs := range map[string][]RawRow{"duplicate": dup, "terminal before send": backwards, "disposition contradicts errorKind": mislabelled, "unknown disposition": unknown} {
+	// The lag ends at the transport write, so one stamped before the send would hide how late the request left.
+	earlyWrite := append([]RawRow{}, rows...)
+	cw := *earlyWrite[1].Clock
+	write := *cw.SendNanos - 1
+	cw.TransportWriteNanos = &write
+	earlyWrite[1].Clock = &cw
+	for name, rs := range map[string][]RawRow{"duplicate": dup, "terminal before send": backwards, "disposition contradicts errorKind": mislabelled, "unknown disposition": unknown, "transport write before send": earlyWrite} {
 		if _, err := ReadRawRows(encode(rs)); err == nil {
 			t.Fatalf("%s rows were read as evidence", name)
 		}

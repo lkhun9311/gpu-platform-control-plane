@@ -51,6 +51,10 @@ func (d VersionStudyDesign) CellOutcomes(p SamplingPolicy, windowSeconds int, tr
 	for _, r := range rows {
 		tr := byIndex[r.Index]
 		if d.PhaseOf(tr.OffsetMs, windowSeconds) != PhaseMeasure {
+			// A warm-up row is not measured, but one the study cannot classify still invalidates the cell, as CellValidity says.
+			if _, err := StudyDisposition(p, r, tr); err != nil {
+				return nil, fmt.Errorf("row %d: %w", r.Index, err)
+			}
 			continue
 		}
 		o, err := d.requestOutcome(p, r, tr)

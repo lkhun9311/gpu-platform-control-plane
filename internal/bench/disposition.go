@@ -211,6 +211,8 @@ func validateClockOrder(r RawRow) error {
 		at   *int64
 	}{
 		{"send", c.SendNanos},
+		// The dispatch lag ends at the transport write, so one stamped before the send would shorten it.
+		{"transport write", c.TransportWriteNanos},
 		{"first content", c.FirstContentNanos},
 		{"last content", c.LastContentNanos},
 		{"stream end", c.EndNanos},
