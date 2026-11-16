@@ -57,6 +57,13 @@ Six arms, `<treatment>-<load>`: `A-l060`, `A-l090`, `B-l060`, `B-l090`, `C-l060`
 `--scheduling-policy=priority` stays (owner, 2026-11-15) because it is the validated incumbent profile. This workload sends no `priority` field, so every request has the same priority.
 No gateway is in the path; a v3 manifest with gateway thresholds, `longThreshold` or `matchTolerance` is refused.
 
+**Amendment 2026-11-16, before any run (owner approved): every engine runs with `VLLM_SERVER_DEV_MODE=1`.**
+- Why: in both releases, `GET /server_info?config_format=json` is the only response that dumps the engine's resolved configuration, and it exists only in dev mode. The resolved configuration covers revisions, dtype, lengths, batch limits, scheduler policy, async scheduling, memory fraction and prefix caching. Source: `vllm/entrypoints/serve/__init__.py` and `serve/dev/server_info/api_router.py` at `v0.27.1` and `v0.32.0`.
+- Without that response, identity would have to copy the expected values, which proves nothing (codex design attack, item 3). `/version`, `/v1/models` and `vllm:cache_config_info` each cover only part of it.
+- Every treatment sets it the same way, and it changes no inference path.
+- It also exposes the cache-reset and RPC dev routes. The engine port is published on loopback only, and the harness calls none of those routes.
+- The response's key names are taken from the paid readiness preflight's raw captures (#594), not assumed, before the identity check is written against them.
+
 ## Comparisons and how one is chosen
 
 - **C vs A is primary**: it is the operational decision, C if it adopts.
