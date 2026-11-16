@@ -8,14 +8,17 @@ import (
 )
 
 // deploymentFlags are the flags every deployment adds to the profile: where it listens, what it calls the model, and
-// the revision it pins, which identity checks separately. They are not part of the reviewed profile.
+// the revision it pins, which identity checks separately.
+// They are not part of the reviewed profile.
 var deploymentFlags = []string{"--port", "--served-model-name", "--revision", "--tokenizer-revision"}
 
 // ParseProfileArgs reduces a running engine's command line to its profile arguments, in order and in --flag=value form.
 //
-// The command must be `vllm serve <model> ...`. The positional model and the deployment flags are removed; a flag
-// that takes a value in the next word is joined to it. A flag missing its value, or given twice, is refused, because
-// either would make the comparison read an argv the engine did not run.
+// The command must be `vllm serve <model> ...`.
+// The positional model and the deployment flags are removed; a flag that takes a value in the next word is joined to
+// it.
+// A flag missing its value, or given twice, is refused, because either would make the comparison read an argv the
+// engine did not run.
 func ParseProfileArgs(argv []string) ([]string, error) {
 	if len(argv) < 3 || argv[0] != "vllm" || argv[1] != "serve" || strings.HasPrefix(argv[2], "-") {
 		return nil, fmt.Errorf("command line %q is not `vllm serve <model> ...`", argv)
@@ -53,7 +56,8 @@ func ParseProfileArgs(argv []string) ([]string, error) {
 }
 
 // CheckRuntime compares a running engine with the registration alone, so a wrong engine is refused at preflight,
-// before calibration or the bundle exist. CompareRuntime adds the bundle's frozen images on top of it.
+// before calibration or the bundle exist.
+// CompareRuntime adds the bundle's frozen images on top of it.
 func (d VersionStudyDesign) CheckRuntime(treatment string, rt RuntimeIdentity) error {
 	want, ok := d.Engines[treatment]
 	if !ok {

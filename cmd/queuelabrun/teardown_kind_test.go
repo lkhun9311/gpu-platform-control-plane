@@ -21,22 +21,24 @@ package main
 // Everything in this file needs a real apiserver with Kueue installed, which is why it is behind a build tag
 // rather than -short: the rest of the package runs against a fake client that has no finalizer controller at
 // all, so its "the namespace is gone" is a tautology — nothing removed the namespace, the fake simply never
-// held anything back. Every phase-order claim in teardown.go is an ARGUMENT about finalizer behaviour, and
-// this file is the only place any of it is checked against the thing being argued about.
+// held anything back.
+// Every phase-order claim in teardown.go is an ARGUMENT about finalizer behaviour, and this file is the only
+// place any of it is checked against the thing being argued about.
 //
-// Two mechanisms in particular are unreachable from the fake and reachable only here. The fake ignores
-// client.Preconditions outright (its Delete checks ResourceVersion and nothing else), so deleteTarget's UID
-// precondition — the single thing standing between teardown and destroying a replacement object it does not
-// own — has never executed. And the budget has only ever expired on an injected clock, so the gap between
-// teardownBudget and teardownContextTimeout has never had a real cancellation on the other side of it.
+// Two mechanisms in particular are unreachable from the fake and reachable only here.
+// The fake ignores client.Preconditions outright (its Delete checks ResourceVersion and nothing else), so
+// deleteTarget's UID precondition — the single thing standing between teardown and destroying a replacement
+// object it does not own — has never executed.
+// And the budget has only ever expired on an injected clock, so the gap between teardownBudget and
+// teardownContextTimeout has never had a real cancellation on the other side of it.
 //
 // Run by hand, with a cluster:
 //
 //	go test -tags queuelabkind ./cmd/queuelabrun/ -run TestKind -count=1 -v
 //
-// These tests only ever touch names derived from their own per-run id, plus the namespace they create. That
-// is the real safety property, not the build tag: a stray invocation against the wrong cluster still cannot
-// name an object it did not make.
+// These tests only ever touch names derived from their own per-run id, plus the namespace they create.
+// That is the real safety property, not the build tag: a stray invocation against the wrong cluster still
+// cannot name an object it did not make.
 
 import (
 	"context"
@@ -59,11 +61,12 @@ import (
 // terminating.
 //
 // A Pod that ignores SIGTERM under a long terminationGracePeriodSeconds would also produce a stuck namespace,
-// and it would be closer to what the lab's own GPU Pods do. It is rejected here for one reason: the test must
-// be able to release it on EVERY exit path, and a grace period cannot be shortened once deletion is under way
-// — only a force-delete escapes it, and a force-delete on a real cluster tells the apiserver the container is
-// gone when it may not be. A finalizer is held and released by this test alone, takes effect whether or not
-// the Pod ever schedules or its image ever pulls, and leaves nothing running behind it.
+// and it would be closer to what the lab's own GPU Pods do.
+// It is rejected here for one reason: the test must be able to release it on EVERY exit path, and a grace
+// period cannot be shortened once deletion is under way — only a force-delete escapes it, and a force-delete
+// on a real cluster tells the apiserver the container is gone when it may not be.
+// A finalizer is held and released by this test alone, takes effect whether or not the Pod ever schedules or
+// its image ever pulls, and leaves nothing running behind it.
 const kindPodFinalizer = "queuelab.gpu-platform/kind-test-hold"
 
 // kindRunID mints a run id unique to this invocation.
@@ -200,9 +203,9 @@ func kindWaitFor(ctx context.Context, t *testing.T, limit time.Duration, what st
 }
 
 // kindPresent reports whether a cluster-scoped object of this target's kind is still readable, and whether it
-// carries a deletionTimestamp. Both halves matter separately: a target with a deletionTimestamp is one whose
-// Delete the apiserver ACCEPTED and a finalizer is holding, which is the exact state that distinguishes
-// "blocked" from "never asked".
+// carries a deletionTimestamp.
+// Both halves matter separately: a target with a deletionTimestamp is one whose Delete the apiserver ACCEPTED
+// and a finalizer is holding, which is the exact state that distinguishes "blocked" from "never asked".
 func kindPresent(ctx context.Context, t *testing.T, c client.Client, tg target) (found, terminating bool, finalizers []string) {
 	t.Helper()
 	obj, err := emptyObjectFor(tg)
@@ -221,16 +224,19 @@ func kindPresent(ctx context.Context, t *testing.T, c client.Client, tg target) 
 // kindCleanup removes everything one test created, on every exit path including a failed one, and then FAILS
 // the test if anything is still standing.
 //
-// The check at the end is not belt-and-braces. A leaked ResourceFlavor or ClusterQueue is cluster-scoped and
-// this cluster is reused, so the cost of a silent leak is not paid by the test that leaked it — it is paid by
-// the next run, as a setup failure in a completely different test. Anything this file deliberately wedges
-// (a Pod finalizer, a stripped namespace) it also releases here, in the order the finalizers require.
+// The check at the end is not belt-and-braces.
+// A leaked ResourceFlavor or ClusterQueue is cluster-scoped and this cluster is reused, so the cost of a
+// silent leak is not paid by the test that leaked it — it is paid by the next run, as a setup failure in a
+// completely different test.
+// Anything this file deliberately wedges (a Pod finalizer, a stripped namespace) it also releases here, in
+// the order the finalizers require.
 func kindCleanup(t *testing.T, c client.Client, s seed) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	// Pods first: a Pod this file wedged is what holds the namespace, and the namespace is what holds the
-	// Workloads that hold the ClusterQueues. Releasing it in any other order just means waiting.
+	// Workloads that hold the ClusterQueues.
+	// Releasing it in any other order just means waiting.
 	var pods corev1.PodList
 	if err := c.List(ctx, &pods, client.InNamespace(s.Namespace)); err == nil {
 		for i := range pods.Items {
@@ -247,8 +253,9 @@ func kindCleanup(t *testing.T, c client.Client, s seed) {
 
 	// Workloads are deleted by name rather than left to the namespace, because one test deliberately strips
 	// the namespace's own finalizer and the Workloads it contained then outlive it — orphaned, unreachable by
-	// any namespace delete, and still reserving quota in Kueue's cache. A LIST scoped to a namespace that no
-	// longer exists still returns them, which is the only reason this recovery is possible at all.
+	// any namespace delete, and still reserving quota in Kueue's cache.
+	// A LIST scoped to a namespace that no longer exists still returns them, which is the only reason this
+	// recovery is possible at all.
 	var wls kueuev1beta2.WorkloadList
 	if err := c.List(ctx, &wls, client.InNamespace(s.Namespace)); err == nil {
 		for i := range wls.Items {
@@ -307,11 +314,11 @@ func kindCleanup(t *testing.T, c client.Client, s seed) {
 //
 // deleteTargets breaks out of its phase loop rather than pressing on, and the reason given at
 // teardown_apply.go's break is that deleting a ClusterQueue while the namespace holding its Workloads is
-// still there "does not fail loudly — it blocks on the resource-in-use finalizer". Every other test in this
-// package takes that on trust, because a fake client has no finalizers to block on. If it were wrong — if an
-// out-of-order Delete returned an error the executor could see — the phase machinery would be an elaborate
-// way to avoid an error message, and the honest design would be to delete everything at once and read the
-// failures.
+// still there "does not fail loudly — it blocks on the resource-in-use finalizer".
+// Every other test in this package takes that on trust, because a fake client has no finalizers to block on.
+// If it were wrong — if an out-of-order Delete returned an error the executor could see — the phase
+// machinery would be an elaborate way to avoid an error message, and the honest design would be to delete
+// everything at once and read the failures.
 //
 // So this test deletes IN THE WRONG ORDER on purpose and reports what the apiserver actually does.
 func TestKindOutOfOrderDeleteBlocksSilently(t *testing.T) {
@@ -388,9 +395,10 @@ func TestKindOutOfOrderDeleteBlocksSilently(t *testing.T) {
 	}
 	t.Logf("20s later: ResourceFlavor %s still present, terminating=%v finalizers=%v", flavor.Name, terminating, fins)
 
-	// The counterpart the first half only implies: the block is not permanent damage, it is a wait. Removing
-	// the namespace releases the Workload, and the delete the apiserver accepted 20 seconds ago completes on
-	// its own. This is what makes "does not fail loudly" the right description rather than "fails later".
+	// The counterpart the first half only implies: the block is not permanent damage, it is a wait.
+	// Removing the namespace releases the Workload, and the delete the apiserver accepted 20 seconds ago
+	// completes on its own.
+	// This is what makes "does not fail loudly" the right description rather than "fails later".
 	if err := c.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: s.Namespace}}); err != nil {
 		t.Fatalf("delete namespace: %v", err)
 	}
@@ -403,11 +411,13 @@ func TestKindOutOfOrderDeleteBlocksSilently(t *testing.T) {
 	t.Logf("ClusterQueue %s cleared %s after the namespace delete, with no second Delete issued",
 		cq.Name, time.Since(unblocked).Round(time.Second))
 
-	// And now the SECOND ordering claim, which the namespace has nothing to do with. The flavor's Delete was
-	// accepted 20 seconds ago and the ClusterQueue that was reserving quota is gone — but its sibling still
-	// references the flavor, and teardown.go says a flavor's finalizer clears "only once every ClusterQueue
-	// that references it is gone". Every, not any. This is where a phase that deleted one ClusterQueue and
-	// called the phase settled would look correct right up until the flavor never went away.
+	// And now the SECOND ordering claim, which the namespace has nothing to do with.
+	// The flavor's Delete was accepted 20 seconds ago and the ClusterQueue that was reserving quota is gone
+	// — but its sibling still references the flavor, and teardown.go says a flavor's finalizer clears "only
+	// once every ClusterQueue that references it is gone".
+	// Every, not any.
+	// This is where a phase that deleted one ClusterQueue and called the phase settled would look correct
+	// right up until the flavor never went away.
 	if found, _, fins := kindPresent(ctx, t, c, flavor); !found {
 		t.Fatalf("ResourceFlavor %s went away while ClusterQueue %s still references it; the flavor phase would "+
 			"then not need to wait for the whole ClusterQueue phase, only for the reserving one", flavor.Name, cqs[1].Name)
@@ -438,9 +448,10 @@ func TestKindOutOfOrderDeleteBlocksSilently(t *testing.T) {
 
 // TestKindTeardownOrderClearsRealFinalizers runs the executor itself, unmodified, against the finalizers.
 //
-// The fake client's version of this test proves that deleteTargets issues deletes in phase order. It cannot
-// prove the order is sufficient, because nothing in the fake ever refuses. Here a residue of zero means every
-// Kueue finalizer actually cleared, in the order enumerate declares, inside a real budget.
+// The fake client's version of this test proves that deleteTargets issues deletes in phase order.
+// It cannot prove the order is sufficient, because nothing in the fake ever refuses.
+// Here a residue of zero means every Kueue finalizer actually cleared, in the order enumerate declares,
+// inside a real budget.
 func TestKindTeardownOrderClearsRealFinalizers(t *testing.T) {
 	s := kindSeed()
 	c := kindClient(t)
@@ -451,9 +462,10 @@ func TestKindTeardownOrderClearsRealFinalizers(t *testing.T) {
 	fs := kindFixtures(ctx, t, c, s)
 	kindReserveQuota(ctx, t, c, s, fs.LocalQueue[0].GetName())
 
-	// The UIDs recovery learns are the apiserver's own, not a value a test double stamped on. Checking one is
-	// cheap and it pins the input every later assertion depends on: deleteTarget arms its precondition with
-	// WantUID, so a recovery that learned the wrong UID would turn every Delete below into a 409.
+	// The UIDs recovery learns are the apiserver's own, not a value a test double stamped on.
+	// Checking one is cheap and it pins the input every later assertion depends on: deleteTarget arms its
+	// precondition with WantUID, so a recovery that learned the wrong UID would turn every Delete below into
+	// a 409.
 	obs, err := recoverTargets(ctx, c, s, s.TxID)
 	if err != nil {
 		t.Fatalf("recover: %v", err)
@@ -476,8 +488,9 @@ func TestKindTeardownOrderClearsRealFinalizers(t *testing.T) {
 	}
 
 	// A budget well under teardownBudget, because what is measured here is whether the order clears at all —
-	// not what the production ceiling should be. On this cluster the whole cascade settles in seconds, so a
-	// three-minute wait would only make a failure slower to see.
+	// not what the production ceiling should be.
+	// On this cluster the whole cascade settles in seconds, so a three-minute wait would only make a failure
+	// slower to see.
 	res, err := deleteTargets(ctx, c, s, s.TxID, time.Now, time.Sleep, 90*time.Second)
 	if err != nil {
 		t.Fatalf("deleteTargets: %v", err)
@@ -497,13 +510,15 @@ func TestKindTeardownOrderClearsRealFinalizers(t *testing.T) {
 // TestKindDeletePreconditionRefusesAStaleUID is the first execution, ever, of deleteTarget's precondition.
 //
 // The fake client ignores client.Preconditions entirely — its Delete compares ResourceVersion and nothing
-// else — so a Delete carrying a deliberately wrong UID returns nil there and removes the object anyway. Every
-// existing test in this package is therefore blind to the mechanism in both directions: a WantUID that was
-// always wrong would turn every real teardown into full residue, and a precondition that was never armed
-// would let teardown destroy a replacement object it does not own. Neither is visible without an apiserver.
+// else — so a Delete carrying a deliberately wrong UID returns nil there and removes the object anyway.
+// Every existing test in this package is therefore blind to the mechanism in both directions: a WantUID that
+// was always wrong would turn every real teardown into full residue, and a precondition that was never armed
+// would let teardown destroy a replacement object it does not own.
+// Neither is visible without an apiserver.
 //
-// The refusal is the assertion that matters. A test that only checked the correct UID would pass just as well
-// against a client that dropped the precondition on the floor.
+// The refusal is the assertion that matters.
+// A test that only checked the correct UID would pass just as well against a client that dropped the
+// precondition on the floor.
 func TestKindDeletePreconditionRefusesAStaleUID(t *testing.T) {
 	s := kindSeed()
 	c := kindClient(t)
@@ -511,11 +526,12 @@ func TestKindDeletePreconditionRefusesAStaleUID(t *testing.T) {
 	defer cancel()
 	t.Cleanup(func() { kindCleanup(t, c, s) })
 
-	// The ResourceFlavor ALONE, and the "alone" is load-bearing rather than frugal. Kueue holds a flavor's
-	// resource-in-use finalizer for as long as any ClusterQueue references it, so creating the run's full
-	// fixture set here would make the correct-UID delete below block on the ordering this test is not about,
-	// and the takeover half would never be reached. The other targets simply read NotFound in recovery, which
-	// costs nothing: this test asks about identity, not about phases.
+	// The ResourceFlavor ALONE, and the "alone" is load-bearing rather than frugal.
+	// Kueue holds a flavor's resource-in-use finalizer for as long as any ClusterQueue references it, so
+	// creating the run's full fixture set here would make the correct-UID delete below block on the ordering
+	// this test is not about, and the takeover half would never be reached.
+	// The other targets simply read NotFound in recovery, which costs nothing: this test asks about identity,
+	// not about phases.
 	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
@@ -534,8 +550,9 @@ func TestKindDeletePreconditionRefusesAStaleUID(t *testing.T) {
 		t.Fatalf("recovery learned no UID for %s", flavor.Name)
 	}
 
-	// A UID that is well-formed and belongs to nothing. This is the shape of the hazard deleteTarget's comment
-	// names: between the read that learned the UID and the Delete, the name changed hands.
+	// A UID that is well-formed and belongs to nothing.
+	// This is the shape of the hazard deleteTarget's comment names: between the read that learned the UID and
+	// the Delete, the name changed hands.
 	stale := ours
 	stale.WantUID = "00000000-0000-0000-0000-000000000000"
 	err = deleteTarget(ctx, c, stale)
@@ -553,9 +570,9 @@ func TestKindDeletePreconditionRefusesAStaleUID(t *testing.T) {
 	}
 
 	// The takeover, reproduced literally rather than simulated with an invented UID: delete the object, let a
-	// different one take the name, and try the delete the executor would have had queued. The name matches,
-	// the kind matches, and only the UID says it is not ours. Whether a real apiserver enforces THAT is the
-	// question the whole absenceForeign path is built on.
+	// different one take the name, and try the delete the executor would have had queued.
+	// The name matches, the kind matches, and only the UID says it is not ours.
+	// Whether a real apiserver enforces THAT is the question the whole absenceForeign path is built on.
 	if err := deleteTarget(ctx, c, ours); err != nil {
 		t.Fatalf("delete with the correct UID: %v", err)
 	}
@@ -595,9 +612,11 @@ func TestKindDeletePreconditionRefusesAStaleUID(t *testing.T) {
 //
 // First, that expiry produces residue that says PRESENT — the executor's whole contract with the next run is
 // that a target it could not remove is reported as still there, not as an unknown the next run has to guess
-// about. Second, that the phase gate holds on a cluster: with phase 0 stuck, no ClusterQueue may carry a
-// deletionTimestamp when the budget runs out. The fake can be made to show the first; only a cluster can
-// stall a phase for real while the objects behind it sit there deletable.
+// about.
+// Second, that the phase gate holds on a cluster: with phase 0 stuck, no ClusterQueue may carry a
+// deletionTimestamp when the budget runs out.
+// The fake can be made to show the first; only a cluster can stall a phase for real while the objects behind
+// it sit there deletable.
 //
 // The second subtest is the measurement the ledger records as never having been taken: the gap between
 // teardownBudget and teardownContextTimeout, with the context on the wrong side of it.
@@ -633,9 +652,10 @@ func TestKindStuckNamespaceExpiresToResidue(t *testing.T) {
 		t.Fatalf("enumerate: %v", err)
 	}
 
-	// Budgets here are deliberately far below teardownBudget. The property is "expiry produces present-residue
-	// and holds the later phases shut", and that property does not depend on the number: at three minutes each
-	// subtest would cost three real minutes to prove the same thing, and the tests would stop being run.
+	// Budgets here are deliberately far below teardownBudget.
+	// The property is "expiry produces present-residue and holds the later phases shut", and that property
+	// does not depend on the number: at three minutes each subtest would cost three real minutes to prove the
+	// same thing, and the tests would stop being run.
 	t.Run("budget expiry reports present, not unknown", func(t *testing.T) {
 		// The context is given the same shape the production pair has — strictly more than the budget — because
 		// this subtest exists to show what that gap buys.
@@ -662,21 +682,25 @@ func TestKindStuckNamespaceExpiresToResidue(t *testing.T) {
 			t.Errorf("namespace residue says Terminating=false, but its Delete was accepted and a Pod finalizer is holding it")
 		}
 
-		// The phase gate, on a real cluster. Both ClusterQueues are sitting there perfectly deletable — nothing
-		// on the apiserver would refuse — and the only reason they are untouched is that the executor never
-		// reached phase 1. This is the assertion the fake cannot make, because in the fake the namespace would
-		// have gone away and the phase would have advanced.
+		// The phase gate, on a real cluster.
+		// Both ClusterQueues are sitting there perfectly deletable — nothing on the apiserver would refuse —
+		// and the only reason they are untouched is that the executor never reached phase 1.
+		// This is the assertion the fake cannot make, because in the fake the namespace would have gone away
+		// and the phase would have advanced.
 		//
 		// "Perfectly deletable" is measured, not assumed, and it CORRECTS the reason teardown_apply.go gives
-		// for its break. That comment says deleting a ClusterQueue while the namespace holding its Workloads is
-		// still there blocks on the resource-in-use finalizer. On this cluster it does not: a namespace that is
-		// merely Terminating has already had its Workloads reaped — measured at ~6s, with reservingWorkloads
-		// dropping 1 -> 0 while the namespace stayed Terminating indefinitely behind a Pod finalizer. What
-		// blocks a ClusterQueue is a Workload still RESERVING it, and namespace absence is a sufficient but far
-		// from necessary condition for that. The phase order is still SAFE — a namespace that is gone provably
-		// has no Workloads — but in exactly the state the gate exists for it is conservatism rather than
-		// protection, and the cost is visible in the residue count logged above: four targets reported, of
-		// which three were removable at the moment teardown gave up, on a disposition that holds the worker.
+		// for its break.
+		// That comment says deleting a ClusterQueue while the namespace holding its Workloads is still there
+		// blocks on the resource-in-use finalizer.
+		// On this cluster it does not: a namespace that is merely Terminating has already had its Workloads
+		// reaped — measured at ~6s, with reservingWorkloads dropping 1 -> 0 while the namespace stayed
+		// Terminating indefinitely behind a Pod finalizer.
+		// What blocks a ClusterQueue is a Workload still RESERVING it, and namespace absence is a sufficient
+		// but far from necessary condition for that.
+		// The phase order is still SAFE — a namespace that is gone provably has no Workloads — but in exactly
+		// the state the gate exists for it is conservatism rather than protection, and the cost is visible in
+		// the residue count logged above: four targets reported, of which three were removable at the moment
+		// teardown gave up, on a disposition that holds the worker.
 		// Left as an observation on purpose; changing what the executor does with it is not this task's job.
 		zeroReserving, totalCQ := 0, 0
 		for _, tg := range targets {
@@ -716,8 +740,9 @@ func TestKindStuckNamespaceExpiresToResidue(t *testing.T) {
 		// This is the state teardownContextTimeout's comment says must never happen, run on purpose so the cost
 		// is a measurement rather than an argument: the context expires first, every read and delete comes back
 		// cancelled, and a teardown that merely ran out of time becomes indistinguishable from one that could
-		// not talk to the apiserver at all. Nothing is asserted about the executor being wrong here — it is
-		// behaving exactly as designed. What is asserted is that the gap is load-bearing.
+		// not talk to the apiserver at all.
+		// Nothing is asserted about the executor being wrong here — it is behaving exactly as designed.
+		// What is asserted is that the gap is load-bearing.
 		bctx, bcancel := context.WithTimeout(ctx, 5*time.Second)
 		defer bcancel()
 		res, err := deleteTargets(bctx, c, s, s.TxID, time.Now, time.Sleep, 20*time.Second)
@@ -740,17 +765,19 @@ func TestKindStuckNamespaceExpiresToResidue(t *testing.T) {
 // TestKindStrippedNamespaceFinalizerLeavesResidue covers the thing a human does to a stuck namespace.
 //
 // Removing the `kubernetes` finalizer through the finalize subresource is the standard advice, and it works
-// in the sense that the namespace disappears. What it does NOT do is delete the contents: they stay in etcd
-// under a namespace that no longer exists, permanently, reachable only by name. The plan's Global Constraints
-// forbid the executor from ever printing this as a recovery step, and the risk that makes it worth forbidding
-// is that the audit might then read CLEAN over live objects — the namespace target really is NotFound, and a
-// teardown that only asked about its own three names could stop there.
+// in the sense that the namespace disappears.
+// What it does NOT do is delete the contents: they stay in etcd under a namespace that no longer exists,
+// permanently, reachable only by name.
+// The plan's Global Constraints forbid the executor from ever printing this as a recovery step, and the risk
+// that makes it worth forbidding is that the audit might then read CLEAN over live objects — the namespace
+// target really is NotFound, and a teardown that only asked about its own three names could stop there.
 //
-// So the question is whether the residue is zero. It is not, and the reason is worth stating: the orphaned
-// Workload is still in Kueue's cache, still reserving, so the ClusterQueue's resource-in-use finalizer never
-// clears and phase 1 never settles. The audit survives this by accident of the phase order rather than by
-// looking for orphans, which is exactly the kind of containment the ledger says must not be relied on
-// silently — hence this test, which pins it.
+// So the question is whether the residue is zero.
+// It is not, and the reason is worth stating: the orphaned Workload is still in Kueue's cache, still
+// reserving, so the ClusterQueue's resource-in-use finalizer never clears and phase 1 never settles.
+// The audit survives this by accident of the phase order rather than by looking for orphans, which is
+// exactly the kind of containment the ledger says must not be relied on silently — hence this test, which
+// pins it.
 func TestKindStrippedNamespaceFinalizerLeavesResidue(t *testing.T) {
 	s := kindSeed()
 	c := kindClient(t)
@@ -772,8 +799,9 @@ func TestKindStrippedNamespaceFinalizerLeavesResidue(t *testing.T) {
 		return ns.DeletionTimestamp != nil, string(ns.Status.Phase)
 	})
 	// The finalize subresource, not an Update: the `kubernetes` finalizer lives in spec.finalizers, and the
-	// apiserver only accepts a change to it through this endpoint. Reached through SubResource rather than a
-	// second clientset because it is a PUT of the namespace body to .../finalize and nothing more.
+	// apiserver only accepts a change to it through this endpoint.
+	// Reached through SubResource rather than a second clientset because it is a PUT of the namespace body
+	// to .../finalize and nothing more.
 	ns.Spec.Finalizers = nil
 	if err := c.SubResource("finalize").Update(ctx, &ns); err != nil {
 		t.Fatalf("strip the namespace finalizer: %v", err)
@@ -816,9 +844,10 @@ func TestKindStrippedNamespaceFinalizerLeavesResidue(t *testing.T) {
 			continue
 		}
 		heldCQ = true
-		// Present, not unknown, is the specific claim. A residue that could only say "I do not know" about the
-		// object the orphan is holding would leave the next run unable to tell this from an apiserver it could
-		// not reach, and this is the case where the difference is the whole point: something IS there.
+		// Present, not unknown, is the specific claim.
+		// A residue that could only say "I do not know" about the object the orphan is holding would leave the
+		// next run unable to tell this from an apiserver it could not reach, and this is the case where the
+		// difference is the whole point: something IS there.
 		if r.Absence != absencePresent {
 			t.Errorf("ClusterQueue %s residue absence=%d, want absencePresent(%d)",
 				r.Observation.Target.Name, r.Absence, absencePresent)

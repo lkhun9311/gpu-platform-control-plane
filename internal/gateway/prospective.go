@@ -93,8 +93,8 @@ func (r *reservation) Done() {
 // prospectiveAdmitter holds, per backend, the standard tier's reserved input tokens and running streams.
 //
 // The input is the gateway's estimate, ceil(characters / 4), not the engine's token count: the gateway has no
-// tokenizer, and a ceiling over-reserves rather than under-reserves. A registration that relies on exact work
-// must say how it reconciles the two.
+// tokenizer, and a ceiling over-reserves rather than under-reserves.
+// A registration that relies on exact work must say how it reconciles the two.
 type prospectiveAdmitter struct {
 	mu            sync.Mutex
 	prefillTokens int

@@ -15,9 +15,10 @@ import (
 // now met seven times.
 //
 // The split itself is forced: controller-gen has no marker for a namespaceSelector, and the Pod and Job
-// guards must not apply to kube-system. So the hand-written file is authoritative for what markers cannot
-// say, and this test holds it to the markers for everything they can: which operations are admitted, on
-// which resources and API groups, at which handler path, and under which failure policy.
+// guards must not apply to kube-system.
+// So the hand-written file is authoritative for what markers cannot say, and this test holds it to the
+// markers for everything they can: which operations are admitted, on which resources and API groups, at
+// which handler path, and under which failure policy.
 //
 // Mutation that turns this red: change a +kubebuilder:webhook marker in internal/webhook/v1 and re-run
 // `make manifests` without carrying the change into config/webhook/manifests.yaml.
@@ -37,9 +38,9 @@ func TestHandWrittenWebhookMatchesTheMarkers(t *testing.T) {
 			continue
 		}
 		// The Service name and namespace are deliberately different -- the deployed file spells them out in
-		// full because no kustomize transformer reaches it -- so only the path is compared. The path is what
-		// routes an admission request to a handler, and a mismatch there is a webhook the apiserver calls at
-		// a URL nothing serves.
+		// full because no kustomize transformer reaches it -- so only the path is compared.
+		// The path is what routes an admission request to a handler, and a mismatch there is a webhook the
+		// apiserver calls at a URL nothing serves.
 		if p, q := pathOf(want), pathOf(got); p != q {
 			t.Errorf("webhook %q: the markers serve it at %q and the deployed configuration points at %q",
 				name, p, q)

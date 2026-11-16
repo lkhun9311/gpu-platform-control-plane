@@ -114,7 +114,8 @@ var _ = Describe("bucketRegistry", func() {
 	})
 
 	// The endpoint-level check cannot see a floor: 59.99 s floored is 59, and the random second makes it 60 half the
-	// time, which the check accepts. Many draws see both the bottom of the range and that nothing falls below it.
+	// time, which the check accepts.
+	// Many draws see both the bottom of the range and that nothing falls below it.
 	// Mutation that turns this red: floor the wait instead of rounding it up.
 	It("rounds the hint up and adds at most one second", func() {
 		seen := map[int]bool{}
@@ -131,8 +132,8 @@ var _ = Describe("bucketRegistry", func() {
 })
 
 // A Server whose rate limiter was never installed used to PANIC on the first request carrying a policy with a
-// rate limit: Allow handled a nil policy and then dereferenced the nil registry. The comment on
-// InitRateLimiter claimed the gateway guarded that case, and nothing did.
+// rate limit: Allow handled a nil policy and then dereferenced the nil registry.
+// The comment on InitRateLimiter claimed the gateway guarded that case, and nothing did.
 //
 // It refuses rather than allows, because a limiter that cannot function must not answer "within budget" —
 // that serves unlimited traffic under a configuration saying otherwise, with nothing anywhere to say so.

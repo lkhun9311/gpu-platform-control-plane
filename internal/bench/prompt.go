@@ -21,13 +21,14 @@ import "strings"
 // promptCorpus is the text every generated prompt is cut from.
 //
 // It replaces strings.Repeat("x", n), which was chosen for convenience and quietly decided how hard the
-// experiment pushes the engine. A byte-pair tokenizer merges long runs of one character into single
-// tokens, and how far it merges is a property of the vocabulary rather than of the traffic: measured
-// against the 40,000-character contender prompt, Qwen2.5 turned it into 5,029 tokens and Phi-3 into
-// 10,004. The same frozen trace therefore placed twice the KV-cache load on one served model as on the
-// other, while the manifest reported both runs as the same traffic. Ordinary prose does not behave that
-// way -- the same two tokenizers read 40,000 characters of it as 9,299 and 11,511 tokens, a spread of
-// vocabulary size rather than of payload shape.
+// experiment pushes the engine.
+// A byte-pair tokenizer merges long runs of one character into single tokens, and how far it merges is
+// a property of the vocabulary rather than of the traffic: measured against the 40,000-character
+// contender prompt, Qwen2.5 turned it into 5,029 tokens and Phi-3 into 10,004.
+// The same frozen trace therefore placed twice the KV-cache load on one served model as on the other,
+// while the manifest reported both runs as the same traffic.
+// Ordinary prose does not behave that way -- the same two tokenizers read 40,000 characters of it as
+// 9,299 and 11,511 tokens, a spread of vocabulary size rather than of payload shape.
 //
 // The subject matter is this project's own, so the text sits in the register a serving gateway actually
 // receives rather than in a literary one, and it is ASCII so that cutting it to a byte length can never
@@ -53,11 +54,12 @@ const promptCorpus = `A scheduler that admits work it cannot finish has not sche
 
 // PromptCorpusSHA256 identifies the corpus the running binary will send.
 //
-// The trace checksum cannot cover this. A trace row records a prompt LENGTH, and the text of that length is
-// synthesised here at send time, so two binaries built from different corpora replay the same checksummed
-// trace as different bytes on the wire while every arm reports the same traceChecksum. The manifest carries
-// this value so the mismatch is refused at load instead of surviving into the report as an unexplained
-// difference between arms.
+// The trace checksum cannot cover this.
+// A trace row records a prompt LENGTH, and the text of that length is synthesised here at send time, so two
+// binaries built from different corpora replay the same checksummed trace as different bytes on the wire
+// while every arm reports the same traceChecksum.
+// The manifest carries this value so the mismatch is refused at load instead of surviving into the report
+// as an unexplained difference between arms.
 var PromptCorpusSHA256 = Checksum([]byte(promptCorpus))
 
 // PromptText returns exactly n characters of prompt text, deterministically.

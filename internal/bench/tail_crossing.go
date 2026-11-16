@@ -25,10 +25,11 @@ import (
 // TailCrossingLevel is one arm of a tail-crossing sweep, read against the isolated baseline.
 //
 // The estimand is the POOLED percentile over every completed latency-critical request of every trace, and
-// not the median of the per-trace p99s the sharing matrix registered. The 2026-10-04 model-first
-// registration made each repetition an independent trace, so the population is the arrival process; the
-// median of per-trace p99s would summarise a statistic of each draw instead of the draws together, and at
-// about 172 completions a trace's p99 is its second-largest value. The per-trace p99s are carried beside it.
+// not the median of the per-trace p99s the sharing matrix registered.
+// The 2026-10-04 model-first registration made each repetition an independent trace, so the population is
+// the arrival process; the median of per-trace p99s would summarise a statistic of each draw instead of the
+// draws together, and at about 172 completions a trace's p99 is its second-largest value.
+// The per-trace p99s are carried beside it.
 type TailCrossingLevel struct {
 	Arm       string
 	Traces    int
@@ -58,8 +59,9 @@ type TailCrossingResult struct {
 // EvaluateTailCrossing reads each BE level of a tail-crossing sweep against the isolated baseline.
 //
 // It registers no verdict and no threshold, as the exploratory registration does not; it reports magnitudes
-// and the reasons a magnitude is withheld. A level is refused on its own -- a censored or thin level does not
-// take the others with it -- while a baseline that cannot be read refuses all of them.
+// and the reasons a magnitude is withheld.
+// A level is refused on its own -- a censored or thin level does not take the others with it -- while a
+// baseline that cannot be read refuses all of them.
 func EvaluateTailCrossing(study string, summaries []ArmSummary) TailCrossingResult {
 	r := TailCrossingResult{Study: study}
 	var base *ArmSummary

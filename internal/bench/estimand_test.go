@@ -19,8 +19,9 @@ var (
 // The ratio is computed from the ROUNDED integers, not from the unrounded medians.
 //
 // The third 2026-09-30 amendment chose this so "a reader dividing the two published integers" reproduces the
-// published ratio, and it named the cost: the extra significant figures are discarded. The two answers differ
-// in the third significant figure on the measured run, so this is a real choice and not a formatting detail.
+// published ratio, and it named the cost: the extra significant figures are discarded.
+// The two answers differ in the third significant figure on the measured run, so this is a real choice and
+// not a formatting detail.
 //
 // Mutation that turns this red: compute Ratio from medianOf(colocated)/medianOf(baseline).
 func TestTheRatioComesFromTheRoundedIntegers(t *testing.T) {
@@ -102,9 +103,10 @@ func TestAZeroRoundedBaselineIsRefused(t *testing.T) {
 
 // The bootstrap resamples BLOCKS, so permuting one arm alone changes the interval.
 //
-// This is the test that tells a paired bootstrap from two independent ones. An unpaired implementation draws
-// its own indices per arm, so it sees only each arm's multiset of values and a permutation of one arm cannot
-// change its answer. A paired one breaks the (b_i, c_i) correspondence and must move.
+// This is the test that tells a paired bootstrap from two independent ones.
+// An unpaired implementation draws its own indices per arm, so it sees only each arm's multiset of values
+// and a permutation of one arm cannot change its answer.
+// A paired one breaks the (b_i, c_i) correspondence and must move.
 //
 // Mutation that turns this red: draw a separate index for rc[j].
 func TestThePairingIsOverBlocksNotArms(t *testing.T) {
@@ -155,8 +157,9 @@ func TestASingleRepetitionIsNotAnInterval(t *testing.T) {
 // This is a sanity check on the implementation rather than a registered requirement, and it is written against
 // the UNROUNDED ratio on purpose: the interval is computed from unrounded medians, the published point
 // estimate is not, and that mismatch is exactly what the unsettled rounding convention in RatioCI's comment is
-// about. If this ever fails for the published ratio instead, the amendment is owed a decision, not this test a
-// looser bound.
+// about.
+// If this ever fails for the published ratio instead, the amendment is owed a decision, not this test a looser
+// bound.
 func TestTheIntervalBracketsTheUnroundedRatio(t *testing.T) {
 	e := ComputeRegisteredEstimand(measuredR1, measuredShared)
 	if !e.RatioCI.Valid {

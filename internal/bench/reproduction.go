@@ -12,11 +12,12 @@ import (
 
 // ReproductionFacts is what a run has to match for a later run to be called a reproduction of it.
 //
-// It exists because a registration said "reproduction" and nothing checked it. On 2026-10-02 a paid run was
-// registered as a five-repetition reproduction of the 2026-09-13 pilot and offered a 294-token premium prompt
-// against that pilot's 50, with a 60-second timeout against its 30. The pre-purchase plan check passed it in
-// full: `MatrixPlanRefusal` asks whether a cell is SCORABLE -- study registered, arm admitted, per-repetition
-// tail floor -- and has no notion of "the same load as a named prior run".
+// It exists because a registration said "reproduction" and nothing checked it.
+// On 2026-10-02 a paid run was registered as a five-repetition reproduction of the 2026-09-13 pilot and
+// offered a 294-token premium prompt against that pilot's 50, with a 60-second timeout against its 30.
+// The pre-purchase plan check passed it in full: `MatrixPlanRefusal` asks whether a cell is SCORABLE -- study
+// registered, arm admitted, per-repetition tail floor -- and has no notion of "the same load as a named prior
+// run".
 //
 // The fields here are the ones a frozen manifest records about the offered traffic and the judging contract.
 // They are deliberately NOT the whole manifest: GatewayURL and TracePath are where a run happened to put
@@ -32,43 +33,48 @@ type ReproductionFacts struct {
 	LongThreshold   int
 
 	// MatchTolerance and PrimaryEndpoint are the judging contract, required in every manifest, so they are
-	// compared as plain values (2026-10-07 registration, amendment). They were outside the comparison before.
+	// compared as plain values (2026-10-07 registration, amendment).
+	// They were outside the comparison before.
 	MatchTolerance  string
 	PrimaryEndpoint string
 
 	// TokenizerRev and PromptLenChars are absent from manifests written before those fields existed.
 	//
-	// An absent field is NOT a match. See ReproductionRefusal: it is reported as UNKNOWN and refuses, because
-	// treating "not recorded" as "the same" is how the defect this file closes would recur.
+	// An absent field is NOT a match.
+	// See ReproductionRefusal: it is reported as UNKNOWN and refuses, because treating "not recorded" as "the
+	// same" is how the defect this file closes would recur.
 	TokenizerRev   string
 	PromptLenChars map[string]int
 
 	// GatewaySHA and ImageDigests say which build produced the numbers.
 	//
-	// The 2026-09-13 pilot has neither: the code that fills them landed on 2026-09-16. So a reproduction of
-	// that pilot cannot be certified on the environment, only on the offered traffic, and the refusal says so
-	// rather than passing quietly.
+	// The 2026-09-13 pilot has neither: the code that fills them landed on 2026-09-16.
+	// So a reproduction of that pilot cannot be certified on the environment, only on the offered traffic,
+	// and the refusal says so rather than passing quietly.
 	GatewaySHA   string
 	ImageDigests map[string]string
 
 	// GatewayBinarySHA256 and GatewayBase name the gateway by content (2026-10-07 registration).
 	//
 	// When both runs recorded them, they replace the gateway's image ID in the comparison, because that ID
-	// changes with every build of one binary on one base. Every run before that page recorded neither.
+	// changes with every build of one binary on one base.
+	// Every run before that page recorded neither.
 	GatewayBinarySHA256 string
 	GatewayBase         string
 }
 
 // ReproductionFactsFromArchive reads one run's manifests out of an archive directory, keyed by arm.
 //
-// It does NOT use LoadManifest, and that is the whole reason this function exists. LoadManifest verifies
-// TraceChecksum against the file TracePath names, and every archive this project has records TracePath as
-// `/src/m5c-run/trace-<arm>-<rep>.jsonl` -- the path INSIDE the rented instance. That path does not exist in
-// a checkout, so LoadManifest fails on every archived manifest. The trace files are in the archive, beside
-// the manifests, so the checksum is verified against the copy that is actually there.
+// It does NOT use LoadManifest, and that is the whole reason this function exists.
+// LoadManifest verifies TraceChecksum against the file TracePath names, and every archive this project has
+// records TracePath as `/src/m5c-run/trace-<arm>-<rep>.jsonl` -- the path INSIDE the rented instance.
+// That path does not exist in a checkout, so LoadManifest fails on every archived manifest.
+// The trace files are in the archive, beside the manifests, so the checksum is verified against the copy
+// that is actually there.
 //
-// Two repetitions of one arm must agree on every field. They replay the same trace by construction, so a
-// disagreement means the archive is not one run's and comparing against it would compare against a mixture.
+// Two repetitions of one arm must agree on every field.
+// They replay the same trace by construction, so a disagreement means the archive is not one run's and
+// comparing against it would compare against a mixture.
 func ReproductionFactsFromArchive(dir string) (map[string]ReproductionFacts, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "manifest-*.yaml"))
 	if err != nil {
@@ -149,7 +155,8 @@ func ReproductionFactsFromArchive(dir string) (map[string]ReproductionFacts, err
 //
 // The asymmetry in what counts as UNKNOWN is deliberate and lives in ReproductionRefusal, not here: the
 // question is whether sameness with the TARGET can be established, so a plan manifest that carries no
-// imageDigests says nothing about that. A target that carries none defeats it.
+// imageDigests says nothing about that.
+// A target that carries none defeats it.
 func ReproductionFactsOf(m RunManifest) ReproductionFacts {
 	return ReproductionFacts{
 		Arm:             m.Arm,
@@ -195,10 +202,11 @@ func factsDiffer(a, b ReproductionFacts) string {
 		return "primaryEndpoint"
 	// The provenance fields are compared here too, and leaving them out was a defect.
 	//
-	// This function decides whether an archive's repetitions describe ONE run. It omitted tokenizerRev,
-	// gatewaySHA, imageDigests and promptLenChars, so an archive assembled from two different builds -- or
-	// two different prompt lengths -- read as a single coherent target, and every refusal downstream then
-	// compared against a mixture. A review found it on 2026-10-02.
+	// This function decides whether an archive's repetitions describe ONE run.
+	// It omitted tokenizerRev, gatewaySHA, imageDigests and promptLenChars, so an archive assembled from
+	// two different builds -- or two different prompt lengths -- read as a single coherent target, and
+	// every refusal downstream then compared against a mixture.
+	// A review found it on 2026-10-02.
 	case a.TokenizerRev != b.TokenizerRev:
 		return "tokenizerRev"
 	case a.GatewaySHA != b.GatewaySHA:
@@ -255,7 +263,8 @@ func digestsDiffer(target, planned map[string]string) string {
 //
 // The third case is why a reproduction of the 2026-09-13 pilot can never pass: that archive has no
 // tokenizerRev, no promptLenChars, no gatewaySHA and no imageDigests, and neither it nor any later run
-// recorded a driver version. The honest outcome is to measure at the load and not call it a reproduction.
+// recorded a driver version.
+// The honest outcome is to measure at the load and not call it a reproduction.
 func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
 	if len(target) == 0 {
 		return fmt.Errorf("the target run has no arms, so there is nothing to reproduce")
@@ -307,9 +316,11 @@ func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
 		//
 		// PromptLenCharsByTenant derives this from the trace rows, so for a trace gen-trace actually wrote,
 		// a different length always means a different checksum -- measured: 1174, 1175 and 200 characters
-		// give three different hashes. Comparing the checksum first would therefore refuse every
-		// prompt-length mismatch with "the offered traffic is not byte-identical", which is true and tells
-		// the operator nothing about WHAT to change. The 2026-10-02 run differed in exactly this field.
+		// give three different hashes.
+		// Comparing the checksum first would therefore refuse every prompt-length mismatch with "the
+		// offered traffic is not byte-identical", which is true and tells the operator nothing about WHAT
+		// to change.
+		// The 2026-10-02 run differed in exactly this field.
 		//
 		// The branch is still reachable on its own: a manifest edited by hand keeps its checksum while
 		// claiming a different length, and that is a target this function must refuse rather than trust.
@@ -323,9 +334,10 @@ func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
 		// The provenance fields are COMPARED when the target recorded them, and that was missing.
 		//
 		// A review found it on 2026-10-02: tokenizerRev, gatewaySHA and imageDigests were only ever read by
-		// unrecordedFields, which asks whether the TARGET recorded them. A plan running a different gateway
-		// build, a different engine image or a different tokenizer revision therefore passed, while the
-		// struct's own comment claimed these fields "say which build produced the numbers".
+		// unrecordedFields, which asks whether the TARGET recorded them.
+		// A plan running a different gateway build, a different engine image or a different tokenizer
+		// revision therefore passed, while the struct's own comment claimed these fields "say which build
+		// produced the numbers".
 		//
 		// Each field splits into the three classes this function keeps apart, and collapsing them is a defect
 		// of its own -- the first version of this block did, and three tests went red for exactly that:
@@ -356,8 +368,9 @@ func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
 		// The gateway by content, when the target recorded it (2026-10-07 registration).
 		//
 		// Both-or-neither is checked on each side first, so "the target has a binary hash" means it has both
-		// facts. Then the same three classes as above, and when both sides have the facts the gateway's image ID
-		// leaves the image comparison: measured, one binary on one pinned base built twice gives two IDs.
+		// facts.
+		// Then the same three classes as above, and when both sides have the facts the gateway's image ID leaves
+		// the image comparison: measured, one binary on one pinned base built twice gives two IDs.
 		for side, f := range map[string]ReproductionFacts{"target run": t, "plan": p} {
 			if err := GatewayIdentityRefusal(f.GatewayBinarySHA256, f.GatewayBase); err != nil {
 				return fmt.Errorf("arm %s: the %s's %w", arm, side, err)
@@ -395,7 +408,8 @@ func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
 		// The same three classes for the prompt length.
 		//
 		// promptLenDiffer above is guarded on both sides being present, because the target may predate the
-		// field. The reverse -- the target HAS it and the plan does not -- is this run failing to record
+		// field.
+		// The reverse -- the target HAS it and the plan does not -- is this run failing to record
 		// something the comparison needs, and it must refuse rather than skip.
 		if len(t.PromptLenChars) > 0 && len(p.PromptLenChars) == 0 {
 			return fmt.Errorf("arm %s: the target run records promptLenChars and this plan records none, so the prompt length cannot be compared. Write the field, or stop calling this a reproduction",
@@ -404,10 +418,10 @@ func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
 
 		// The checksum is the LAST net, because it cannot say what differs.
 		//
-		// Everything above names a field and both values. This one fires for any difference the fields above
-		// did not catch -- output tokens, arrival jitter, a tenant's weight -- and a reader who gets here
-		// knows only that the traffic is not the same bytes. That is worth refusing on and is the least
-		// useful message, so it goes after the specific ones.
+		// Everything above names a field and both values.
+		// This one fires for any difference the fields above did not catch -- output tokens, arrival jitter,
+		// a tenant's weight -- and a reader who gets here knows only that the traffic is not the same bytes.
+		// That is worth refusing on and is the least useful message, so it goes after the specific ones.
 		if t.TraceChecksum != p.TraceChecksum {
 			return fmt.Errorf("arm %s: traceChecksum is %s in the target run and %s in this plan -- the offered traffic is not byte-identical, and the fields compared above all match, so the difference is in something they do not name. Fix the load, or stop calling this a reproduction",
 				arm, t.TraceChecksum, p.TraceChecksum)

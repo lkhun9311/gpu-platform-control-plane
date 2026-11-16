@@ -13,9 +13,9 @@ import (
 // The exporter must be able to come back to a node this controller has quarantined.
 //
 // A latched fault clears automatically only on a fresh reading of zero, and the exporter is what produces it.
-// The paid GPU fault session of 2026-10-27 took the exporter away with Xid 79 latched: once its Pod left,
-// the DaemonSet did not place a new one on the tainted node, because it tolerated nvidia.com/gpu alone, and
-// the latch could then be cleared only by hand.
+// The paid GPU fault session of 2026-10-27 took the exporter away with Xid 79 latched: once its Pod left, the
+// DaemonSet did not place a new one on the tainted node, because it tolerated nvidia.com/gpu alone, and the
+// latch could then be cleared only by hand.
 // The taint is built by ensureGPUFaultTaint rather than restated here, so the key and effect cannot drift apart.
 //
 // Mutation that turns this red: delete the fault taint's toleration from config/dcgm-exporter/daemonset.yaml.

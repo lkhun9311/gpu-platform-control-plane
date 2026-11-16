@@ -18,32 +18,36 @@ const comparisonSchemaVersion = 1
 
 // comparison is what a SET of records supports about the difference between their arms.
 //
-// It exists because the runs were reproducible and the conclusion was not. Every record in ex/ carries its
-// own verdict, its own ledger and enough to re-derive its own numbers; the sentence those records were
-// gathered to support — that honouring SIGTERM discards work and ignoring it defeats the reclaim — lived in
-// a markdown file and in ad-hoc arithmetic typed at a shell. Nobody could reproduce the CONCLUSION from the
-// artifacts, only the runs, and a lab whose conclusion is not an artifact is a lab that publishes prose.
+// It exists because the runs were reproducible and the conclusion was not.
+// Every record in ex/ carries its own verdict, its own ledger and enough to re-derive its own numbers; the
+// sentence those records were gathered to support — that honouring SIGTERM discards work and ignoring it
+// defeats the reclaim — lived in a markdown file and in ad-hoc arithmetic typed at a shell.
+// Nobody could reproduce the CONCLUSION from the artifacts, only the runs, and a lab whose conclusion is
+// not an artifact is a lab that publishes prose.
 //
-// What it deliberately does NOT do is inference. There is no p-value here, no interval, and no threshold on
-// how many runs make a difference real, because this build has no basis for one: the runs are not sampled
-// from anything and their variance has never been characterised. It answers exactly three questions, each of
-// which the records can actually settle — is the difference bigger than what the instrument could see, is
-// the arm confounded with the order the runs were taken in, and how many runs are behind each arm — and it
-// says "not resolved" whenever the first answer is no. Returning "not resolved" is its main job, not its
-// failure mode.
+// What it deliberately does NOT do is inference.
+// There is no p-value here, no interval, and no threshold on how many runs make a difference real, because
+// this build has no basis for one: the runs are not sampled from anything and their variance has never been
+// characterised.
+// It answers exactly three questions, each of which the records can actually settle — is the difference
+// bigger than what the instrument could see, is the arm confounded with the order the runs were taken in,
+// and how many runs are behind each arm — and it says "not resolved" whenever the first answer is no.
+// Returning "not resolved" is its main job, not its failure mode.
 type comparison struct {
 	SchemaVersion int `json:"schemaVersion"`
-	// Dose is the regime every contributing record shared. Records from different regimes measure different
-	// quantities, so a comparison across them is refused rather than reported.
+	// Dose is the regime every contributing record shared.
+	// Records from different regimes measure different quantities, so a comparison across them is refused
+	// rather than reported.
 	Dose string `json:"dose"`
 	// Arms summarises each arm's contributing runs.
 	Arms []armSummary `json:"arms"`
 	// WorstRunFloorSeconds is the coarsest single-run bound among the contributors, reported for orientation.
 	//
-	// It is NOT what any finding is tested against, and the distinction cost a review to notice. A finding
-	// compares two arms, so it carries both arms' errors and is tested against the SUM of their floors --
-	// see armSummary.FloorSeconds and differenceFloor. Publishing this number as though it governed the
-	// findings understates their error budget by up to a factor of two.
+	// It is NOT what any finding is tested against, and the distinction cost a review to notice.
+	// A finding compares two arms, so it carries both arms' errors and is tested against the SUM of their
+	// floors -- see armSummary.FloorSeconds and differenceFloor.
+	// Publishing this number as though it governed the findings understates their error budget by up to a
+	// factor of two.
 	WorstRunFloorSeconds float64 `json:"worstRunFloorSeconds"`
 	// Bounded is false when any contributing run bounded nothing, in which case nothing here is resolved.
 	// The zero value is the safe one: an unbounded comparison resolves nothing.
@@ -54,9 +58,10 @@ type comparison struct {
 	// drift in the cluster all move together with the arm, and nothing in the numbers can separate them.
 	Interleaved bool `json:"interleaved"`
 	// DeviceEvidence is the weakest axis among the contributing runs, because a comparison can establish
-	// device work only if every run behind it did. One run that observed nothing makes the whole document a
-	// statement about seconds of RESERVATION, and stating the strongest contributor's value instead would
-	// launder that run's silence through its neighbours.
+	// device work only if every run behind it did.
+	// One run that observed nothing makes the whole document a statement about seconds of RESERVATION, and
+	// stating the strongest contributor's value instead would launder that run's silence through its
+	// neighbours.
 	DeviceEvidence string `json:"deviceEvidence"`
 	// Findings is one entry per quantity and arm pair.
 	Findings []finding `json:"findings"`
@@ -68,38 +73,41 @@ type comparison struct {
 //
 // The time span is here rather than only in the interleaving verdict because the alternation test is coarse:
 // four runs alternating A,B,A,B pass it, and so do six where the last two A runs were taken six hours after
-// everything else. The span lets a reader see that without the tool having to invent a rule about how far
-// apart is too far.
+// everything else.
+// The span lets a reader see that without the tool having to invent a rule about how far apart is too far.
 type armSummary struct {
 	Arm    string   `json:"arm"`
 	N      int      `json:"n"`
 	RunIDs []string `json:"runIDs"`
-	// WastedGPUSecondsMean, Min and Max describe this arm's runs. The spread is reported rather than a
-	// standard deviation because two or three runs do not describe a distribution and a summary statistic
-	// would imply they do.
+	// WastedGPUSecondsMean, Min and Max describe this arm's runs.
+	// The spread is reported rather than a standard deviation because two or three runs do not describe a
+	// distribution and a summary statistic would imply they do.
 	WastedGPUSecondsMean float64 `json:"wastedGPUSecondsMean"`
 	WastedGPUSecondsMin  float64 `json:"wastedGPUSecondsMin"`
 	WastedGPUSecondsMax  float64 `json:"wastedGPUSecondsMax"`
 	// OwnerWaitSecondsMean is the quota owner's admission-to-running wait, averaged over this arm's runs, and
-	// OwnerWaitRuns is how many of them restored their owner at all. The count is carried rather than implied
-	// because a mean over a subset of the arm is a different statistic from a mean over the arm, and the run
-	// where the owner never came back is the one a reader most needs to know about.
+	// OwnerWaitRuns is how many of them restored their owner at all.
+	// The count is carried rather than implied because a mean over a subset of the arm is a different
+	// statistic from a mean over the arm, and the run where the owner never came back is the one a reader
+	// most needs to know about.
 	// DutyCycle is the fraction of its service this arm's workload reported computing for, and is absent when
-	// its records carry none. Every record in an arm agrees on it -- compareRecords refuses an arm whose runs
-	// do not -- so one value describes the arm.
+	// its records carry none.
+	// Every record in an arm agrees on it -- compareRecords refuses an arm whose runs do not -- so one value
+	// describes the arm.
 	//
-	// It is published because two arms that idled differently are not two readings of one experiment. A
-	// GPU-second means something different in each, and a reader comparing their waste has to be able to see
-	// that before believing the difference is about the thing the arms are named for.
+	// It is published because two arms that idled differently are not two readings of one experiment.
+	// A GPU-second means something different in each, and a reader comparing their waste has to be able to
+	// see that before believing the difference is about the thing the arms are named for.
 	DutyCycle            *float64 `json:"dutyCycle,omitempty"`
 	OwnerWaitSecondsMean float64  `json:"ownerWaitSecondsMean,omitempty"`
 	OwnerWaitSecondsMin  float64  `json:"ownerWaitSecondsMin,omitempty"`
 	OwnerWaitSecondsMax  float64  `json:"ownerWaitSecondsMax,omitempty"`
 	OwnerWaitRuns        int      `json:"ownerWaitRuns"`
-	// FloorSeconds is the coarsest resolution among THIS arm's runs. It is per-arm because a difference
-	// between two arms carries both of their errors, and they can be opposite-signed: the resolution of the
-	// difference is the SUM of the two, never the larger. Taking the larger bounds one side and forgets the
-	// other, which understates the error budget by up to a factor of two.
+	// FloorSeconds is the coarsest resolution among THIS arm's runs.
+	// It is per-arm because a difference between two arms carries both of their errors, and they can be
+	// opposite-signed: the resolution of the difference is the SUM of the two, never the larger.
+	// Taking the larger bounds one side and forgets the other, which understates the error budget by up to
+	// a factor of two.
 	FloorSeconds float64 `json:"floorSeconds"`
 	// Bounded is false when any of this arm's runs bounded nothing.
 	Bounded        bool   `json:"bounded"`
@@ -120,17 +128,20 @@ type finding struct {
 	// INSTRUMENT rather than about the world: true means the difference is larger than the coarsest
 	// resolution among the contributing runs, so the harness could see it at all.
 	Resolved bool `json:"resolved"`
-	// Statement is the sentence a reader may quote. It is generated from the fields above so that it cannot
-	// drift from them, which is exactly how the retracted claim survived review the first time.
+	// Statement is the sentence a reader may quote.
+	// It is generated from the fields above so that it cannot drift from them, which is exactly how the
+	// retracted claim survived review the first time.
 	Statement string `json:"statement"`
 }
 
 // compareRecords builds the comparison, or refuses.
 //
 // Refusal rather than exclusion is the rule, and it is worth stating why, because dropping the offending
-// records and comparing the rest is friendlier and wrong. The record set is named explicitly by whoever runs
-// this; silently narrowing it produces a document whose file list does not describe the evidence behind it,
-// which is the reproducibility this tool exists to provide. An operator who wants a subset names the subset.
+// records and comparing the rest is friendlier and wrong.
+// The record set is named explicitly by whoever runs this; silently narrowing it produces a document whose
+// file list does not describe the evidence behind it, which is the reproducibility this tool exists to
+// provide.
+// An operator who wants a subset names the subset.
 func compareRecords(recs []runRecord) (comparison, error) {
 	if len(recs) < 2 {
 		return comparison{}, fmt.Errorf("a comparison needs at least 2 records, got %d", len(recs))
@@ -154,11 +165,13 @@ func compareRecords(recs []runRecord) (comparison, error) {
 		// comparability.
 		//
 		// decodeRunRecord accepts a narrow set of older schemas so the committed evidence stays readable by
-		// the build that can check it. That is a decision about READING one document. Pooling two documents is
-		// a different question, and nothing here asked it: a schema-19 run and a schema-20 run could land in
-		// one comparison, and the bump exists precisely because the two were taken under rules that differ.
-		// 20 added the accumulator check, so a 19 run has no work verdict and a 20 run does; averaging them
-		// produces an arm whose figures come from two sets of rules with nothing in the document saying so.
+		// the build that can check it.
+		// That is a decision about READING one document.
+		// Pooling two documents is a different question, and nothing here asked it: a schema-19 run and a
+		// schema-20 run could land in one comparison, and the bump exists precisely because the two were taken
+		// under rules that differ. 20 added the accumulator check, so a 19 run has no work verdict and a 20
+		// run does; averaging them produces an arm whose figures come from two sets of rules with nothing in
+		// the document saying so.
 		if r.SchemaVersion != recs[0].SchemaVersion {
 			return comparison{}, fmt.Errorf("run %q is schema %d and run %q is schema %d: a version marks a "+
 				"change in what a record means, so records of different schemas are not two measurements of "+
@@ -177,10 +190,11 @@ func compareRecords(recs []runRecord) (comparison, error) {
 	// An arm is one experiment, and the duty cycle is part of what that experiment is.
 	//
 	// Averaging a run that computed throughout with one that idled for three quarters of its service produces
-	// a mean that describes neither, and the arm's waste figure is what every finding below is built on. This
-	// is the same refusal the dose guard above makes and for the same reason: mixing two regimes gives a
-	// number that answers no single question. A duty difference BETWEEN arms is legitimate -- it is the axis
-	// the reading exists for -- so it is reported rather than refused.
+	// a mean that describes neither, and the arm's waste figure is what every finding below is built on.
+	// This is the same refusal the dose guard above makes and for the same reason: mixing two regimes gives a
+	// number that answers no single question.
+	// A duty difference BETWEEN arms is legitimate -- it is the axis the reading exists for -- so it is
+	// reported rather than refused.
 	for _, a := range byArm {
 		first := a[0]
 		for _, r := range a[1:] {
@@ -247,9 +261,9 @@ func dutyOf(r runRecord) *float64 {
 
 // sameDuty treats two absences as equal and an absence as different from any value.
 //
-// An absent duty is a record from a build whose workload could only compute continuously. That is not the
-// same fact as a record that measured and reported 1.0, and the difference is worth keeping: one is a run
-// this build can vouch for, the other is a run predating the axis.
+// An absent duty is a record from a build whose workload could only compute continuously.
+// That is not the same fact as a record that measured and reported 1.0, and the difference is worth
+// keeping: one is a run this build can vouch for, the other is a run predating the axis.
 func sameDuty(a, b *float64) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
@@ -278,8 +292,9 @@ func pooledDeviceEvidence(recs []runRecord) string {
 // pooledFloorNs is the coarsest floor among the contributing runs, and false when any of them had none.
 //
 // The maximum rather than a mean or the best one: a set of runs cannot distinguish anything more finely than
-// its worst-resolved member, because that member's number is in every difference it contributes to. And a
-// single unbounded run makes the whole comparison unbounded for the same reason — there is no bound to pool.
+// its worst-resolved member, because that member's number is in every difference it contributes to.
+// And a single unbounded run makes the whole comparison unbounded for the same reason — there is no bound to
+// pool.
 func pooledFloorNs(recs []runRecord) (int64, bool) {
 	var worst int64
 	for _, r := range recs {
@@ -296,10 +311,10 @@ func pooledFloorNs(recs []runRecord) (int64, bool) {
 // armsInterleave reports whether the arms alternate in the order the runs were started.
 //
 // The test is that the sorted sequence of arms contains more consecutive blocks than there are arms, which
-// is exactly the condition that some arm was returned to after another had run. Four runs taken A,B,A,B give
-// four blocks over two arms and interleave; the same four taken A,A,B,B give two blocks over two arms and do
-// not, and in that second case every difference between them is confounded with whatever changed over the
-// morning.
+// is exactly the condition that some arm was returned to after another had run.
+// Four runs taken A,B,A,B give four blocks over two arms and interleave; the same four taken A,A,B,B give
+// two blocks over two arms and do not, and in that second case every difference between them is confounded
+// with whatever changed over the morning.
 //
 // A record without a start time makes the answer unknown, and unknown is reported as not interleaved: the
 // confounding either happened or cannot be ruled out, and those two are the same for a reader deciding how
@@ -312,9 +327,10 @@ func armsInterleave(recs []runRecord) bool {
 //
 // It is generalised because the dose-sensitivity check needs exactly this question about REGIMES and went
 // without it: the arm comparison warned about blocked runs while the document that licenses a GPU baseline
-// did not, and the bias runs the wrong way there. Its favourable verdict is "no response", and undetected
-// drift between two blocks manufactures a response rather than hiding one -- so the missing check made the
-// document harder to trust in the direction it was least able to notice.
+// did not, and the bias runs the wrong way there.
+// Its favourable verdict is "no response", and undetected drift between two blocks manufactures a response
+// rather than hiding one -- so the missing check made the document harder to trust in the direction it was
+// least able to notice.
 func armsInterleaveBy(recs []runRecord, key func(runRecord) string) bool {
 	type started struct {
 		at    time.Time
@@ -397,10 +413,12 @@ func summariseArm(arm string, recs []runRecord) armSummary {
 // differenceFloor is the resolution of a difference between two arms: the SUM of their floors.
 //
 // Each arm's figure carries its own error, the two are measured independently, and nothing forces them to
-// lean the same way. An arm biased high against one biased low produces a difference wrong by both amounts,
-// so the larger of the two bounds one side and silently drops the other. The current published differences
-// survive the correction with an order of magnitude to spare; a GPU session's expected two-to-five second
-// effect would not, which is why this is worth getting right before the money rather than after.
+// lean the same way.
+// An arm biased high against one biased low produces a difference wrong by both amounts, so the larger of
+// the two bounds one side and silently drops the other.
+// The current published differences survive the correction with an order of magnitude to spare; a GPU
+// session's expected two-to-five second effect would not, which is why this is worth getting right before
+// the money rather than after.
 func differenceFloor(a, b armSummary) (float64, bool) {
 	if !a.Bounded || !b.Bounded {
 		return 0, false
@@ -430,8 +448,9 @@ func compareWaste(a, b armSummary, floor float64, bounded, interleaved bool) fin
 // wasteStatement writes the one sentence a reader may quote, from the fields beside it.
 //
 // It is generated rather than written by hand because the failure this whole file exists to prevent is a
-// sentence that outlives the numbers it was true of. A hand-written line saying "honouring SIGTERM costs 41
-// GPU-seconds" stayed correct-looking after the harness learned it could not resolve the residual inside it.
+// sentence that outlives the numbers it was true of.
+// A hand-written line saying "honouring SIGTERM costs 41 GPU-seconds" stayed correct-looking after the
+// harness learned it could not resolve the residual inside it.
 func wasteStatement(f finding, floor float64, bounded, interleaved bool, a, b armSummary) string {
 	var sb strings.Builder
 	if !bounded {
@@ -457,13 +476,14 @@ func wasteStatement(f finding, floor float64, bounded, interleaved bool, a, b ar
 // compareOwnerWait states what the two arms cost the quota OWNER, which is the only quantity here that a
 // platform promises anybody.
 //
-// The discarded seconds beside it are the borrower's loss: real, and not a service-level objective. "Your
-// reclaimed capacity comes back within X" is, and this is most of X.
+// The discarded seconds beside it are the borrower's loss: real, and not a service-level objective.
+// "Your reclaimed capacity comes back within X" is, and this is most of X.
 //
-// Most, not all, and the gap is named rather than left implied. The interval starts when Kueue ADMITS the
-// owner, so the tenant's queueing time before that is outside it -- the reconstruction computes that half as
-// AdmitLatencyNs and the record does not carry it. It ends at Pod Ready, which for a container with no
-// readiness probe is container start, so anything the process does to make itself useful is outside it too.
+// Most, not all, and the gap is named rather than left implied.
+// The interval starts when Kueue ADMITS the owner, so the tenant's queueing time before that is outside it
+// -- the reconstruction computes that half as AdmitLatencyNs and the record does not carry it.
+// It ends at Pod Ready, which for a container with no readiness probe is container start, so anything the
+// process does to make itself useful is outside it too.
 // What sits between those two points is the part reclamation governs, which is why it is the arm contrast;
 // what sits outside them is why the field is called ownerAdmitToReady and not "the owner's wait".
 func compareOwnerWait(a, b armSummary, floor float64, bounded, interleaved bool) finding {
@@ -483,10 +503,11 @@ func compareOwnerWait(a, b armSummary, floor float64, bounded, interleaved bool)
 	f.DifferenceSeconds = diff
 	f.Resolved = bounded && queuelab.ResolvesAgainst(queuelab.SecondsToNs(diff), queuelab.SecondsToNs(floor))
 	// A mean taken over the runs whose owner came back is a SURVIVOR mean, and it is biased in a known
-	// direction: the runs excluded are the slow tail, up to and including never. Comparing one against an
-	// arm that restored every time understates exactly the arm that restored less often, which is the arm a
-	// reader is most likely to be worried about. The figures are still reported -- they are what happened --
-	// but nothing derived from them may be called resolved.
+	// direction: the runs excluded are the slow tail, up to and including never.
+	// Comparing one against an arm that restored every time understates exactly the arm that restored less
+	// often, which is the arm a reader is most likely to be worried about.
+	// The figures are still reported -- they are what happened -- but nothing derived from them may be
+	// called resolved.
 	if a.OwnerWaitRuns < a.N || b.OwnerWaitRuns < b.N {
 		f.Resolved = false
 		f.Statement = fmt.Sprintf("SURVIVOR MEAN, NOT RESOLVED: %s restored its owner in %d of %d runs and %s "+
@@ -518,8 +539,9 @@ func compareOwnerWait(a, b armSummary, floor float64, bounded, interleaved bool)
 
 // renderComparison prints the comparison, leading with what it does not establish.
 //
-// The order is the argument. A reader who stops after the first screen should have read the limits, not the
-// headline, because the headline is the part that travels into a slide unaccompanied.
+// The order is the argument.
+// A reader who stops after the first screen should have read the limits, not the headline, because the
+// headline is the part that travels into a slide unaccompanied.
 func renderComparison(c comparison) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "===== COMPARISON (dose %s) =====\n", c.Dose)
@@ -544,9 +566,11 @@ func renderComparison(c comparison) string {
 	// Said once, above the arms, when they did not idle the same amount.
 	//
 	// A reader scanning two waste figures will attribute their difference to the thing the arms are named
-	// for. If one arm held its card idle for three quarters of its service and the other did not, that is
-	// where the difference comes from and the names are a distraction. It is not a refusal -- varying the
-	// duty is a legitimate experiment, and the one reading 2 exists for -- but it cannot be silent.
+	// for.
+	// If one arm held its card idle for three quarters of its service and the other did not, that is
+	// where the difference comes from and the names are a distraction.
+	// It is not a refusal -- varying the duty is a legitimate experiment, and the one reading 2 exists
+	// for -- but it cannot be silent.
 	if d, mixed := armDuties(c.Arms); mixed {
 		fmt.Fprintf(&b, "DUTY DIFFERS ACROSS ARMS (%s): the arms did not hold their cards idle for the same "+
 			"share of their service, so a GPU-second is not the same quantity in each\n", d)
@@ -677,21 +701,24 @@ func expandRecordSpec(spec string) ([]string, error) {
 //
 // It is a separate document from comparison because it answers a separate question, and because compareRecords
 // REFUSES to pool records from two dose regimes -- correctly, since the regimes measure different quantities
-// and a difference between them answers nothing. That refusal is right about the borrower's discarded seconds,
-// which the trace determines outright, and it is too coarse for the owner's wait: whether THAT moves with the
-// dose is not an assumption to be protected, it is the question.
+// and a difference between them answers nothing.
+// That refusal is right about the borrower's discarded seconds, which the trace determines outright, and it is
+// too coarse for the owner's wait: whether THAT moves with the dose is not an assumption to be protected, it
+// is the question.
 //
-// It exists because the answer decides whether the real-GPU session has a baseline at all. A GPU workload will
-// not have this one's service time, so any quantity the dose determines cannot be differenced against these
-// runs. A quantity that does not move with it can.
+// It exists because the answer decides whether the real-GPU session has a baseline at all.
+// A GPU workload will not have this one's service time, so any quantity the dose determines cannot be
+// differenced against these runs.
+// A quantity that does not move with it can.
 type doseSensitivity struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Arm           string `json:"arm"`
 	// Factor names what was varied while the arm was held fixed: the dose regime, or the worker node.
 	//
 	// The node is here because "one cluster, one pinned worker" was the largest unqualified limit on every
-	// figure this lab has produced. A result that holds on one node and not another is a property of that
-	// node, and until the node is varied nothing in the record distinguishes the two readings.
+	// figure this lab has produced.
+	// A result that holds on one node and not another is a property of that node, and until the node is
+	// varied nothing in the record distinguishes the two readings.
 	Factor string `json:"factor"`
 	// Doses is one entry per level of the factor, each summarising that level's runs of this arm.
 	Doses []doseGroup `json:"doses"`
@@ -704,17 +731,19 @@ type doseSensitivity struct {
 	// It exists because it did not, and the omission was an asymmetry rather than an oversight: the model
 	// check refuses to read a sub-floor magnitude as measured, and this printed one as though it were.
 	Resolved bool `json:"resolved"`
-	// Interleaved is whether the regimes alternate in the order the runs were taken. When false, any response
-	// this reports moves together with everything else that changed between the two blocks -- node warming,
-	// image cache, cluster drift -- and the check cannot tell them apart. It was missing from this document
-	// while the arm comparison had it, which is exactly the direction the bias runs: the verdict that licenses
-	// a GPU baseline is "no response", and undetected drift makes a response appear rather than disappear.
+	// Interleaved is whether the regimes alternate in the order the runs were taken.
+	// When false, any response this reports moves together with everything else that changed between the two
+	// blocks -- node warming, image cache, cluster drift -- and the check cannot tell them apart.
+	// It was missing from this document while the arm comparison had it, which is exactly the direction the
+	// bias runs: the verdict that licenses a GPU baseline is "no response", and undetected drift makes a
+	// response appear rather than disappear.
 	Interleaved bool `json:"interleaved"`
 	// SpreadSeconds is the largest gap between any two regimes' mean owner wait.
 	SpreadSeconds float64 `json:"spreadSeconds"`
 	// MovesWithDose is true when that spread EXCEEDS the floor, meaning the harness can see the quantity
-	// responding to the dose. False means it could not see a response, which is not the same as proving there
-	// is none -- Statement says which of the two this is.
+	// responding to the dose.
+	// False means it could not see a response, which is not the same as proving there is none -- Statement
+	// says which of the two this is.
 	MovesWithDose bool   `json:"movesWithDose"`
 	Statement     string `json:"statement"`
 }
@@ -729,8 +758,8 @@ type doseGroup struct {
 	OwnerWaitRuns        int      `json:"ownerWaitRuns"`
 }
 
-// The factors a sensitivity check can vary. They are constants because the document persists one and a
-// reader classifies on it.
+// The factors a sensitivity check can vary.
+// They are constants because the document persists one and a reader classifies on it.
 const (
 	factorDose = "dose"
 	factorNode = "node"
@@ -769,8 +798,9 @@ func checkSensitivity(recs []runRecord, factor string) (doseSensitivity, error) 
 		if r.Measurement == nil {
 			return doseSensitivity{}, fmt.Errorf("run %q carries no measurement", r.RunID)
 		}
-		// One arm only. Pooling arms here would measure the arm difference and call it a dose response, which
-		// is the confusion this whole document exists to keep out of the GPU session's baseline.
+		// One arm only.
+		// Pooling arms here would measure the arm difference and call it a dose response, which is the
+		// confusion this whole document exists to keep out of the GPU session's baseline.
 		if r.Arm != arm {
 			return doseSensitivity{}, fmt.Errorf("run %q is arm %q and run %q is arm %q: a dose-sensitivity "+
 				"check varies the dose and holds the arm fixed, or it measures the arms and calls it a dose",
@@ -787,8 +817,9 @@ func checkSensitivity(recs []runRecord, factor string) (doseSensitivity, error) 
 		return doseSensitivity{}, fmt.Errorf("every record is %s %q: nothing varies",
 			factor, levelOf(recs[0], factor))
 	}
-	// When the node is the factor, the DOSE must be held fixed, and vice versa. Varying two things and
-	// reporting one of them is how a node difference gets published as a dose response.
+	// When the node is the factor, the DOSE must be held fixed, and vice versa.
+	// Varying two things and reporting one of them is how a node difference gets published as a dose
+	// response.
 	held := factorDose
 	if factor == factorDose {
 		held = factorNode
@@ -821,9 +852,10 @@ func checkSensitivity(recs []runRecord, factor string) (doseSensitivity, error) 
 			sum += float64(*r.Measurement.OwnerAdmitToReadyNs) / float64(time.Second)
 			g.OwnerWaitRuns++
 		}
-		// EVERY run must have restored its owner, not merely one. A mean over the runs that came back is a
-		// survivor mean, and it omits the slow tail -- which is the part a dose response would show up in
-		// first. This document exists to license a baseline for a session nobody can re-run cheaply, so it
+		// EVERY run must have restored its owner, not merely one.
+		// A mean over the runs that came back is a survivor mean, and it omits the slow tail -- which is
+		// the part a dose response would show up in first.
+		// This document exists to license a baseline for a session nobody can re-run cheaply, so it
 		// refuses rather than reports a figure with a known direction of bias.
 		if g.OwnerWaitRuns != g.N {
 			return doseSensitivity{}, fmt.Errorf("%s %q restored its owner in %d of %d runs; a mean over the "+
@@ -896,21 +928,24 @@ func renderDoseSensitivity(d doseSensitivity) string {
 
 // baseline is the pooled restoration figure a later session differences against, emitted as an artifact.
 //
-// It exists because it was the last hand-typed number in this lab, and it was wrong. A pre-registration
-// fixed the GPU session's baseline at "2.690 s mean, 2.534-2.792 s, spread 258 ms, 8 observations" — a table
-// assembled at a shell from four records that were subsequently deleted, beside machine-generated figures in
-// the same document that reproduce to the digit. The value 2.534 appears in no record that exists. Every
-// other conclusion in this lab had already been converted from arithmetic into a document; this one had not,
-// and it is the one the entire session is defined against.
+// It exists because it was the last hand-typed number in this lab, and it was wrong.
+// A pre-registration fixed the GPU session's baseline at "2.690 s mean, 2.534-2.792 s, spread 258 ms, 8
+// observations" — a table assembled at a shell from four records that were subsequently deleted, beside
+// machine-generated figures in the same document that reproduce to the digit.
+// The value 2.534 appears in no record that exists.
+// Every other conclusion in this lab had already been converted from arithmetic into a document; this one
+// had not, and it is the one the entire session is defined against.
 //
-// So it refuses more than the comparisons do. One arm, every run admissible, every owner restored, at least
-// two runs — because a baseline is quoted long after the runs are gone, by someone who will not re-derive it.
+// So it refuses more than the comparisons do.
+// One arm, every run admissible, every owner restored, at least two runs — because a baseline is quoted long
+// after the runs are gone, by someone who will not re-derive it.
 type baseline struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Arm           string `json:"arm"`
 	N             int    `json:"n"`
 	// RunIDs, Doses and Nodes name exactly what stands behind the figure, so a reader can go and check rather
-	// than take it. The pre-registration's table could not be checked, which is how it stayed wrong.
+	// than take it.
+	// The pre-registration's table could not be checked, which is how it stayed wrong.
 	RunIDs []string `json:"runIDs"`
 	Doses  []string `json:"doses"`
 	Nodes  []string `json:"nodes"`
@@ -920,16 +955,18 @@ type baseline struct {
 	OwnerWaitSecondsMax    float64 `json:"ownerWaitSecondsMax"`
 	OwnerWaitSpreadSeconds float64 `json:"ownerWaitSpreadSeconds"`
 
-	// FloorSeconds is the coarsest single-run bound among the contributors. A later session differencing
-	// against this figure must ADD its own floor to this one, for the reason differenceFloor gives.
+	// FloorSeconds is the coarsest single-run bound among the contributors.
+	// A later session differencing against this figure must ADD its own floor to this one, for the
+	// reason differenceFloor gives.
 	FloorSeconds float64 `json:"floorSeconds"`
 	Bounded      bool    `json:"bounded"`
 	// Resolved is whether the mean above clears its own floor.
 	//
 	// It exists because it did not, and the omission was an asymmetry rather than an oversight: the model
 	// check refuses to read a sub-floor magnitude as a measured near-zero, and this printed one as though it
-	// were measured. An unresolved baseline is exactly the case where a later session would difference
-	// against a number nobody measured.
+	// were measured.
+	// An unresolved baseline is exactly the case where a later session would difference against a number
+	// nobody measured.
 	Resolved bool `json:"resolved"`
 	// DeviceEvidence is the weakest axis among the contributors, so a baseline taken on a fake device plugin
 	// cannot be quoted as though a device were involved.
@@ -998,9 +1035,9 @@ func computeBaseline(recs []runRecord) (baseline, error) {
 	//
 	// It was not, and a hostile review found the asymmetry: the model check refuses to read the honouring
 	// arm's 0.041 s hold as a measured near-zero because it sits under the floor, while this printed a mean
-	// under ITS floor as though it were measured. The rule does not become optional when the figure is one
-	// this lab wants to quote -- an unresolved baseline is exactly the case where a later session would
-	// difference against a number nobody measured.
+	// under ITS floor as though it were measured.
+	// The rule does not become optional when the figure is one this lab wants to quote -- an unresolved
+	// baseline is exactly the case where a later session would difference against a number nobody measured.
 	b.Resolved = queuelab.ResolvesAgainst(queuelab.SecondsToNs(b.OwnerWaitSecondsMean), queuelab.SecondsToNs(b.FloorSeconds))
 	qualifier := ""
 	if !b.Resolved {
@@ -1035,11 +1072,12 @@ func renderBaseline(b baseline) string {
 	// Dispersion is judged against the FLOOR, not against the mean, and the difference matters.
 	//
 	// The first version compared the spread to the mean, which is a ratio with no instrument in it: it would
-	// call a tight set "dispersed" merely for having a small mean. The floor is what this harness can see, so
-	// runs that disagree by more than it disagree about something the harness did NOT control -- and runs
-	// that disagree by less than it do not disagree at all, however large the gap looks. Nothing else gates
-	// on within-cell dispersion, so this is the only place it is a judgement rather than two numbers to
-	// subtract.
+	// call a tight set "dispersed" merely for having a small mean.
+	// The floor is what this harness can see, so runs that disagree by more than it disagree about something
+	// the harness did NOT control -- and runs that disagree by less than it do not disagree at all, however
+	// large the gap looks.
+	// Nothing else gates on within-cell dispersion, so this is the only place it is a judgement rather than
+	// two numbers to subtract.
 	//
 	// On the committed set it does not fire: the honouring arm spans 1.208 s to 3.210 s, which looks alarming
 	// and is entirely inside a 3.106 s floor.
@@ -1058,63 +1096,71 @@ func renderBaseline(b baseline) string {
 // modelCheck tests the lab's central claim against the quantity the claim is about.
 //
 // held = min(remaining service, termination grace period) is a statement about how long a preempted borrower
-// keeps its DEVICE after the platform has committed that capacity to its owner. An earlier version of this
-// check tested it against the owner's admission-to-running wait instead, which contains the hold and then the
-// scheduling, the image and the container start on top — so it could only reach the model by subtracting an
-// estimate of those, borrowed from the honouring arm.
+// keeps its DEVICE after the platform has committed that capacity to its owner.
+// An earlier version of this check tested it against the owner's admission-to-running wait instead, which
+// contains the hold and then the scheduling, the image and the container start on top — so it could only
+// reach the model by subtracting an estimate of those, borrowed from the honouring arm.
 //
-// Two reviews took that apart independently and both were right. The borrowed term is not arm-independent:
-// the owner's Pod spends the grace window pending against the device, so restoration after release costs
-// about 1.6 s LESS in the arm being predicted than in the arm the estimate came from, which is the entire
-// magnitude and sign of the residuals that version published. And the term could not be validated either way
-// — at the floor it ran against, deleting the subtraction altogether left both residuals inside.
+// Two reviews took that apart independently and both were right.
+// The borrowed term is not arm-independent: the owner's Pod spends the grace window pending against the
+// device, so restoration after release costs about 1.6 s LESS in the arm being predicted than in the arm the
+// estimate came from, which is the entire magnitude and sign of the residuals that version published.
+// And the term could not be validated either way — at the floor it ran against, deleting the subtraction
+// altogether left both residuals inside.
 //
-// So the subtraction is gone rather than corrected. The hold needs no platform-cost term because it contains
-// no platform work, the honouring arm becomes a genuine zero-hold control instead of a subtrahend, and the
-// interval is three orders of magnitude quieter than the one it replaces: tens of milliseconds of within-cell
-// scatter against an owner-wait floor of seconds.
+// So the subtraction is gone rather than corrected.
+// The hold needs no platform-cost term because it contains no platform work, the honouring arm becomes a
+// genuine zero-hold control instead of a subtrahend, and the interval is three orders of magnitude quieter
+// than the one it replaces: tens of milliseconds of within-cell scatter against an owner-wait floor of
+// seconds.
 //
-// The prediction is built from the dose the run ACHIEVED rather than the one it declared. Every recorded run
-// overran its declared dose by 1.0 to 1.4 seconds, systematically, because the schedule gates the owner on a
-// two-second poll — and the declared value is what the old prediction used.
+// The prediction is built from the dose the run ACHIEVED rather than the one it declared.
+// Every recorded run overran its declared dose by 1.0 to 1.4 seconds, systematically, because the schedule
+// gates the owner on a two-second poll — and the declared value is what the old prediction used.
 type modelCheck struct {
 	SchemaVersion int `json:"schemaVersion"`
 	// Protocol states the constants the prediction was computed from, so a reader can check the arithmetic
-	// rather than trust it. They live in this binary rather than in the record, so a record from a build with
-	// different constants would be mispredicted silently — printing them is what makes that visible.
+	// rather than trust it.
+	// They live in this binary rather than in the record, so a record from a build with different constants
+	// would be mispredicted silently — printing them is what makes that visible.
 	Protocol modelProtocol `json:"protocol"`
 	// ControlHoldSeconds is the honouring arm's own hold, and it is a CONTROL rather than a correction.
 	//
-	// Nothing is subtracted from anything. It is a few tens of milliseconds, and a review established that
-	// this figure is BELOW THIS HARNESS'S OWN RESOLUTION by more than an order of magnitude: the per-run
-	// floor for the hold's endpoints is around a second, and the control is around forty milliseconds.
+	// Nothing is subtracted from anything.
+	// It is a few tens of milliseconds, and a review established that this figure is BELOW THIS HARNESS'S
+	// OWN RESOLUTION by more than an order of magnitude: the per-run floor for the hold's endpoints is
+	// around a second, and the control is around forty milliseconds.
 	//
 	// So it does not establish that the interval contains no platform work, and the earlier version of this
-	// comment and of the printed statement said it did. What it establishes is weaker and still worth
-	// printing: the honouring arm's hold is UNRESOLVED, somewhere in [0, floor], while the ignoring arm's is
-	// thirty seconds -- a difference far larger than the floor. The thirty seconds are the borrower's rather
-	// than the scheduler's because the two arms differ by nothing except whether the victim honours the
-	// signal, not because the control was measured to be small.
+	// comment and of the printed statement said it did.
+	// What it establishes is weaker and still worth printing: the honouring arm's hold is UNRESOLVED,
+	// somewhere in [0, floor], while the ignoring arm's is thirty seconds -- a difference far larger than
+	// the floor.
+	// The thirty seconds are the borrower's rather than the scheduler's because the two arms differ by
+	// nothing except whether the victim honours the signal, not because the control was measured to be
+	// small.
 	//
 	// The inversion this avoids is named in resolution.go: turning "the harness cannot see this" into "the
-	// harness measured this". It happened here, in the one figure the model check's whole chain rests on.
+	// harness measured this".
+	// It happened here, in the one figure the model check's whole chain rests on.
 	ControlHoldSeconds float64 `json:"controlHoldSeconds"`
 	ControlRuns        int     `json:"controlRuns"`
 	// ControlResolved says whether the control is a quantity this harness can SEE, and it is a field rather
 	// than a sentence because that is the difference between a rule and a hope.
 	//
-	// The statement carried the qualification in prose for exactly one commit before this. Prose is what a
-	// consumer skips: a document whose control is unresolved and whose text says so is still a document a
-	// script reads as a measured near-zero. Derived through queuelab.ResolvesAgainst, which is now the one
-	// place the comparison's direction lives.
+	// The statement carried the qualification in prose for exactly one commit before this.
+	// Prose is what a consumer skips: a document whose control is unresolved and whose text says so is
+	// still a document a script reads as a measured near-zero.
+	// Derived through queuelab.ResolvesAgainst, which is now the one place the comparison's direction
+	// lives.
 	ControlResolved bool `json:"controlResolved"`
 	// Interleaved is whether the two dose regimes alternated in the order the runs were actually taken.
 	//
-	// Every other comparison here checks it and this one did not, which an independent review found. The
-	// model check is the one carrying the headline, and it POOLS the two regimes: if they were run in blocks
-	// rather than alternating, anything that drifted over the session -- cluster warmth, an image cache
-	// filling, another tenant arriving -- lands entirely on one regime and arrives as the kink. That is
-	// precisely the confound interleaving exists to rule out.
+	// Every other comparison here checks it and this one did not, which an independent review found.
+	// The model check is the one carrying the headline, and it POOLS the two regimes: if they were run in
+	// blocks rather than alternating, anything that drifted over the session -- cluster warmth, an image
+	// cache filling, another tenant arriving -- lands entirely on one regime and arrives as the kink.
+	// That is precisely the confound interleaving exists to rule out.
 	Interleaved bool        `json:"interleaved"`
 	Cases       []modelCase `json:"cases"`
 	// Contrast is the difference BETWEEN the regimes, and it is the only part of this check that tests the
@@ -1123,16 +1169,17 @@ type modelCheck struct {
 	// min() says the hold follows remaining service on one side of the grace period and stops following it on
 	// the other, so the gap between the two regimes must equal grace minus the shorter remaining service.
 	//
-	// It is NOT independent evidence, and the earlier version of this comment implied it was. The contrast
-	// residual is identically the difference of the two case residuals -- observed and predicted are both
-	// differences of the same two cells -- so it carries no degree of freedom the levels do not, and it is
-	// already constrained to twice the floor before any datum is read.
+	// It is NOT independent evidence, and the earlier version of this comment implied it was.
+	// The contrast residual is identically the difference of the two case residuals -- observed and
+	// predicted are both differences of the same two cells -- so it carries no degree of freedom the
+	// levels do not, and it is already constrained to twice the floor before any datum is read.
 	//
-	// What cancels is a confound that is ADDITIVE and the same in both regimes. A dose-dependent one does
-	// not: the two predictions are not symmetric, one being a compiled constant and the other a measured
-	// achieved dose, so the self-completing cell's instrumentation offset enters the contrast with a single
-	// sign. The contrast's real content is insensitivity to a common additive bias, which is worth having
-	// and is less than "the test the model cannot pass by accident".
+	// What cancels is a confound that is ADDITIVE and the same in both regimes.
+	// A dose-dependent one does not: the two predictions are not symmetric, one being a compiled constant
+	// and the other a measured achieved dose, so the self-completing cell's instrumentation offset enters
+	// the contrast with a single sign.
+	// The contrast's real content is insensitivity to a common additive bias, which is worth having and is
+	// less than "the test the model cannot pass by accident".
 	Contrast     *modelContrast `json:"contrast,omitempty"`
 	FloorSeconds float64        `json:"floorSeconds"`
 	Bounded      bool           `json:"bounded"`
@@ -1178,13 +1225,15 @@ type holdSample struct{ hold, dose float64 }
 // dose/hold pairs.
 //
 // It is separate from checkModel because the two do different jobs: this refuses records, and checkModel
-// fits a model to whatever survives. Reading them together hid that the refusals outnumber the arithmetic.
+// fits a model to whatever survives.
+// Reading them together hid that the refusals outnumber the arithmetic.
 func collectHoldSamples(recs []runRecord) (map[string][]holdSample, float64, int, error) {
 	ignore := map[string][]holdSample{}
 	var controlSum float64
 	var controlRuns int
-	// One node only. The hold's endpoints are arrival times from two watches, and pooling nodes would add a
-	// second collector's delivery behaviour to an interval whose whole value is that it is quiet.
+	// One node only.
+	// The hold's endpoints are arrival times from two watches, and pooling nodes would add a second
+	// collector's delivery behaviour to an interval whose whole value is that it is quiet.
 	node := ""
 	for _, r := range recs {
 		if r.Validity.Verdict != verdictAdmissible {
@@ -1204,18 +1253,22 @@ func collectHoldSamples(recs []runRecord) (map[string][]holdSample, float64, int
 			return nil, 0, 0, fmt.Errorf("run %q's ledger does not carry the device hold", r.RunID)
 		}
 		// The two readings of that hold have to agree, and this is the check a comment beside the second one
-		// promised and nothing performed. A stamp figure recorded and never compared is decoration: a clock
-		// step between Kueue's machine and a kubelet would corrupt it silently, and watch pathology would
-		// corrupt the arrival figure with the stamp fine.
+		// promised and nothing performed.
+		// A stamp figure recorded and never compared is decoration: a clock step between Kueue's machine and
+		// a kubelet would corrupt it silently, and watch pathology would corrupt the arrival figure with the
+		// stamp fine.
 		//
 		// It sharpens nothing -- truncation swamps the differential lag in every recorded run -- and that is
-		// not what it is for. It catches the arrival figure going wrong, which is the figure every published
-		// number is built from.
-		// BOTH readings are required, not merely consistent when both happen to be there. ClocksDisagree
-		// answers "no disagreement" for a run carrying only one of them -- which is the honest answer to the
-		// question it was asked and the wrong basis for admitting the run, because a rule stated as "the hold
-		// is read on two clocks" is satisfied by neither reading being checked against anything. A review
-		// found the gap: the check refused two readings that disagreed and never required two to exist.
+		// not what it is for.
+		// It catches the arrival figure going wrong, which is the figure every published number is built
+		// from.
+		// BOTH readings are required, not merely consistent when both happen to be there.
+		// ClocksDisagree answers "no disagreement" for a run carrying only one of them -- which is the honest
+		// answer to the question it was asked and the wrong basis for admitting the run, because a rule
+		// stated as "the hold is read on two clocks" is satisfied by neither reading being checked against
+		// anything.
+		// A review found the gap: the check refused two readings that disagreed and never required two to
+		// exist.
 		if queuelab.DeviceHoldStampNs(r.Events) == nil {
 			return nil, 0, 0, fmt.Errorf("run %q carries no component-stamp reading of the device hold, so "+
 				"its arrival figure was never checked against anything: one of the two endpoints' components "+
@@ -1271,13 +1324,14 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 	m.ControlHoldSeconds = controlSum / float64(m.ControlRuns)
 
 	// The floor is restricted to the endpoints the hold is actually built from — the owner's admission and the
-	// victim's stop — rather than pooled over every event kind. Pooling charges this interval the worst
-	// behaviour of the owner's own completion, which it does not contain.
+	// victim's stop — rather than pooled over every event kind.
+	// Pooling charges this interval the worst behaviour of the owner's own completion, which it does not
+	// contain.
 	floorNs, bounded := holdFloorNs(recs)
 	m.FloorSeconds, m.Bounded = 2*float64(floorNs)/float64(time.Second), bounded
-	// The control is judged by the same rule as everything else, and it does not pass it. Deriving this
-	// rather than asserting it is what stops the statement drifting back to "shows the interval contains no
-	// platform work" the next time someone edits the sentence.
+	// The control is judged by the same rule as everything else, and it does not pass it.
+	// Deriving this rather than asserting it is what stops the statement drifting back to "shows the
+	// interval contains no platform work" the next time someone edits the sentence.
 	m.Interleaved = armsInterleaveBy(recs, func(r runRecord) string { return r.Dose })
 	m.ControlResolved = m.Bounded && queuelab.ResolvesAgainst(
 		queuelab.SecondsToNs(m.ControlHoldSeconds), queuelab.SecondsToNs(m.FloorSeconds))
@@ -1318,8 +1372,8 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 		m.Cases = append(m.Cases, c)
 	}
 
-	// The contrast, when both regimes are present. Anything common to them cancels in it, so it is the test
-	// the model cannot pass by accident.
+	// The contrast, when both regimes are present.
+	// Anything common to them cancels in it, so it is the test the model cannot pass by accident.
 	if len(m.Cases) == 2 {
 		lo, hi := m.Cases[0], m.Cases[1]
 		if lo.PredictedSeconds > hi.PredictedSeconds {
@@ -1347,11 +1401,12 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 	case !bounded:
 		m.Statement = "UNBOUNDED: a contributing run bounded nothing, so no residual can be judged"
 	case m.Holds:
-		// "consistent with" rather than "validates", and the distinction is not modesty. Two runs per cell is
-		// not an inferential study, the residuals are tested against a floor rather than an interval, and a
-		// check evaluated on the same runs that produced it is in-sample. What the check does establish is
-		// that no regime's hold falls outside the instrument's own bound of the prediction -- and that the
-		// CONTRAST between the regimes, which nothing common to them can move, lands where the kink says.
+		// "consistent with" rather than "validates", and the distinction is not modesty.
+		// Two runs per cell is not an inferential study, the residuals are tested against a floor rather than
+		// an interval, and a check evaluated on the same runs that produced it is in-sample.
+		// What the check does establish is that no regime's hold falls outside the instrument's own bound of
+		// the prediction -- and that the CONTRAST between the regimes, which nothing common to them can move,
+		// lands where the kink says.
 		m.Statement = fmt.Sprintf("the device hold in every regime is CONSISTENT WITH held = min(remaining "+
 			"service, %d s grace), to within the %.3f s floor and with nothing subtracted from anything. The "+
 			"honouring arm's hold over %d runs measures %.3f s, which is %s -- it lies somewhere in "+
@@ -1400,9 +1455,9 @@ func declaredDoseFor(dose string) (int, error) {
 	return 0, fmt.Errorf("unknown dose regime %q", dose)
 }
 
-// renderModel prints the prediction beside the observation, never one without the other.
-// resolvedWord renders the control's verdict so the sentence follows the field rather than the other way
-// round. If a future control ever does clear the floor, the statement says so instead of being wrong.
+// renderModel prints the prediction beside the observation, never one without the other. resolvedWord
+// renders the control's verdict so the sentence follows the field rather than the other way round.
+// If a future control ever does clear the floor, the statement says so instead of being wrong.
 func resolvedWord(resolved bool) string {
 	if resolved {
 		return "ABOVE this floor and therefore resolved"

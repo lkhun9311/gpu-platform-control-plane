@@ -32,7 +32,8 @@ func censusSeries(p Protocol) []StrandingReport {
 		var placed, blocked []string
 		for _, s := range p.Submissions[:k+1] {
 			// The disposition does not matter to the membership check; what matters is that every registered
-			// submission is accounted for somewhere. One-device requests are placed, larger ones blocked.
+			// submission is accounted for somewhere.
+			// One-device requests are placed, larger ones blocked.
 			if s.Request == 1 {
 				placed = append(placed, s.ID)
 			} else {
@@ -78,10 +79,12 @@ func TestAnHonestCellOfEitherArmIsAccepted(t *testing.T) {
 
 // A cell may not be discarded for a reason nobody registered, nor for one registered as NOT invalidating.
 //
-// This is the check the whole type exists for. A campaign fails quietly here rather than loudly: discarding an
-// attempt looks like diligence, and an operator who discards the cells that came out level has selected on the
-// outcome without ever writing down a threshold. So the reason is a registered enumeration and the list of
-// reasons that do NOT invalidate is refused explicitly, in that order.
+// This is the check the whole type exists for.
+// A campaign fails quietly here rather than loudly: discarding an attempt looks like diligence, and an
+// operator who discards the cells that came out level has selected on the outcome without ever writing down a
+// threshold.
+// So the reason is a registered enumeration and the list of reasons that do NOT invalidate is refused
+// explicitly, in that order.
 //
 // Mutation that turns this red: accept any non-empty reason, or drop the DoesNotInvalidateACell check.
 func TestACellMayNotBeDiscardedForAnUnregisteredReason(t *testing.T) {
@@ -143,8 +146,9 @@ func TestACellMayNotBeDiscardedForAnUnregisteredReason(t *testing.T) {
 
 // A record may not stand as valid while its own evidence says the cell failed.
 //
-// The mirror of the case above. Discarding a good cell takes a figure out of the comparison; counting a bad one
-// puts in a figure nothing supports, and the record contradicts itself in both directions.
+// The mirror of the case above.
+// Discarding a good cell takes a figure out of the comparison; counting a bad one puts in a figure nothing
+// supports, and the record contradicts itself in both directions.
 //
 // Mutation that turns this red: drop any of the three consistency checks after the Valid() early return.
 func TestARecordMayNotStandWhileItsEvidenceSaysOtherwise(t *testing.T) {
@@ -193,8 +197,8 @@ func TestARecordMayNotStandWhileItsEvidenceSaysOtherwise(t *testing.T) {
 // Each reading must account for exactly the protocol's first k submissions.
 //
 // A census that simply omits a submission is internally consistent and balances, so it is compared against the
-// frozen sequence rather than checked for self-consistency. The union of placed, blocked and unsatisfiable is
-// where the omission shows.
+// frozen sequence rather than checked for self-consistency.
+// The union of placed, blocked and unsatisfiable is where the omission shows.
 //
 // Mutation that turns this red: check only the count, or only one of the three name lists.
 func TestEachReadingMustAccountForTheRegisteredSubmissions(t *testing.T) {
@@ -207,8 +211,9 @@ func TestEachReadingMustAccountForTheRegisteredSubmissions(t *testing.T) {
 		{
 			name: "a submission left out of the last reading",
 			mutate: func(cs []StrandingReport) {
-				// Drop one blocked name. By the last step the protocol has registered every submission, so
-				// removing one leaves a reading that still balances and is still internally consistent.
+				// Drop one blocked name.
+				// By the last step the protocol has registered every submission, so removing one leaves a
+				// reading that still balances and is still internally consistent.
 				last := &cs[len(cs)-1]
 				last.Blocked = last.Blocked[:len(last.Blocked)-1]
 			},
@@ -283,9 +288,10 @@ func TestTheArmsEvidenceMustBelongToTheArm(t *testing.T) {
 
 // The stopping rule is a property of the campaign, not of any cell.
 //
-// Every attempt below is individually well formed. What is wrong is the set: a cell run again after it produced
-// a figure, a cell retaken twice, a missing cell, and more attempts than the cap allows. No per-cell check can
-// see any of it.
+// Every attempt below is individually well formed.
+// What is wrong is the set: a cell run again after it produced a figure, a cell retaken twice, a missing cell,
+// and more attempts than the cap allows.
+// No per-cell check can see any of it.
 //
 // Mutation that turns this red: drop the followed-by-another check, or the per-cell attempt cap.
 func TestTheStoppingRuleIsCheckedAcrossTheCampaign(t *testing.T) {

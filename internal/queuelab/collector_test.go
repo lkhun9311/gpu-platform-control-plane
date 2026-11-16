@@ -165,8 +165,8 @@ func TestEventsCarryAWallClockDerivedFromOneAnchor(t *testing.T) {
 		}
 	}
 
-	// The control: without an anchor the field stays zero rather than inventing a time. A builder that made
-	// one up would be worse than one that admits it has none.
+	// The control: without an anchor the field stays zero rather than inventing a time.
+	// A builder that made one up would be worse than one that admits it has none.
 	plain := NewLedgerBuilder()
 	plain.Observe(DeltaUpsert, "MLTrainingJob", "uid-1", "a1", ObservedState{Event: EventSubmitted}, 0)
 	if got := plain.Events()[0].WallUnixNanos; got != 0 {

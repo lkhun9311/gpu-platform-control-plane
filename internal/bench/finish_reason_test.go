@@ -9,15 +9,18 @@ import "testing"
 //
 // This package has 188 ArmSummary literals in its tests, and a literal bypasses the aggregation entirely:
 // the population choice, the ordering of the three branches and the map initialisation are all inside
-// Summarize, so a fixture that fills the maps by hand tests the formatter and nothing else. Three defects
-// in this session were found exactly that way -- a mutation of the real code left every hand-built test
-// green. So each case here starts from RawRow.
+// Summarize, so a fixture that fills the maps by hand tests the formatter and nothing else.
+// Three defects in this session were found exactly that way -- a mutation of the real code left every
+// hand-built test green.
+// So each case here starts from RawRow.
 func TestFinishReasonsAreTalliedThroughSummarize(t *testing.T) {
 	rows := []RawRow{
-		// Reported: the output cap cut it. This is a reading.
+		// Reported: the output cap cut it.
+		// This is a reading.
 		{Index: 0, Tenant: "premium-1", HTTPStatus: 200, FinishReason: "length"},
 		{Index: 1, Tenant: "premium-1", HTTPStatus: 200, FinishReason: "length"},
-		// Reported: the model ended on its own. A DIFFERENT reading, not the same as the cap.
+		// Reported: the model ended on its own.
+		// A DIFFERENT reading, not the same as the cap.
 		{Index: 2, Tenant: "premium-1", HTTPStatus: 200, FinishReason: "stop"},
 		// Answered and said nothing: an instrument gap, not a normal stop.
 		{Index: 3, Tenant: "premium-1", HTTPStatus: 200},
@@ -55,8 +58,8 @@ func TestFinishReasonsAreTalliedThroughSummarize(t *testing.T) {
 // Every offered row lands in exactly one of the three buckets, so none is silently dropped.
 //
 // Conservation is asserted against DispositionByTenant[t].Offered rather than len(rows), because that is
-// the divisor every published per-tenant figure uses. A bucket that quietly lost rows would shift those
-// figures without changing any count a reader can see.
+// the divisor every published per-tenant figure uses.
+// A bucket that quietly lost rows would shift those figures without changing any count a reader can see.
 func TestEveryOfferedRowLandsInExactlyOneFinishReasonBucket(t *testing.T) {
 	rows := []RawRow{
 		{Index: 0, Tenant: "premium-1", HTTPStatus: 200, FinishReason: "length"},

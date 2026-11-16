@@ -29,9 +29,10 @@ import (
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
-// The kubelet and runtime the test worker reports. They are plausible kind values rather than placeholders
-// because they are half the qualification key, and a key whose node-side fields were "" would compare equal
-// to any other empty key — which is exactly the shape of a check that has stopped checking.
+// The kubelet and runtime the test worker reports.
+// They are plausible kind values rather than placeholders because they are half the qualification key, and
+// a key whose node-side fields were "" would compare equal to any other empty key — which is exactly the
+// shape of a check that has stopped checking.
 const (
 	testKubeletVersion   = "v1.31.0"
 	testContainerRuntime = "containerd://1.7.18"
@@ -41,15 +42,16 @@ const (
 //
 // The key is built from harnessTerminationContract rather than from literals, and that is a deliberate and
 // bounded piece of self-reference: it is the only way a fixture can track the pinned image digest without
-// becoming a second copy of it that drifts. What stops it from turning into a test that compares a function
-// against itself is that nothing here is only checked against itself —
-// TestCanaryContractMirrorsWhatTheHarnessActuallyRenders pins the contract's fields against the measurement
-// package's own output and against the literal exit code, decodeCanary refuses a document whose key is
-// missing any of them, and every mismatch test below supplies a literal that differs.
+// becoming a second copy of it that drifts.
+// What stops it from turning into a test that compares a function against itself is that nothing here is
+// only checked against itself — TestCanaryContractMirrorsWhatTheHarnessActuallyRenders pins the contract's
+// fields against the measurement package's own output and against the literal exit code, decodeCanary
+// refuses a document whose key is missing any of them, and every mismatch test below supplies a literal
+// that differs.
 func passingCanary() canaryQualification {
 	// No *testing.T here, and the error cannot fire: harnessTerminationContract passes package constants and
-	// the renderer's only failure is an unknown contract. Every test that CAN report an error uses
-	// mustHarnessContract instead.
+	// the renderer's only failure is an unknown contract.
+	// Every test that CAN report an error uses mustHarnessContract instead.
 	c, _ := harnessTerminationContract()
 	return canaryQualification{
 		Schema:          canarySchema,
@@ -62,10 +64,11 @@ func passingCanary() canaryQualification {
 			HonorCommand:  c.HonorCommand,
 			IgnoreCommand: c.IgnoreCommand,
 			// Read from the contract like the two above it, and not omitted, because this fixture stands for
-			// "a qualification a healthy cluster recorded just now". Leaving it out made twenty tests fail
-			// with `taken on a different combination than this run needs` the moment keyDifferences learned
-			// to compare it -- which is the check working, not breaking: a qualification with no resuming
-			// command really does describe a workload no run submits any more.
+			// "a qualification a healthy cluster recorded just now".
+			// Leaving it out made twenty tests fail with `taken on a different combination than this run
+			// needs` the moment keyDifferences learned to compare it -- which is the check working, not
+			// breaking: a qualification with no resuming command really does describe a workload no run
+			// submits any more.
 			ResumeCommand:    c.ResumeCommand,
 			GraceSec:         terminationGraceSec,
 			HonorExitCode:    honorExitCode,
@@ -103,9 +106,9 @@ func passingIgnoreProbe() canaryProbe {
 //
 // The encode error is ignored deliberately: every field of the document is a string, a slice of strings, an
 // int or a bool, so json.Marshal has no failure mode reachable from here, and threading a *testing.T through
-// node() would touch fifty call sites for an error that cannot occur. A malformed document would still fail
-// loudly rather than silently — decodeCanary refuses it, and every test whose worker has to qualify would
-// refuse at the gate.
+// node() would touch fifty call sites for an error that cannot occur.
+// A malformed document would still fail loudly rather than silently — decodeCanary refuses it, and every
+// test whose worker has to qualify would refuse at the gate.
 func qualifiedCanaryAnnotation() string {
 	raw, _ := encodeCanary(passingCanary())
 	return raw
@@ -149,9 +152,10 @@ func canaryReferenceJSON(t *testing.T) string {
 	return string(b)
 }
 
-// The canary probes what the arm submits, or it probes nothing worth knowing. Every field of the contract is
-// read out of internal/queuelab's own renderer — the same function submit() calls — so this test is what
-// stands between that claim and a hand-written imitation of the workload drifting away from it.
+// The canary probes what the arm submits, or it probes nothing worth knowing.
+// Every field of the contract is read out of internal/queuelab's own renderer — the same function submit()
+// calls — so this test is what stands between that claim and a hand-written imitation of the workload
+// drifting away from it.
 //
 // The exit code is the one field that IS a local copy (termExitCode is private), so it is checked against the
 // rendered command's own text rather than against itself: if the measurement package ever changes what its
@@ -162,9 +166,9 @@ func canaryReferenceJSON(t *testing.T) string {
 func TestCanaryContractMirrorsWhatTheHarnessActuallyRenders(t *testing.T) {
 	c := mustHarnessContract(t)
 
-	// Compared against the measurement package's own constant rather than a literal copied to here. The copy
-	// this replaces broke the moment the workload legitimately changed image, and it would not have caught the
-	// case it existed for: a canary quietly pinned to a DIFFERENT digest still matched the prefix.
+	// Compared against the measurement package's own constant rather than a literal copied to here.
+	// The copy this replaces broke the moment the workload legitimately changed image, and it would not have
+	// caught the case it existed for: a canary quietly pinned to a DIFFERENT digest still matched the prefix.
 	if c.Image != queuelab.WorkloadImage {
 		t.Fatalf("the canary probes image %q, which is not the %q the arm runs: a canary that qualifies "+
 			"different bytes than the run submits qualifies nothing", c.Image, queuelab.WorkloadImage)
@@ -188,18 +192,20 @@ func TestCanaryContractMirrorsWhatTheHarnessActuallyRenders(t *testing.T) {
 		t.Fatalf("the honouring command is %q; honorExitCode is %d and the workload's own handler must exit "+
 			"with it, or the canary is looking for a code nothing produces", honor, honorExitCode)
 	}
-	// The two probes must be different probes. They share one script and differ by the contract argument, so
-	// the check is on that argument: identical commands would make the contrast one between a workload and
-	// itself, which is the single thing this canary exists to rule out.
+	// The two probes must be different probes.
+	// They share one script and differ by the contract argument, so the check is on that argument: identical
+	// commands would make the contrast one between a workload and itself, which is the single thing this
+	// canary exists to rule out.
 	if honor == ignore {
 		t.Fatalf("both probes run the same command %q, so the canary would compare a workload with itself", honor)
 	}
 	// Checked by POSITION-INDEPENDENT comparison rather than by suffix.
 	//
 	// This used to require the commands to END in " honor" and " ignore", which was true only while the
-	// contract happened to be the last argument. Adding the duty cycle after it broke the assertion without
-	// breaking anything it was protecting. What it is really for is that the two probes differ by the
-	// contract and by nothing else, so that is what it now says.
+	// contract happened to be the last argument.
+	// Adding the duty cycle after it broke the assertion without breaking anything it was protecting.
+	// What it is really for is that the two probes differ by the contract and by nothing else, so that is
+	// what it now says.
 	if len(c.HonorCommand) != len(c.IgnoreCommand) {
 		t.Fatalf("the probes have different shapes: %d vs %d arguments", len(c.HonorCommand), len(c.IgnoreCommand))
 	}
@@ -228,16 +234,16 @@ func TestCanaryContractMirrorsWhatTheHarnessActuallyRenders(t *testing.T) {
 //
 // A runtime that SIGKILLs every container the instant it is asked passes the honouring half for entirely the
 // wrong reason — the Pod stops promptly, and 143 is what an untrapped SIGTERM leaves behind too — and it is
-// precisely the runtime on which A-honor and A-ignore become the same experiment. Only the ignoring probe
-// outlasting the grace period rules it out, so a canary that judged the honouring probe alone would qualify
-// the one cluster this whole file exists to refuse.
+// precisely the runtime on which A-honor and A-ignore become the same experiment.
+// Only the ignoring probe outlasting the grace period rules it out, so a canary that judged the honouring
+// probe alone would qualify the one cluster this whole file exists to refuse.
 //
 // Mutation that turns this red: drop the ignoring probe's survival clause from judgeCanary (the honouring
 // half is untouched and still passes, which is the point).
 func TestCanaryRefusesAClusterThatStopsEverythingImmediately(t *testing.T) {
 	honor := passingHonorProbe()
-	// Both stopped at once, both with plausible codes. This is the whole failure: nothing about the honouring
-	// probe alone looks wrong.
+	// Both stopped at once, both with plausible codes.
+	// This is the whole failure: nothing about the honouring probe alone looks wrong.
 	honor.StoppedAfterMs = 120
 	ignore := passingIgnoreProbe()
 	ignore.StoppedAfterMs = 130
@@ -257,9 +263,9 @@ func TestCanaryRefusesAClusterThatStopsEverythingImmediately(t *testing.T) {
 	}
 }
 
-// The other direction, and the one the arm is actually built on: SIGTERM never reaching the workload. Both
-// probes then behave like the ignoring one — killed at the grace deadline with 137 — and the honouring half
-// has to say so.
+// The other direction, and the one the arm is actually built on: SIGTERM never reaching the workload.
+// Both probes then behave like the ignoring one — killed at the grace deadline with 137 — and the honouring
+// half has to say so.
 //
 // Mutation that turns this red: accept any exit code from the honouring probe, or drop its promptness clause.
 func TestCanaryRefusesAClusterThatNeverDeliversTheSignal(t *testing.T) {
@@ -284,36 +290,41 @@ func TestCanaryRefusesAClusterThatNeverDeliversTheSignal(t *testing.T) {
 // and until this test existed nothing pinned it: deleting the clause left the whole package green, because no
 // fixture anywhere supplied a probe that outlasted the threshold on a code the kubelet does not produce.
 //
-// What it closes is narrow and real. StoppedAfterMs is wall-clock from the moment Delete returned to the
-// moment a terminal status was first READ, so a stall between those two — a slow status update, an apiserver
-// pause, a poll that lost its turn — inflates it. A probe killed promptly and observed late therefore reads
-// as a survivor, and "the ignoring workload outlasted the grace period" is exactly the half that makes the
-// contrast a contrast. 137 is the one part of the reading this program did not compute: the kubelet had to
-// have taken the container out for it to say that.
+// What it closes is narrow and real.
+// StoppedAfterMs is wall-clock from the moment Delete returned to the moment a terminal status was first
+// READ, so a stall between those two — a slow status update, an apiserver pause, a poll that lost its turn —
+// inflates it.
+// A probe killed promptly and observed late therefore reads as a survivor, and "the ignoring workload
+// outlasted the grace period" is exactly the half that makes the contrast a contrast. 137 is the one part of
+// the reading this program did not compute: the kubelet had to have taken the container out for it to say
+// that.
 //
 // (There is a second guard, and it is why this is a narrow gap rather than an open door: both probes are read
 // by one loop on one clock, so a GLOBAL stall inflates the honouring probe too and trips its upper bound.
-// This clause covers the stall that reached only one of the two reads. See killExitCode.)
+// This clause covers the stall that reached only one of the two reads.
+// See killExitCode.)
 //
-// Mutation that turns this red: delete the `ignore.ExitCode != killExitCode` clause from judgeCanary. Nothing
-// else in the package notices.
+// Mutation that turns this red: delete the `ignore.ExitCode != killExitCode` clause from judgeCanary.
+// Nothing else in the package notices.
 func TestTheIgnoringProbesSurvivalHasToBeSomethingTheKubeletEnded(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		code int32
 	}{
 		// A clean exit: the sleeper finished on its own, or something stopped it in a way that let it exit
-		// normally. Either way nothing had to kill it, so nothing was outlasted.
+		// normally.
+		// Either way nothing had to kill it, so nothing was outlasted.
 		{"exited zero", 0},
-		// The honouring arm's own code on the IGNORING probe: the shell stopped on SIGTERM after all. A
-		// duration alone cannot tell that from surviving to the deadline, and it is the reading a workload
-		// whose two arms had drifted into one would produce.
+		// The honouring arm's own code on the IGNORING probe: the shell stopped on SIGTERM after all.
+		// A duration alone cannot tell that from surviving to the deadline, and it is the reading a
+		// workload whose two arms had drifted into one would produce.
 		{"exited on SIGTERM like the honouring arm", honorExitCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ignore := passingIgnoreProbe()
 			// Every other thing about this reading is textbook: it terminated, and its duration is past the
-			// survival threshold. Only the code says the kubelet never had to end it.
+			// survival threshold.
+			// Only the code says the kubelet never had to end it.
 			ignore.ExitCode = tc.code
 			ignore.Reason = "Completed"
 
@@ -335,17 +346,19 @@ func TestTheIgnoringProbesSurvivalHasToBeSomethingTheKubeletEnded(t *testing.T) 
 	}
 }
 
-// A probe whose ending was never seen is not evidence of anything, in either direction. The honouring one
-// missing means nothing showed the cluster can stop a Pod; the ignoring one missing means there is nothing to
-// compare against. Both must refuse, and neither may fall through to a number-based clause reading a zero.
+// A probe whose ending was never seen is not evidence of anything, in either direction.
+// The honouring one missing means nothing showed the cluster can stop a Pod; the ignoring one missing means
+// there is nothing to compare against.
+// Both must refuse, and neither may fall through to a number-based clause reading a zero.
 //
-// Mutation that turns this red: judge the exit code and duration without testing Terminated first. Be exact
-// about what that produces, because the first version of this comment was not: the honouring half does not
-// silently pass — the unobserved fixture's ExitCode of 0 still fails the 143 clause — so what is lost is the
-// SENTENCE. The run is refused for "exited 0, not 143" about a probe that never exited at all, the recorded
-// Unobserved reason is never quoted, and the operator is sent looking for a workload that mis-exited instead
-// of for the reason nothing was seen. This test fails on the assertion that the reason survives, which is the
-// thing actually at stake.
+// Mutation that turns this red: judge the exit code and duration without testing Terminated first.
+// Be exact about what that produces, because the first version of this comment was not: the honouring half
+// does not silently pass — the unobserved fixture's ExitCode of 0 still fails the 143 clause — so what is
+// lost is the SENTENCE.
+// The run is refused for "exited 0, not 143" about a probe that never exited at all, the recorded Unobserved
+// reason is never quoted, and the operator is sent looking for a workload that mis-exited instead of for the
+// reason nothing was seen.
+// This test fails on the assertion that the reason survives, which is the thing actually at stake.
 func TestCanaryRefusesAProbeItNeverSawStop(t *testing.T) {
 	honor := passingHonorProbe()
 	honor.Terminated = false
@@ -371,12 +384,13 @@ func TestCanaryRefusesAProbeItNeverSawStop(t *testing.T) {
 	}
 }
 
-// The grace period nothing in this harness sets. The controller leaves terminationGracePeriodSeconds unset,
-// so a run's Pods take the apiserver's default, and every number in spine.go's horizon is arithmetic over
-// that default being 30. A cluster defaulting something else is not running this protocol.
+// The grace period nothing in this harness sets.
+// The controller leaves terminationGracePeriodSeconds unset, so a run's Pods take the apiserver's default,
+// and every number in spine.go's horizon is arithmetic over that default being 30.
+// A cluster defaulting something else is not running this protocol.
 //
-// Mutation that turns this red: drop the grace clause from judgeCanary. Both probes still show a textbook
-// contrast, so nothing else in the function objects.
+// Mutation that turns this red: drop the grace clause from judgeCanary.
+// Both probes still show a textbook contrast, so nothing else in the function objects.
 func TestCanaryRefusesAClusterWhoseDefaultGracePeriodIsNotTheProtocolsOwn(t *testing.T) {
 	honor, ignore := passingHonorProbe(), passingIgnoreProbe()
 	honor.GraceSec, ignore.GraceSec = 60, 60
@@ -395,9 +409,9 @@ func TestCanaryRefusesAClusterWhoseDefaultGracePeriodIsNotTheProtocolsOwn(t *tes
 	}
 }
 
-// A healthy cluster must actually pass, or the gate is a wall. This is the reading a working kind cluster
-// produces and it has to qualify, including the fact that the ignoring probe's exit code is the SIGKILL its
-// survival is proven by.
+// A healthy cluster must actually pass, or the gate is a wall.
+// This is the reading a working kind cluster produces and it has to qualify, including the fact that the
+// ignoring probe's exit code is the SIGKILL its survival is proven by.
 //
 // It is the positive control for every refusal above: a threshold tightened until nothing real can meet it
 // would leave all of them green and this one alone red.
@@ -435,8 +449,9 @@ func TestQualifyRefusesAWorkerNoCanaryHasEverQualified(t *testing.T) {
 }
 
 // A recorded canary that FAILED is worse than none, and must refuse louder rather than quieter: this cluster
-// has been shown not to produce the contrast. The refusal has to quote what was found, because "re-run the
-// canary" is the wrong advice when the canary already ran and said no.
+// has been shown not to produce the contrast.
+// The refusal has to quote what was found, because "re-run the canary" is the wrong advice when the canary
+// already ran and said no.
 //
 // Mutation that turns this red: treat a recorded document as a qualification whenever it decodes, ignoring
 // Failures.
@@ -457,15 +472,16 @@ func TestQualifyRefusesAWorkerWhoseRecordedCanaryFailed(t *testing.T) {
 }
 
 // A canary that failed on a combination this run does not use is a statement about a different machine, and
-// the refusal has to say so. Tested the other way round — failures before the key — a stale failed document
-// produced the most alarming sentence this file can print, about a cluster it was not taken on, in the one
-// branch that offered the operator no next step.
+// the refusal has to say so.
+// Tested the other way round — failures before the key — a stale failed document produced the most alarming
+// sentence this file can print, about a cluster it was not taken on, in the one branch that offered the
+// operator no next step.
 //
 // Mutation that turns this red: test Failures before the key in checkTerminationCanary.
 func TestAFailedCanaryFromAnotherCombinationIsReportedAsTheWrongCombination(t *testing.T) {
 	stale := node(nil, map[string]string{canaryAnnotationKey: canaryAnnotation(t, func(q *canaryQualification) {
-		// It failed, and it was taken on an image this run does not submit. Both are true of the document; only
-		// one of them is true of this run.
+		// It failed, and it was taken on an image this run does not submit.
+		// Both are true of the document; only one of them is true of this run.
 		q.Key.Image = "busybox:1.34@sha256:1111111111111111111111111111111111111111111111111111111111111111"
 		q.Ignore.StoppedAfterMs = 90
 		q.Failures = judgeCanary(q.Honor, q.Ignore)
@@ -505,15 +521,17 @@ func TestAFailedCanaryFromAnotherCombinationIsReportedAsTheWrongCombination(t *t
 }
 
 // The qualification is a property of a COMBINATION, and every field of that combination has to be able to
-// refuse on its own. A bumped sleeper digest, a re-imaged node, a cluster upgrade and a recreated Node are
-// four completely different next steps, so the refusal names the field rather than saying the key differs.
+// refuse on its own.
+// A bumped sleeper digest, a re-imaged node, a cluster upgrade and a recreated Node are four completely
+// different next steps, so the refusal names the field rather than saying the key differs.
 //
-// Each expected string is the field's own name FOLLOWED BY the phrase only its comparison emits, and the
-// bare field name is not good enough — which a review caught here rather than in theory. The refusal used to
-// end with boilerplate reading "a property of one (image, cluster, runtime, harness) combination", so
-// Contains(err, "image") passed on a refusal that named no field at all, and dropping the image comparison —
-// the one the brief singled out as most likely to be updated in one place and not the other — was green
-// everywhere. The boilerplate no longer says "image", and the assertions no longer depend on it not saying it.
+// Each expected string is the field's own name FOLLOWED BY the phrase only its comparison emits, and the bare
+// field name is not good enough — which a review caught here rather than in theory.
+// The refusal used to end with boilerplate reading "a property of one (image, cluster, runtime, harness)
+// combination", so Contains(err, "image") passed on a refusal that named no field at all, and dropping the
+// image comparison — the one the brief singled out as most likely to be updated in one place and not the other
+// — was green everywhere.
+// The boilerplate no longer says "image", and the assertions no longer depend on it not saying it.
 //
 // Mutation that turns this red: drop any single comparison from keyDifferences (each row catches its own), or
 // compare the key with a single equality that reports no field at all.
@@ -544,9 +562,10 @@ func TestQualifyRefusesACanaryTakenOnADifferentCombination(t *testing.T) {
 		{"a canary taken under another grace period", func(q *canaryQualification) {
 			q.Key.GraceSec = 60
 		}, "termination grace period: this run's timing"},
-		// The one that used to change nothing. A preStop hook or an explicit grace period added to the
-		// controller's Job template changes what a run's Pods do when they are asked to stop, and every other
-		// field of this key stays identical while it does.
+		// The one that used to change nothing.
+		// A preStop hook or an explicit grace period added to the controller's Job template changes what a
+		// run's Pods do when they are asked to stop, and every other field of this key stays identical while
+		// it does.
 		{"a changed operator pod template", func(q *canaryQualification) {
 			q.Key.PodTemplateHash = "0000000000000000000000000000000000000000000000000000000000000000"
 		}, "operator pod template: this build renders"},
@@ -569,16 +588,17 @@ func TestQualifyRefusesACanaryTakenOnADifferentCombination(t *testing.T) {
 // Every field of the key has to be able to refuse on its own, INCLUDING one added after this was written.
 //
 // The field list in keyDifferences is prose and prose falls behind: a field added to canaryKey without a line
-// there would be compared by nothing, and a qualification taken on a different value of it would match. So the
-// equality is the authority and the names are the explanation, and this test walks the struct by reflection
-// rather than listing what it knows about — a new field is covered the day it is added, whether or not
-// anybody remembers this test exists.
+// there would be compared by nothing, and a qualification taken on a different value of it would match.
+// So the equality is the authority and the names are the explanation, and this test walks the struct by
+// reflection rather than listing what it knows about — a new field is covered the day it is added, whether or
+// not anybody remembers this test exists.
 //
 // The assertion is that no field reaches canaryKeyMatches' FALLBACK, and it replaced one that could never
 // fire: the fallback synthesises a diff whenever keyDifferences returns none, so `len(diffs) == 0` after a
 // non-match was structurally unreachable and the mutation the comment named turned it red for no field at
-// all. The net is still there and still makes the refusal correct for a field nobody named — that is its job
-// — but a net that silently absorbs every missing comparison is also where the diagnosis goes to die, so the
+// all.
+// The net is still there and still makes the refusal correct for a field nobody named — that is its job —
+// but a net that silently absorbs every missing comparison is also where the diagnosis goes to die, so the
 // sentinel is what separates "refused and said why" from "refused and could not".
 //
 // Mutation that turns this red: drop any single comparison from keyDifferences (that field then reaches the
@@ -620,16 +640,18 @@ func TestEveryFieldOfTheKeyCanRefuseOnItsOwn(t *testing.T) {
 	}
 }
 
-// The trap the required-field sweep exists for. A qualification document that decoded into zero values would
-// carry a zero key, and a zero key compares equal to another zero key — so a bug that built the expected side
-// out of nothing would match anything, and the gate would still be present and no longer checking. The floor
-// is in decodeCanary rather than in the comparison, so nothing downstream can be handed one.
+// The trap the required-field sweep exists for.
+// A qualification document that decoded into zero values would carry a zero key, and a zero key compares
+// equal to another zero key — so a bug that built the expected side out of nothing would match anything, and
+// the gate would still be present and no longer checking.
+// The floor is in decodeCanary rather than in the comparison, so nothing downstream can be handed one.
 //
 // This test is written as one blanked field at a time against an OTHERWISE COMPLETE document, and that shape
 // is the correction of a defect in its own first version: it originally listed four hand-written documents,
 // every one of which was refused by a different clause — the command check or the schema check — so removing
-// the required-field sweep left it green. A trap that passes under the mutation its own comment names is a
-// trap this lineage has already shipped once, so each swept field now has to be the only thing wrong.
+// the required-field sweep left it green.
+// A trap that passes under the mutation its own comment names is a trap this lineage has already shipped
+// once, so each swept field now has to be the only thing wrong.
 //
 // Mutation that turns this red: drop the required-field sweep from decodeCanary (each blanked-field case
 // below), or drop either structural clause under it (the last two cases).
@@ -714,12 +736,14 @@ func TestQualifyRefusesACanaryItCannotRead(t *testing.T) {
 	}
 }
 
-// The passing path, and the reference it leaves behind. A run that stood on a qualification has to say which
-// one in its own record, or a reader holding the file has to go and ask a cluster that may no longer exist.
+// The passing path, and the reference it leaves behind.
+// A run that stood on a qualification has to say which one in its own record, or a reader holding the file
+// has to go and ask a cluster that may no longer exist.
 //
 // Mutation that turns this red: return a bare nil reference from checkTerminationCanary on the passing path,
-// or drop the assignment in qualify. The run still proceeds, and its record silently stops saying what it
-// stood on — which is also what makes environmentEstablished refuse it.
+// or drop the assignment in qualify.
+// The run still proceeds, and its record silently stops saying what it stood on — which is also what makes
+// environmentEstablished refuse it.
 func TestAQualifiedWorkerRecordsWhichCanaryTheRunStoodOn(t *testing.T) {
 	q, err := qualify(node(nil, nil), nil, testReq(2), mustHarnessContract(t))
 	if err != nil {
@@ -743,14 +767,14 @@ func TestAQualifiedWorkerRecordsWhichCanaryTheRunStoodOn(t *testing.T) {
 	}
 }
 
-// The record's own verdict has to fall when the canary reference does. A run refused at this gate carries a
-// qualification block full of perfectly good numbers — the node was Ready, schedulable, uncontended and large
-// enough — so a verdict derived from those alone would call the environment established for a run that was
-// refused precisely because it was not.
+// The record's own verdict has to fall when the canary reference does.
+// A run refused at this gate carries a qualification block full of perfectly good numbers — the node was
+// Ready, schedulable, uncontended and large enough — so a verdict derived from those alone would call the
+// environment established for a run that was refused precisely because it was not.
 //
-// Mutation that turns this red: drop the TerminationCanary clause from environmentEstablished. Every other
-// field of the fixture below is the passing one, so nothing else in deriveValidity objects and the record
-// calls itself admissible.
+// Mutation that turns this red: drop the TerminationCanary clause from environmentEstablished.
+// Every other field of the fixture below is the passing one, so nothing else in deriveValidity objects and
+// the record calls itself admissible.
 func TestARecordWhoseRunStoodOnNoCanaryDoesNotCallItselfAdmissible(t *testing.T) {
 	q := testQualification()
 	q.TerminationCanary = nil
@@ -799,13 +823,14 @@ func TestDecodeRefusesACanaryReferenceThatNamesNothing(t *testing.T) {
 }
 
 // The same guard one field at a time, which is the shape the sibling above cannot have: it blanks the whole
-// reference, so CanaryID alone refuses it and the clauses beside that one are never the thing under test. A
-// document whose reference names its canary, its image and its node and is silent only about the operator's
-// template is the one a projection that dropped a field, or a hand-edited file, actually produces.
+// reference, so CanaryID alone refuses it and the clauses beside that one are never the thing under test.
+// A document whose reference names its canary, its image and its node and is silent only about the
+// operator's template is the one a projection that dropped a field, or a hand-edited file, actually
+// produces.
 //
-// Mutation that turns this red: drop the PodTemplateHash clause from decodeRunRecord's reference guard. The
-// version check does not cover it — this document claims version 6 — and the record then reads as a run gated
-// on a template it names nothing about.
+// Mutation that turns this red: drop the PodTemplateHash clause from decodeRunRecord's reference guard.
+// The version check does not cover it — this document claims version 6 — and the record then reads as a run
+// gated on a template it names nothing about.
 func TestDecodeRefusesACanaryReferenceThatNamesNoTemplate(t *testing.T) {
 	q := testQualification()
 	ref := *testCanaryReference()
@@ -822,16 +847,18 @@ func TestDecodeRefusesACanaryReferenceThatNamesNoTemplate(t *testing.T) {
 	}
 }
 
-// The schema bump, in the direction it exists for. A version-4 record decodes into today's struct without
-// complaint and leaves TerminationCanary nil — which is not a spare slot but exactly what THIS build writes
-// for a run it refused at this gate. Without the bump every record every earlier build wrote, including the
-// good ones, reads as a run that faced the gate and did not get past it.
+// The schema bump, in the direction it exists for.
+// A version-4 record decodes into today's struct without complaint and leaves TerminationCanary nil — which
+// is not a spare slot but exactly what THIS build writes for a run it refused at this gate.
+// Without the bump every record every earlier build wrote, including the good ones, reads as a run that
+// faced the gate and did not get past it.
 //
 // Mutation that turns this red: leave recordSchemaVersion at 4.
 //
 // The constant has moved on since — the pod template key took it to 6 — so what is pinned here is the floor
 // and not the exact value: any version below 5 is a build that cannot tell a run refused at this gate from one
-// that could not ask. TestARecordFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted pins the next bump.
+// that could not ask.
+// TestARecordFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted pins the next bump.
 func TestARecordFromBeforeTheCanaryGateIsRefusedRatherThanReinterpreted(t *testing.T) {
 	if recordSchemaVersion < 5 {
 		t.Fatalf("recordSchemaVersion is %d; the canary reference was added to the qualification block, and a "+
@@ -848,8 +875,9 @@ func TestARecordFromBeforeTheCanaryGateIsRefusedRatherThanReinterpreted(t *testi
 
 // The revision is recorded and deliberately not keyed, and the reason is measurable rather than stylistic: a
 // `go test` binary carries no vcs settings at all, so a key that included one could not be matched from half
-// the ways this code is exercised. What the field must never do is decode as an empty string a reader cannot
-// tell from a writer that forgot it.
+// the ways this code is exercised.
+// What the field must never do is decode as an empty string a reader cannot tell from a writer that forgot
+// it.
 //
 // Mutation that turns this red: return "" instead of the sentinel when the build carries no stamp.
 func TestHarnessRevisionIsHonestAboutBeingAbsent(t *testing.T) {
@@ -866,9 +894,10 @@ func TestHarnessRevisionIsHonestAboutBeingAbsent(t *testing.T) {
 }
 
 // The template the key covers has to be the OPERATOR'S rendering rather than a description of it, because the
-// one failure this field exists to catch is the two drifting apart. So every assertion below is against
-// something only internal/controller's BuildJob puts there: an MLTrainingJob carries no container name, no
-// restart policy and no resource limits at all, and all three are in what gets hashed.
+// one failure this field exists to catch is the two drifting apart.
+// So every assertion below is against something only internal/controller's BuildJob puts there: an
+// MLTrainingJob carries no container name, no restart policy and no resource limits at all, and all three are
+// in what gets hashed.
 //
 // The device count is checked against the probe's own 7 and not against 1, which is what the probe's three
 // distinct numbers buy: parallelism is 3 and completions 5, so a rendering that reached for the wrong one of
@@ -914,14 +943,16 @@ func TestTheTemplateTheKeyCoversIsTheOneTheOperatorRenders(t *testing.T) {
 //
 // The first three rows are the three the brief named as the realistic additions, and they are the whole reason
 // this is not an empty gate: each of them changes what a run's Pod does when it is deleted, and before this
-// field every one of them left every field of the key identical. The rest are there because the argument is
-// not really about those three — it is that the template is hashed WHOLE, so an added env var or a second
-// container is caught by the same mechanism and nobody has to have anticipated it.
+// field every one of them left every field of the key identical.
+// The rest are there because the argument is not really about those three — it is that the template is hashed
+// WHOLE, so an added env var or a second container is caught by the same mechanism and nobody has to have
+// anticipated it.
 //
 // Mutation that turns this red: return a constant from podTemplateHashOf, or hash any PART of the template
 // rather than the whole of it — hashing just the container list turns rows 1, 3, 4 and 7 red, since the grace
 // period, the shared PID namespace, the restart policy and a template annotation all sit outside the
-// containers. That is the argument for hashing everything rather than the fields that looked relevant.
+// containers.
+// That is the argument for hashing everything rather than the fields that looked relevant.
 func TestEveryAdditionToTheOperatorsTemplateChangesTheKey(t *testing.T) {
 	base := renderedPodTemplate(templateProbeJob())
 	baseHash := podTemplateHashOf(base)
@@ -970,13 +1001,14 @@ func TestEveryAdditionToTheOperatorsTemplateChangesTheKey(t *testing.T) {
 }
 
 // A hash that moved with the row a run submits would be useless: every run would refuse the reading before it,
-// and the field would be a per-run ritual rather than a key. Two things keep it still, and both are testable.
+// and the field would be a per-run ritual rather than a key.
+// Two things keep it still, and both are testable.
 //
 // Only the Job's TEMPLATE is hashed, so the name and namespace — which are per-row, since a trace row's name is
-// the object's name — cannot reach it. And the template is rendered at sentinel values rather than at the
-// harness's own workload, so the pinned image digest and the arm's rendered command are keyed by their own
-// fields and are not also inside this one, where a digest bump would be reported a second time as a template
-// change.
+// the object's name — cannot reach it.
+// And the template is rendered at sentinel values rather than at the harness's own workload, so the pinned
+// image digest and the arm's rendered command are keyed by their own fields and are not also inside this one,
+// where a digest bump would be reported a second time as a template change.
 //
 // Mutation that turns this red: let the Job's own identity into what is hashed — renderedPodTemplate stamping
 // j.Name and j.Namespace onto the template it returns, which is what hashing the whole rendered Job rather
@@ -1011,9 +1043,10 @@ func TestTheTemplateKeyDoesNotMoveWithWhatARunSubmits(t *testing.T) {
 }
 
 // The probe is only as good as the fields it exercises, and the field it does not exercise is the one that
-// goes wrong silently. A spec field left at its zero value renders whatever the operator does for an unset
-// field, so a later line that adds something only when that field IS set — gpuClass becoming a nodeSelector is
-// the obvious one — would be taken by every run and skipped by the key.
+// goes wrong silently.
+// A spec field left at its zero value renders whatever the operator does for an unset field, so a later line
+// that adds something only when that field IS set — gpuClass becoming a nodeSelector is the obvious one —
+// would be taken by every run and skipped by the key.
 //
 // This walks the spec by reflection rather than listing what it knows about, for the reason
 // TestEveryFieldOfTheKeyCanRefuseOnItsOwn does: a field added to the CRD after this was written is covered on
@@ -1045,16 +1078,17 @@ func TestTheTemplateProbeLeavesNoFieldOfTheSpecUnexercised(t *testing.T) {
 // exact about, because the honest answer is narrower than "it is what refuses the old document".
 //
 // A version-1 reading carries no podTemplateHash, and it would be refused with or without the bump:
-// decodeCanary's required-field sweep stops an empty hash on its own. What the version buys is the DIAGNOSIS.
+// decodeCanary's required-field sweep stops an empty hash on its own.
+// What the version buys is the DIAGNOSIS.
 // "This document is from before the template was keyed" and "a field of this document is empty" are the same
 // outcome to a parser and completely different sentences to an operator deciding whether the node is carrying
 // an old reading or a corrupted one.
 //
-// Mutation that turns this red: leave canarySchema at 1 — the first assertion. It is asserted on the constant
-// rather than left implicit in the refusal precisely because the sweep would otherwise cover for it, which is
-// the shape of guard-overlap this lineage has already been caught by once. Dropping the sweep entry AND the
-// bump together turns the second half red instead: the document then decodes, and the refusal an operator
-// meets names a template change that never happened.
+// Mutation that turns this red: leave canarySchema at 1 — the first assertion.
+// It is asserted on the constant rather than left implicit in the refusal precisely because the sweep would
+// otherwise cover for it, which is the shape of guard-overlap this lineage has already been caught by once.
+// Dropping the sweep entry AND the bump together turns the second half red instead: the document then
+// decodes, and the refusal an operator meets names a template change that never happened.
 func TestACanaryFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *testing.T) {
 	if canarySchema != 2 {
 		t.Fatalf("canarySchema is %d; the operator's pod template joined the key, and a document that predates "+
@@ -1088,8 +1122,9 @@ func TestACanaryFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *test
 // than the four bumps before it.
 //
 // The floor is asserted rather than an exact version, so a LATER deliberate bump does not have to edit the
-// test that documents an EARLIER one. Each bump brings its own document that must stop decoding; this one
-// owns the version-5 document below, and the newest bump owns its own test beside this file.
+// test that documents an EARLIER one.
+// Each bump brings its own document that must stop decoding; this one owns the version-5 document below,
+// and the newest bump owns its own test beside this file.
 //
 // Mutation that turns this red: leave recordSchemaVersion at 5 — both halves, the constant and the document.
 func TestARecordFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *testing.T) {
@@ -1108,10 +1143,10 @@ func TestARecordFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *test
 // The key records the workload a CHECKPOINTING arm submits, which is neither of the two it probes.
 //
 // canaryContract's own comment claims every field is read from the measurement package's renderer so that
-// "the probe runs the bytes the arm runs by construction". That stopped being true when E-fresh and
-// E-resume arrived: they render a state path and a resume spelling, so their victim's argv matches neither
-// recorded command, and a key that cannot describe the workload a run submits cannot say the run was
-// qualified for it.
+// "the probe runs the bytes the arm runs by construction".
+// That stopped being true when E-fresh and E-resume arrived: they render a state path and a resume
+// spelling, so their victim's argv matches neither recorded command, and a key that cannot describe the
+// workload a run submits cannot say the run was qualified for it.
 //
 // Rendered through RenderForArm rather than assembled here, for the reason the other two are rendered
 // through the real renderer: a hand-written imitation would qualify a command nothing submits.
@@ -1161,8 +1196,9 @@ func TestTheKeyRecordsTheResumingArmsCommand(t *testing.T) {
 //
 // It is deliberately NOT part of decodeCanary's required-field sweep: every qualification already written to
 // a Node annotation carries no resuming command, and demanding one would refuse them all -- the mistake this
-// lineage has made three times in the other direction. The honest outcome is that the key compares unequal
-// and the operator re-takes the reading, because the arms' command really did change.
+// lineage has made three times in the other direction.
+// The honest outcome is that the key compares unequal and the operator re-takes the reading, because the
+// arms' command really did change.
 //
 // Mutations that turn this red: drop the resuming-command comparison from keyDifferences; or add
 // ResumeCommand to decodeCanary's required fields, which turns this from a difference into a decode failure.

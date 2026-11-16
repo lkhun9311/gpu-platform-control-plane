@@ -32,18 +32,21 @@ import (
 // resumes it, plus how that selector reads in a refusal.
 //
 // It replaces the bare namespace this file used to take, because the ownership window watches the worker
-// Node and a Node is cluster-scoped. Threading a scope rather than writing a sibling keeps the parts that
-// decide whether a view is continuous — the resume version, the baseline refusal, the ending semantics —
-// as one implementation with one set of tests behind it. A second copy would be a hundred lines that start
-// identical and drift silently, and continuity is not a property to hold in two places.
+// Node and a Node is cluster-scoped.
+// Threading a scope rather than writing a sibling keeps the parts that decide whether a view is continuous
+// — the resume version, the baseline refusal, the ending semantics — as one implementation with one set of
+// tests behind it.
+// A second copy would be a hundred lines that start identical and drift silently, and continuity is not a
+// property to hold in two places.
 //
 // The change is deliberately confined to the selector. namespaceScope produces exactly the option and
 // exactly the wording the namespaced callers had before it existed, so a namespaced stream is byte-for-byte
 // the stream it was.
 type streamScope struct {
 	// desc is how the scope reads inside the two refusals below, phrased to follow the kind: "of PodList in
-	// ns-a". It is not derived from opts, because a caller that selects nothing still has to say so —
-	// "cluster-wide" is a scope, and an empty string there would produce a refusal that names no scope at all.
+	// ns-a".
+	// It is not derived from opts, because a caller that selects nothing still has to say so — "cluster-wide"
+	// is a scope, and an empty string there would produce a refusal that names no scope at all.
 	desc string
 	opts []client.ListOption
 }
@@ -58,9 +61,9 @@ func namespaceScope(ns string) streamScope {
 // The single-object case — the ownership window wants one Node — filters by name in its own consumer rather
 // than through a metadata.name field selector, for the reason qualifyWorker already gives about Pods: the
 // local comparison is what decides either way, so a server-side selector this code cannot verify would still
-// have to be re-checked against everything it returned. It cannot narrow the RBAC either, since watch on
-// nodes is cluster-scoped whether or not a selector is attached, and on a lab cluster the difference is a
-// handful of objects.
+// have to be re-checked against everything it returned.
+// It cannot narrow the RBAC either, since watch on nodes is cluster-scoped whether or not a selector is
+// attached, and on a lab cluster the difference is a handful of objects.
 func clusterScope() streamScope { return streamScope{desc: "cluster-wide"} }
 
 // watchAdapter presents controller-runtime's client as the cache.WatcherWithContext that RetryWatcher
@@ -108,8 +111,8 @@ func (a *watchAdapter) WatchWithContext(ctx context.Context, opts metav1.ListOpt
 // Established closes once at least one underlying watch has been successfully established.
 //
 // It does not mean the watch is currently healthy: an established watch can close immediately afterwards,
-// and RetryWatcher will reconnect from the same resource version. Promising liveness would be promising
-// something this type cannot observe.
+// and RetryWatcher will reconnect from the same resource version.
+// Promising liveness would be promising something this type cannot observe.
 func (a *watchAdapter) Established() <-chan struct{} { return a.established }
 
 // streamBaseline is what the initial List established, and deliberately nothing more.
@@ -124,27 +127,30 @@ type streamBaseline struct {
 // streamEnd is what can actually be observed about why a stream stopped.
 //
 // RetryWatcher exposes only forwarded events, the closure of its channels, the caller's own ctx.Err() and
-// whether the caller asked to stop. Some permanent establishment errors close without forwarding anything,
-// cancellation races with forwarding, and a terminal error event can be lost when the internal send selects
-// the cancelled context — so "410 versus another permanent reason" is not a distinction this type can
-// always make.
+// whether the caller asked to stop.
+// Some permanent establishment errors close without forwarding anything, cancellation races with
+// forwarding, and a terminal error event can be lost when the internal send selects the cancelled context —
+// so "410 versus another permanent reason" is not a distinction this type can always make.
 //
 // Cancelled and Stopped are the two endings the caller itself caused, and an ending with neither set is
 // always a loss: the stream ended on its own, so the gap since the last delivered version can never be
-// closed, whether or not LastStatus names a cause. Reading "not cancelled" alone as a lost stream would
-// condemn every orderly shutdown, which is why Stopped exists.
+// closed, whether or not LastStatus names a cause.
+// Reading "not cancelled" alone as a lost stream would condemn every orderly shutdown, which is why
+// Stopped exists.
 //
 // But either flag being set proves only that the ending is not yet shown to be a loss — never that it was
-// orderly. Do not read this struct as licensing `orderly := end.Cancelled || end.Stopped`; Ended explains
-// why that is weaker than it looks and where a real verdict has to come from.
+// orderly.
+// Do not read this struct as licensing `orderly := end.Cancelled || end.Stopped`; Ended explains why that
+// is weaker than it looks and where a real verdict has to come from.
 //
 // Stopped says the caller asked to stop before the stream finished ending, not that the stop was the cause,
 // because a stop can race with a stream that was already dying.
 //
 // LastStatus is independent evidence when it is present, but its absence proves nothing: the wrapped
 // Forbidden path terminates permanently while forwarding no event at all, so a stop racing that loss reads
-// as Stopped with no status. These three fields can therefore confirm a loss and can never confirm an
-// orderly ending; Ended documents that asymmetry and what an adopter has to do about it.
+// as Stopped with no status.
+// These three fields can therefore confirm a loss and can never confirm an orderly ending; Ended documents
+// that asymmetry and what an adopter has to do about it.
 type streamEnd struct {
 	Cancelled  bool
 	Stopped    bool
@@ -175,7 +181,8 @@ type watchStream struct {
 // ctx governs the whole stream and not merely the baseline List, which is the trap worth stating outright.
 // A caller bounding establishment with context.WithTimeout hands that deadline to the stream as well, so
 // every stream dies when it expires and the ending reads as Cancelled — the caller's own shutdown
-// signature. A run that stopped observing thirty seconds in would then be reported as a clean shutdown.
+// signature.
+// A run that stopped observing thirty seconds in would then be reported as a clean shutdown.
 // Give the stream the run's own context and bound establishment by selecting on Established() against a
 // timer instead.
 func startWatchStream(ctx context.Context, c client.WithWatch, scope streamScope,
@@ -265,8 +272,9 @@ func (s *watchStream) End() <-chan struct{}           { return s.done }
 //
 // A permanent pre-establishment failure — a Forbidden that arrives wrapped is the one this package has
 // reproduced — ends the stream having never established anything, and startWatchStream has already returned
-// a nil error by then. A barrier written as a bare receive over several streams therefore waits forever on
-// the one that died; select it against End() and treat that arm as a failed stream, not as a slow one.
+// a nil error by then.
+// A barrier written as a bare receive over several streams therefore waits forever on the one that died;
+// select it against End() and treat that arm as a failed stream, not as a slow one.
 func (s *watchStream) Established() <-chan struct{} { return s.adapter.Established() }
 
 // Stop ends the stream and is enough on its own: after it returns, End closes whatever forward was doing.
@@ -289,26 +297,27 @@ func (s *watchStream) Stop() {
 //     forwards nothing can arrive concurrently with the shutdown that set either flag.
 //
 // No check the caller can perform closes that last hole, and sampling End() before stopping actively makes
-// things worse. If the stream had already ended on its own, the flags alone already reject it and the
-// sample adds nothing; if it is ending concurrently, End() has not closed yet and the sample permits
-// exactly the case it was meant to catch; and on an ordinary cancelled shutdown, where End() has
-// legitimately closed first, the sample condemns a run that was fine.
+// things worse.
+// If the stream had already ended on its own, the flags alone already reject it and the sample adds
+// nothing; if it is ending concurrently, End() has not closed yet and the sample permits exactly the case
+// it was meant to catch; and on an ordinary cancelled shutdown, where End() has legitimately closed first,
+// the sample condemns a run that was fine.
 //
 // An adopter that needs a real orderliness verdict has to source it from outside this type — a final List
-// once the stream has ended, comparing that resourceVersion against the last one delivered. This package's
-// own adopter, the collector, deliberately does NOT do that, and the reasons belong here so the next one
-// does not spend an afternoon reaching them again. A list's resourceVersion is the store's current position
-// and advances on writes anywhere in the cluster, so on a healthy run it stands above the last delivered
-// version and proves nothing; and the collector's streams end at the observation horizon, past which every
-// change is censored by design, so a Pod that final List found absent is an ordinary post-horizon
-// termination rather than a missed stop. It refuses the endings this type cannot vouch for instead, which is
-// a verdict it can actually make.
+// once the stream has ended, comparing that resourceVersion against the last one delivered.
+// This package's own adopter, the collector, deliberately does NOT do that, and the reasons belong here so
+// the next one does not spend an afternoon reaching them again.
+// A list's resourceVersion is the store's current position and advances on writes anywhere in the cluster,
+// so on a healthy run it stands above the last delivered version and proves nothing; and the collector's
+// streams end at the observation horizon, past which every change is censored by design, so a Pod that final
+// List found absent is an ordinary post-horizon termination rather than a missed stop.
+// It refuses the endings this type cannot vouch for instead, which is a verdict it can actually make.
 //
 // What this type does guarantee, for an adopter whose window really does end where its stream does, is a
 // property rather than an intention: forward defers close(done) before close(out), so LIFO closes out first,
-// and End() being closed already implies ResultChan() is closed and no further event can arrive. A List
-// issued after End() therefore cannot race a terminal event still in flight — which the collector's former
-// in-loop relist could, and did, when it marked a Pod vanished.
+// and End() being closed already implies ResultChan() is closed and no further event can arrive.
+// A List issued after End() therefore cannot race a terminal event still in flight — which the collector's
+// former in-loop relist could, and did, when it marked a Pod vanished.
 func (s *watchStream) Ended() streamEnd {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -36,10 +36,12 @@ import (
 // the eligible offered tokens a given rate and burst would admit.
 //
 // This is the design spec's Arm B tuning procedure, which asks for the bucket to be simulated against a
-// pilot's arrival trace and the values frozen before the confirmatory run. It had never been run. The first
-// confirmatory run instead received the trace's REQUEST rate in a flag measured in tokens per second, with
-// the burst left at a default below the largest prompt, and arm B refused every eligible request for three
-// hours -- reporting cleanly the whole time, because nothing compared the tuning against the traffic.
+// pilot's arrival trace and the values frozen before the confirmatory run.
+// It had never been run.
+// The first confirmatory run instead received the trace's REQUEST rate in a flag measured in tokens per
+// second, with the burst left at a default below the largest prompt, and arm B refused every eligible
+// request for three hours -- reporting cleanly the whole time, because nothing compared the tuning against
+// the traffic.
 //
 // It drives internal/gateway's own admitter through an injected clock rather than reimplementing the bucket.
 // A simulator that agreed with the gateway today would be one more value held in two places, which is the
@@ -74,8 +76,9 @@ func simCap(args []string) error {
 	// The clock is the trace's own arrival offsets, so a ten-minute replay simulates in milliseconds.
 	//
 	// These are the SCHEDULED offsets, not the times requests actually reached the gateway: the replay client
-	// dispatches open-loop and the recorded sendUnixNanos are not perfectly ordered by index. So this is the
-	// intended arrival pattern through the real bucket, not a reconstruction of one run's true spacing.
+	// dispatches open-loop and the recorded sendUnixNanos are not perfectly ordered by index.
+	// So this is the intended arrival pattern through the real bucket, not a reconstruction of one run's true
+	// spacing.
 	origin := time.Unix(0, 0)
 	var at time.Time
 	admitter := gateway.NewStaticCapAdmitterAtClock(*rate, *burst, *longThreshold, func() time.Time { return at })
@@ -83,8 +86,10 @@ func simCap(args []string) error {
 
 	var offered, admitted int64
 	// The estimate charges the bucket, because that is what the gateway spends and what arm B's tuning is
-	// expressed in. The EXACT counts weight the fraction, because that is the unit the design registers the
-	// admission-match criterion in. They are two numbers with two jobs and they must not be conflated.
+	// expressed in.
+	// The EXACT counts weight the fraction, because that is the unit the design registers the
+	// admission-match criterion in.
+	// They are two numbers with two jobs and they must not be conflated.
 	var offeredExact, admittedExact int64
 	var exactMissing int
 	var eligible, refused int
@@ -145,12 +150,14 @@ func simCap(args []string) error {
 		fmt.Printf("exact tokens: offeredExact=%d admittedExact=%d fraction=%.4f (the registered unit)\n", offeredExact, admittedExact, exactFraction)
 	}
 	// A -target check is a claim about the REGISTERED criterion, and the criterion is defined over the served
-	// tokenizer's own counts. A trace whose rows carry none cannot answer it.
+	// tokenizer's own counts.
+	// A trace whose rows carry none cannot answer it.
 	//
 	// Passing here on the estimate is how a bucket gets frozen against a number nobody measured: this command
-	// does not freeze anything itself, but its exit status is what the runner reads before committing to a
-	// paid confirmatory run. Refusing is the repository's rule for measurement code -- an error beats a figure
-	// the evidence does not support -- and the estimate-weighted fraction is still printed above for diagnosis.
+	// does not freeze anything itself, but its exit status is what the runner reads before committing to a paid
+	// confirmatory run.
+	// Refusing is the repository's rule for measurement code -- an error beats a figure the evidence does not
+	// support -- and the estimate-weighted fraction is still printed above for diagnosis.
 	if *target > 0 && exactMissing > 0 {
 		return fmt.Errorf("-target-admitted-fraction asks whether this bucket matches the pilot's admitted-work fraction, which the design defines over EXACT target-tokenizer input tokens, and %d of %d eligible rows in %s carry no measured count. Stamp the trace first (benchharness stamp-exact-tokens) or drop -target-admitted-fraction and read the estimate-weighted fraction above as a diagnostic",
 			exactMissing, eligible, *tracePath)

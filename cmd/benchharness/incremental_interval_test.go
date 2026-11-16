@@ -34,16 +34,17 @@ import (
 // paired-block work left open.
 //
 // internal/bench pins the estimator's value; nothing pinned the path from --raw files to the interval the
-// gate reads. The consumer takes the blocks from armEvidence, and a mis-wiring there would leave every
-// estimator test green: the arrays would still be paired correctly inside the function and the function
-// would still compute the right thing on them.
+// gate reads.
+// The consumer takes the blocks from armEvidence, and a mis-wiring there would leave every estimator test
+// green: the arrays would still be paired correctly inside the function and the function would still
+// compute the right thing on them.
 
 // captureBoth runs fn with BOTH standard streams redirected and returns them concatenated.
 //
 // The first draft of these tests collected only stdout and the report file, and reported that the censoring
-// refusal "is not mentioned anywhere in the output" while the refusal was on stderr the whole time. The
-// warning path in incrementalCI uses fmt.Fprintf(os.Stderr, ...), so a test that asserts on a refusal and
-// reads only stdout is asserting on a stream the message never travels.
+// refusal "is not mentioned anywhere in the output" while the refusal was on stderr the whole time.
+// The warning path in incrementalCI uses fmt.Fprintf(os.Stderr, ...), so a test that asserts on a refusal
+// and reads only stdout is asserting on a stream the message never travels.
 func captureBoth(t *testing.T, fn func() error) (string, error) {
 	t.Helper()
 	ro, wo, err := os.Pipe()
@@ -130,9 +131,11 @@ func writeM5BRepetition(t *testing.T, dir, arm string, rep, completed int, ttftM
 // m5bArgs builds the four-arm --raw list the M5-b study admits, with per-arm tails and censoring.
 //
 // Each repetition's tail is the arm's base tail plus a PER-REPETITION offset, so the four blocks of an arm
-// are distinguishable. With one tail per arm -- the first draft -- every block of an arm was identical, and
-// a mutation that reversed one arm's blocks at the consumption step changed no number: the test could not
-// see a mis-pairing it was written to catch. Distinct blocks are what make the pairing observable at all.
+// are distinguishable.
+// With one tail per arm -- the first draft -- every block of an arm was identical, and a mutation that
+// reversed one arm's blocks at the consumption step changed no number: the test could not see a mis-pairing
+// it was written to catch.
+// Distinct blocks are what make the pairing observable at all.
 func m5bArgs(t *testing.T, dir string, reps int, tails map[string]float64, censorFirst map[string]int) []string {
 	t.Helper()
 	var paths []string
@@ -145,20 +148,20 @@ func m5bArgs(t *testing.T, dir string, reps int, tails map[string]float64, censo
 			// The two arms rise at DIFFERENT rates, so the per-repetition C/B ratios are four distinct
 			// values rather than one repeated.
 			//
-			// The first draft scaled every arm by the same factor. That made each repetition's ratio exactly
-			// 0.550, and a constant ratio collapses BOTH estimators onto [0.550, 0.550] -- so a mutation
-			// swapping the paired-block bootstrap for the mean-of-ratios one changed no number and the test
-			// stayed green. Distinguishable blocks were not enough; the blocks' RATIOS have to differ, which
-			// is the quantity the two estimators disagree about.
-			// 0.15 and 0.30 are chosen, not guessed: the four C/B ratios come out 0.550, 0.622, 0.677 and
-			// 0.721 -- all distinct, all under the 0.90 threshold, and their coefficient of variation is
-			// 0.115, inside MaxRatioScatter (0.15).
+			// The first draft scaled every arm by the same factor.
+			// That made each repetition's ratio exactly 0.550, and a constant ratio collapses BOTH
+			// estimators onto [0.550, 0.550] -- so a mutation swapping the paired-block bootstrap for the
+			// mean-of-ratios one changed no number and the test stayed green.
+			// Distinguishable blocks were not enough; the blocks' RATIOS have to differ, which is the
+			// quantity the two estimators disagree about. 0.15 and 0.30 are chosen, not guessed: the four
+			// C/B ratios come out 0.550, 0.622, 0.677 and 0.721 -- all distinct, all under the 0.90
+			// threshold, and their coefficient of variation is 0.115, inside MaxRatioScatter (0.15).
 			//
 			// The previous draft used 0.6 and 0.15, which spread the ratios from 0.550 to 0.285 and tripped
 			// the scatter refusal: the control run came back INVALID, and every mutation then "failed" the
-			// same test for a reason that had nothing to do with the mutation. Widening the ratios enough to
-			// distinguish the two estimators and keeping them inside the scatter bound is one constraint, not
-			// two independent ones.
+			// same test for a reason that had nothing to do with the mutation.
+			// Widening the ratios enough to distinguish the two estimators and keeping them inside the
+			// scatter bound is one constraint, not two independent ones.
 			growth := 0.15
 			if arm == "kv-aware" {
 				growth = 0.30
@@ -177,8 +180,9 @@ func m5bArgs(t *testing.T, dir string, reps int, tails map[string]float64, censo
 // TestTheIncrementalIntervalReachesTheGateThroughTheRealCommand is the control for the two below.
 //
 // Four repetitions per arm, no censoring, kv-aware's tail well under static-cap's: the interval must be
-// computed and the incremental check must pass. Without this control a refusal test proves nothing, because
-// a report that refuses everything would satisfy it.
+// computed and the incremental check must pass.
+// Without this control a refusal test proves nothing, because a report that refuses everything would
+// satisfy it.
 func TestTheIncrementalIntervalReachesTheGateThroughTheRealCommand(t *testing.T) {
 	dir := t.TempDir()
 	args := m5bArgs(t, dir, 4, map[string]float64{
@@ -197,8 +201,9 @@ func TestTheIncrementalIntervalReachesTheGateThroughTheRealCommand(t *testing.T)
 	if !strings.Contains(text, "incremental value") {
 		t.Fatalf("the report carries no incremental-value line:\n%s", text)
 	}
-	// The interval has to be PRESENT and the check has to PASS. "CI[" absent would mean the gate was
-	// satisfied by a missing interval, which is the vacuous pass CI.Valid exists to stop.
+	// The interval has to be PRESENT and the check has to PASS.
+	// "CI[" absent would mean the gate was satisfied by a missing interval, which is the vacuous
+	// pass CI.Valid exists to stop.
 	if !strings.Contains(text, "CI[") {
 		t.Errorf("the incremental line carries no interval, so the gate read an absent one:\n%s", text)
 	}
@@ -215,7 +220,8 @@ func TestTheIncrementalIntervalReachesTheGateThroughTheRealCommand(t *testing.T)
 	//
 	// Asserting only that an interval is present and the check passed cannot tell the amendment's estimator
 	// from the one it replaced: a mutation putting BootstrapCI (the mean of per-repetition ratios) back left
-	// every test green. The number is what distinguishes them, so the number is what is asserted.
+	// every test green.
+	// The number is what distinguishes them, so the number is what is asserted.
 	lo, hi := parseIntervalFromReport(t, text)
 	wantLo, wantHi := expectedBlockInterval(t, dir, 4)
 	if math.Abs(lo-wantLo) > 1e-6 || math.Abs(hi-wantHi) > 1e-6 {
@@ -291,9 +297,11 @@ func expectedBlockInterval(t *testing.T, dir string, reps int) (lo, hi float64) 
 // end to end.
 //
 // This is the counter-example an external review enumerated: four repetitions of 102 premium requests, and
-// kv-aware's FIRST repetition completes 100 with 2 timing out. Pooled that is 2 of 408, i.e. 0.49% -- under
-// the 1% boundary, so ArmSummary.Censored stays false and the old gate accepted the run. Within the block
-// it is 2 of 102, i.e. 1.96%, so a resample drawing that block reports a lower bound as a p99.
+// kv-aware's FIRST repetition completes 100 with 2 timing out.
+// Pooled that is 2 of 408, i.e. 0.49% -- under the 1% boundary, so ArmSummary.Censored stays false and the
+// old gate accepted the run.
+// Within the block it is 2 of 102, i.e. 1.96%, so a resample drawing that block reports a lower bound as a
+// p99.
 //
 // The amendment refuses the interval when ANY original B or C repetition is censored, and the gate fails a
 // run whose interval is absent rather than passing it.
@@ -323,9 +331,9 @@ func TestOneCensoredRepetitionRefusesTheIntervalThroughTheRealCommand(t *testing
 
 // TestAMissingIntervalFailsTheGateRatherThanSatisfyingIt keeps the direction of the refusal correct.
 //
-// `IncrementalValuePass` reads `CI.Hi < 1.0`, and a zero CI has Hi == 0, which satisfies it. The run above
-// must therefore come out INVALID, not "passed". This is the shape that once let a truncated run disarm
-// the strictest check in the design.
+// `IncrementalValuePass` reads `CI.Hi < 1.0`, and a zero CI has Hi == 0, which satisfies it.
+// The run above must therefore come out INVALID, not "passed".
+// This is the shape that once let a truncated run disarm the strictest check in the design.
 func TestAMissingIntervalFailsTheGateRatherThanSatisfyingIt(t *testing.T) {
 	dir := t.TempDir()
 	args := m5bArgs(t, dir, 4, map[string]float64{
@@ -349,10 +357,11 @@ func TestAMissingIntervalFailsTheGateRatherThanSatisfyingIt(t *testing.T) {
 
 // TestTheReportFileNamesTheCensoredRepetition closes a gap the censoring tests above left open.
 //
-// Those tests concatenate the report file with stdout and stderr and search the whole thing. The refusal
-// also travels as a stderr warning from incrementalCI, so removing `incCI.InvalidReason = why` -- the fix
-// that made the report name the real cause -- leaves the warning in place and those tests still pass. The
-// operator who reads only the report file would be back to "unequal or insufficient repetitions".
+// Those tests concatenate the report file with stdout and stderr and search the whole thing.
+// The refusal also travels as a stderr warning from incrementalCI, so removing `incCI.InvalidReason =
+// why` -- the fix that made the report name the real cause -- leaves the warning in place and those tests
+// still pass.
+// The operator who reads only the report file would be back to "unequal or insufficient repetitions".
 //
 // internal/bench/report.go writes `RUN INVALID: <checks.InvalidReason>` into the report, so that line is
 // what this asserts, from the FILE alone.
@@ -380,12 +389,14 @@ func TestTheReportFileNamesTheCensoredRepetition(t *testing.T) {
 	// The boundary wording is asserted too, because the message stated it wrongly.
 	//
 	// internal/bench/report.go sets Censored at `>= 0.01`, so exactly 1% is censored; the refusal said
-	// "more than 1%". And the numerator excludes requests shed by admission, which "did not complete" does
-	// not say. A test checking only the arm, the repetition and the word "censored" passes either way --
-	// this one failed to catch the wording for exactly that reason.
+	// "more than 1%".
+	// And the numerator excludes requests shed by admission, which "did not complete" does not say.
+	// A test checking only the arm, the repetition and the word "censored" passes either way -- this one
+	// failed to catch the wording for exactly that reason.
 	// "are not counted", not just "shed by": the first draft asked for the phrase and not its sense, so
-	// flipping the message to say shed requests ARE counted would have satisfied it. The numerator excludes
-	// them (internal/bench/report.go), and that exclusion is what the sentence has to convey.
+	// flipping the message to say shed requests ARE counted would have satisfied it.
+	// The numerator excludes them (internal/bench/report.go), and that exclusion is what the sentence has
+	// to convey.
 	for _, want := range []string{"kv-aware", "repetition 1", "censored", "at least 1%", "shed by", "are not counted"} {
 		if !strings.Contains(invalid, want) {
 			t.Errorf("the report file's RUN INVALID line does not carry %q, so a reader of the report alone"+
@@ -404,8 +415,9 @@ func TestTheReportFileNamesTheCensoredRepetition(t *testing.T) {
 // TestTheM5BPathRefusesMismatchedIdentitySets covers pairedBlocks, not pairedRepetitions.
 //
 // The existing identity-set test drives the M5-c arms (R1 against shared) and therefore exercises
-// pairedRepetitions. The M5-b gate reads its blocks from pairedBlocks, which carries its own copy of the
-// same check -- and a copy is exactly the shape that lets one side be broken while the other compensates.
+// pairedRepetitions.
+// The M5-b gate reads its blocks from pairedBlocks, which carries its own copy of the same check -- and a
+// copy is exactly the shape that lets one side be broken while the other compensates.
 //
 // Three shapes, all with equal counts so no length check can catch them: a different set, a non-contiguous
 // set, and the same set listed in a different --raw order (which must be ACCEPTED, because identity pairing
@@ -433,10 +445,10 @@ func TestTheM5BPathRefusesMismatchedIdentitySets(t *testing.T) {
 		}
 		// The RETURN VALUE is asserted, not only the text.
 		//
-		// The first draft discarded the error and searched the combined output for the two sets. A mutation
-		// that warns and then carries on computing would print the same strings and pass -- which is a
-		// different and worse failure than deleting the check, because the run would publish an interval
-		// over unpaired blocks while announcing that they are unpaired.
+		// The first draft discarded the error and searched the combined output for the two sets.
+		// A mutation that warns and then carries on computing would print the same strings and pass --
+		// which is a different and worse failure than deleting the check, because the run would publish an
+		// interval over unpaired blocks while announcing that they are unpaired.
 		out, err := captureBoth(t, func() error { return report(args) })
 		body, _ := os.ReadFile(filepath.Join(dir, "report.txt"))
 		text := string(body) + out
@@ -487,12 +499,13 @@ func TestTheM5BPathRefusesMismatchedIdentitySets(t *testing.T) {
 //
 // The scatter refusal's own comment says 0.15 may not be called a validity boundary for the paired-block
 // interval, because the false-PASS rates behind that number were measured against the mean of
-// per-repetition ratios -- the statistic the 2026-10-01 amendment replaced. The withdrawal was written in a
-// comment first and the InvalidReason string kept the old claim, which made the withdrawal incomplete: the
-// string is what internal/bench/report.go puts in the report's RUN INVALID line, and the comment is what
-// nobody downstream reads.
+// per-repetition ratios -- the statistic the 2026-10-01 amendment replaced.
+// The withdrawal was written in a comment first and the InvalidReason string kept the old claim, which made
+// the withdrawal incomplete: the string is what internal/bench/report.go puts in the report's RUN INVALID
+// line, and the comment is what nobody downstream reads.
 //
-// The existing scatter tests assert RatioScatterTooHigh's boolean. This one asserts the sentence.
+// The existing scatter tests assert RatioScatterTooHigh's boolean.
+// This one asserts the sentence.
 func TestTheReportFileCarriesTheProvisionalScatterWording(t *testing.T) {
 	dir := t.TempDir()
 	// Four repetitions whose C/B ratios scatter past MaxRatioScatter: static-cap flat, kv-aware spread

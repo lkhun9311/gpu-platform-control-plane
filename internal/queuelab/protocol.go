@@ -47,23 +47,26 @@ const (
 	// They exist because the first hardware session could not decide the reading it was built to decide.
 	// Reserved GPU-seconds and observed device-seconds agreed to within a tenth of the run's floor, which
 	// sounds like reservation being a good proxy for use and is not evidence of it: the trace workload
-	// computes continuously by construction, so agreement was the only answer available. These two arms plant
-	// a difference and ask whether the instrument recovers it.
+	// computes continuously by construction, so agreement was the only answer available.
+	// These two arms plant a difference and ask whether the instrument recovers it.
 	//
 	// The termination contract is FIXED across them, at the ignoring arm's, and that is the whole point of
-	// keeping this separate from the reclaim study. Two axes at once would give four cells and a session
-	// twice as long, and any difference would carry both. Here the contract is a constant and the duty is the
-	// only thing that moves. The ignoring contract is chosen rather than the honouring one because its hold
-	// is tens of seconds rather than milliseconds, so the observer has samples inside it.
+	// keeping this separate from the reclaim study.
+	// Two axes at once would give four cells and a session twice as long, and any difference would carry
+	// both.
+	// Here the contract is a constant and the duty is the only thing that moves.
+	// The ignoring contract is chosen rather than the honouring one because its hold is tens of seconds
+	// rather than milliseconds, so the observer has samples inside it.
 	ArmDFull    Arm = "D-full"
 	ArmDQuarter Arm = "D-quarter"
 	// ArmEFresh and ArmEResume are the resume study, whose only axis is whether the victim READS the progress
 	// it has been writing all along.
 	//
-	// Both checkpoint. That is what makes this a pair rather than a single arm measured against A-ignore:
-	// the checkpoint costs an open, a write, an fsync and a rename on every iteration, so an arm that writes
-	// nothing differs from a resuming one in two ways at once, and a difference in discarded work could be
-	// either. E-fresh pays the full cost and recovers nothing, which is the only control the question admits.
+	// Both checkpoint.
+	// That is what makes this a pair rather than a single arm measured against A-ignore: the checkpoint costs
+	// an open, a write, an fsync and a rename on every iteration, so an arm that writes nothing differs from
+	// a resuming one in two ways at once, and a difference in discarded work could be either.
+	// E-fresh pays the full cost and recovers nothing, which is the only control the question admits.
 	//
 	// The termination contract is FIXED across them at the ignoring arm's and the duty at full, for the
 	// reason the idling pair fixes its contract: one axis moves, or the difference carries both.
@@ -78,8 +81,8 @@ const (
 // StatePlan is what an arm decides about one row's progress file.
 //
 // Two booleans rather than one, because "writes a checkpoint" and "reads the one it finds" are independent
-// and the pair exists precisely to hold the first constant while the second moves. A single flag could not
-// express E-fresh at all: it writes every iteration and restores nothing.
+// and the pair exists precisely to hold the first constant while the second moves.
+// A single flag could not express E-fresh at all: it writes every iteration and restores nothing.
 //
 // Restore without Checkpoint is not a state any arm can ask for, and StateFor never returns it -- a run that
 // read a file it never wrote would be resuming somebody else's work.
@@ -94,14 +97,17 @@ type StatePlan struct {
 //
 // Constants because the string is a VOCABULARY crossing three places that must agree: PolicyVariant produces
 // it, reclaimFixtures switches on it to choose a kueuev1beta2.PreemptionPolicy, and it is stamped into
-// fixture names and labels. A literal repeated across those is the drift this repository keeps being caught
-// by -- one of them edited and the others not, with nothing failing to compile and a run rendering the wrong
-// preemption policy under the right label.
+// fixture names and labels.
+// A literal repeated across those is the drift this repository keeps being caught by -- one of them edited
+// and the others not, with nothing failing to compile and a run rendering the wrong preemption policy under
+// the right label.
 //
-// They are also what goconst asked for. The linter counted the copies and was right to; the same finding on
-// internal/queuelab/provenance.go was closed the same way in 7c5063a, and the note in .custom-gcl.yml
-// records that this gate reports such findings in CI while a local run of the same tree does not. That makes
-// CI the only instrument here, so the fix is to remove the duplication rather than to argue with the count.
+// They are also what goconst asked for.
+// The linter counted the copies and was right to; the same finding on internal/queuelab/provenance.go was
+// closed the same way in 7c5063a, and the note in .custom-gcl.yml records that this gate reports such
+// findings in CI while a local run of the same tree does not.
+// That makes CI the only instrument here, so the fix is to remove the duplication rather than to argue with
+// the count.
 const (
 	VariantAny   = "Any"
 	VariantNever = "Never"
@@ -121,9 +127,9 @@ func (a Arm) PolicyVariant() (string, error) {
 
 // StateFor returns what this arm decides about one row's progress file.
 //
-// Per row for the reason ContractFor and DutyFor are: the treatment is the VICTIM's behaviour. Checkpointing
-// the owner and the co-tenant would put the write cost into every manifest and leave a difference between
-// arms attributable to three rows instead of one.
+// Per row for the reason ContractFor and DutyFor are: the treatment is the VICTIM's behaviour.
+// Checkpointing the owner and the co-tenant would put the write cost into every manifest and leave a
+// difference between arms attributable to three rows instead of one.
 //
 // Every arm but the resume pair checkpoints nothing, which is what every run this lab has taken did, and the
 // zero value of StatePlan says so.
@@ -166,8 +172,9 @@ func (a Arm) ContractFor(rowName string) (TerminationContract, error) {
 	if rowName == VictimRow {
 		switch a {
 		// The idling arms hold the contract constant at the ignoring one, so the only thing that differs
-		// between them is the duty. A honouring victim would stop in milliseconds and leave the observer
-		// nothing to see inside the hold, which is the defect that invalidated a measured run once already.
+		// between them is the duty.
+		// A honouring victim would stop in milliseconds and leave the observer nothing to see inside the
+		// hold, which is the defect that invalidated a measured run once already.
 		//
 		// The resume pair holds it at the same value for the same reason, and for one more: a victim that
 		// stopped in milliseconds would have written almost no checkpoint and lost almost no work, so the
@@ -182,8 +189,9 @@ func (a Arm) ContractFor(rowName string) (TerminationContract, error) {
 // DutyFor returns the fraction of its service this arm's row spends computing.
 //
 // Per row for the reason ContractFor is per row: the treatment is the VICTIM's behaviour, and an arm-wide
-// duty would idle the owner and the co-tenant too. Their occupancy is not what any reading here is about,
-// and changing three manifests when one is meant to differ is how a difference stops being attributable.
+// duty would idle the owner and the co-tenant too.
+// Their occupancy is not what any reading here is about, and changing three manifests when one is meant
+// to differ is how a difference stops being attributable.
 func (a Arm) DutyFor(rowName string) (DutyCycle, error) {
 	switch rowName {
 	case OwnRow, VictimRow, OwnerRow:

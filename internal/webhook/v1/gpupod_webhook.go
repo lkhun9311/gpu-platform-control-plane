@@ -44,13 +44,16 @@ const kueueQueueLabel = "kueue.x-k8s.io/queue-name"
 
 // jobControllerUser is the identity the Job controller creates Pods as.
 //
-// It is the ONLY thing in an admission request that a tenant cannot write. Everything on the Pod — labels,
-// annotations, and ownerReferences above all — is supplied by whoever creates it, and Kubernetes does not
-// check that a named owner had anything to do with the object claiming it.
+// It is the ONLY thing in an admission request that a tenant cannot write.
+// Everything on the Pod — labels, annotations, and ownerReferences above all — is supplied by whoever
+// creates it, and Kubernetes does not check that a named owner had anything to do with the object claiming
+// it.
 //
-// That was not a theoretical weakness. The first version of this guard read the Pod's ownerReference and
-// trusted it: a Pod naming a real, queued Job as its controller was admitted. Forging one took a single
-// kubectl apply and obtained two devices, which is exactly the bypass the guard exists to close.
+// That was not a theoretical weakness.
+// The first version of this guard read the Pod's ownerReference and trusted it: a Pod naming a real,
+// queued Job as its controller was admitted.
+// Forging one took a single kubectl apply and obtained two devices, which is exactly the bypass the
+// guard exists to close.
 const jobControllerUser = "system:serviceaccount:kube-system:job-controller"
 
 // kubeSystemServiceAccounts prefixes the identities of the built-in controllers, which write a Pod's
@@ -63,10 +66,12 @@ const kubeSystemServiceAccounts = "system:serviceaccount:kube-system:"
 // when the requester was a kube-system service account, on the reasoning that a tenant cannot assume one.
 // A tenant does not need to: a Deployment, DaemonSet or StatefulSet whose Pod template carries the annotation
 // has its Pods created by kube-system's replicaset, daemon-set or statefulset controller, which copies the
-// template's annotations onto the Pod. The requester proves which controller submitted the Pod, not who chose
-// its annotations, so the exemption was the bypass with two extra steps.
+// template's annotations onto the Pod.
+// The requester proves which controller submitted the Pod, not who chose its annotations, so the exemption
+// was the bypass with two extra steps.
 // Nothing in this repository needed it: both device plugins request no device and run outside the namespaces
-// this webhook selects. The annotation is now an ordinary annotation and grants nothing.
+// this webhook selects.
+// The annotation is now an ordinary annotation and grants nothing.
 
 // kueueAdmissionGate is the scheduling gate Kueue's Pod webhook puts on a queued Pod and its controller removes
 // on admission, and kueueManagedLabel the label without which Kueue's Pod controller ignores the Pod (v0.18.3,
@@ -81,18 +86,22 @@ const kueueControllerUser = "system:serviceaccount:kueue-system:kueue-controller
 
 // maxGraceSeconds caps how long a device-holding Pod may take to shut down.
 //
-// A quota is only worth what its RECLAIM is worth, and reclaim waits for termination. Measured on this
-// cluster: a Pod with terminationGracePeriodSeconds 30 held its device for 32 seconds after deletion; the
-// same Pod with 300 held it for 301. The field is set by the tenant being preempted, so without a cap the
-// borrower decides how long it keeps a device its owner has already claimed back.
+// A quota is only worth what its RECLAIM is worth, and reclaim waits for termination.
+// Measured on this cluster: a Pod with terminationGracePeriodSeconds 30 held its device for 32 seconds
+// after deletion; the same Pod with 300 held it for 301.
+// The field is set by the tenant being preempted, so without a cap the borrower decides how long it keeps
+// a device its owner has already claimed back.
 //
-// That is not a hypothetical reading of the spec. The queuelab measured the same boundary from the other
-// side: an unresponsive workload defeats reclaim entirely while its remaining service fits inside grace, and
-// is cut off at exactly the grace period once it does not. Grace IS the bound, and it was tenant-controlled.
+// That is not a hypothetical reading of the spec.
+// The queuelab measured the same boundary from the other side: an unresponsive workload defeats reclaim
+// entirely while its remaining service fits inside grace, and is cut off at exactly the grace period once it
+// does not.
+// Grace IS the bound, and it was tenant-controlled.
 //
-// 120 seconds because it has to be long enough for the workloads this platform is for. A training step that
-// checkpoints on SIGTERM needs more than the 30-second default, and refusing that would push tenants to
-// ignore SIGTERM instead — which is the behaviour that produces the worst outcome in the measurement above.
+// 120 seconds because it has to be long enough for the workloads this platform is for.
+// A training step that checkpoints on SIGTERM needs more than the 30-second default, and refusing that
+// would push tenants to ignore SIGTERM instead — which is the behaviour that produces the worst outcome in
+// the measurement above.
 // The number is a policy choice and is stated here rather than derived, because there is nothing to derive
 // it from until real workloads say how long their checkpoints take.
 const maxGraceSeconds int64 = 120
@@ -101,15 +110,18 @@ const maxGraceSeconds int64 = 120
 
 // GPUPodValidator refuses a Pod that would take a GPU without passing through the tenant's quota.
 //
-// The hole it closes is the platform's largest. When a GPUQuotaPolicy sets trainingQuota, the controller
-// deliberately stops the namespace ResourceQuota from capping GPUs and makes the Kueue ClusterQueue the
-// single authority — because otherwise the same GPU is charged twice and half the tenant's budget becomes
-// unusable. But Kueue only sees what enters its queues. A Pod created directly, with a device request and no
-// queue, is admitted by nobody and counted by nobody.
+// The hole it closes is the platform's largest.
+// When a GPUQuotaPolicy sets trainingQuota, the controller deliberately stops the namespace ResourceQuota
+// from capping GPUs and makes the Kueue ClusterQueue the single authority — because otherwise the same GPU
+// is charged twice and half the tenant's budget becomes unusable.
+// But Kueue only sees what enters its queues.
+// A Pod created directly, with a device request and no queue, is admitted by nobody and counted by nobody.
 //
-// That was not theoretical. On this cluster a bare Pod requesting two GPUs in a governed namespace was
-// created, scheduled and Running, with no Kueue Workload anywhere. "Multi-tenant GPU quota" was a convention
-// the platform's own controller followed, not a boundary it enforced.
+// That was not theoretical.
+// On this cluster a bare Pod requesting two GPUs in a governed namespace was created, scheduled and Running,
+// with no Kueue Workload anywhere.
+// "Multi-tenant GPU quota" was a convention the platform's own controller followed, not a boundary it
+// enforced.
 type GPUPodValidator struct {
 	// Reader is uncached, for the reason MLTrainingJobValidator's is: this validator reads the Job a Pod was
 	// just created by, and an informer that has not caught up answers NotFound — which is indistinguishable
@@ -118,8 +130,8 @@ type GPUPodValidator struct {
 	// decoder turns the admission request's raw bytes into a Pod.
 	//
 	// This is a raw Handler rather than a typed Validator because the decision needs the REQUESTER, and
-	// admission.Validator is handed only the object. Everything on the object is attacker-controlled; the
-	// requester is not.
+	// admission.Validator is handed only the object.
+	// Everything on the object is attacker-controlled; the requester is not.
 	decoder admission.Decoder
 }
 
@@ -158,17 +170,19 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	// the Pod was allowed to exist.
 	//
 	// It used to sit further down, after an exemption branch (since removed) and after the queue-label branch,
-	// and both of those returned Allowed. So a tenant applying a bare Pod with a queue label, two devices and
-	// terminationGracePeriodSeconds: 3600 was admitted without the cap ever being consulted -- the exact
-	// bypass this guard exists to close, reached by the exact mechanism its own thesis names, a guarantee
-	// expressed in a field the tenant writes. The tests did not catch it because both grace tests came in as
-	// the job controller and the queue-label test carried no grace.
+	// and both of those returned Allowed.
+	// So a tenant applying a bare Pod with a queue label, two devices and terminationGracePeriodSeconds: 3600
+	// was admitted without the cap ever being consulted -- the exact bypass this guard exists to close,
+	// reached by the exact mechanism its own thesis names, a guarantee expressed in a field the tenant writes.
+	// The tests did not catch it because both grace tests came in as the job controller and the queue-label
+	// test carried no grace.
 	//
 	// The cause was treating grace as part of the ACCOUNTING decision -- who pays for this device -- when it
-	// is a decision about how long the device is held after someone else has already reclaimed it. Those are
-	// independent questions, and ordering one behind the other is what let two early returns hide it. Hoisted
-	// here it cannot be re-hidden by a branch added later, which is the property that matters more than the
-	// three lines it moves.
+	// is a decision about how long the device is held after someone else has already reclaimed it.
+	// Those are independent questions, and ordering one behind the other is what let two early returns hide
+	// it.
+	// Hoisted here it cannot be re-hidden by a branch added later, which is the property that matters more
+	// than the three lines it moves.
 	if why := graceTooLong(&pod.Spec); why != "" {
 		return admission.Denied(why)
 	}
@@ -177,28 +191,30 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	//
 	// This branch exists because the first version did not have it and was built on a claim that turned out to
 	// be false: that Kueue's `pod` and `deployment` integrations were not enabled here, so only a Job could be
-	// governed. They ARE enabled — seventeen frameworks including pod, deployment and statefulset — and the
-	// conclusion came from reading the first twelve lines of a truncated grep.
+	// governed.
+	// They ARE enabled — seventeen frameworks including pod, deployment and statefulset — and the conclusion
+	// came from reading the first twelve lines of a truncated grep.
 	//
-	// What that changes is the meaning of the label. It is not a permission a tenant grants itself; it is a
-	// BILL. A bare Pod labelled kueue.x-k8s.io/queue-name gets a Kueue Workload and is charged against that
-	// ClusterQueue — verified by creating one and watching the admitted Workload appear. Forging it does not
-	// obtain free capacity, it obtains metered capacity, which is the whole objective.
+	// What that changes is the meaning of the label.
+	// It is not a permission a tenant grants itself; it is a BILL.
+	// A bare Pod labelled kueue.x-k8s.io/queue-name gets a Kueue Workload and is charged against that
+	// ClusterQueue — verified by creating one and watching the admitted Workload appear.
+	// Forging it does not obtain free capacity, it obtains metered capacity, which is the whole objective.
 	//
 	// The label is checked and not kueue.x-k8s.io/managed, which is forgeable in the way that matters: a Pod
 	// carrying managed=true and no queue name runs with no Workload at all.
 	//
-	// The bill is sent only when Kueue does not think someone else is paying. Kueue's Pod webhook returns before
-	// gating or labelling a Pod whose controller owner is a queued Job (v0.18.3, `FindAncestorJobManagedByKueue`),
-	// and it reads that owner from the Pod as written. So a tenant writing the label AND an ownerReference to a
-	// queued Job got a Pod that ran with no Workload, admitted here before its requester was ever read (codex
-	// audit, 2026-10-28).
+	// The bill is sent only when Kueue does not think someone else is paying.
+	// Kueue's Pod webhook returns before gating or labelling a Pod whose controller owner is a queued Job
+	// (v0.18.3, `FindAncestorJobManagedByKueue`), and it reads that owner from the Pod as written.
+	// So a tenant writing the label AND an ownerReference to a queued Job got a Pod that ran with no Workload,
+	// admitted here before its requester was ever read (codex audit, 2026-10-28).
 	// An owner is therefore evidence here only when a kube-system controller wrote it: those controllers set the
 	// ownerReference to the object they are reconciling, and a tenant cannot make them name another.
 	// A labelled Pod with any other written owner falls through to the checks below, which ask who created it.
 	// That refuses the Pods of workload operators outside kube-system, such as KubeRay's or Kubeflow's, which
-	// Kueue has integrations for; this platform deploys neither, and trusting one means naming its service
-	// account here, a decision about that operator rather than a default (codex review, 2026-10-29).
+	// Kueue has integrations for; this platform deploys neither, and trusting one means naming its service account
+	// here, a decision about that operator rather than a default (codex review, 2026-10-29).
 	if pod.Labels[kueueQueueLabel] != "" &&
 		(metav1.GetControllerOf(&pod) == nil || strings.HasPrefix(req.UserInfo.Username, kubeSystemServiceAccounts)) {
 		return admission.Allowed("")
@@ -207,11 +223,13 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	// A namespace whose budget is a ResourceQuota charges the Pod at creation, whoever creates it.
 	//
 	// Until 2026-10-12 this was asked only of the Job controller's Pods, and every other creator was refused
-	// further down. That refused the serving path outright: an InferenceDeployment's Pod is created by the
-	// ReplicaSet controller and carries a queue label only where its policy sets trainingQuota, and the gateway
-	// routes only to backends in a policy's own namespace, so a GPU engine the gateway could reach could never
-	// start in a ResourceQuota-mode namespace. The requester adds nothing to the accounting here: Kubernetes'
-	// quota admission charges a bare Pod exactly as it charges a controller's.
+	// further down.
+	// That refused the serving path outright: an InferenceDeployment's Pod is created by the ReplicaSet
+	// controller and carries a queue label only where its policy sets trainingQuota, and the gateway routes
+	// only to backends in a policy's own namespace, so a GPU engine the gateway could reach could never start
+	// in a ResourceQuota-mode namespace.
+	// The requester adds nothing to the accounting here: Kubernetes' quota admission charges a bare Pod exactly
+	// as it charges a controller's.
 	metered, err := meteredByResourceQuota(ctx, v.Reader, pod.Namespace)
 	if err != nil {
 		// Fail closed, for the same reason the webhook's failurePolicy is Fail: a guard that stops applying
@@ -227,8 +245,8 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	// queued Job, because Kueue governs a Job through the JOB object and does not propagate the label down: a
 	// Pod the Job controller created for a queued Job carries neither queue-name nor managed.
 	//
-	// An ownerReference is only evidence when the Job controller is the one presenting it. A tenant writing
-	// the same field is describing a relationship that does not exist.
+	// An ownerReference is only evidence when the Job controller is the one presenting it.
+	// A tenant writing the same field is describing a relationship that does not exist.
 	user := req.UserInfo.Username
 	if user != jobControllerUser {
 		return admission.Denied(fmt.Sprintf(
@@ -254,22 +272,23 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 
 // tracesToAQueue reports whether this Pod reaches Kueue's accounting through its controller.
 //
-// The label is looked for on the OWNER rather than on the Pod, and that is not a detail. BuildJob puts the
-// queue label on the Job's own metadata; Pods are created by the Job controller from spec.template, which
-// carries no such label. A guard reading the Pod alone would refuse every legitimate training Pod this
-// platform creates.
+// The label is looked for on the OWNER rather than on the Pod, and that is not a detail.
+// BuildJob puts the queue label on the Job's own metadata; Pods are created by the Job controller from
+// spec.template, which carries no such label.
+// A guard reading the Pod alone would refuse every legitimate training Pod this platform creates.
 //
 // Only a batch/v1 Job owner is accepted, and the reason written here used to be FALSE: it said Kueue's `pod`
-// and `deployment` integrations were not among the enabled frameworks. They are -- seventeen of them -- and
-// the correction was already made forty lines above, in the branch that admits a queue-labelled Pod, while
-// this sentence went on asserting the retracted claim underneath it. One file, two contradictory statements
-// about the same cluster, and the newer one was load-bearing.
+// and `deployment` integrations were not among the enabled frameworks.
+// They are -- seventeen of them -- and the correction was already made forty lines above, in the branch that
+// admits a queue-labelled Pod, while this sentence went on asserting the retracted claim underneath it.
+// One file, two contradictory statements about the same cluster, and the newer one was load-bearing.
 //
-// The real reason is narrower and does not depend on which integrations are on. Everything reaching this
-// function was created by the Job controller, because the identity check above admits nothing else, and the
-// Job controller creates Pods owned by Jobs. A non-Job owner here therefore describes a relationship that
-// cannot have been formed by the requester the Pod claims to come from, and refusing it is the safe reading
-// of a contradiction rather than a claim about Kueue's configuration.
+// The real reason is narrower and does not depend on which integrations are on.
+// Everything reaching this function was created by the Job controller, because the identity check above
+// admits nothing else, and the Job controller creates Pods owned by Jobs.
+// A non-Job owner here therefore describes a relationship that cannot have been formed by the requester the
+// Pod claims to come from, and refusing it is the safe reading of a contradiction rather than a claim about
+// Kueue's configuration.
 func (v *GPUPodValidator) tracesToAQueue(ctx context.Context, pod *corev1.Pod) (bool, error) {
 	owner := metav1.GetControllerOf(pod)
 	if owner == nil {
@@ -282,8 +301,9 @@ func (v *GPUPodValidator) tracesToAQueue(ctx context.Context, pod *corev1.Pod) (
 	err := v.Reader.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: pod.Namespace}, &job)
 	switch {
 	case apierrors.IsNotFound(err):
-		// The Pod names an owner that does not exist. Refusing is the safe reading: the alternative is
-		// trusting an ownerReference anyone can write to describe a Job nobody can check.
+		// The Pod names an owner that does not exist.
+		// Refusing is the safe reading: the alternative is trusting an ownerReference anyone can write
+		// to describe a Job nobody can check.
 		return false, nil
 	case err != nil:
 		return false, err
@@ -329,10 +349,10 @@ func gpuRequestOf(spec *corev1.PodSpec) int64 {
 
 // handleUpdate refuses an update that takes a GPU Pod out of Kueue's hands.
 //
-// CREATE admits a queue-labelled Pod because Kueue gates it and bills it. Kueue v0.18.3 does not stop the Pod's
-// writer from then removing the admission gate or the managed label, and its controller skips a Pod without the
-// label, so a tenant could create the Pod, strip both and run it with no Workload in a namespace that relies on
-// Kueue for its GPU budget (codex review r8, 2026-11-07).
+// CREATE admits a queue-labelled Pod because Kueue gates it and bills it.
+// Kueue v0.18.3 does not stop the Pod's writer from then removing the admission gate or the managed label, and
+// its controller skips a Pod without the label, so a tenant could create the Pod, strip both and run it with no
+// Workload in a namespace that relies on Kueue for its GPU budget (codex review r8, 2026-11-07).
 // Only Kueue's controller may remove its gate, as it does when it admits the Pod; nobody may remove the label.
 // Every other update is left to the API server: a Pod's resource requests are immutable, so an update cannot
 // add a device CREATE did not see.

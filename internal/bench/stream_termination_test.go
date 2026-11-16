@@ -29,11 +29,13 @@ import (
 
 // A stream that stopped arriving and one that finished must not read the same.
 //
-// WHAT THIS IS FOR. TimeoutMs bounds the whole request and the scanner returns no error at EOF, so a
-// response cut off mid-stream produced exactly what a complete one did: ErrorKind "", HTTP 200, a stamped
-// first token, and an output-token count. Measured 2026-10-04 before the fix -- a clean stream, a truncated
-// stream and one carrying an SSE error object were byte-identical in every field the report reads. All three
-// therefore entered the completed population and contributed their TTFT to the tail.
+// WHAT THIS IS FOR.
+// TimeoutMs bounds the whole request and the scanner returns no error at EOF, so a response cut off
+// mid-stream produced exactly what a complete one did: ErrorKind "", HTTP 200, a stamped first token, and an
+// output-token count.
+// Measured 2026-10-04 before the fix -- a clean stream, a truncated stream and one carrying an SSE error
+// object were byte-identical in every field the report reads.
+// All three therefore entered the completed population and contributed their TTFT to the tail.
 //
 // The three facts are kept separate rather than collapsed into ErrorKind, matching how this package already
 // splits the FinishReason silences: what the engine said, whether the stream ended, and whether the engine
@@ -85,8 +87,9 @@ func TestATruncatedStreamIsDistinguishableFromACompleteOne(t *testing.T) {
 }
 
 func TestAnInBandEngineErrorIsNotASuccess(t *testing.T) {
-	// Valid JSON with no field this struct declared, which is why it was dropped silently. The HTTP status
-	// is 200 because the headers went out before the engine failed, so status cannot carry it either.
+	// Valid JSON with no field this struct declared, which is why it was dropped silently.
+	// The HTTP status is 200 because the headers went out before the engine failed, so status cannot carry
+	// it either.
 	res := readOneStream(t, streamChunk+
 		"data: {\"error\":{\"message\":\"engine aborted\",\"type\":\"server_error\"}}\n\n"+
 		"data: [DONE]\n\n")
@@ -99,8 +102,9 @@ func TestAnInBandEngineErrorIsNotASuccess(t *testing.T) {
 			t.Errorf("StreamError %q does not carry %q; the engine's own words are what make the failure diagnosable", res.StreamError, want)
 		}
 	}
-	// It returns at the error frame, so the [DONE] that followed is never seen. That is correct and worth
-	// pinning: a terminated flag set after a failure would say the response finished normally.
+	// It returns at the error frame, so the [DONE] that followed is never seen.
+	// That is correct and worth pinning: a terminated flag set after a failure would say the response
+	// finished normally.
 	if res.StreamTerminated {
 		t.Error("a stream that failed in band was also recorded as cleanly terminated")
 	}
@@ -125,7 +129,8 @@ func (s terminationSender) Send(_ context.Context, _ TraceRow, sendUnixNanos int
 //
 // readStream computing them correctly says nothing about whether anything downstream can see them: Replay
 // builds RawRow field by field, so a result field with no corresponding line in that literal is computed and
-// discarded. This repository has shipped exactly that -- a count the engine was sending that nothing copied.
+// discarded.
+// This repository has shipped exactly that -- a count the engine was sending that nothing copied.
 // Driving Replay and then a JSON round-trip is what covers the two steps the unit tests above cannot.
 func TestTheTerminationFactsReachTheRowAndSurviveTheFile(t *testing.T) {
 	for _, tc := range []struct {
@@ -176,9 +181,9 @@ func TestTheTerminationFactsReachTheRowAndSurviveTheFile(t *testing.T) {
 // A row written before these fields existed must not read as "truncated".
 //
 // `omitempty` means false is absent in the JSON, so every archive this project already holds comes back with
-// StreamTerminated false -- the same value a genuinely truncated response produces. That ambiguity is real
-// and is recorded on the field; what this pins is that reading such a row is not an error, so the existing
-// evidence stays readable.
+// StreamTerminated false -- the same value a genuinely truncated response produces.
+// That ambiguity is real and is recorded on the field; what this pins is that reading such a row is not an
+// error, so the existing evidence stays readable.
 func TestEvidenceWrittenBeforeTheseFieldsStillReads(t *testing.T) {
 	const old = `{"index":0,"arm":"shared","tenant":"premium-1","sendUnixNanos":1,"firstTokenUnixNanos":2,"endUnixNanos":3,"estInputTokens":10,"outputTokens":5,"httpStatus":200}`
 	rows, err := ReadRawRows(strings.NewReader(old + "\n"))

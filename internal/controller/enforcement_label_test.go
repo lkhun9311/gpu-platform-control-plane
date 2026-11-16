@@ -14,9 +14,10 @@ import (
 )
 
 // The controller writes the label in Go and the ValidatingWebhookConfiguration selects on it in YAML, and
-// nothing else makes the two agree. A pair of values that must match with no check between them is the shape
-// of the defect this whole change exists to close: the guard's coverage was correct in both files and
-// connected by nothing but a person remembering.
+// nothing else makes the two agree.
+// A pair of values that must match with no check between them is the shape of the defect this whole change
+// exists to close: the guard's coverage was correct in both files and connected by nothing but a person
+// remembering.
 //
 // This reads the manifest rather than a copy of it, so a rename on either side is a failing test rather than
 // a namespace that quietly stops being guarded.
@@ -37,16 +38,18 @@ func TestTheEnforcementLabelMatchesTheWebhookSelector(t *testing.T) {
 			platformv1.QuotaEnforcedLabel, platformv1.QuotaEnforcedValue)
 	}
 
-	// Both device guards must carry it, not just one. A selector present on the Pod guard alone would leave
-	// the Job guard applying everywhere, and vice versa -- and the two were written to close halves of the
-	// same bypass.
+	// Both device guards must carry it, not just one.
+	// A selector present on the Pod guard alone would leave the Job guard applying everywhere, and vice
+	// versa -- and the two were written to close halves of the same bypass.
 	//
-	// Each entry is split at its own "- name:" line, which is where the entries actually begin. An earlier
-	// version of this loop delimited on the wrong key, so Index returned -1, the slice ran to end-of-file,
-	// and every hook was checked against every OTHER hook's selector. It passed while one guard had no
-	// selector at all -- caught by mutating the manifest, which is the only reason this comment exists.
-	// Each guard's selector is parsed and compared whole. Containment alone passed when one guard selected the
-	// right key with a wrong value, because the right pair appeared on the other guard (codex review r8).
+	// Each entry is split at its own "- name:" line, which is where the entries actually begin.
+	// An earlier version of this loop delimited on the wrong key, so Index returned -1, the slice ran to
+	// end-of-file, and every hook was checked against every OTHER hook's selector.
+	// It passed while one guard had no selector at all -- caught by mutating the manifest, which is the only
+	// reason this comment exists.
+	// Each guard's selector is parsed and compared whole.
+	// Containment alone passed when one guard selected the right key with a wrong value, because the right
+	// pair appeared on the other guard (codex review r8).
 	docs := strings.Split(manifest, "\n---")
 	var cfg admissionregistrationv1.ValidatingWebhookConfiguration
 	found := false

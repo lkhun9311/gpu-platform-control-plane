@@ -18,14 +18,15 @@ package queuelab
 
 import "fmt"
 
-// JobUIDLabelKey is Kueue's label on a Workload carrying the owning Job's UID (kueue.x-k8s.io/job-uid). The
-// collector reads it into ObservedObject.JobUIDLabel, and the join cross-checks it against the CONTROLLER
-// ownerReference so a Workload cannot be attributed to a Job it merely happens to sit beside.
+// JobUIDLabelKey is Kueue's label on a Workload carrying the owning Job's UID (kueue.x-k8s.io/job-uid).
+// The collector reads it into ObservedObject.JobUIDLabel, and the join cross-checks it against the
+// CONTROLLER ownerReference so a Workload cannot be attributed to a Job it merely happens to sit beside.
 const JobUIDLabelKey = "kueue.x-k8s.io/job-uid"
 
 // OwnerRef is the identity-bearing part of a Kubernetes ownerReference the join needs: whose UID, of what
-// kind, and whether it is the controlling owner. Only the single controller reference establishes the
-// parent; a non-controller reference (a soft link) must never re-attribute an object.
+// kind, and whether it is the controlling owner.
+// Only the single controller reference establishes the parent; a non-controller reference (a soft link)
+// must never re-attribute an object.
 type OwnerRef struct {
 	UID        string
 	Kind       string
@@ -61,11 +62,11 @@ const (
 // descends from, following ONLY the controller ownerReference at each hop up to the root MLTrainingJob
 // (whose name is the trace row name).
 //
-// It returns objectUID -> trace job name for every object. It errors on any object that does not resolve
-// through a single controller owner of the expected kind to exactly one MLTrainingJob, an orphan whose
-// owning Job was never seen, a missing UID, or a Workload whose kueue.x-k8s.io/job-uid label disagrees with
-// its controller Job's UID, because a name-only or non-controller join would silently merge two generations
-// of a recreated object into one timeline.
+// It returns objectUID -> trace job name for every object.
+// It errors on any object that does not resolve through a single controller owner of the expected kind to
+// exactly one MLTrainingJob, an orphan whose owning Job was never seen, a missing UID, or a Workload whose
+// kueue.x-k8s.io/job-uid label disagrees with its controller Job's UID, because a name-only or
+// non-controller join would silently merge two generations of a recreated object into one timeline.
 func ResolveTraceJobs(objs []ObservedObject) (map[string]string, error) {
 	seen := map[string]bool{}
 	for _, o := range objs {

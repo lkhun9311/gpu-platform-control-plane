@@ -53,7 +53,8 @@ func ladderRungParams(seed int64, premiumRate, contenderRate float64) TraceParam
 // rowsOf returns one tenant's rows with Index cleared.
 //
 // Index is a position in the merged trace, so it legitimately moves when a DIFFERENT tenant gets more
-// arrivals. What must not move is the schedule, and that is everything else on the row.
+// arrivals.
+// What must not move is the schedule, and that is everything else on the row.
 func rowsOf(rows []TraceRow, tenant string) []TraceRow {
 	var out []TraceRow
 	for _, r := range rows {
@@ -156,9 +157,11 @@ var _ = Describe("GenerateTrace under the weighted model", func() {
 	// The weighted model is frozen, not merely tested.
 	//
 	// Every manifest this repository has ever written pins its trace's checksum, and paid evidence is
-	// verified against it. A refactor that moves this byte string does not fail somewhere visible; it
-	// silently invalidates the runs that have already been bought. So the value is written down here, and
-	// changing the weighted generator has to be a decision someone makes against this line.
+	// verified against it.
+	// A refactor that moves this byte string does not fail somewhere visible; it silently invalidates the
+	// runs that have already been bought.
+	// So the value is written down here, and changing the weighted generator has to be a decision someone
+	// makes against this line.
 	It("still produces the exact trace the paid manifests were checksummed against", func() {
 		rows, err := GenerateTrace(twoTenantParams(42))
 		Expect(err).NotTo(HaveOccurred())
@@ -175,9 +178,11 @@ var _ = Describe("GenerateTrace under the independent-arrivals model", func() {
 	// This is the defect the M5-c ladder recorded against itself and the reason the model exists.
 	//
 	// The ladder solved a contender WEIGHT for every rung so the contender would be offered 139 requests
-	// give or take two while the premium rate climbed. The count came out right and the schedule did not:
-	// changing the total rate changes every gap, so each rung faced a different contender. A rung-to-rung
-	// comparison therefore moved the premium rate AND the contention it was measured against.
+	// give or take two while the premium rate climbed.
+	// The count came out right and the schedule did not: changing the total rate changes every gap, so
+	// each rung faced a different contender.
+	// A rung-to-rung comparison therefore moved the premium rate AND the contention it was measured
+	// against.
 	It("holds a contender's schedule byte-identical while another tenant's rate quadruples", func() {
 		slow, err := GenerateTrace(ladderRungParams(9, 1.16, 0.5))
 		Expect(err).NotTo(HaveOccurred())
@@ -190,9 +195,10 @@ var _ = Describe("GenerateTrace under the independent-arrivals model", func() {
 	})
 
 	// The tail-crossing sweep is the same property read the other way: the BE rate moves and the latency-
-	// critical schedule must not. The report pairs the baseline with every BE level of a repetition on that
-	// schedule, so a generator that moved it would make every level's pairing refuse -- or, worse, a weaker
-	// pairing check accept two different arrival sequences as one.
+	// critical schedule must not.
+	// The report pairs the baseline with every BE level of a repetition on that schedule, so a generator
+	// that moved it would make every level's pairing refuse -- or, worse, a weaker pairing check accept two
+	// different arrival sequences as one.
 	It("holds the latency-critical schedule byte-identical while the best-effort rate quintuples", func() {
 		low, err := GenerateTrace(ladderRungParams(7, 0.2864, 0.0286))
 		Expect(err).NotTo(HaveOccurred())
@@ -219,7 +225,8 @@ var _ = Describe("GenerateTrace under the independent-arrivals model", func() {
 	})
 
 	// Appending a tenant cannot tell a name-keyed stream from a position-keyed one, because nobody before it
-	// moves. Removing the FIRST tenant shifts the contender from position 1 to 0, which is where they differ.
+	// moves.
+	// Removing the FIRST tenant shifts the contender from position 1 to 0, which is where they differ.
 	It("holds a tenant's schedule byte-identical when a tenant listed before it is removed", func() {
 		two, err := GenerateTrace(ladderRungParams(9, 1.16, 0.5))
 		Expect(err).NotTo(HaveOccurred())
@@ -247,7 +254,8 @@ var _ = Describe("GenerateTrace under the independent-arrivals model", func() {
 	})
 
 	// Rates this high put two tenants on the same millisecond, which is the only place the tie-break decides
-	// anything. At ladder rates a tie is rare enough that this spec would pass without one.
+	// anything.
+	// At ladder rates a tie is rare enough that this spec would pass without one.
 	It("does not let the order the tenants were passed in reach the trace, even on a shared millisecond", func() {
 		forward, err := GenerateTrace(ladderRungParams(9, 50, 50))
 		Expect(err).NotTo(HaveOccurred())
@@ -281,8 +289,9 @@ var _ = Describe("GenerateTrace under the independent-arrivals model", func() {
 	It("gives each tenant its own rate rather than a share of a total", func() {
 		rows, err := GenerateTrace(ladderRungParams(5, 4, 1))
 		Expect(err).NotTo(HaveOccurred())
-		// 60 s at 4/s and 1/s. Poisson counts, so the tolerance is wide enough not to flake and narrow
-		// enough to catch a rate read as a weight, which would split one total four ways instead.
+		// 60 s at 4/s and 1/s.
+		// Poisson counts, so the tolerance is wide enough not to flake and narrow enough to catch a
+		// rate read as a weight, which would split one total four ways instead.
 		Expect(len(rowsOf(rows, "premium-1"))).To(BeNumerically("~", 240, 50))
 		Expect(len(rowsOf(rows, "standard-noisy"))).To(BeNumerically("~", 60, 25))
 	})
@@ -364,9 +373,9 @@ var _ = Describe("GenerateTrace refusing an unstated arrival process", func() {
 
 // A manifest has to say what prompt length it replayed, and the value comes from the trace itself.
 //
-// Mutation that turns this red: drop the PromptLenChars fill from either manifest writer. There are two --
-// gen-trace and prepare-traces -- and a value filled in one of them is how this project has twice shipped
-// a field that was populated on one path and empty on the other.
+// Mutation that turns this red: drop the PromptLenChars fill from either manifest writer.
+// There are two -- gen-trace and prepare-traces -- and a value filled in one of them is how this project
+// has twice shipped a field that was populated on one path and empty on the other.
 func TestPromptLenCharsByTenantReadsEveryTenant(t *testing.T) {
 	rows := []TraceRow{
 		{Index: 0, Tenant: PremiumTenant, PromptLenChars: 1174},
@@ -384,8 +393,9 @@ func TestPromptLenCharsByTenantReadsEveryTenant(t *testing.T) {
 
 // One tenant whose rows carry two lengths is a trace the study did not freeze, and it is reported as such.
 //
-// Mutation that turns this red: keep the last length seen instead of -1. Averaging or overwriting hides
-// exactly the condition this value exists to surface -- a run whose load was not the registered one.
+// Mutation that turns this red: keep the last length seen instead of -1.
+// Averaging or overwriting hides exactly the condition this value exists to surface -- a run whose load
+// was not the registered one.
 func TestPromptLenCharsRefusesToAverageADisagreement(t *testing.T) {
 	rows := []TraceRow{
 		{Index: 0, Tenant: PremiumTenant, PromptLenChars: 200},

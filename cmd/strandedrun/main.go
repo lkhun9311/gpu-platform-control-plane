@@ -16,18 +16,19 @@ limitations under the License.
 
 // Command strandedrun is the instrument for the stranded-GPU placement study.
 //
-// The study asks whether a scheduler's scoring strategy changes how many GPUs end up unreserved and unusable,
-// and it is registered in docs/superpowers/specs/2026-09-23-what-a-stranded-gpu-is-and-what-kind-can-say-about-it.md
-// with its corrections in the 2026-09-28 amendment beside it. Both pages were published before this file
-// existed.
+// The study asks whether a scheduler's scoring strategy changes how many GPUs end up unreserved and unusable, and it
+// is registered in docs/superpowers/specs/2026-09-23-what-a-stranded-gpu-is-and-what-kind-can-say-about-it.md with
+// its corrections in the 2026-09-28 amendment beside it.
+// Both pages were published before this file existed.
 //
 // This is the FIRST piece, and the registration chose it rather than me: the thing built before any arm runs is
-// the check that the requested scoring strategy is the one the cluster is actually running. The reason is the
-// study's worst outcome -- a treatment that silently did not apply produces three arms reporting the same
-// number, which reads as a null result rather than as a broken instrument.
+// the check that the requested scoring strategy is the one the cluster is actually running.
+// The reason is the study's worst outcome -- a treatment that silently did not apply produces three arms
+// reporting the same number, which reads as a null result rather than as a broken instrument.
 //
-// Four subcommands. None of them talks to a cluster: two render what a cluster is made of, and two judge
-// readings taken from one, so every refusal here is reachable without renting or creating anything.
+// Four subcommands.
+// None of them talks to a cluster: two render what a cluster is made of, and two judge readings taken
+// from one, so every refusal here is reachable without renting or creating anything.
 //
 //	render-scheduler-config  emits the KubeSchedulerConfiguration an arm asks for, refusing a profile that the
 //	                         scheduler would accept and this study must not -- above all one that selects a
@@ -44,10 +45,10 @@ limitations under the License.
 //	                         fixture whose two strategies demonstrably disagree. Reading the scheduler's
 //	                         configuration back says what it loaded; only a moved placement says it acted.
 //
-// It deliberately does not live in internal/queuelab. An Arm there must answer PolicyVariant, StateFor,
-// ContractFor, DutyFor and AssertCardinality; a placement study has no victim, no termination contract and no
-// duty, so four of those five would carry values that mean nothing and would then flow into the record schema
-// and its refusals.
+// It deliberately does not live in internal/queuelab.
+// An Arm there must answer PolicyVariant, StateFor, ContractFor, DutyFor and AssertCardinality; a placement
+// study has no victim, no termination contract and no duty, so four of those five would carry values that
+// mean nothing and would then flow into the record schema and its refusals.
 package main
 
 import (
@@ -253,9 +254,10 @@ func checkTreatment(args []string) error {
 // renderCluster writes every artifact the study's cluster is made of, into one directory.
 //
 // Into a directory rather than to stdout, because there are three files and the kind configuration REFERENCES
-// one of the others by relative path (./scheduler-config.yaml). Emitting them separately would let a caller
-// create a cluster whose mounted profile came from a different arm than the configuration it rendered -- which
-// is the silent-treatment failure this command exists to make impossible, arriving by another door.
+// one of the others by relative path (./scheduler-config.yaml).
+// Emitting them separately would let a caller create a cluster whose mounted profile came from a different arm
+// than the configuration it rendered -- which is the silent-treatment failure this command exists to make
+// impossible, arriving by another door.
 func renderCluster(args []string) error {
 	fs := flag.NewFlagSet("render-cluster", flag.ContinueOnError)
 	arm := fs.String("arm", "", "S-default (the reference: no scheduler configuration) or S-gpu-most (the treatment)")
@@ -264,9 +266,10 @@ func renderCluster(args []string) error {
 	dir := fs.String("dir", "", "directory to write the cluster's artifacts into")
 	namespace := fs.String("namespace", "gpu-platform-control-plane-system", "namespace for the device plugins")
 	image := fs.String("image", "gpu-simulator:latest", "device plugin image")
-	// No default, unlike the two above. The scheduler version is part of what the run registers: left to kind,
-	// it is whatever that binary happens to default to, and two runs months apart would compare arms across two
-	// different schedulers without either recording which.
+	// No default, unlike the two above.
+	// The scheduler version is part of what the run registers: left to kind, it is whatever that binary happens
+	// to default to, and two runs months apart would compare arms across two different schedulers without
+	// either recording which.
 	nodeImage := fs.String("node-image", "", "kind node image, e.g. kindest/node:v1.31.0 (required)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -276,8 +279,9 @@ func renderCluster(args []string) error {
 			"arm's cluster and none of the four has a meaningful default (arms: %s, %s)",
 			ArmUntouched, ArmConfigured)
 	}
-	// The strategy belongs to the treatment and to nothing else. Accepting one for the reference would let a
-	// run record itself as the reference while naming a strategy nothing installs.
+	// The strategy belongs to the treatment and to nothing else.
+	// Accepting one for the reference would let a run record itself as the reference while naming a strategy
+	// nothing installs.
 	ap := ArmProfile{Arm: Arm(*arm)}
 	switch {
 	case ap.Arm == ArmConfigured:
@@ -321,8 +325,8 @@ func renderCluster(args []string) error {
 	//
 	// Without this, rendering the reference into a directory that previously held the treatment would leave
 	// scheduler-config.yaml behind -- and kind mounts by relative path, so a later `kind create` from that
-	// directory would install the PREVIOUS arm's profile while every artifact said S-default. A stale file is
-	// the quietest way for an arm to become the other one.
+	// directory would install the PREVIOUS arm's profile while every artifact said S-default.
+	// A stale file is the quietest way for an arm to become the other one.
 	for _, name := range []string{"kind-config.yaml", "scheduler-config.yaml", "device-plugins.yaml"} {
 		if _, want := files[name]; want {
 			continue
@@ -392,16 +396,17 @@ func verifyLayout(args []string) error {
 //
 // Every refusal it can produce is an absent observation that the original registration's validity rule would
 // have accepted: a submission nobody looked at, a reservation no submission claims, a reading taken while
-// bindings were still in flight. The amendment requires each to invalidate rather than to pass.
-// qualifyArm judges observed evidence against the arm a cell claims to be running.
+// bindings were still in flight.
+// The amendment requires each to invalidate rather than to pass. qualifyArm judges observed evidence against
+// the arm a cell claims to be running.
 //
 // The readings are supplied rather than collected here, the way check-treatment already works: the tool that
 // decides whether an arm is what it claims does not hold cluster credentials, so its verdict is reproducible
 // from a recorded reading rather than from a cluster that has since changed.
 //
-// The three evidence flags are strings, not booleans. `flag.Bool` defaults to false, and the reference arm
-// PASSES when the profile file is absent -- so an omitted flag would read as evidence of absence and satisfy
-// the check it was meant to make.
+// The three evidence flags are strings, not booleans.
+// `flag.Bool` defaults to false, and the reference arm PASSES when the profile file is absent -- so an
+// omitted flag would read as evidence of absence and satisfy the check it was meant to make.
 func qualifyArm(args []string) error {
 	fs := flag.NewFlagSet("qualify-arm", flag.ContinueOnError)
 	arm := fs.String("arm", "", "S-default or S-gpu-most; the arm this cell claims to be running")
@@ -469,9 +474,10 @@ func qualifyArm(args []string) error {
 
 // checkCell judges one recorded attempt against the frozen protocol.
 //
-// The record arrives as a file rather than as flags. Six census readings plus two verdicts do not fit a command
-// line, and more importantly the record is the thing the campaign publishes: it should exist as a file before
-// anything judges it, so the judgement can be re-reached from the same bytes later.
+// The record arrives as a file rather than as flags.
+// Six census readings plus two verdicts do not fit a command line, and more importantly the record is the thing
+// the campaign publishes: it should exist as a file before anything judges it, so the judgement can be
+// re-reached from the same bytes later.
 func checkCell(args []string) error {
 	fs := flag.NewFlagSet("check-cell", flag.ContinueOnError)
 	record := fs.String("record", "", "the cell record to judge, as JSON")
@@ -524,9 +530,9 @@ func checkCell(args []string) error {
 			r.Arm, r.Repetition, r.Attempt, len(r.Censuses))
 		return nil
 	}
-	// An invalid attempt that the protocol licenses is a correct record, not an error. Saying so plainly
-	// matters: the campaign publishes every attempt, and an operator who reads this as a failure will be
-	// tempted to make the attempt look valid instead.
+	// An invalid attempt that the protocol licenses is a correct record, not an error.
+	// Saying so plainly matters: the campaign publishes every attempt, and an operator who reads this as
+	// a failure will be tempted to make the attempt look valid instead.
 	fmt.Printf("cell %s repetition %d attempt %d is a correctly recorded INVALID attempt: %s\n",
 		r.Arm, r.Repetition, r.Attempt, r.InvalidatedBecause)
 	fmt.Printf("  it is retained and published; the cell may be replaced %d more time(s)\n",
@@ -634,10 +640,11 @@ func takeCensus(args []string) error {
 	// Checked BEFORE Report(), because a report computed from a ledger that is missing a row is a figure, and a
 	// figure is the thing this study must not produce when the evidence does not support it.
 	//
-	// This is what -settled cannot do. Settled is the run operator's assertion that bindings had resolved; it
-	// says nothing about whether every registered submission reached the ledger, and the reservation balance
-	// cannot tell either, because a ledger missing a row balances perfectly well. Membership is judged against
-	// the protocol, which was frozen before the run.
+	// This is what -settled cannot do.
+	// Settled is the run operator's assertion that bindings had resolved; it says nothing about whether every
+	// registered submission reached the ledger, and the reservation balance cannot tell either, because a
+	// ledger missing a row balances perfectly well.
+	// Membership is judged against the protocol, which was frozen before the run.
 	if *protocolFile != "" {
 		p, pErr := LoadProtocol(*protocolFile)
 		if pErr != nil {
@@ -810,8 +817,9 @@ func parseObserved(s string) ([]ObservedNode, error) {
 //
 // Reserved is taken rather than derived from a "free" input on purpose: free is allocatable minus the requests
 // of bound pods, and a flag that accepted free directly would let a caller supply a figure this study says must
-// be computed. The parse refuses anything it cannot read rather than defaulting, because a census with a
-// mis-read node is not a smaller census -- it describes a cluster that does not exist.
+// be computed.
+// The parse refuses anything it cannot read rather than defaulting, because a census with a mis-read node is
+// not a smaller census -- it describes a cluster that does not exist.
 func parseNodes(s string) ([]NodeCapacity, error) {
 	if strings.TrimSpace(s) == "" {
 		return nil, fmt.Errorf("-nodes is empty; a fixture with no nodes cannot qualify a strategy")

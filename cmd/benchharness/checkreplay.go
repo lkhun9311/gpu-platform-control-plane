@@ -27,22 +27,25 @@ import (
 
 // checkReplay decides whether one replay's evidence is usable, and says why when it is not.
 //
-// It exists so the runner stops at the replay that broke rather than at the report three hours later. The
-// runner's own check asked a single question -- did anything at all complete -- and a replay that lost a
-// third of its eligible traffic answered yes. The report can refuse such a run now, but only once every
-// remaining replay has been paid for.
+// It exists so the runner stops at the replay that broke rather than at the report three hours later.
+// The runner's own check asked a single question -- did anything at all complete -- and a replay that
+// lost a third of its eligible traffic answered yes.
+// The report can refuse such a run now, but only once every remaining replay has been paid for.
 //
-// The rules live here rather than in the shell because they are the report's rules. A copy in bash would be
-// a second definition of "usable", and the two would drift the first time either moved: that shape has cost
-// this project two paid runs already. bench.Summarize is what decides, and the thresholds are its constants.
+// The rules live here rather than in the shell because they are the report's rules.
+// A copy in bash would be a second definition of "usable", and the two would drift the first time either
+// moved: that shape has cost this project two paid runs already. bench.Summarize is what decides, and the
+// thresholds are its constants.
 //
-// This is NOT identical to what the report refuses, and the difference is deliberate. The two answer
-// different questions: this one asks whether the run should continue, the report asks what can be concluded
-// from evidence that already exists. A replay carrying 401s or 403s stops the run here, because a
-// misconfiguration should be fixed before another three hours are bought -- while the report scores the arm
-// comparisons on the rows that did reach admission and marks only the threshold section void, which is the
-// right granularity once the money is spent. An earlier version of this comment claimed the two refuse
-// exactly the same things. They do not.
+// This is NOT identical to what the report refuses, and the difference is deliberate.
+// The two answer different questions: this one asks whether the run should continue, the report asks what
+// can be concluded from evidence that already exists.
+// A replay carrying 401s or 403s stops the run here, because a misconfiguration should be fixed before
+// another three hours are bought -- while the report scores the arm comparisons on the rows that did reach
+// admission and marks only the threshold section void, which is the right granularity once the money is
+// spent.
+// An earlier version of this comment claimed the two refuse exactly the same things.
+// They do not.
 func checkReplay(args []string) error {
 	fs := flag.NewFlagSet("check-replay", flag.ExitOnError)
 	rawPath := fs.String("raw", "", "one replay's raw evidence file (required)")
@@ -80,8 +83,9 @@ func checkReplay(args []string) error {
 	}
 
 	// An eligible request with no response was neither admitted nor refused, and the admitted-work fraction
-	// is what the matched comparison rests on. Past the same threshold the report uses, the fraction would be
-	// describing a population this replay could not see.
+	// is what the matched comparison rests on.
+	// Past the same threshold the report uses, the fraction would be describing a population this replay
+	// could not see.
 	if eligible := s.AdmissionLost + s.AdmissionScored(); eligible > 0 {
 		if lost := float64(s.AdmissionLost) / float64(eligible); lost >= bench.MaxLostAdmissionFraction {
 			return fmt.Errorf("%s lost the admission verdict for %d of %d eligible requests (%.1f%%, limit %.0f%%). A port-forward that dies mid-replay looks exactly like this, and the report would refuse the whole run for it after every other replay had been paid for", name, s.AdmissionLost, eligible, lost*100, bench.MaxLostAdmissionFraction*100)

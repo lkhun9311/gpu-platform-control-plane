@@ -12,8 +12,9 @@ func skewed(ns int64) LifecycleEvent {
 }
 
 // A uniformly late harness measures intervals exactly, so the floor must come from the spread and never from
-// the median. This is the test that fails if someone "simplifies" FloorNs to MedianNs, which is the number a
-// reader reaches for first and the wrong one.
+// the median.
+// This is the test that fails if someone "simplifies" FloorNs to MedianNs, which is the number a reader
+// reaches for first and the wrong one.
 func TestSpreadOfFloorIgnoresHowLateTheHarnessIs(t *testing.T) {
 	late := SpreadOf([]LifecycleEvent{skewed(9 * int64(time.Second)), skewed(9 * int64(time.Second))})
 	if late == nil {
@@ -32,9 +33,9 @@ func TestSpreadOfFloorIgnoresHowLateTheHarnessIs(t *testing.T) {
 // The quantisation ADDS to the spread rather than losing a max() against it, because truncation of the
 // kubelet's stamp can compress the observed spread as easily as widen it.
 //
-// This is the regression guard for a real defect. FloorNs was max(spread, quantisation) and returned 1.959 s
-// here, understating by a full second, and the rule was wrong in every configuration where the spread is
-// nonzero.
+// This is the regression guard for a real defect.
+// FloorNs was max(spread, quantisation) and returned 1.959 s here, understating by a full second, and the
+// rule was wrong in every configuration where the spread is nonzero.
 func TestSpreadOfFloorAddsTheQuantisationToTheSpread(t *testing.T) {
 	s := SpreadOf([]LifecycleEvent{
 		skewed(430 * int64(time.Millisecond)),
@@ -50,9 +51,10 @@ func TestSpreadOfFloorAddsTheQuantisationToTheSpread(t *testing.T) {
 // The counter-example that condemned the old rule, as a test.
 //
 // True lags of 0 and 1.9 s, observed through fractional truncations of 0.95 and 0.05, arrive as skews of 0.95
-// and 1.95 — an observed spread of exactly 1.0 s. The old max(spread, quantisation) returned 1.0 s and would
-// have declared a 1.5 s effect resolved while it sat inside 1.9 s of real instrument error. The corrected
-// rule returns 2.0 s and refuses it.
+// and 1.95 — an observed spread of exactly 1.0 s.
+// The old max(spread, quantisation) returned 1.0 s and would have declared a 1.5 s effect resolved while it
+// sat inside 1.9 s of real instrument error.
+// The corrected rule returns 2.0 s and refuses it.
 func TestSpreadOfSurvivesTruncationCompressingTheSpread(t *testing.T) {
 	s := SpreadOf([]LifecycleEvent{
 		skewed(950 * int64(time.Millisecond)),
@@ -67,8 +69,8 @@ func TestSpreadOfSurvivesTruncationCompressingTheSpread(t *testing.T) {
 	}
 }
 
-// One reading has a spread of zero, and zero would be the strongest claim the struct can make. Refusing is
-// the point: a single observation has nothing to be spread against.
+// One reading has a spread of zero, and zero would be the strongest claim the struct can make.
+// Refusing is the point: a single observation has nothing to be spread against.
 func TestSpreadOfRefusesASingleSample(t *testing.T) {
 	if s := SpreadOf([]LifecycleEvent{skewed(50)}); s != nil {
 		t.Fatalf("one sample bounded a spread: %+v", s)

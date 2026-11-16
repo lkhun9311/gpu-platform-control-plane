@@ -326,8 +326,9 @@ func (r *recorder) Gather() ([]*dto.MetricFamily, error) { return nil, nil }
 // kueueMetrics asks the Kueue module itself what it registers, by standing in for the registry it registers with.
 //
 // The module is the one go.mod pins, which is not the release EKS runs: config/kueue-controller vendors v0.18.3 because
-// the operator reads kueue.x-k8s.io/v1beta1. Every kueue_ name the rules use was also read in the v0.18.3 source when
-// they were written; a rename between the two would surface here only if go.mod moved past it.
+// the operator reads kueue.x-k8s.io/v1beta1.
+// Every kueue_ name the rules use was also read in the v0.18.3 source when they were written; a rename between the two
+// would surface here only if go.mod moved past it.
 func kueueMetrics(t *testing.T) emitted {
 	t.Helper()
 	rec := &recorder{names: emitted{}}

@@ -79,8 +79,9 @@ func TestFitPilotRateFindsTheLargestRateOnEveryBlock(t *testing.T) {
 func TestFitPilotRateHoldsOnEveryBlock(t *testing.T) {
 	dir := t.TempDir()
 	all := []bool{true, true, true, true}
-	// After the burst, the fourth at 1 s needs R >= 10,000. The fifth at 3 s needs 3R >= 10,000, since a refused
-	// fourth consumed nothing. With P admitting four of five (a_P = 0.8), S must admit at most 0.75, i.e. refuse two.
+	// After the burst, the fourth at 1 s needs R >= 10,000.
+	// The fifth at 3 s needs 3R >= 10,000, since a refused fourth consumed nothing.
+	// With P admitting four of five (a_P = 0.8), S must admit at most 0.75, i.e. refuse two.
 	low := writeFitCell(t, dir, "pp-A-prospective-3", []int64{0, 0, 0, 1000, 3000}, []bool{true, true, true, true, false})
 	var out bytes.Buffer
 	err := fitPilotRate(fitArgs(writeFitCell(t, dir, "pp-A-prospective-1", []int64{0, 0, 0, 1000}, all),
@@ -89,7 +90,8 @@ func TestFitPilotRateHoldsOnEveryBlock(t *testing.T) {
 		t.Fatalf("fit refused: %v\n%s", err, out.String())
 	}
 	// Up to R = 3,333 both are refused (3 * 3,333 = 9,999), so S admits 3/5 = 0.6 <= 0.75; from 3,334 the fifth
-	// fits and S admits 4/5 = 0.8 > 0.75. The other blocks alone would allow 9,999.
+	// fits and S admits 4/5 = 0.8 > 0.75.
+	// The other blocks alone would allow 9,999.
 	if !strings.Contains(out.String(), "R=3333\n") {
 		t.Fatalf("want R=3333, got:\n%s", out.String())
 	}
@@ -135,8 +137,10 @@ func TestFitPilotRateRefusesAnUnidentifiableBlock(t *testing.T) {
 	}
 }
 
-// At the boundary a_S = a_P - 0.05 exactly holds. Three contenders at once drain the burst and 17 more arrive at
-// 1..17 s, so S admits 3 + floor(17R/10,000) of 20. P admitted 14 (0.70), so S may admit 13 (0.65): R <= 6,470.
+// At the boundary a_S = a_P - 0.05 exactly holds.
+// Three contenders at once drain the burst and 17 more arrive at 1..17 s, so S admits 3 + floor(17R/10,000) of
+// 20.
+// P admitted 14 (0.70), so S may admit 13 (0.65): R <= 6,470.
 // In floating point 0.70 - 0.05 is just below 0.65, and the fit stopped at 12 admitted, R = 5,882.
 //
 // Mutation that turns it red: compare the fractions in floating point.

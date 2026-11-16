@@ -53,10 +53,10 @@ const (
 // defaultAdmissionKV* are kv-aware's tuning defaults.
 //
 // Design rationale (design spec v1 Mechanism section; v2 Arm C, "Wire mode + flags"): these are
-// test/dev starting points only, not tuned numbers. W (waiting threshold) in particular is
-// model/hardware/max-num-seqs dependent and calibrated from the saturation sweep on the paid
-// GPU pilot; maxStaleness defaults to 3x the scrape interval, matching the design spec's own
-// example.
+// test/dev starting points only, not tuned numbers.
+// W (waiting threshold) in particular is model/hardware/max-num-seqs dependent and calibrated
+// from the saturation sweep on the paid GPU pilot; maxStaleness defaults to 3x the scrape
+// interval, matching the design spec's own example.
 const (
 	defaultAdmissionKVEngageUsage    = 0.85
 	defaultAdmissionKVReleaseUsage   = 0.75
@@ -66,8 +66,9 @@ const (
 	defaultAdmissionKVMaxStaleness   = 6 * time.Second // 3x defaultAdmissionKVScrapeInterval
 	// A backend under steady traffic is routed to constantly, so this only ever expires one that has stopped
 	// receiving requests: it has either been deleted or has nothing to be under pressure about, and both want
-	// its scraper stopped and its gauges gone. Far above maxStaleness so a backend cannot be evicted while the
-	// guard is still treating its last reading as usable.
+	// its scraper stopped and its gauges gone.
+	// Far above maxStaleness so a backend cannot be evicted while the guard is still treating its last reading
+	// as usable.
 	defaultAdmissionKVIdleTimeout = 15 * time.Minute
 	// shutdownGrace bounds how long in-flight requests are given after a signal.
 	// It sits under the 30s terminationGracePeriodSeconds config/gateway/deployment.yaml sets, so the decision
@@ -258,8 +259,9 @@ func main() {
 	//
 	// Two goroutines both waking on ctx.Done() raced, and the losing order was the likely one: the scrapers
 	// stopped while requests were still draining, so every completion still in flight was admitted by a guard
-	// that had lost its telemetry and failed open. Shutdown is one sequence — stop accepting, drain, then
-	// stop the machinery the drained requests were using.
+	// that had lost its telemetry and failed open.
+	// Shutdown is one sequence — stop accepting, drain, then stop the machinery the drained requests were
+	// using.
 
 	cfg := ctrl.GetConfigOrDie()
 	// Settle the namespace before building the cache.
@@ -354,11 +356,11 @@ func main() {
 	// Both are named servers rather than http.ListenAndServe, so both can be shut down.
 	//
 	// A signal previously ended the process while requests were mid-flight: SetupSignalHandler cancelled ctx,
-	// which stopped the cache and the scrapers, and nothing at all told the HTTP servers. Kubernetes sends
-	// SIGTERM and then waits out terminationGracePeriodSeconds, so every completion in flight — some of them
-	// streaming for minutes — was cut at whatever byte it had reached, and the client saw a truncated response
-	// rather than a refused one. On a gateway whose whole job is proxying long generations that is the failure
-	// mode most worth having.
+	// which stopped the cache and the scrapers, and nothing at all told the HTTP servers.
+	// Kubernetes sends SIGTERM and then waits out terminationGracePeriodSeconds, so every completion in flight
+	// — some of them streaming for minutes — was cut at whatever byte it had reached, and the client saw a
+	// truncated response rather than a refused one.
+	// On a gateway whose whole job is proxying long generations that is the failure mode most worth having.
 	api := newAPIServer(":8080", s.Handler(), apiReadHeaderTimeout, apiReadTimeout)
 	metrics := &http.Server{Addr: ":8081", Handler: s.MetricsHandler()}
 	apiLn, err := net.Listen("tcp", api.Addr)
@@ -405,8 +407,8 @@ func serve(ctx context.Context, api *http.Server, apiLn net.Listener,
 	case <-ctx.Done():
 	}
 
-	// Bounded, because Shutdown waits for every in-flight request and a stuck upstream would otherwise hold
-	// the process until the kubelet's SIGKILL, and the graceful path would have bought nothing.
+	// Bounded, because Shutdown waits for every in-flight request and a stuck upstream would otherwise hold the
+	// process until the kubelet's SIGKILL, and the graceful path would have bought nothing.
 	// The caller keeps grace under the Pod's terminationGracePeriodSeconds, so the cut is this program's decision.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()
@@ -419,7 +421,8 @@ func serve(ctx context.Context, api *http.Server, apiLn net.Listener,
 		log.Error(err, "in-flight requests were cut short by the shutdown deadline")
 	}
 	// Last, because until Shutdown returns there are requests being admitted, and admission reads what these
-	// scrapers publish. Stopping them first left the guard failing open over the whole drain.
+	// scrapers publish.
+	// Stopping them first left the guard failing open over the whole drain.
 	stopAdmitter()
 	return nil
 }

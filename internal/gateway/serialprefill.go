@@ -10,19 +10,19 @@ import (
 // still in prefill, so at most one contender prefill runs at a time.
 //
 // It is the gateway half of the design page's v23 candidate (docs/superpowers/specs/
-// 2026-10-08-measuring-prospective-admission-design.md, "v23"). The pilot's step logs show a premium request waiting
-// through a whole contender prefill because the engine serves running requests first; an engine cap on a prefill's
-// tokens per step lets a waiting request in beside one running prefill, but two prefills together take the whole
-// budget, which this rule prevents.
+// 2026-10-08-measuring-prospective-admission-design.md, "v23").
+// The pilot's step logs show a premium request waiting through a whole contender prefill because the engine serves
+// running requests first; an engine cap on a prefill's tokens per step lets a waiting request in beside one running
+// prefill, but two prefills together take the whole budget, which this rule prevents.
 //
-// It holds rather than refuses, so the contender's work is kept and its cost is time. A request held longer than
-// maxHold is refused, so a held request cannot outlive its client's timeout at the gateway.
-// "In prefill" ends when the response's first complete content event reaches the gateway, the nearest point it can
-// see to the engine finishing the prompt; not its first body byte, which may be a frame without content (v24 review,
-// finding 3). On vLLM v0.27.1 the two coincide: the role frame is sent in the same write as the first token.
-// Only a content delta releases: a stream that generates only tool calls or reasoning holds its turn to its end. The
-// diagnostic enforces the benchmark profile, whose requests produce neither. That holds only while the engine does not preempt: a preempted request recomputes its
-// prompt after its first byte, when this rule already counts it as done.
+// It holds rather than refuses, so the contender's work is kept and its cost is time.
+// A request held longer than maxHold is refused, so a held request cannot outlive its client's timeout at the gateway.
+// "In prefill" ends when the response's first complete content event reaches the gateway, the nearest point it can see to the engine finishing the prompt; not its
+// first body byte, which may be a frame without content (v24 review, finding 3).
+// On vLLM v0.27.1 the two coincide: the role frame is sent in the same write as the first token.
+// Only a content delta releases: a stream that generates only tool calls or reasoning holds its turn to its end.
+// The diagnostic enforces the benchmark profile, whose requests produce neither.
+// That holds only while the engine does not preempt: a preempted request recomputes its prompt after its first byte, when this rule already counts it as done.
 const AdmissionSerialPrefill AdmissionMode = "serial-prefill"
 
 const (
@@ -128,8 +128,8 @@ func (s *serialPrefillAdmitter) hold(key string) *reservation {
 
 // next passes the backend to the waiter whose turn it is, or marks it free; the turn is handed over under the lock, so no
 // request can slip in between a release and the waiter it was meant for.
-// A waiter already past its hold is skipped, not handed the turn: its own timer refuses it, and a turn and a timer
-// ready together would otherwise be decided at random (v26 review, A14).
+// A waiter already past its hold is skipped, not handed the turn: its own timer refuses it, and a turn and a timer ready
+// together would otherwise be decided at random (v26 review, A14).
 func (s *serialPrefillAdmitter) next(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

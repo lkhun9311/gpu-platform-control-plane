@@ -39,8 +39,9 @@ import (
 // refuseNoisy is a SWITCH rather than a constructor argument, because stamping and replay need opposite
 // answers from the same engine. stamp-exact-tokens measures every length as the premium tenant precisely
 // because no admission mode refuses it -- an engine that refuses the long prompt during stamping makes the
-// measurement fail, which is what the first version of this test did to itself. The refusal is turned on only
-// once the traces are prepared, so the replay produces the refused row the fraction's denominator needs.
+// measurement fail, which is what the first version of this test did to itself.
+// The refusal is turned on only once the traces are prepared, so the replay produces the refused row the
+// fraction's denominator needs.
 func stubEngine(t *testing.T, probes *atomic.Int64, refuseNoisy *atomic.Bool) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

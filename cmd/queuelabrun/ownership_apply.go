@@ -66,7 +66,8 @@ const verifyInterval = 500 * time.Millisecond
 //
 // The ambiguous-release read-back added since does not change that 13: it runs in the non-conflict branch,
 // which returns instead of looping, and it costs the same up-to-3 reads verifyReleased already cost on the
-// success branch. The two branches are mutually exclusive, so the worst case is still 10 + 3.
+// success branch.
+// The two branches are mutually exclusive, so the worst case is still 10 + 3.
 const releaseCleanupTimeout = 3 * time.Minute
 
 // cleanupContext returns a context bounded by releaseCleanupTimeout for release-path work that must run to
@@ -79,22 +80,24 @@ func cleanupContext() (context.Context, context.CancelFunc) {
 // same reason the release path does: a signal arriving between a mode's Get and its Patch is exactly what
 // could leave a break half applied.
 //
-// It is far shorter than releaseCleanupTimeout because far less work runs on it. Each mode spends at most a
-// Get and a Patch on this context — releaseStale's actual restoration hands off to cleanupContext, and
-// inspectWorker only reads — so at the same generous 10s-per-call budget releaseCleanupTimeout is derived
-// from, 2 calls need 20s and one minute leaves triple that margin. Bounding it at all is the point: an
-// operator running these modes is already recovering from a stuck node, and a tool that hangs indefinitely
-// against a degraded API server gives them nothing to act on and no way to tell a hang from slow progress.
+// It is far shorter than releaseCleanupTimeout because far less work runs on it.
+// Each mode spends at most a Get and a Patch on this context — releaseStale's actual restoration hands off
+// to cleanupContext, and inspectWorker only reads — so at the same generous 10s-per-call budget
+// releaseCleanupTimeout is derived from, 2 calls need 20s and one minute leaves triple that margin.
+// Bounding it at all is the point: an operator running these modes is already recovering from a stuck node,
+// and a tool that hangs indefinitely against a degraded API server gives them nothing to act on and no way
+// to tell a hang from slow progress.
 const operatorModeTimeout = time.Minute
 
 // operatorModeContext returns the bounded, signal-independent context a mode runs on.
 //
-// The bound is per-mode because one of them is not shaped like the others at all. The four recovery modes
-// spend a Get and a Patch and are done; the termination canary starts two containers, waits out a grace
-// period and reads what happened, which is minutes of legitimate work that a one-minute bound would cut off
-// mid-probe — leaving two Pods holding a finalizer and no verdict to show for it. The reason for making it
-// uncancellable is the same for both, and it is stronger for the canary: a signal landing between the delete
-// and the finalizer cleanup is exactly what strands a probe.
+// The bound is per-mode because one of them is not shaped like the others at all.
+// The four recovery modes spend a Get and a Patch and are done; the termination canary starts two
+// containers, waits out a grace period and reads what happened, which is minutes of legitimate work that a
+// one-minute bound would cut off mid-probe — leaving two Pods holding a finalizer and no verdict to show for
+// it.
+// The reason for making it uncancellable is the same for both, and it is stronger for the canary: a signal
+// landing between the delete and the finalizer cleanup is exactly what strands a probe.
 func operatorModeContext(mode operatorMode) (context.Context, context.CancelFunc) {
 	if mode == modeTerminationCanary {
 		return context.WithTimeout(context.Background(), canaryModeTimeout)
@@ -269,8 +272,9 @@ func verifyReleased(ctx context.Context, c client.Client, nodeName string, j jou
 // never that the node is free.
 //
 // Between our patch and this read, another run may legitimately have acquired the node, and demanding a free
-// node would turn that ordinary race into a spurious restoration failure. So each check only fails when what
-// is observed still names our own installed values, not merely when something is present.
+// node would turn that ordinary race into a spurious restoration failure.
+// So each check only fails when what is observed still names our own installed values, not merely when
+// something is present.
 func verifyClean(obs ownership, j journal) error {
 	if obs.NodeUID != j.NodeUID {
 		// A recreated node is a different node: there is nothing of ours left to find on it, but that is not
@@ -281,9 +285,10 @@ func verifyClean(obs ownership, j journal) error {
 		switch {
 		case obs.JournalErr != nil:
 			// The invariant is "absent, or present but naming a different txID" — an unreadable journal
-			// satisfies neither, so it cannot be waved through as clean. This cannot false-fail the legitimate
-			// race either: a foreign journal is written by encodeJournal inside one atomic patch, so there is
-			// no torn read of someone else's write to tolerate here, only ours failing to have been removed.
+			// satisfies neither, so it cannot be waved through as clean.
+			// This cannot false-fail the legitimate race either: a foreign journal is written by encodeJournal
+			// inside one atomic patch, so there is no torn read of someone else's write to tolerate here, only
+			// ours failing to have been removed.
 			return fmt.Errorf("journal on node %s is unreadable after release: %v", obs.NodeName, obs.JournalErr)
 		case obs.Journal.TxID == j.TxID:
 			return fmt.Errorf("journal for tx %s is still on the node after release", j.TxID)
@@ -294,10 +299,11 @@ func verifyClean(obs ownership, j journal) error {
 			// Those comparisons match on the run-id-derived values, and a foreign transaction that happens to
 			// carry the same run id installs byte-identical ones — so a legitimate acquisition after our
 			// release would look like our own markers surviving, and the run would be invalidated by a value
-			// coincidence. The journal's txID is the authority precisely because it cannot be defeated that
-			// way: acquisition proceeds only from a free node and writes label, taint and journal in one
-			// atomic patch, so a foreign journal being present is proof that ours, and the markers it was
-			// written with, were gone by the time that patch was accepted.
+			// coincidence.
+			// The journal's txID is the authority precisely because it cannot be defeated that way:
+			// acquisition proceeds only from a free node and writes label, taint and journal in one atomic
+			// patch, so a foreign journal being present is proof that ours, and the markers it was written
+			// with, were gone by the time that patch was accepted.
 			return nil
 		}
 	}
@@ -316,11 +322,11 @@ func verifyClean(obs ownership, j journal) error {
 // resolveWindow is how long the node must look free before a lost write is called dead.
 //
 // It is stated as its own value because it is what the refusal quotes and what the argument below turns on,
-// not merely the product of two loop bounds — and it counts the GAPS between reads, not the reads. The first
-// read is immediate, so six reads spaced two seconds apart span ten seconds, and quoting twelve would claim
-// two seconds nothing observed. That trailing gap is not a rounding detail: it is exactly where the late
-// commit this whole path exists to catch would land unseen, which is why the loop below does not sleep after
-// its last read.
+// not merely the product of two loop bounds — and it counts the GAPS between reads, not the reads.
+// The first read is immediate, so six reads spaced two seconds apart span ten seconds, and quoting twelve
+// would claim two seconds nothing observed.
+// That trailing gap is not a rounding detail: it is exactly where the late commit this whole path exists to
+// catch would land unseen, which is why the loop below does not sleep after its last read.
 const resolveWindow = time.Duration(resolveAttempts-1) * resolveInterval
 
 // resolveAmbiguousAcquire decides whether a patch whose response was lost actually committed.
@@ -329,28 +335,31 @@ const resolveWindow = time.Duration(resolveAttempts-1) * resolveInterval
 // and the run refuses with nothing of ours to undo; or it is unresolved within the bound, which refuses and
 // leaves the operator modes to sort it out.
 //
-// A free node is the outcome that must be earned rather than read once. A linearizable read orders this Get
-// against writes that have COMPLETED, and the write in question is exactly the one that did not: a request
-// that timed out or lost its connection may still be sitting in the API server's apply path and commit after
-// this read returns. Concluding "did not land" from a single free observation therefore discards the
-// transaction id at the one moment it is still needed, and nothing afterwards can name the markers that
-// appear a moment later. So the free state has to hold for the whole window before it is believed, and
-// anything else — a read that failed, a state that resolved neither way — leaves the outcome unresolved,
-// which keeps the txID and the operator's next command.
+// A free node is the outcome that must be earned rather than read once.
+// A linearizable read orders this Get against writes that have COMPLETED, and the write in question is
+// exactly the one that did not: a request that timed out or lost its connection may still be sitting in the
+// API server's apply path and commit after this read returns.
+// Concluding "did not land" from a single free observation therefore discards the transaction id at the one
+// moment it is still needed, and nothing afterwards can name the markers that appear a moment later.
+// So the free state has to hold for the whole window before it is believed, and anything else — a read that
+// failed, a state that resolved neither way — leaves the outcome unresolved, which keeps the txID and the
+// operator's next command.
 func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName string, j journal,
 	cause error) (journal, error) {
 	// The failed re-read is kept rather than discarded, because "we could not read the node" and "we read it
-	// and it never resolved" send the operator to different places. A sustained authorization failure, a
-	// deleted node or an API outage would otherwise be reported as a generic unresolved write, and the very
-	// -inspect-worker command this refusal prints would fail for the same reason nobody was told about.
+	// and it never resolved" send the operator to different places.
+	// A sustained authorization failure, a deleted node or an API outage would otherwise be reported as a
+	// generic unresolved write, and the very -inspect-worker command this refusal prints would fail for the
+	// same reason nobody was told about.
 	//
 	// It tracks the MOST RECENT read, not the worst one ever seen, which is why the success branch clears it:
 	// one transient failure early in the loop followed by five clean reads is a node the operator can reach,
 	// and reporting the stale error would send them after a connectivity problem that has already passed.
 	var lastReadErr error
 	// freeThroughout stays true only while EVERY observation in the window has succeeded and found the node
-	// free. A failed read or any non-free state clears it for good, so the "did not land" conclusion below
-	// rests on an unbroken window rather than on whichever state the last read happened to catch.
+	// free.
+	// A failed read or any non-free state clears it for good, so the "did not land" conclusion below rests
+	// on an unbroken window rather than on whichever state the last read happened to catch.
 	freeThroughout := true
 	for attempt := range resolveAttempts {
 		var n corev1.Node
@@ -373,16 +382,18 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 				// Free, so far. controller-runtime reads straight from the API server rather than a cache, so
 				// this Get cannot observe a state older than a write that has already COMPLETED — but the write
 				// this is resolving is one whose completion is exactly what is unknown, so a single free
-				// observation is not evidence of anything yet. Keep watching.
+				// observation is not evidence of anything yet.
+				// Keep watching.
 			default:
 				// Partly ours, or ours diverged: resolved neither way.
 				freeThroughout = false
 			}
 		}
 		if attempt == resolveAttempts-1 {
-			// The last read closes the window. Sleeping after it would put resolveInterval of unwatched time
-			// inside the span the refusal below quotes, and a write committing in that gap is precisely the
-			// outcome this loop exists to notice.
+			// The last read closes the window.
+			// Sleeping after it would put resolveInterval of unwatched time inside the span the refusal
+			// below quotes, and a write committing in that gap is precisely the outcome this loop exists to
+			// notice.
 			break
 		}
 		select {
@@ -435,9 +446,9 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 	fmt.Printf("  residue: %s\n", quotedOrNone(obs.ResidueRaw))
 	// Printed above the switch rather than inside the held branch, because the held branch is not the only
 	// state that can carry one: forceQuarantine deliberately preserves the record, and the moment an operator
-	// is breaking a hold by hand is exactly when they need to know why it was held. A record that survived a
-	// hand-stripped label reaches the stale-marker and free branches the same way, and saying so is better than
-	// printing a raw document nobody reads.
+	// is breaking a hold by hand is exactly when they need to know why it was held.
+	// A record that survived a hand-stripped label reaches the stale-marker and free branches the same way, and
+	// saying so is better than printing a raw document nobody reads.
 	printResidueDetail(obs)
 	switch {
 	case obs.QuarantineRaw != "":
@@ -458,8 +469,8 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 	case obs.JournalRaw != "" && obs.JournalErr != nil:
 		// Without this branch a node carrying an undecodable journal and no marker fell through to FREE and
 		// exited 0, while decideAcquire refuses that same node as unreadable-journal: the recovery tool
-		// contradicted the runner about the node's state, and said the safe-sounding thing. A script reading
-		// the exit code would then keep pointing runs at a node no run can ever take.
+		// contradicted the runner about the node's state, and said the safe-sounding thing.
+		// A script reading the exit code would then keep pointing runs at a node no run can ever take.
 		//
 		// It is not recoverable by the ordinary path either: -release-stale needs a txID, and the txID lives
 		// in the very document that cannot be read, so the break is the only way through.
@@ -485,20 +496,21 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 			// An unreadable record still changes the advice, because what it fails to say is not "there is
 			// nothing here" — the annotation's presence is itself evidence a teardown ended without removing
 			// everything, and the ordinary -release-stale line printed under that would be the same unsafe
-			// suggestion as below, just with nothing on screen to warn against it. It stays a printed warning
-			// rather than a returned error, unlike the unreadable QUARANTINE record above: this document decides
-			// nothing, and an informational field that invents a new failure mode is worse than no field at all.
+			// suggestion as below, just with nothing on screen to warn against it.
+			// It stays a printed warning rather than a returned error, unlike the unreadable QUARANTINE record
+			// above: this document decides nothing, and an informational field that invents a new failure mode
+			// is worse than no field at all.
 			fmt.Printf("  It also carries a residue record this tool could not read (see above), so it cannot\n" +
 				"  say what was left behind. Assume the hold is deliberate until you have established otherwise:\n" +
 				"  a run whose teardown finished removes this annotation on its way out.\n")
 			printResidueRelease(nodeName, obs.Journal.TxID)
 		case obs.ResidueRaw != "":
-			// -release-stale is the WRONG move here and is deliberately not offered unconditionally. This hold
-			// is not a crashed process's leftovers: the run that installed these markers decided to keep the
-			// worker because its own teardown could not prove those objects gone. Releasing strips the
-			// dedication label and the NoSchedule taint from a node whose namespace may still be running that
-			// run's GPU Pods — and takes the record explaining it along too, since releaseAcquired clears the
-			// annotation with the markers.
+			// -release-stale is the WRONG move here and is deliberately not offered unconditionally.
+			// This hold is not a crashed process's leftovers: the run that installed these markers decided to
+			// keep the worker because its own teardown could not prove those objects gone.
+			// Releasing strips the dedication label and the NoSchedule taint from a node whose namespace may
+			// still be running that run's GPU Pods — and takes the record explaining it along too, since
+			// releaseAcquired clears the annotation with the markers.
 			fmt.Printf("  This hold is DELIBERATE. That run's teardown could not remove the objects listed\n" +
 				"  under residue: above, so the label and the taint are still installed to keep other work off\n" +
 				"  GPUs that may still be busy. -release-stale is NOT the move: it strips both markers from a\n" +
@@ -544,9 +556,10 @@ func printResidueDetail(obs ownership) {
 		return
 	}
 	if obs.ResidueErr != nil {
-		// Named, not skipped. Staying silent here would leave the operator with only the raw line above and no
-		// indication that this tool tried to read it and failed — the same reason residueNote reports an
-		// unreadable record rather than behaving as though there were none.
+		// Named, not skipped.
+		// Staying silent here would leave the operator with only the raw line above and no indication that
+		// this tool tried to read it and failed — the same reason residueNote reports an unreadable record
+		// rather than behaving as though there were none.
 		fmt.Printf("    UNREADABLE: %v\n", obs.ResidueErr)
 		return
 	}
@@ -565,8 +578,8 @@ func printResidueDetail(obs ownership) {
 // printResidueRelease prints the release command under the condition that makes it safe.
 //
 // The command is still printed in full, because every other hint this tool gives is a complete runnable one
-// and an operator reconstructing it from the flag list under pressure is how the wrong node gets released. It
-// is the CONDITION that changes: a residue hold ends when the objects are gone, not when the process is.
+// and an operator reconstructing it from the flag list under pressure is how the wrong node gets released.
+// It is the CONDITION that changes: a residue hold ends when the objects are gone, not when the process is.
 func printResidueRelease(nodeName, txID string) {
 	fmt.Printf("  Once those objects are gone AND the process holding this transaction is dead:\n"+
 		"    queuelabrun -release-stale -worker %s -txid %q -confirm-owner-dead\n", nodeName, txID)
@@ -590,8 +603,9 @@ func quotedOrNone(s string) string {
 //
 // %+v was reaching the terminal raw, and a taint value is node-controlled in exactly the way the annotations
 // are: anyone who can taint the worker can put terminal control sequences in the value, and this line is
-// printed directly above the recovery instructions an operator is about to act on. The key and effect are
-// escaped too rather than trusted, because nothing here has validated them against the API server's rules.
+// printed directly above the recovery instructions an operator is about to act on.
+// The key and effect are escaped too rather than trusted, because nothing here has validated them against
+// the API server's rules.
 func quotedTaints(taints []corev1.Taint) string {
 	if len(taints) == 0 {
 		return "(none)"
@@ -617,10 +631,10 @@ func releaseStale(ctx context.Context, c client.Client, nodeName, txID string) e
 	}
 	if act == releaseAlreadyDone {
 		// obs.Journal is the zero journal here (its Node field is ""), because decideRelease only reaches
-		// releaseAlreadyDone when there was never a journal to decode in the first place. Passing that zero
-		// journal to releaseAcquired would Get an empty node name and fail with a confusing API error, for an
-		// operator who reached for this exact mode right after a crash and deserves a plain "already released"
-		// instead.
+		// releaseAlreadyDone when there was never a journal to decode in the first place.
+		// Passing that zero journal to releaseAcquired would Get an empty node name and fail with a confusing
+		// API error, for an operator who reached for this exact mode right after a crash and deserves a plain
+		// "already released" instead.
 		fmt.Printf("node %s already carries nothing for tx %s; nothing to release\n", nodeName, txID)
 		return nil
 	}
@@ -630,14 +644,15 @@ func releaseStale(ctx context.Context, c client.Client, nodeName, txID string) e
 		nodeName, workerLabelKey, obs.LabelValue, workerTaintKey,
 		obs.Journal.Installed.TaintValue, string(obs.Journal.Installed.TaintEffect), txID)
 	// releaseAcquired deletes the residue record in the same patch that removes the markers, so this is the
-	// last moment anyone can see it. Saying so here is not a duplicate of inspectWorker's warning: that
-	// warning lives in a different command's output, and this command is the one inspectWorker tells the
-	// operator to run. An operator who skimmed the prose and copied the last line would otherwise destroy the
-	// only record of what was left and be told only that a label, a taint and a journal went away.
+	// last moment anyone can see it.
+	// Saying so here is not a duplicate of inspectWorker's warning: that warning lives in a different
+	// command's output, and this command is the one inspectWorker tells the operator to run.
+	// An operator who skimmed the prose and copied the last line would otherwise destroy the only record of
+	// what was left and be told only that a label, a taint and a journal went away.
 	//
 	// It warns rather than refuses because this mode exists for the case where the previous process is gone
-	// and the operator has attested to it; refusing would leave them with no move at all. The fields are
-	// escaped for the same reason every other node-controlled value here is.
+	// and the operator has attested to it; refusing would leave them with no move at all.
+	// The fields are escaped for the same reason every other node-controlled value here is.
 	switch {
 	case obs.ResidueErr != nil:
 		fmt.Printf("  WARNING: this also deletes a residue record that could not be read: %v\n", obs.ResidueErr)
@@ -690,12 +705,12 @@ func forceQuarantine(ctx context.Context, c client.Client, nodeName, nodeUID str
 	base := n.DeepCopy()
 	delete(n.Labels, workerLabelKey)
 	delete(n.Annotations, journalKey)
-	// The residue record is deliberately left in place. It is the explanation an operator most needs at the
-	// moment they are breaking a hold by hand, and it cannot mislead while it sits here: decideAcquire
-	// refuses a quarantined node on QuarantineRaw before it ever reaches the foreign-owner branch that quotes
-	// it. clearQuarantine is what removes it. Copying it into the quarantine record instead would mean
-	// bumping quarantineSchema, and that record is decoded with DisallowUnknownFields, so every older binary
-	// would then refuse every newer record.
+	// The residue record is deliberately left in place.
+	// It is the explanation an operator most needs at the moment they are breaking a hold by hand, and it
+	// cannot mislead while it sits here: decideAcquire refuses a quarantined node on QuarantineRaw before it
+	// ever reaches the foreign-owner branch that quotes it. clearQuarantine is what removes it.
+	// Copying it into the quarantine record instead would mean bumping quarantineSchema, and that record is
+	// decoded with DisallowUnknownFields, so every older binary would then refuse every newer record.
 	if n.Annotations == nil {
 		n.Annotations = map[string]string{}
 	}
@@ -768,8 +783,9 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 		switch {
 		case err == nil:
 			// acquireWorker has verifyAcquired for exactly this reason: a status code proves the API server
-			// accepted the request, not that what it committed is what a subsequent reader will see. Release
-			// now follows the same discipline and reads back before letting the caller trust restoration.
+			// accepted the request, not that what it committed is what a subsequent reader will see.
+			// Release now follows the same discipline and reads back before letting the caller trust
+			// restoration.
 			if _, verr := verifyReleased(ctx, c, j.Node, j); verr != nil {
 				return releaseRestore, fmt.Errorf("release node %s: patch succeeded but restoration did not verify: %w",
 					j.Node, verr)
@@ -784,31 +800,37 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 			// Acquisition has resolveAmbiguousAcquire for exactly this class of error and release had no
 			// counterpart, so a non-conflict Patch failure whose write actually landed — a proxy timeout, a
 			// connection reset after commit — made the run print "worker not restored" and exit non-zero for a
-			// node that was already clean. That is a false invalidation, and the lab pays for those in runs.
+			// node that was already clean.
+			// That is a false invalidation, and the lab pays for those in runs.
 			//
 			// The direction of failure stays safe because only a positive proof passes: verifyReleased must
 			// observe our label gone, our taint value gone, our journal gone and the same node UID, and it
-			// fails closed on an unreadable journal or a Get it cannot complete. It deliberately tolerates
-			// another transaction having acquired in the meantime, which is verifyClean's whole contract and
-			// is an ordinary race rather than a restoration failure.
+			// fails closed on an unreadable journal or a Get it cannot complete.
+			// It deliberately tolerates another transaction having acquired in the meantime, which is
+			// verifyClean's whole contract and is an ordinary race rather than a restoration failure.
 			//
 			// The 409 argument that used to end this comment does not hold, and it is worth spelling out why
-			// rather than deleting quietly. It ran: a concurrent -release-stale or -force-release would have
-			// moved the resourceVersion, the optimistic lock would have conflicted, and we would be in the
-			// IsConflict arm instead — so a clean read-back here is our own write. That inference needs the
-			// request to have REACHED the apiserver, and this arm exists precisely for the case where it may
-			// not have. If the patch never landed there was no opportunity for a 409, so the absence of one
-			// proves nothing about who removed our markers.
+			// rather than deleting quietly.
+			// It ran: a concurrent -release-stale or -force-release would have moved the resourceVersion,
+			// the optimistic lock would have conflicted, and we would be in the IsConflict arm instead — so
+			// a clean read-back here is our own write.
+			// That inference needs the request to have REACHED the apiserver, and this arm exists precisely
+			// for the case where it may not have.
+			// If the patch never landed there was no opportunity for a 409, so the absence of one proves
+			// nothing about who removed our markers.
 			//
 			// So the read-back is split by what it finds, which lets the two comments above compose instead of
-			// contradicting each other. A node with no journal at all is the case this arm was written for:
-			// nobody holds it, restoration is real however it happened, and invalidating would be the false
-			// invalidation the lab pays for in runs. A node held by ANOTHER transaction is not that case. It
-			// is either our write landing and somebody acquiring after, or our write vanishing and somebody
+			// contradicting each other.
+			// A node with no journal at all is the case this arm was written for: nobody holds it, restoration
+			// is real however it happened, and invalidating would be the false invalidation the lab pays for
+			// in runs.
+			// A node held by ANOTHER transaction is not that case.
+			// It is either our write landing and somebody acquiring after, or our write vanishing and somebody
 			// force-releasing us mid-run, and nothing on the node distinguishes them — which is the definition
 			// releaseOwned already gives for invalidating: the run lost exclusive use somewhere it cannot
-			// bound. Reporting a clean release there would be the "looked fine, was allowed to count" outcome
-			// the whole transaction exists to stop.
+			// bound.
+			// Reporting a clean release there would be the "looked fine, was allowed to count" outcome the
+			// whole transaction exists to stop.
 			obs, verr := verifyReleased(ctx, c, j.Node, j)
 			if verr != nil {
 				return releaseRestore, fmt.Errorf(
@@ -830,30 +852,34 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 
 // stampResidue records on the worker itself why its markers are still installed.
 //
-// The record CONTAINS nothing. The dedication label and the NoSchedule taint are what keep Pods off the node,
-// and an annotation the scheduler does not understand cannot hold a GPU Pod back for a moment — the same trap
-// forceQuarantine's comment names. What this buys is that the next operator, refused this worker, is told
-// which objects a finished run could not remove instead of being handed a transaction id alone.
+// The record CONTAINS nothing.
+// The dedication label and the NoSchedule taint are what keep Pods off the node, and an annotation the
+// scheduler does not understand cannot hold a GPU Pod back for a moment — the same trap forceQuarantine's
+// comment names.
+// What this buys is that the next operator, refused this worker, is told which objects a finished run could
+// not remove instead of being handed a transaction id alone.
 //
 // It re-reads and re-checks ownership with verifyObserved before writing, for the same reason releaseOwned
 // does: a status code proves the API server accepted a request, not that the node is still the one this
-// transaction acquired. Between teardown and this call another actor can have taken it over, and stamping our
-// residue onto their markers is the same lie the UID preconditions in teardown_apply.go exist to prevent.
+// transaction acquired.
+// Between teardown and this call another actor can have taken it over, and stamping our residue onto their
+// markers is the same lie the UID preconditions in teardown_apply.go exist to prevent.
 //
-// verifyObserved rather than verifyInstalled alone, because verifyInstalled cannot make that promise. It
-// compares the label value, the taint value and effect, and the node UID — and both marker values are the RUN
-// id, not the transaction id, so a node re-acquired by a DIFFERENT transaction under the same run id carries
-// byte-identical markers and would pass. A reused run id is the confound the txID exists to defeat (see
-// newTxID), and verifyClean's comment already names this exact value coincidence as the reason the journal's
-// txID is the authority. decideRelease closes it by checking obs.Journal.TxID before it calls verifyInstalled;
-// verifyObserved is the same check plus the whole tuple, so this path gets it by reusing rather than repeating.
+// verifyObserved rather than verifyInstalled alone, because verifyInstalled cannot make that promise.
+// It compares the label value, the taint value and effect, and the node UID — and both marker values are the
+// RUN id, not the transaction id, so a node re-acquired by a DIFFERENT transaction under the same run id
+// carries byte-identical markers and would pass.
+// A reused run id is the confound the txID exists to defeat (see newTxID), and verifyClean's comment already
+// names this exact value coincidence as the reason the journal's txID is the authority. decideRelease closes it
+// by checking obs.Journal.TxID before it calls verifyInstalled; verifyObserved is the same check plus the whole
+// tuple, so this path gets it by reusing rather than repeating.
 func stampResidue(ctx context.Context, c client.Client, j journal, left []residue, leftAt, recordPath string) error {
-	// Defense in depth, not a live defect: no caller can currently reach this. tearDownBeforeRelease's one
-	// hold with an empty residue — a teardown that could not compute its target set at all — returns before the
-	// stamp branch, and the surviving call site is past a `len(result.Residue) == 0` return. The guard stays
-	// because of what it would cost to be wrong: decodeResidue refuses an empty Left, so a record naming
-	// nothing would reach the next operator only as "a residue record that could not be read", which is worse
-	// than the bare refusal they would otherwise get.
+	// Defense in depth, not a live defect: no caller can currently reach this. tearDownBeforeRelease's one hold
+	// with an empty residue — a teardown that could not compute its target set at all — returns before the
+	// stamp branch, and the surviving call site is past a `len(result.Residue) == 0` return.
+	// The guard stays because of what it would cost to be wrong: decodeResidue refuses an empty Left, so a
+	// record naming nothing would reach the next operator only as "a residue record that could not be read",
+	// which is worse than the bare refusal they would otherwise get.
 	if len(left) == 0 {
 		return fmt.Errorf("stamp residue on %s: nothing was left to name", j.Node)
 	}
@@ -897,13 +923,15 @@ func stampResidue(ctx context.Context, c client.Client, j journal, left []residu
 //
 // decideRelease cannot make this call on its own: reading a node with no journal and no markers, it cannot
 // tell "already released" from "released out from under a live run", and both operator recovery and
-// acquire's own self-release legitimately meet the first. The run does know — it installed those markers
-// and never removed them — so the distinction is drawn here, at the one call site that has that knowledge.
+// acquire's own self-release legitimately meet the first.
+// The run does know — it installed those markers and never removed them — so the distinction is drawn
+// here, at the one call site that has that knowledge.
 //
 // A free worker at this point means someone ran -release-stale or the force/clear break-glass pair against
-// a live transaction, or the node was deleted and recreated. In every one of those the run lost exclusive
-// use of the GPU somewhere it cannot bound, which is exactly the "looked fine, was allowed to count"
-// failure the whole transaction exists to stop, so it invalidates rather than reporting a clean release.
+// a live transaction, or the node was deleted and recreated.
+// In every one of those the run lost exclusive use of the GPU somewhere it cannot bound, which is exactly
+// the "looked fine, was allowed to count" failure the whole transaction exists to stop, so it invalidates
+// rather than reporting a clean release.
 func releaseOwned(ctx context.Context, c client.Client, j journal) error {
 	act, err := releaseAcquired(ctx, c, j)
 	if err != nil {
@@ -920,17 +948,20 @@ func releaseOwned(ctx context.Context, c client.Client, j journal) error {
 // printRecoverable names what the holder of this worker left on the cluster, by the route its kind recovers
 // through.
 //
-// The two routes are genuinely different. A run's objects regenerate through the fixture builder from study,
-// variant and namespace, so that list is DERIVED and needs no cluster. A probe's Pods are not derivable, and
-// this function used to pretend otherwise: it rebuilt the two names `tc-<id>-honor` and `tc-<id>-ignore`
-// from the id and printed them for every holder of kind canary. The device preflight acquires the worker
-// under that same kind and creates exactly ONE Pod, named `dp-<id>` -- so a stranded preflight sent the
-// operator looking for two Pods that had never existed, and did not name the one that had.
+// The two routes are genuinely different.
+// A run's objects regenerate through the fixture builder from study, variant and namespace, so that list is
+// DERIVED and needs no cluster.
+// A probe's Pods are not derivable, and this function used to pretend otherwise: it rebuilt the two names
+// `tc-<id>-honor` and `tc-<id>-ignore` from the id and printed them for every holder of kind canary.
+// The device preflight acquires the worker under that same kind and creates exactly ONE Pod, named `dp-<id>`
+// -- so a stranded preflight sent the operator looking for two Pods that had never existed, and did not name
+// the one that had.
 //
-// It now LISTS them, by the label every probe Pod carries whatever built it. That is why the label became a
-// constant. The listing also distinguishes three outcomes an operator must not have collapsed for them: a
-// list that failed, a list that succeeded and found nothing, and a list that found Pods. Only the first is
-// a reason to distrust what is printed, and only the third is a deletion list.
+// It now LISTS them, by the label every probe Pod carries whatever built it.
+// That is why the label became a constant.
+// The listing also distinguishes three outcomes an operator must not have collapsed for them: a list that
+// failed, a list that succeeded and found nothing, and a list that found Pods.
+// Only the first is a reason to distrust what is printed, and only the third is a deletion list.
 //
 // The namespace is printed as context and explicitly marked as not-to-delete, because an operator reading a
 // deletion list top to bottom is exactly who would remove it.
@@ -956,17 +987,19 @@ func printRecoverable(ctx context.Context, c client.Client, j journal) {
 
 // printProbePods lists the Pods a probe holder left, by label, in the namespace its journal names.
 //
-// Reading the cluster rather than reconstructing names is the whole repair, and it costs one List. The
-// alternative considered was a third holder kind written into the journal, which would have made the
+// Reading the cluster rather than reconstructing names is the whole repair, and it costs one List.
+// The alternative considered was a third holder kind written into the journal, which would have made the
 // printout derivable again -- but journalSchema is accepted at exactly one version by decodeJournal, so
 // bumping it makes every hold in flight unreadable by the very tool an operator reaches for when a node is
-// stuck. A List needs no migration and fixes the ambiguous journals already out there.
+// stuck.
+// A List needs no migration and fixes the ambiguous journals already out there.
 func printProbePods(ctx context.Context, c client.Client, j journal) {
 	var pods corev1.PodList
 	err := c.List(ctx, &pods, client.InNamespace(j.Namespace), client.MatchingLabels{canaryProbeLabel: j.CanaryID})
 	if err != nil {
-		// Named, not swallowed, and NOT replaced by the old reconstruction as a fallback. A guess printed
-		// where a reading failed is the shape of the defect being repaired: it looks like an answer.
+		// Named, not swallowed, and NOT replaced by the old reconstruction as a fallback.
+		// A guess printed where a reading failed is the shape of the defect being repaired: it looks like
+		// an answer.
 		fmt.Printf("  Its probe Pods could not be listed in namespace %s: %v\n"+
 			"    Look for Pods labelled %s=%s there.\n", j.Namespace, err, canaryProbeLabel, j.CanaryID)
 		return

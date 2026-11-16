@@ -30,17 +30,19 @@ import (
 // block: which values it claims came from the CR, and that the two it cannot get from the CR are refused
 // rather than defaulted.
 //
-// The compiler's own refusals are tested in internal/bench. What is left for this layer is the translation
-// into the runner's units, which is where a wrong answer would be a paid run at a load nobody registered.
+// The compiler's own refusals are tested in internal/bench.
+// What is left for this layer is the translation into the runner's units, which is where a wrong answer
+// would be a paid run at a load nobody registered.
 
 const executableCR = "../../config/samples/platform_v1_gpusharingbenchmark_executable.yaml"
 
 // captureStdout runs fn with os.Stdout replaced by a pipe and returns what it wrote.
 //
-// The reader runs in its own goroutine and is started BEFORE fn. A pipe's buffer is finite, so draining it
-// after fn returns deadlocks as soon as the block outgrows that buffer -- and the first version of this
-// helper read from /dev/stdin instead of the pipe, which is not an error and simply returned the wrong
-// bytes: every assertion failed while the command was working correctly.
+// The reader runs in its own goroutine and is started BEFORE fn.
+// A pipe's buffer is finite, so draining it after fn returns deadlocks as soon as the block outgrows that
+// buffer -- and the first version of this helper read from /dev/stdin instead of the pipe, which is not an
+// error and simply returned the wrong bytes: every assertion failed while the command was working
+// correctly.
 func captureStdout(t *testing.T, fn func() error) (string, error) {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -70,9 +72,9 @@ func TestTheCompiledBlockCarriesTheRegisteredLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the executable sample did not compile: %v", err)
 	}
-	// The registered tuple, as the pre-registration spells it. A load that is right to twelve decimal places
-	// and prints as 9.404499999999999 is the same run under a spelling no document records, and the point of
-	// this block is that a reader can match it against one.
+	// The registered tuple, as the pre-registration spells it.
+	// A load that is right to twelve decimal places and prints as 9.404499999999999 is the same run under a
+	// spelling no document records, and the point of this block is that a reader can match it against one.
 	for _, want := range []string{
 		`export ARMS="R1 shared"`,
 		"export REPS=5",
@@ -117,9 +119,9 @@ func TestTheTwoValuesTheCRCannotCarryAreRefusedRatherThanDefaulted(t *testing.T)
 }
 
 func TestAStudyWithADifferentArrivalModelIsRefused(t *testing.T) {
-	// The translation to a total rate and a weight is only the same load under the weighted model. Under the
-	// independent model the same numbers draw a different schedule, so compiling for that study would hand
-	// the runner a load nobody registered.
+	// The translation to a total rate and a weight is only the same load under the weighted model.
+	// Under the independent model the same numbers draw a different schedule, so compiling for that study
+	// would hand the runner a load nobody registered.
 	err := compilePlan([]string{"--cr", executableCR, "--duration-ms", "505000", "--study", "throughput-ladder-independent-2026-09-15"})
 	if err == nil {
 		t.Fatal("a study whose arrivals are independent was accepted; its trace would not be this load")
@@ -136,9 +138,10 @@ func TestAStudyWithADifferentArrivalModelIsRefused(t *testing.T) {
 // TestAStudyWithADifferentArrivalModelIsRefused asserts a non-nil error whose message contains "weighted".
 // Both the id comparison the guard actually makes and an arrival-model comparison produce that message, so
 // the test passes either way -- and it would still pass if the guard refused the only studies the command is
-// for. Measured on 2026-10-04 while registering two new studies: the guard compares against
-// StudySharingMatrix alone, so compiling a plan for either new study is refused, and nothing in this file
-// went red. A guard is covered when its YES and its NO are both pinned.
+// for.
+// Measured on 2026-10-04 while registering two new studies: the guard compares against StudySharingMatrix
+// alone, so compiling a plan for either new study is refused, and nothing in this file went red.
+// A guard is covered when its YES and its NO are both pinned.
 func TestEveryStudyThisCommandCompilesIsAccepted(t *testing.T) {
 	for _, study := range []string{
 		bench.StudySharingMatrix,
@@ -164,8 +167,9 @@ func TestTheTailCrossingStudiesAreNoLongerCompiledFromACR(t *testing.T) {
 }
 
 func TestTheCommittedSampleIsStillRefusedThroughTheCommand(t *testing.T) {
-	// internal/bench pins the refusal itself. What this pins is that the command does not paper over it --
-	// a compile-plan that "fixed" the sample on the way through would make the documented gap invisible.
+	// internal/bench pins the refusal itself.
+	// What this pins is that the command does not paper over it -- a compile-plan that "fixed" the sample
+	// on the way through would make the documented gap invisible.
 	err := compilePlan([]string{
 		"--cr", filepath.Join("..", "..", "config", "samples", "platform_v1_gpusharingbenchmark.yaml"),
 		"--duration-ms", "505000", "--study", "sharing-matrix-2026-09-10",

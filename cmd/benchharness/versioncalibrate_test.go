@@ -19,8 +19,9 @@ func TestRunVersionCalibrationWritesTheArtifactVersionBundleReads(t *testing.T) 
 	st, _ := bench.LookupStudy(bench.StudyVersionAsync)
 	rule := st.Version.Calibration
 	dir := t.TempDir()
-	// A fake engine whose capacity is 2 req/s: every rung at or below it is stable. Each rung is reported to the runner as
-	// RungRunner.Probe does, so the rung evidence a real run writes is written here too.
+	// A fake engine whose capacity is 2 req/s: every rung at or below it is stable.
+	// Each rung is reported to the runner as RungRunner.Probe does, so the rung evidence a real run writes is written here
+	// too.
 	runner := &bench.RungRunner{}
 	probe := func(_ context.Context, rate float64, ordinal int) bench.RungClass {
 		cls := bench.RungStable

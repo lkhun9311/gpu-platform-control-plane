@@ -41,8 +41,9 @@ const (
 	// dedicated lab worker rather than borrowing capacity from wherever the fake plugin advertises it.
 	labWorkerLabel = "queuelab.gpu-platform/worker"
 	// labWorkerTaint is the taint key the runner puts on the dedicated worker so no unrelated Pod schedules
-	// there. The flavor carries a matching toleration, which Kueue injects into admitted lab Pods, so only
-	// this run's jobs land on the isolated node; without the toleration the taint would time out the Ready
+	// there.
+	// The flavor carries a matching toleration, which Kueue injects into admitted lab Pods, so only this
+	// run's jobs land on the isolated node; without the toleration the taint would time out the Ready
 	// barriers instead of isolating the run.
 	labWorkerTaint = "queuelab.gpu-platform/dedicated"
 	// runLabel, studyLabel, variantLabel tag every lab-owned object so a reset audit can prove no prior
@@ -62,8 +63,9 @@ const (
 // FlavorName is the ResourceFlavor a run's fixtures are built around.
 //
 // Exported because the barrier that waits on that flavor's usage lives in cmd/queuelabrun and must ask about
-// the SAME name these fixtures create. Two copies of the rule would drift, and a barrier watching a flavor
-// nothing charges against would wait out its deadline while the run was working perfectly.
+// the SAME name these fixtures create.
+// Two copies of the rule would drift, and a barrier watching a flavor nothing charges against would wait out
+// its deadline while the run was working perfectly.
 func FlavorName(runID string) string { return "queuelab-gpu-" + runID }
 
 // cohortName is the per-run cohort name.
@@ -97,10 +99,10 @@ type FixtureSet struct {
 // It is a struct for the reason operatorModeArgs is one (spine.go): these three were adjacent same-typed
 // parameters, and a transposition would not have been caught by the compiler or by any single call site.
 // It is worse here than there, because TWO call sites must agree — main renders the fixtures and enumerate
-// regenerates the same set from the seed to delete them. Swap TxID and RunID in one and not the other and
-// the run stamps objects whose TxLabel no teardown recognises: the run's own fixtures classify
-// absenceForeign, the residue reads as somebody else's, and residueHoldsWorker releases a worker whose
-// namespace is still live.
+// regenerates the same set from the seed to delete them.
+// Swap TxID and RunID in one and not the other and the run stamps objects whose TxLabel no teardown
+// recognises: the run's own fixtures classify absenceForeign, the residue reads as somebody else's, and
+// residueHoldsWorker releases a worker whose namespace is still live.
 type FixtureIdentity struct {
 	// TxID stamps every rendered object (see TxLabel), so this attempt's objects are distinguishable from a
 	// previous attempt's under the same run id.
@@ -115,7 +117,8 @@ type FixtureIdentity struct {
 //
 // The syntax check is not decoration: a value that is non-empty but not a valid DNS-1123 label produces an
 // object the apiserver rejects at Create, which surfaces as a fixture failure far from the field that caused
-// it. Failing here names the field.
+// it.
+// Failing here names the field.
 func (id FixtureIdentity) validate() error {
 	for _, f := range []struct {
 		name, value string
@@ -138,18 +141,22 @@ func (id FixtureIdentity) validate() error {
 // Why validating the COMPONENTS is enough, and the rendered names need no separate check.
 //
 // A review argued that a 63-character RunID accepted here renders "ql-reclaim-tenant-b-<runID>" at 83
-// characters and is therefore refused at Create. It is not. The validators answer directly:
+// characters and is therefore refused at Create.
+// It is not.
+// The validators answer directly:
 //
 //	NameIsDNSSubdomain("ql-reclaim-tenant-b-" + 63 chars)  -> no errors  (the limit is 253)
 //	IsDNS1123Label(same)                                   -> too long   (the limit is 63)
 //
 // Object names for these CRs take the first rule, so composition has 170 characters of headroom that a
-// 63-character component cannot exhaust. The 63-character limit binds label values, namespaces and taint
-// values — and nothing composed lands in one: labLabels carries TxID, RunID, study and variant unaltered,
-// the flavor's node label and taint carry RunID unaltered, and Namespace is checked above as itself.
+// 63-character component cannot exhaust.
+// The 63-character limit binds label values, namespaces and taint values — and nothing composed lands in
+// one: labLabels carries TxID, RunID, study and variant unaltered, the flavor's node label and taint
+// carry RunID unaltered, and Namespace is checked above as itself.
 //
-// So this stays a per-component check. Recorded here because the argument is a reasonable one to make from
-// reading the code, and the next reader should not have to re-derive that it does not hold.
+// So this stays a per-component check.
+// Recorded here because the argument is a reasonable one to make from reading the code, and the next
+// reader should not have to re-derive that it does not hold.
 
 // BuildFixtures renders the dedicated queues for one study variant under a unique run id.
 //
@@ -158,13 +165,14 @@ func (id FixtureIdentity) validate() error {
 // the caller can tell this attempt's objects from a previous attempt's under the same run id.
 func BuildFixtures(study Study, variant string, id FixtureIdentity) (*FixtureSet, error) {
 	// Every identity field below becomes part of an object NAME or an ownership LABEL, so an empty one does
-	// not render a smaller object — it renders a different, wrong one. An empty RunID yields "queuelab-gpu-",
-	// a name that can collide with an unrelated run's leftovers; an empty TxID yields a stamp no teardown can
-	// tell apart from an unstamped object.
+	// not render a smaller object — it renders a different, wrong one.
+	// An empty RunID yields "queuelab-gpu-", a name that can collide with an unrelated run's leftovers; an
+	// empty TxID yields a stamp no teardown can tell apart from an unstamped object.
 	//
 	// teardown.go already refuses these same empty fields, which is what makes them invariants rather than
-	// optional values. Rejecting them only at teardown means the run creates the wrong objects first and
-	// discovers it when trying to remove them, so the check belongs at the boundary that renders the names.
+	// optional values.
+	// Rejecting them only at teardown means the run creates the wrong objects first and discovers it when
+	// trying to remove them, so the check belongs at the boundary that renders the names.
 	if err := id.validate(); err != nil {
 		return nil, err
 	}
@@ -256,8 +264,9 @@ func labLabels(id FixtureIdentity, study Study, variant string) map[string]strin
 //
 // It selects the worker by label AND carries a taint plus the matching toleration: the runner taints the
 // worker so nothing else schedules there, and Kueue injects this toleration into admitted lab Pods so they
-// still land on it. Taint without the paired toleration would isolate the node but also time out the run's
-// own Ready barriers, so the two must be defined together with the flavor.
+// still land on it.
+// Taint without the paired toleration would isolate the node but also time out the run's own Ready
+// barriers, so the two must be defined together with the flavor.
 func labResourceFlavor(id FixtureIdentity, study Study, variant string) *kueuev1beta2.ResourceFlavor {
 	return &kueuev1beta2.ResourceFlavor{
 		Name: FlavorName(id.RunID), Labels: labLabels(id, study, variant),
@@ -275,20 +284,21 @@ func labResourceFlavor(id FixtureIdentity, study Study, variant string) *kueuev1
 				Effect:   corev1.TaintEffectNoSchedule,
 			}, {
 				// The GPU node group taints itself nvidia.com/gpu=present:NoSchedule to keep ordinary
-				// workloads off an expensive machine (infra/aws/cluster/eks.tf). Nothing else in this
-				// repository tolerates it: BuildJob adds no tolerations, MLTrainingJobSpec has no field for
-				// them, and the ownership taint is APPENDED to the node's existing ones rather than
-				// replacing them.
+				// workloads off an expensive machine (infra/aws/cluster/eks.tf).
+				// Nothing else in this repository tolerates it: BuildJob adds no tolerations,
+				// MLTrainingJobSpec has no field for them, and the ownership taint is APPENDED to the
+				// node's existing ones rather than replacing them.
 				//
 				// Without this entry every trace Pod on a real GPU node stays Pending, and the failure is
 				// quiet in the worst way: Kueue checks a podset's tolerations against the FLAVOR's declared
 				// taints, not the node's real ones, so the Workload is admitted, the Job unsuspends, the
-				// ledger records Admitted -- and then the scheduler refuses the Pod. The run dies at a
-				// barrier with a desync, deterministically, in every arm.
+				// ledger records Admitted -- and then the scheduler refuses the Pod.
+				// The run dies at a barrier with a desync, deterministically, in every arm.
 				//
-				// Neither gate would have caught it. The termination canary and the device preflight both
-				// build their Pods through probePodFrom, which sets spec.nodeName and bypasses the
-				// scheduler entirely; NoSchedule is a scheduler predicate, not a kubelet admission check.
+				// Neither gate would have caught it.
+				// The termination canary and the device preflight both build their Pods through
+				// probePodFrom, which sets spec.nodeName and bypasses the scheduler entirely; NoSchedule
+				// is a scheduler predicate, not a kubelet admission check.
 				// So both would report the node healthy and only the run itself would fail.
 				//
 				// It costs no canary re-take: flavour tolerations are injected by Kueue at admission and

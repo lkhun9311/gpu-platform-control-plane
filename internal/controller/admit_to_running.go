@@ -27,15 +27,18 @@ import (
 
 // This file records how long a tenant waited between having quota and using it.
 //
-// The platform already BOUNDS that wait and has never REPORTED it. GPUQuotaPolicy configures the cohort
-// with reclaimWithinCohort, so an idle tenant's quota is lent and taken back by preemption; the admission
-// webhook caps terminationGracePeriodSeconds at 120 because reclaim waits for termination and the field is
-// set by the tenant being preempted. Both of those are about the worst case. Neither tells the tenant who
-// owns the quota whether their reclaim actually took two seconds or a hundred and nineteen.
+// The platform already BOUNDS that wait and has never REPORTED it.
+// GPUQuotaPolicy configures the cohort with reclaimWithinCohort, so an idle tenant's quota is lent and
+// taken back by preemption; the admission webhook caps terminationGracePeriodSeconds at 120 because
+// reclaim waits for termination and the field is set by the tenant being preempted.
+// Both of those are about the worst case.
+// Neither tells the tenant who owns the quota whether their reclaim actually took two seconds or a hundred
+// and nineteen.
 //
 // queuelab measured that number under preemption on a kind cluster: 2.180 s when the preempted borrower
-// honoured SIGTERM and 31.213 s when it ignored it, over four interleaved runs against a 5.906 s floor. The
-// lab measures it. The platform did not.
+// honoured SIGTERM and 31.213 s when it ignored it, over four interleaved runs against a 5.906 s floor.
+// The lab measures it.
+// The platform did not.
 
 // mltjCondAdmitToRunning reports whether the admission-to-running window was observed.
 //
@@ -43,15 +46,17 @@ import (
 // running but unwatched -- and a tenant reading an empty admitToRunningSeconds cannot tell them apart.
 const mltjCondAdmitToRunning = "AdmitToRunningObserved"
 
-// Reasons the window was not observed. Each is a different operational story and they are not merged.
+// Reasons the window was not observed.
+// Each is a different operational story and they are not merged.
 const (
 	// reasonAdmissionNotObserved is a controller that was not watching when the job was admitted.
 	//
 	// Kueue's admission stamp survives on the Workload, so this controller could read it after the fact and
-	// subtract. It must not: the result would be a duration nobody watched, computed from an endpoint
-	// recovered from another component's history. That is the defect queuelab's ledger refuses -- "the
-	// controller restarted and the target recovered while it was down" and "the target recovered" are
-	// different facts.
+	// subtract.
+	// It must not: the result would be a duration nobody watched, computed from an endpoint recovered from
+	// another component's history.
+	// That is the defect queuelab's ledger refuses -- "the controller restarted and the target recovered
+	// while it was down" and "the target recovered" are different facts.
 	reasonAdmissionNotObserved = "AdmissionNotObserved"
 	// reasonKueueStampMissing is a Workload admitted with no usable stamp on its condition.
 	reasonKueueStampMissing = "KueueStampMissing"
@@ -63,10 +68,11 @@ const (
 	// reasonRunningNotObserved is a job that reached a terminal phase without ever being seen running.
 	//
 	// The phase enters Running on `.status.ready`, which a Pod behind a failing readiness probe never
-	// satisfies and a very short Pod can pass through between two reconciles. Either way the running end
-	// is never recorded, and before this reason existed that silence was total: no histogram sample, no
-	// unobserved counter, no condition -- while the API promises an empty admitToRunningSeconds always
-	// comes with a condition saying why. An unmeasured window has to say it was unmeasured.
+	// satisfies and a very short Pod can pass through between two reconciles.
+	// Either way the running end is never recorded, and before this reason existed that silence was
+	// total: no histogram sample, no unobserved counter, no condition -- while the API promises an empty
+	// admitToRunningSeconds always comes with a condition saying why.
+	// An unmeasured window has to say it was unmeasured.
 	reasonRunningNotObserved = "RunningNotObserved"
 )
 
@@ -102,8 +108,9 @@ func recordAdmitToRunning(
 		// The admission end, recorded only on the reconcile that saw the job admitted and NOT yet running.
 		//
 		// Kueue's own stamp is used rather than now, because Kueue is the component that acted and its stamp
-		// is the accurate one. Reading it is legitimate here precisely because this reconcile witnessed the
-		// transition; the same read on a later reconcile would not be.
+		// is the accurate one.
+		// Reading it is legitimate here precisely because this reconcile witnessed the transition; the same
+		// read on a later reconcile would not be.
 		if status.AdmittedAt != nil {
 			return admitToRunningOutcome{}
 		}
@@ -116,8 +123,9 @@ func recordAdmitToRunning(
 		return admitToRunningOutcome{}
 
 	case next == mltjPhaseRunning && prev != mltjPhaseRunning:
-		// The running end. This one is this controller's observation and carries the watch lag, which is why
-		// the field it lands in is called runningObservedAt and not runningAt.
+		// The running end.
+		// This one is this controller's observation and carries the watch lag, which is why the field it
+		// lands in is called runningObservedAt and not runningAt.
 		if status.RunningObservedAt != nil {
 			return admitToRunningOutcome{}
 		}
@@ -125,13 +133,16 @@ func recordAdmitToRunning(
 			// A start that is missing is not the same as a start that was never witnessed, and only one of
 			// those is this branch's business.
 			//
-			// AdmittedAt is nil in two ways. Either this controller never saw the Admitted transition, which
-			// is what reasonAdmissionNotObserved says and means. Or it DID see it and Kueue carried no usable
-			// stamp, which the Admitted branch above already recorded as reasonKueueStampMissing. Both arrive
-			// here identically, and this used to overwrite the second with a message reading "this job was
-			// already past admission when this controller first saw it" -- which is false, because the
-			// controller saw it and said so one transition earlier. The accurate refusal was replaced by an
-			// inaccurate one, and the unobserved counter was incremented twice for one job.
+			// AdmittedAt is nil in two ways.
+			// Either this controller never saw the Admitted transition, which is what
+			// reasonAdmissionNotObserved says and means.
+			// Or it DID see it and Kueue carried no usable stamp, which the Admitted branch above already
+			// recorded as reasonKueueStampMissing.
+			// Both arrive here identically, and this used to overwrite the second with a message reading
+			// "this job was already past admission when this controller first saw it" -- which is false,
+			// because the controller saw it and said so one transition earlier.
+			// The accurate refusal was replaced by an inaccurate one, and the unobserved counter was
+			// incremented twice for one job.
 			if r := admitToRunningRefusal(status); r != "" {
 				return admitToRunningOutcome{}
 			}
@@ -152,11 +163,12 @@ func recordAdmitToRunning(
 	case (next == mltjPhaseSucceeded || next == mltjPhaseFailed) && prev != next:
 		// A job can finish without this controller ever seeing it run, and that has to be said out loud.
 		//
-		// The other three reasons all fire on a transition INTO Running. A job that never makes that
-		// transition -- a Pod whose readiness probe never passed, a Pod short enough to start and finish
-		// between two reconciles -- reached none of them, so it ended with an empty admitToRunningSeconds,
-		// no counter, and no condition. The field's own documentation says an empty value is always
-		// accompanied by a condition saying why, and this is the branch that keeps that true.
+		// The other three reasons all fire on a transition INTO Running.
+		// A job that never makes that transition -- a Pod whose readiness probe never passed, a Pod short
+		// enough to start and finish between two reconciles -- reached none of them, so it ended with an
+		// empty admitToRunningSeconds, no counter, and no condition.
+		// The field's own documentation says an empty value is always accompanied by a condition saying
+		// why, and this is the branch that keeps that true.
 		if status.RunningObservedAt != nil {
 			// The window was observed; a terminal phase afterwards is the normal end of a measured job.
 			return admitToRunningOutcome{}
@@ -209,10 +221,12 @@ func setUnobserved(status *platformv1.MLTrainingJobStatus, reason string, now me
 // setAdmitToRunningCondition writes the condition without disturbing the others.
 //
 // It takes the time rather than reading a clock so the whole path stays pure and testable, and it sets
-// LastTransitionTime on every write that changes the status. That field is REQUIRED by the apiserver, which
-// is not obvious from the type: metav1.Condition has no omitempty on it and a zero value is rejected with
-// "status.conditions[N].lastTransitionTime: Required value". The first version of this function left it
-// unset, unit tests passed, and the envtest suite caught it against a real apiserver.
+// LastTransitionTime on every write that changes the status.
+// That field is REQUIRED by the apiserver, which is not obvious from the type: metav1.Condition has no
+// omitempty on it and a zero value is rejected with "status.conditions[N].lastTransitionTime: Required
+// value".
+// The first version of this function left it unset, unit tests passed, and the envtest suite caught it
+// against a real apiserver.
 //
 // meta.SetStatusCondition would have set it, and is deliberately not used for a different reason: it keeps
 // the existing transition time when the status is unchanged, which is right for the phase conditions and
@@ -264,7 +278,8 @@ func kueueAdmittedStamp(conds []metav1.Condition) *metav1.Time {
 }
 
 // admitToRunningRefusal is the reason already on the condition when it is a refusal, or "" when there is
-// none. It exists so a later transition can leave an earlier, more specific refusal standing.
+// none.
+// It exists so a later transition can leave an earlier, more specific refusal standing.
 func admitToRunningRefusal(status *platformv1.MLTrainingJobStatus) string {
 	for i := range status.Conditions {
 		c := status.Conditions[i]

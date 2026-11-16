@@ -25,10 +25,11 @@ import (
 // These pin the M5-b interval the 2026-10-01 amendment specifies, and nothing pinned it before.
 //
 // The gate's point estimate was the ratio of each arm's POOLED p99 while its interval bootstrapped the
-// MEAN of per-repetition ratios, so one gate decided on two estimands. Replacing the interval broke no
-// test: the three that touch IncrementalValuePass assert only its boolean, and no test read the interval's
-// value at all. A silent swap of estimators is exactly the shape this repository keeps meeting -- "did not
-// run" indistinguishable from "passed" -- so the value itself is asserted here.
+// MEAN of per-repetition ratios, so one gate decided on two estimands.
+// Replacing the interval broke no test: the three that touch IncrementalValuePass assert only its boolean,
+// and no test read the interval's value at all.
+// A silent swap of estimators is exactly the shape this repository keeps meeting -- "did not run"
+// indistinguishable from "passed" -- so the value itself is asserted here.
 
 // block builds one repetition of `n` premium rows whose TTFTs are ttftMs, plus `timedOut` that never
 // completed, which is what makes a block censored.
@@ -56,10 +57,10 @@ func block(n int, ttftMs float64, timedOut int) []RawRow {
 // TestThePairedBlockIntervalIsTheRatioOfPooledP99s asserts the VALUE, not just that one came back.
 //
 // Every block of an arm carries the same tail here, so every replicate pools to the same pooled p99 and
-// the interval collapses onto the point estimate. That is the one case whose number can be written down
-// without re-deriving the bootstrap, and it is enough to catch an estimator computing something else: the
-// mean-of-ratios bootstrap on the same input returns the same collapsed value only because the inputs are
-// degenerate, which the next test is for.
+// the interval collapses onto the point estimate.
+// That is the one case whose number can be written down without re-deriving the bootstrap, and it is
+// enough to catch an estimator computing something else: the mean-of-ratios bootstrap on the same input
+// returns the same collapsed value only because the inputs are degenerate, which the next test is for.
 func TestThePairedBlockIntervalIsTheRatioOfPooledP99s(t *testing.T) {
 	base := [][]RawRow{block(200, 200, 0), block(200, 200, 0), block(200, 200, 0), block(200, 200, 0)}
 	cont := [][]RawRow{block(200, 110, 0), block(200, 110, 0), block(200, 110, 0), block(200, 110, 0)}
@@ -80,12 +81,14 @@ func TestThePairedBlockIntervalIsTheRatioOfPooledP99s(t *testing.T) {
 //
 // With blocks that differ, the ratio of pooled p99s is NOT the mean of the per-repetition ratios: pooling
 // weights a repetition by how many requests it completed and takes one nearest-rank percentile over the
-// union, while the old statistic averaged four independent quotients. A test asserting only that some
-// interval came back cannot tell the two apart, and that is how the swap would have gone unnoticed.
+// union, while the old statistic averaged four independent quotients.
+// A test asserting only that some interval came back cannot tell the two apart, and that is how the swap
+// would have gone unnoticed.
 func TestThePairedBlockIntervalDiffersFromTheMeanOfRatios(t *testing.T) {
-	// FOUR distinct per-block ratios. The first draft of this fixture used two tails repeated twice, so
-	// both estimators mixed the same two quotients and returned the identical interval -- the test could
-	// not have told them apart, and it said so rather than passing.
+	// FOUR distinct per-block ratios.
+	// The first draft of this fixture used two tails repeated twice, so both estimators mixed the same
+	// two quotients and returned the identical interval -- the test could not have told them apart, and
+	// it said so rather than passing.
 	base := [][]RawRow{block(200, 100, 0), block(200, 300, 0), block(200, 600, 0), block(200, 1000, 0)}
 	cont := [][]RawRow{block(200, 90, 0), block(200, 240, 0), block(200, 540, 0), block(200, 300, 0)}
 
@@ -117,8 +120,8 @@ func TestThePairedBlockIntervalDiffersFromTheMeanOfRatios(t *testing.T) {
 // TestOneBlockPairIsRefusedRatherThanCollapsed keeps the degenerate case a refusal.
 //
 // A single block makes every replicate that block, so the interval would be a point wearing an interval's
-// name -- and the gate reads `Hi < 1.0`, which such a point satisfies whenever the ratio does. CI.Valid
-// exists because that vacuous pass once disarmed the strictest check in the design.
+// name -- and the gate reads `Hi < 1.0`, which such a point satisfies whenever the ratio does.
+// CI.Valid exists because that vacuous pass once disarmed the strictest check in the design.
 func TestOneBlockPairIsRefusedRatherThanCollapsed(t *testing.T) {
 	ci := PairedBlockRatioCI("static-cap",
 		[][]RawRow{block(200, 200, 0)}, [][]RawRow{block(200, 110, 0)},
@@ -144,8 +147,9 @@ func TestUnequalBlockCountsAreRefused(t *testing.T) {
 // replicate which cannot be computed is never silently skipped.
 //
 // A baseline block whose premium requests all timed out has a pooled p99 of zero, so any replicate drawing
-// it has no ratio. Dropping those replicates and reporting the percentiles of the rest would publish an
-// interval over the draws that happened to work -- narrower than the evidence supports, and silent.
+// it has no ratio.
+// Dropping those replicates and reporting the percentiles of the rest would publish an interval over the
+// draws that happened to work -- narrower than the evidence supports, and silent.
 func TestABaselineBlockWithNoCompletionRefusesRatherThanDroppingReplicates(t *testing.T) {
 	base := [][]RawRow{block(200, 200, 0), block(0, 0, 200), block(200, 200, 0), block(200, 200, 0)}
 	cont := [][]RawRow{block(200, 110, 0), block(200, 110, 0), block(200, 110, 0), block(200, 110, 0)}
@@ -164,8 +168,9 @@ func TestABaselineBlockWithNoCompletionRefusesRatherThanDroppingReplicates(t *te
 //
 // They are M5-b's existing values adopted explicitly, NOT inherited from M5-c: a study whose numbers
 // changed because another study's amendment moved a shared constant would be unreproducible from its own
-// registration. The assertion is on the values, not on their being different, because "different" would
-// still pass if both moved.
+// registration.
+// The assertion is on the values, not on their being different, because "different" would still pass if
+// both moved.
 func TestTheAmendmentsSettingsAreTheOnesTheGateUses(t *testing.T) {
 	if M5BIncrementalResamples != 2000 {
 		t.Errorf("M5-b resamples are %d; the 2026-10-01 amendment fixed 2000", M5BIncrementalResamples)
@@ -182,15 +187,19 @@ func TestTheAmendmentsSettingsAreTheOnesTheGateUses(t *testing.T) {
 // TestTheOldPairingCouldPlaceThePointEstimateOutsideItsInterval is the numeric evidence for the amendment.
 //
 // Before 2026-10-01 the gate read a POOLED p99 ratio as its point estimate and a bootstrap of the MEAN of
-// per-repetition ratios as its interval. Those are different quantities, so nothing stopped the point from
-// falling outside the interval -- and on this input it does. The gate's rule is `ratio <= 0.90 && CI.Hi <
-// 1.0`, which a mismatched pair can satisfy or fail for reasons that have nothing to do with the evidence.
+// per-repetition ratios as its interval.
+// Those are different quantities, so nothing stopped the point from falling outside the interval -- and on
+// this input it does.
+// The gate's rule is `ratio <= 0.90 && CI.Hi < 1.0`, which a mismatched pair can satisfy or fail for
+// reasons that have nothing to do with the evidence.
 //
-// Under the amendment both come from the pooled p99 ratio. That does NOT guarantee containment in general
-// -- percentile bootstrap quantiles of a statistic need not bracket that statistic's value on the original
-// sample, and an earlier version of this comment claimed they do "by construction", which is false. What
-// is asserted below is containment ON THIS FIXTURE, beside non-containment under the replaced estimator on
-// the same input. The pair is the evidence; neither half is a theorem.
+// Under the amendment both come from the pooled p99 ratio.
+// That does NOT guarantee containment in general -- percentile bootstrap quantiles of a statistic need not
+// bracket that statistic's value on the original sample, and an earlier version of this comment claimed
+// they do "by construction", which is false.
+// What is asserted below is containment ON THIS FIXTURE, beside non-containment under the replaced
+// estimator on the same input.
+// The pair is the evidence; neither half is a theorem.
 func TestTheOldPairingCouldPlaceThePointEstimateOutsideItsInterval(t *testing.T) {
 	base := [][]RawRow{block(800, 100, 0), block(110, 1200, 0), block(800, 120, 0), block(110, 1500, 0)}
 	cont := [][]RawRow{block(800, 95, 0), block(110, 400, 0), block(800, 115, 0), block(110, 450, 0)}
@@ -227,14 +236,15 @@ func TestTheOldPairingCouldPlaceThePointEstimateOutsideItsInterval(t *testing.T)
 // unevenBlock builds a repetition whose completed rows are NOT all the same latency.
 //
 // It exists because every other fixture in this file gives a block one tail, and that makes the
-// amendment's statistic indistinguishable from a different one. With identical in-block latencies a drawn
-// block occupies far more than 1% of the pooled replicate, so the pooled nearest-rank p99 is just the
-// largest tail among the drawn blocks -- "max of the blocks' own p99s" computes the same number. A test
-// built on those fixtures cannot tell the two apart, which an external review pointed out.
+// amendment's statistic indistinguishable from a different one.
+// With identical in-block latencies a drawn block occupies far more than 1% of the pooled replicate, so
+// the pooled nearest-rank p99 is just the largest tail among the drawn blocks -- "max of the blocks' own
+// p99s" computes the same number.
+// A test built on those fixtures cannot tell the two apart, which an external review pointed out.
 //
-// Here `slow` rows out of `n` carry slowTailMs and the rest carry fastTailMs. At 400 rows with 5 slow, 252
-// of the 256 four-block draws give a pooled p99 that differs from the max of the blocks' p99s, because
-// duplicate draws of a block change how many slow rows are in the top 1%.
+// Here `slow` rows out of `n` carry slowTailMs and the rest carry fastTailMs.
+// At 400 rows with 5 slow, 252 of the 256 four-block draws give a pooled p99 that differs from the max of
+// the blocks' p99s, because duplicate draws of a block change how many slow rows are in the top 1%.
 func unevenBlock(n, slow int, fastTailMs, slowTailMs float64) []RawRow {
 	rows := make([]RawRow, 0, n)
 	for i := range n {
@@ -256,12 +266,13 @@ func unevenBlock(n, slow int, fastTailMs, slowTailMs float64) []RawRow {
 // TestTheReplicateStatisticIsPooledAndNotTheMaxOfBlockP99s is the independent-correctness check.
 //
 // The expected bounds are computed here by ENUMERATING all 256 four-block draws and taking the percentile
-// of their pooled ratios directly -- not by calling PairedBlockRatioCI again. Every other test in this file
-// compares the function with itself, so a wrong statistic inside it would make the expectation wrong the
-// same way.
+// of their pooled ratios directly -- not by calling PairedBlockRatioCI again.
+// Every other test in this file compares the function with itself, so a wrong statistic inside it would
+// make the expectation wrong the same way.
 //
-// The comparison value is the max-of-block-p99s statistic over the same draws. If PairedBlockRatioCI
-// computed that instead, the bounds would match it rather than the pooled enumeration.
+// The comparison value is the max-of-block-p99s statistic over the same draws.
+// If PairedBlockRatioCI computed that instead, the bounds would match it rather than the pooled
+// enumeration.
 func TestTheReplicateStatisticIsPooledAndNotTheMaxOfBlockP99s(t *testing.T) {
 	base := [][]RawRow{
 		unevenBlock(400, 5, 100, 300),
@@ -327,10 +338,11 @@ func TestTheReplicateStatisticIsPooledAndNotTheMaxOfBlockP99s(t *testing.T) {
 	}
 
 	// The bootstrap draws uniformly with replacement from exactly these 256 draws, so at 2,000 replicates
-	// its percentiles land on the enumeration's own percentiles. Comparing the VALUES is what makes this
-	// independent: the first draft compared ranges, and the two statistics span the identical range
-	// [0.733333, 0.800000] here even though they disagree on 252 of the 256 draws. A containment check
-	// against identical ranges is satisfied by either statistic.
+	// its percentiles land on the enumeration's own percentiles.
+	// Comparing the VALUES is what makes this independent: the first draft compared ranges, and the two
+	// statistics span the identical range [0.733333, 0.800000] here even though they disagree on 252 of
+	// the 256 draws.
+	// A containment check against identical ranges is satisfied by either statistic.
 	sort.Float64s(pooled)
 	sort.Float64s(maxOfBlocks)
 	pLo, pHi := percentile(pooled, 0.025), percentile(pooled, 0.975)
@@ -348,9 +360,10 @@ func TestTheReplicateStatisticIsPooledAndNotTheMaxOfBlockP99s(t *testing.T) {
 
 // TestTheSettingsReachTheEstimatorRatherThanOnlyBeingNamed closes the gap between a constant and its use.
 //
-// The constants test asserts their VALUES. It cannot see a call site that passes something else, or a
-// function that ignores its arguments. Running the estimator at two different seeds on scattered blocks has
-// to move the interval; if it does not, the seed argument is not reaching the resampler.
+// The constants test asserts their VALUES.
+// It cannot see a call site that passes something else, or a function that ignores its arguments.
+// Running the estimator at two different seeds on scattered blocks has to move the interval; if it does
+// not, the seed argument is not reaching the resampler.
 func TestTheSettingsReachTheEstimatorRatherThanOnlyBeingNamed(t *testing.T) {
 	base := [][]RawRow{
 		unevenBlock(400, 5, 100, 300), unevenBlock(400, 5, 100, 500),
@@ -362,11 +375,14 @@ func TestTheSettingsReachTheEstimatorRatherThanOnlyBeingNamed(t *testing.T) {
 	}
 	// The seed is checked at a SMALL replicate count, not the registered 2,000.
 	//
-	// The first draft compared two seeds at 2,000 replicates and failed. That was the test's inference being
-	// wrong, not the code's: the pooled ratio over four blocks takes only four distinct values here, so by
-	// 2,000 draws every seed has covered the distribution and the percentiles agree. Measured: at 9, 17 and
-	// 51 replicates six seeds give three different intervals; at 201 and 2,000 they give one. Seed
-	// independence at the registered setting is the estimator converging, not an argument being dropped.
+	// The first draft compared two seeds at 2,000 replicates and failed.
+	// That was the test's inference being wrong, not the code's: the pooled ratio over four blocks takes
+	// only four distinct values here, so by 2,000 draws every seed has covered the distribution and the
+	// percentiles agree.
+	// Measured: at 9, 17 and 51 replicates six seeds give three different intervals; at 201 and 2,000 they
+	// give one.
+	// Seed independence at the registered setting is the estimator converging, not an argument being
+	// dropped.
 	seen := map[[2]float64]bool{}
 	for seed := int64(1); seed <= 6; seed++ {
 		ci := PairedBlockRatioCI("static-cap", base, cont, 9, seed, 0.05)
@@ -383,13 +399,13 @@ func TestTheSettingsReachTheEstimatorRatherThanOnlyBeingNamed(t *testing.T) {
 	if !a.Valid {
 		t.Fatalf("the registered settings produced no interval: %s", a.InvalidReason)
 	}
-	// And alpha has to reach the quantiles. The VALUES are asserted, from the same enumeration of all 256
-	// draws that the test above uses: alpha 0.05 gives [0.742857, 0.800000] and alpha 0.5 gives
-	// [0.760000, 0.800000].
+	// And alpha has to reach the quantiles.
+	// The VALUES are asserted, from the same enumeration of all 256 draws that the test above uses: alpha
+	// 0.05 gives [0.742857, 0.800000] and alpha 0.5 gives [0.760000, 0.800000].
 	//
-	// The first draft asserted only that the 0.50 interval is not WIDER than the 0.05 one. A mutation
-	// ignoring the argument and using 0.05 for both returns two identical intervals, which satisfies "not
-	// wider" -- so the test passed on exactly the defect it was written for.
+	// The first draft asserted only that the 0.50 interval is not WIDER than the 0.05 one.
+	// A mutation ignoring the argument and using 0.05 for both returns two identical intervals, which
+	// satisfies "not wider" -- so the test passed on exactly the defect it was written for.
 	if math.Abs(a.Lo-0.742857142857) > 1e-9 || math.Abs(a.Hi-0.8) > 1e-9 {
 		t.Errorf("alpha=0.05 gives [%.6f, %.6f], want [0.742857, 0.800000] from the enumeration", a.Lo, a.Hi)
 	}

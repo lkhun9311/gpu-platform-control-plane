@@ -48,9 +48,10 @@ func rowsFor(study, arm string, checksum string) []bench.RawRow {
 // TestReportRefusesToPoolTwoStudies is the check that stops a glob from answering a question nobody asked.
 //
 // The runner writes one raw file per arm per repetition into a run directory, and the report is invoked
-// with a glob over them. Nothing prevented that glob from spanning two experiments, and nothing
-// downstream would have noticed: arm names are not unique across studies, so rows from a no-gateway
-// engine sweep and rows that crossed a gateway hop would have been summarised into the same table.
+// with a glob over them.
+// Nothing prevented that glob from spanning two experiments, and nothing downstream would have noticed:
+// arm names are not unique across studies, so rows from a no-gateway engine sweep and rows that crossed
+// a gateway hop would have been summarised into the same table.
 func TestReportRefusesToPoolTwoStudies(t *testing.T) {
 	dir := t.TempDir()
 	a := writeRaw(t, dir, "raw-R1-1.jsonl", rowsFor(bench.StudyM5BGateway, "R1", "T"))
@@ -70,9 +71,9 @@ func TestReportRefusesToPoolTwoStudies(t *testing.T) {
 
 // TestReportNamesTheFileThatDisagrees checks the refusal is actionable rather than merely correct.
 //
-// An operator at the end of a paid session reads this message and has to know which file to remove. A
-// refusal that says only "the studies differ" costs them the walk through a run directory, which is the
-// same defect the missing-arm warning was written to fix one level up.
+// An operator at the end of a paid session reads this message and has to know which file to remove.
+// A refusal that says only "the studies differ" costs them the walk through a run directory, which is
+// the same defect the missing-arm warning was written to fix one level up.
 func TestReportNamesTheFileThatDisagrees(t *testing.T) {
 	dir := t.TempDir()
 	a := writeRaw(t, dir, "raw-off-1.jsonl", rowsFor(bench.StudyM5BGateway, "off", "T"))
@@ -90,9 +91,10 @@ func TestReportNamesTheFileThatDisagrees(t *testing.T) {
 
 // TestUnlabelledEvidenceStillReports keeps the already-paid raw files readable.
 //
-// Every raw file written before the study field existed carries an empty string. Refusing those would
-// make the 2026-09-03 evidence -- four paid repetitions of four arms -- unreadable by the tool that
-// produced it, to guard against a mixing that cannot happen among files that are all the same study.
+// Every raw file written before the study field existed carries an empty string.
+// Refusing those would make the 2026-09-03 evidence -- four paid repetitions of four arms --
+// unreadable by the tool that produced it, to guard against a mixing that cannot happen among files
+// that are all the same study.
 func TestUnlabelledEvidenceStillReports(t *testing.T) {
 	dir := t.TempDir()
 	a := writeRaw(t, dir, "raw-R1-1.jsonl", rowsFor("", "R1", "T"))
@@ -105,9 +107,9 @@ func TestUnlabelledEvidenceStillReports(t *testing.T) {
 
 // TestUnlabelledEvidenceCannotBeMixedWithANewStudy closes the hole the previous test opens.
 //
-// Reading an empty study as M5-b is what keeps old evidence usable. It must not also make old evidence
-// poolable with a new experiment's, which is exactly the mistake an operator makes by globbing a
-// directory that has both.
+// Reading an empty study as M5-b is what keeps old evidence usable.
+// It must not also make old evidence poolable with a new experiment's, which is exactly the mistake an
+// operator makes by globbing a directory that has both.
 func TestUnlabelledEvidenceCannotBeMixedWithANewStudy(t *testing.T) {
 	dir := t.TempDir()
 	a := writeRaw(t, dir, "raw-R1-1.jsonl", rowsFor("", "R1", "T"))
@@ -125,10 +127,11 @@ func TestUnlabelledEvidenceCannotBeMixedWithANewStudy(t *testing.T) {
 
 // TestLegacyAndExplicitM5BEvidencePool keeps a legitimate comparison from being refused.
 //
-// The four paid repetitions of 2026-09-03 carry no study label. Anything replayed from now on carries
-// "m5b-gateway-v1" explicitly. Those are the same experiment, and a run that re-measures one arm must be
-// comparable with the arms already paid for -- which is the whole reason unlabelled evidence stays
-// readable. The pooling check compared the raw strings and refused the pair in either order.
+// The four paid repetitions of 2026-09-03 carry no study label.
+// Anything replayed from now on carries "m5b-gateway-v1" explicitly.
+// Those are the same experiment, and a run that re-measures one arm must be comparable with the arms
+// already paid for -- which is the whole reason unlabelled evidence stays readable.
+// The pooling check compared the raw strings and refused the pair in either order.
 func TestLegacyAndExplicitM5BEvidencePool(t *testing.T) {
 	dir := t.TempDir()
 	legacy := writeRaw(t, dir, "raw-R1-1.jsonl", rowsFor("", "R1", "T"))
@@ -143,10 +146,10 @@ func TestLegacyAndExplicitM5BEvidencePool(t *testing.T) {
 
 // TestAFileMixingStudiesIsRefused closes the hole that reading only the first row left open.
 //
-// loadArmEvidence took rows[0].Study as the file's study. Concatenating a legacy row and a
-// price-of-protection row into one file therefore passed, and ReadRawRows sorts by index, so which row
-// lands first is not even under the operator's control among ties -- the same two files could be accepted
-// or refused depending on an ordering nobody chose.
+// loadArmEvidence took rows[0].Study as the file's study.
+// Concatenating a legacy row and a price-of-protection row into one file therefore passed, and
+// ReadRawRows sorts by index, so which row lands first is not even under the operator's control among
+// ties -- the same two files could be accepted or refused depending on an ordering nobody chose.
 func TestAFileMixingStudiesIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	mixed := append(rowsFor(bench.StudyM5BGateway, "R1", "T"),
@@ -166,8 +169,9 @@ func TestAFileMixingStudiesIsRefused(t *testing.T) {
 //
 // summarize walked a hard-coded list of M5-b's four arm names, so nine of this study's ten arms were
 // dropped on the floor -- silently, since a missing arm is not an error there -- and the only survivor was
-// R1, the one name the two studies share. The report then complained that static-cap and kv-aware were
-// absent and called the run disqualified, which is a verdict about an experiment that was not being run.
+// R1, the one name the two studies share.
+// The report then complained that static-cap and kv-aware were absent and called the run disqualified,
+// which is a verdict about an experiment that was not being run.
 func TestThePriceOfProtectionStudyReportsItsOwnArms(t *testing.T) {
 	dir := t.TempDir()
 	study, _ := bench.LookupStudy(bench.StudyPriceOfProtection)
@@ -200,8 +204,9 @@ func TestThePriceOfProtectionStudyReportsItsOwnArms(t *testing.T) {
 // replayedAgain returns a copy of rows as a SECOND replay of the same trace: same content, later clock.
 //
 // Two repetitions are two independent measurements, and `report` now refuses a replay counted twice by
-// comparing the send timestamps of every row. Fixtures that handed the same rows to two files were
-// therefore duplicates by that definition -- which is correct of the fixture and not of the runner.
+// comparing the send timestamps of every row.
+// Fixtures that handed the same rows to two files were therefore duplicates by that definition --
+// which is correct of the fixture and not of the runner.
 func replayedAgain(rows []bench.RawRow) []bench.RawRow {
 	const laterNanos = 3_600_000_000_000 // an hour on, which is what a second cell of a matrix looks like
 	out := make([]bench.RawRow, len(rows))
@@ -232,9 +237,9 @@ func withPriority(rows []bench.RawRow, p int) []bench.RawRow {
 // TestTreatedAndUntreatedRepetitionsAreNotPooled keeps a comparison from being reported as a repetition.
 //
 // Replay one manifest twice, once with --priorities and once without, and every field the report used for
-// identity was equal: same study, same arm, same trace checksum, same tolerance. The two files pooled as
-// repetitions of one condition, and the bootstrap resampled across a treated and an untreated run to
-// produce an interval for something that was never measured twice.
+// identity was equal: same study, same arm, same trace checksum, same tolerance.
+// The two files pooled as repetitions of one condition, and the bootstrap resampled across a treated and
+// an untreated run to produce an interval for something that was never measured twice.
 func TestTreatedAndUntreatedRepetitionsAreNotPooled(t *testing.T) {
 	dir := t.TempDir()
 	base := rowsFor(bench.StudyPriceOfProtection, "mbt-0512-priority", "T")
@@ -264,9 +269,10 @@ func TestRepetitionsUnderTheSameTreatmentStillPool(t *testing.T) {
 
 // A raw file is ONE arm of ONE experiment, and every row has to say so.
 //
-// The loader read rows[0].Arm and pooled the rest under it. An adversarial review appended one cell's rows
-// to another's and watched the reported p99 move from 1,694.7 ms to 1,179.3 while the report exited 0 --
-// a number for a cell nobody ran, with nothing in the output to say so.
+// The loader read rows[0].Arm and pooled the rest under it.
+// An adversarial review appended one cell's rows to another's and watched the reported p99 move from
+// 1,694.7 ms to 1,179.3 while the report exited 0 -- a number for a cell nobody ran, with nothing in the
+// output to say so.
 func TestReportRefusesAFileThatMixesArms(t *testing.T) {
 	dir := t.TempDir()
 	mixed := append(rowsFor(bench.StudySharingMatrix, bench.ArmShared, "T"),

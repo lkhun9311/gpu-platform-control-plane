@@ -22,8 +22,8 @@ import "fmt"
 //
 // The review's point (finding #3) was that a fixed sleep does not reliably exercise the mechanism: reclaim
 // only happens if the borrower is actually running when the owner arrives, and FIFO head-of-line blocking
-// only happens if the head is actually Pending when the small jobs arrive. So each submission is gated on
-// observed STATE, not elapsed time.
+// only happens if the head is actually Pending when the small jobs arrive.
+// So each submission is gated on observed STATE, not elapsed time.
 type BarrierKind string
 
 const (
@@ -37,9 +37,9 @@ const (
 	// "reaches" rather than "equals" because usage is sampled: an exact match can be stepped over between two
 	// polls, and a barrier waiting for equality would then time out on a run that had already got there.
 	//
-	// The observation is Kueue's own ClusterQueue status, not this operator's phase field. An earlier
-	// implementation summed the declared GPUCount of MLTrainingJobs marked Running, which could hold while
-	// Kueue had admitted nothing — and deciding exactly that is what this barrier is for.
+	// The observation is Kueue's own ClusterQueue status, not this operator's phase field.
+	// An earlier implementation summed the declared GPUCount of MLTrainingJobs marked Running, which could
+	// hold while Kueue had admitted nothing — and deciding exactly that is what this barrier is for.
 	BarrierFlavorUsage BarrierKind = "FlavorUsage"
 	// BarrierPending waits until the referenced job's Workload is Pending (not admitted), confirming the
 	// head job genuinely cannot fit yet, so the FIFO decision under test is real.
@@ -143,9 +143,9 @@ func fifoSchedule(trace []TrainingTraceRow) ([]Step, error) {
 // TerminationContractSchedule stages the termination-contract experiment: a1 runs, the victim borrows, and
 // the owner returns exactly doseSec after the victim's observed Pod Ready.
 //
-// The dose is a parameter rather than a subtraction of two trace offsets. The offset-derived form silently
-// produced 49 s where the design of record specified 40 s, and nothing would have caught it until the runs
-// were finished.
+// The dose is a parameter rather than a subtraction of two trace offsets.
+// The offset-derived form silently produced 49 s where the design of record specified 40 s, and nothing
+// would have caught it until the runs were finished.
 func TerminationContractSchedule(trace []TrainingTraceRow, doseSec int) ([]Step, error) {
 	if len(trace) != 3 {
 		return nil, fmt.Errorf("termination-contract schedule needs 3 rows, got %d", len(trace))

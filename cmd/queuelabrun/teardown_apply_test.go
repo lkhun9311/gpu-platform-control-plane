@@ -54,8 +54,9 @@ func observationFor(t *testing.T, obs []observation, name string) observation {
 }
 
 // recoverTargets ranges over enumerate's output and emits exactly one observation per target, error paths
-// included. The loop is the coverage guarantee: a target that produced no observation would silently not
-// appear in the residue, and "no residue" would read as clear.
+// included.
+// The loop is the coverage guarantee: a target that produced no observation would silently not appear in
+// the residue, and "no residue" would read as clear.
 func TestRecoverEmitsOneObservationPerEnumeratedTarget(t *testing.T) {
 	s := testSeed()
 	want, err := enumerate(s)
@@ -82,7 +83,8 @@ func TestRecoverEmitsOneObservationPerEnumeratedTarget(t *testing.T) {
 }
 
 // A read that fails must still produce an observation carrying the error, because classifyAbsence turns that
-// into absenceUnknown — residue. Skipping it would drop the target out of the audit entirely.
+// into absenceUnknown — residue.
+// Skipping it would drop the target out of the audit entirely.
 //
 // The count check below is load-bearing, not decorative: every Get in this test fails, so a recoverTargets
 // that silently dropped a target on read error (a `continue` instead of an append) would leave got empty,
@@ -116,8 +118,9 @@ func TestRecoverEmitsAnObservationEvenWhenTheReadFails(t *testing.T) {
 	}
 }
 
-// The UID is learned here, not supplied. An object found without our stamp is another run's, and must reach
-// the caller as foreign rather than as a deletion candidate.
+// The UID is learned here, not supplied.
+// An object found without our stamp is another run's, and must reach the caller as foreign rather than as a
+// deletion candidate.
 func TestRecoverLearnsOurUIDAndMarksAForeignObjectForeign(t *testing.T) {
 	s := testSeed()
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
@@ -138,8 +141,9 @@ func TestRecoverLearnsOurUIDAndMarksAForeignObjectForeign(t *testing.T) {
 }
 
 // txID is a caller-supplied parameter alongside s, which already carries s.TxID; nothing before this test
-// forced them to agree. Left unguarded, a caller passing "" would match an unstamped object's absent label
-// (both are the empty string) and adopt it as this run's own, collapsing the very refusal
+// forced them to agree.
+// Left unguarded, a caller passing "" would match an unstamped object's absent label (both are the empty
+// string) and adopt it as this run's own, collapsing the very refusal
 // TestRecoverRefusesAnObjectStampedByAnotherTransaction asserts; a caller passing a mismatched non-empty
 // txID would adopt whatever that other transaction stamped instead of this run's own seed. enumerate refuses
 // an empty s.TxID at teardown.go:77 on exactly this "empty is not delete less, it is delete a different,
@@ -167,14 +171,15 @@ func TestRecoverRefusesWhenTxIDDisagreesWithTheSeed(t *testing.T) {
 // refusal is this TARGET's, not the batch's.
 //
 // A stale cluster-scoped fixture under the same run id is the ordinary rerun, not an exotic case (only the
-// namespace is ever cleaned up by hand — applyFixtures' own comment says so). A batch-level refusal turns
-// that into a teardown that issues no Delete at all and leaves the run's own namespace on the cluster, so
-// each target is judged on its own evidence and the ones this run really did create still come away.
+// namespace is ever cleaned up by hand — applyFixtures' own comment says so).
+// A batch-level refusal turns that into a teardown that issues no Delete at all and leaves the run's own
+// namespace on the cluster, so each target is judged on its own evidence and the ones this run really did
+// create still come away.
 //
-// The two assertions that matter are the verdict and the UID. Reaching absenceForeign by INVENTING a UID
-// would be the lie this design refuses to tell: WantUID must stay empty, because this run recorded no UID
-// for an object it never created, and foreignness here is a fact about the create-time stamp rather than a
-// UID comparison it has no operand for.
+// The two assertions that matter are the verdict and the UID.
+// Reaching absenceForeign by INVENTING a UID would be the lie this design refuses to tell: WantUID must
+// stay empty, because this run recorded no UID for an object it never created, and foreignness here is a
+// fact about the create-time stamp rather than a UID comparison it has no operand for.
 func TestRecoverReportsAForeignObjectPerTargetRatherThanRefusingTheBatch(t *testing.T) {
 	s := testSeed()
 	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
@@ -212,8 +217,9 @@ func TestRecoverReportsAForeignObjectPerTargetRatherThanRefusingTheBatch(t *test
 }
 
 // An unstamped object is foreign for the same reason a differently-stamped one is: it predates stamping or
-// was created by something else, and either way this run did not make it. It is called out separately because
-// the empty label and an empty txID compare equal, so this is the case a missing guard reads as ours.
+// was created by something else, and either way this run did not make it.
+// It is called out separately because the empty label and an empty txID compare equal, so this is the case a
+// missing guard reads as ours.
 func TestRecoverTreatsAnUnstampedObjectAsForeign(t *testing.T) {
 	s := testSeed()
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
@@ -274,8 +280,9 @@ func TestRecoverReadsEveryTargetKindByItsOwnKindAndName(t *testing.T) {
 		if o.UID != wantUID[o.Target.Name] || o.WantUID != o.UID {
 			t.Errorf("%s %q learned UID %q / WantUID %q, want both %q", o.Target.Kind, o.Target.Name, o.UID, o.WantUID, wantUID[o.Target.Name])
 		}
-		// Nothing here was seeded with a deletionTimestamp. An observation that claims otherwise would make
-		// an executor treat every object as already-deleting and never issue a Delete at all.
+		// Nothing here was seeded with a deletionTimestamp.
+		// An observation that claims otherwise would make an executor treat every object as
+		// already-deleting and never issue a Delete at all.
 		if o.Terminating {
 			t.Errorf("%s %q came back Terminating though it was seeded live", o.Target.Kind, o.Target.Name)
 		}
@@ -373,10 +380,10 @@ func TestRecoverCarriesTerminatingThrough(t *testing.T) {
 
 // enumerate documents its return value as the ordered deletion set, and the executor's plan-mandated
 // interface is the slice recoverTargets returns — the natural reading is that the order survives unchanged
-// so the executor can trust it without re-sorting on Target.Phase itself. A silent reorder (e.g. the
-// ResourceFlavor observation ending up before the Namespace one) would invert phase-ordered deletes: an
-// executor trusting the slice would issue the ResourceFlavor delete first, and it would block on its own
-// finalizer because every referencing ClusterQueue is still there.
+// so the executor can trust it without re-sorting on Target.Phase itself.
+// A silent reorder (e.g. the ResourceFlavor observation ending up before the Namespace one) would invert
+// phase-ordered deletes: an executor trusting the slice would issue the ResourceFlavor delete first, and
+// it would block on its own finalizer because every referencing ClusterQueue is still there.
 func TestRecoverPreservesEnumeratesOrder(t *testing.T) {
 	s := testSeed()
 	want, err := enumerate(s)
@@ -410,9 +417,9 @@ type recordedDelete struct {
 //
 // Reads are recorded alongside deletes because phase ordering is a claim about the INTERLEAVING of the two,
 // not about the sequence of deletes alone: enumerate already hands its targets over in ascending phase order,
-// so an executor that issues every delete at once still records them phase-monotonically. What separates a
-// sequenced teardown from one simultaneous sweep is whether the earlier phase had been read absent before the
-// later phase's delete went out.
+// so an executor that issues every delete at once still records them phase-monotonically.
+// What separates a sequenced teardown from one simultaneous sweep is whether the earlier phase had been read
+// absent before the later phase's delete went out.
 type recordedCall struct {
 	Op     string // "read" or "delete"
 	Kind   string
@@ -428,12 +435,13 @@ type recordedCall struct {
 // set wins.
 //
 // The properties these tests care about are properties of the CALLS, not of the final state, which a fake
-// client would let a wrong implementation reach anyway. That is not a stylistic preference here: fake.Delete
-// checks only Preconditions.ResourceVersion and accepts-and-discards Preconditions.UID (client.go:680), and
-// fake.ensureTypeMeta actively clears Kind/APIVersion off every object it returns (client.go:1712), so
-// neither a missing UID precondition nor the kind of the object deleted is recoverable from the state
-// afterwards. The kind is resolved from the scheme, the way the typed client itself resolves it, rather than
-// read off a TypeMeta the fake guarantees is empty.
+// client would let a wrong implementation reach anyway.
+// That is not a stylistic preference here: fake.Delete checks only Preconditions.ResourceVersion and
+// accepts-and-discards Preconditions.UID (client.go:680), and fake.ensureTypeMeta actively clears
+// Kind/APIVersion off every object it returns (client.go:1712), so neither a missing UID precondition nor
+// the kind of the object deleted is recoverable from the state afterwards.
+// The kind is resolved from the scheme, the way the typed client itself resolves it, rather than read off a
+// TypeMeta the fake guarantees is empty.
 func recordCalls(t *testing.T, inner client.WithWatch) (client.WithWatch, *[]recordedCall) {
 	t.Helper()
 	var got []recordedCall
@@ -517,9 +525,9 @@ func fakeClock(start time.Time) (func() time.Time, func(time.Duration)) {
 }
 
 // Phase order is forced by Kueue's finalizers: a ClusterQueue deleted while a Workload still reserves it
-// blocks on resource-in-use, and the namespace deletion is what releases those Workloads. Issuing the
-// deletes out of order does not fail loudly — it hangs — which is why the order is asserted on the calls
-// themselves rather than inferred from the final state.
+// blocks on resource-in-use, and the namespace deletion is what releases those Workloads.
+// Issuing the deletes out of order does not fail loudly — it hangs — which is why the order is asserted
+// on the calls themselves rather than inferred from the final state.
 func TestDeleteIssuesDeletesInPhaseOrder(t *testing.T) {
 	s := testSeed()
 	c, calls := callRecorder(t, seedOwned(t, s)...)
@@ -570,8 +578,9 @@ func TestEveryDeleteCarriesItsUIDPrecondition(t *testing.T) {
 	}
 }
 
-// A foreign object is a refusal, not a target. Deleting it destroys another run's live state, and this is the
-// highest-stakes property in the file: every other failure here costs a run, this one costs somebody else's.
+// A foreign object is a refusal, not a target.
+// Deleting it destroys another run's live state, and this is the highest-stakes property in the file: every
+// other failure here costs a run, this one costs somebody else's.
 func TestDeleteNeverIssuesADeleteForAForeignTarget(t *testing.T) {
 	s := testSeed()
 	c, calls := callRecorder(t, &corev1.Namespace{
@@ -589,8 +598,9 @@ func TestDeleteNeverIssuesADeleteForAForeignTarget(t *testing.T) {
 			t.Fatalf("issued a delete for %s %q, which this run did not create", d.Kind, d.Name)
 		}
 	}
-	// It must also be REPORTED. A refusal that leaves no residue is the failure mode where teardown deletes
-	// nothing, says nothing, and the record the next run reads names nothing.
+	// It must also be REPORTED.
+	// A refusal that leaves no residue is the failure mode where teardown deletes nothing, says nothing,
+	// and the record the next run reads names nothing.
 	ns := residueFor(t, res.Residue, s.Namespace)
 	if ns.Absence != absenceForeign {
 		t.Errorf("%s classified %v in the residue, want foreign", s.Namespace, ns.Absence)
@@ -602,10 +612,11 @@ func TestDeleteNeverIssuesADeleteForAForeignTarget(t *testing.T) {
 // Both halves are one behaviour of absenceForeign — phaseTargetSettled accepts it, so the phase advances —
 // and both are invisible from the final cluster state, so they are asserted on the calls and on the clock.
 // The alternative implementation this rules out is the obvious one: emitting the foreign target as an
-// observation carrying an Err. That classifies absenceUnknown, which holds its phase open until the budget
-// expires; measured on this executor it is 3m0s of wall clock and 90 poll rounds, and when the foreign target
-// is the namespace it also blocks every later phase, so a teardown that had two ClusterQueues and a
-// ResourceFlavor of its own to remove issues no Delete at all.
+// observation carrying an Err.
+// That classifies absenceUnknown, which holds its phase open until the budget expires; measured on this
+// executor it is 3m0s of wall clock and 90 poll rounds, and when the foreign target is the namespace it also
+// blocks every later phase, so a teardown that had two ClusterQueues and a ResourceFlavor of its own to
+// remove issues no Delete at all.
 func TestDeleteRemovesOurOwnTargetsAroundAForeignOneWithoutBurningTheBudget(t *testing.T) {
 	s := testSeed()
 	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
@@ -730,9 +741,9 @@ func TestDeleteReportsResidueWhenTheBudgetExpires(t *testing.T) {
 			t.Fatalf("%s carries absenceAbsent yet survived into the residue", r.Observation.Target.Name)
 		}
 	}
-	// Elapsed must come from the injected clock, which only the poll loop's own sleeps advance. Read off the
-	// wall clock it would report microseconds for a teardown that spent its whole budget, and a caller sizing
-	// the next run's budget from it would size it from nothing.
+	// Elapsed must come from the injected clock, which only the poll loop's own sleeps advance.
+	// Read off the wall clock it would report microseconds for a teardown that spent its whole budget, and a
+	// caller sizing the next run's budget from it would size it from nothing.
 	if res.Elapsed < 30*time.Second {
 		t.Errorf("reported Elapsed %v for a teardown that ran out a 30s budget", res.Elapsed)
 	}
@@ -796,10 +807,11 @@ func TestDeleteRefusalExplainsResidueWithoutDowngradingItsVerdict(t *testing.T) 
 // Phase order is a claim about the interleaving of deletes and reads, not about the order of the deletes on
 // their own. enumerate hands its targets over already sorted by phase, so an executor that abandons the
 // phases entirely and issues every delete in one sweep still records them in monotone phase order — the
-// sequence check above cannot tell the two apart. What distinguishes them is whether the earlier phase had
-// been read ABSENT before the later phase's delete went out, because that absence is the thing Kueue's
-// resource-in-use finalizer waits on: a ClusterQueue deleted while the namespace still holds its admitted
-// Workloads does not fail, it pins, and teardown burns its budget reporting residue it could have removed.
+// sequence check above cannot tell the two apart.
+// What distinguishes them is whether the earlier phase had been read ABSENT before the later phase's delete
+// went out, because that absence is the thing Kueue's resource-in-use finalizer waits on: a ClusterQueue
+// deleted while the namespace still holds its admitted Workloads does not fail, it pins, and teardown burns
+// its budget reporting residue it could have removed.
 func TestDeleteFinishesEachPhaseBeforeStartingTheNext(t *testing.T) {
 	s := testSeed()
 	tgs, err := enumerate(s)
@@ -838,11 +850,11 @@ func TestDeleteFinishesEachPhaseBeforeStartingTheNext(t *testing.T) {
 	}
 }
 
-// A residue record that says only "still present" reads as a slow finalizer. If what actually happened is
-// that the apiserver refused the delete, the operator has no way to tell those apart, and the next run
-// refuses to start with no clue why. The refusal must survive into the result — which is not free, because
-// the read that follows the delete in the same round is what proves presence and would otherwise overwrite
-// it milliseconds later.
+// A residue record that says only "still present" reads as a slow finalizer.
+// If what actually happened is that the apiserver refused the delete, the operator has no way to tell
+// those apart, and the next run refuses to start with no clue why.
+// The refusal must survive into the result — which is not free, because the read that follows the delete
+// in the same round is what proves presence and would otherwise overwrite it milliseconds later.
 func TestDeleteReportsWhyATargetSurvivedWhenTheApiserverRefused(t *testing.T) {
 	s := testSeed()
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
@@ -866,12 +878,14 @@ func TestDeleteReportsWhyATargetSurvivedWhenTheApiserverRefused(t *testing.T) {
 		t.Errorf("%s carries %v, want the apiserver's Forbidden", s.Namespace, ns.Observation.DeleteRefusal)
 	}
 	// This assertion used to read `ns.Absence != absenceUnknown`, on the rationale that "a target whose delete
-	// was refused is not known to be present or gone". That rationale does not survive reading the loop it
-	// describes: deleteTargets reads AFTER each delete precisely so it exits on evidence, so by the time a
-	// refusal is folded back the run holds a successful read saying the object is there. Present is not a
-	// guess here, it is the observation — and Found below is what keeps this test honest about that. Unknown
-	// would discard a fact the run actually has and, persisted, would tell the next operator nobody could
-	// tell about an object this one read.
+	// was refused is not known to be present or gone".
+	// That rationale does not survive reading the loop it describes: deleteTargets reads AFTER each delete
+	// precisely so it exits on evidence, so by the time a refusal is folded back the run holds a successful
+	// read saying the object is there.
+	// Present is not a guess here, it is the observation — and Found below is what keeps this test honest
+	// about that.
+	// Unknown would discard a fact the run actually has and, persisted, would tell the next operator nobody
+	// could tell about an object this one read.
 	if !ns.Observation.Found {
 		t.Fatalf("%s is reported as residue but was not observed present; then unknown WOULD be the right verdict "+
 			"and this test is asserting the wrong thing", s.Namespace)
@@ -884,17 +898,19 @@ func TestDeleteReportsWhyATargetSurvivedWhenTheApiserverRefused(t *testing.T) {
 	}
 }
 
-// Not every refusal is permanent. A 429 under load, an etcd leader change, an admission webhook still coming
-// up — each rejects one Delete and relents. The test above only ever sees a Forbidden that never relents, so
-// it says nothing about this case, and this case is the one that decides whether an ordinary teardown on a
-// busy cluster reports itself clean.
+// Not every refusal is permanent.
+// A 429 under load, an etcd leader change, an admission webhook still coming up — each rejects one Delete
+// and relents.
+// The test above only ever sees a Forbidden that never relents, so it says nothing about this case, and this
+// case is the one that decides whether an ordinary teardown on a busy cluster reports itself clean.
 //
 // Two properties are pinned together here because they are two halves of one behaviour and each is
 // individually redundant: the executor retries a refused delete on the next round, and a refusal stops
-// travelling with a target that did in the end come away. Without the first there is nothing to clear;
-// without the second, a target read absent still carries the earlier error into residual, where a carried
-// error classifies absenceUnknown — so a teardown that removed everything reports residue anyway, and the
-// next run refuses to start on a cluster that is actually clean.
+// travelling with a target that did in the end come away.
+// Without the first there is nothing to clear; without the second, a target read absent still carries the
+// earlier error into residual, where a carried error classifies absenceUnknown — so a teardown that
+// removed everything reports residue anyway, and the next run refuses to start on a cluster that is
+// actually clean.
 func TestDeleteClearsARefusalOnceTheRetrySucceeds(t *testing.T) {
 	s := testSeed()
 	// Refused once per name, then allowed: the narrowest shape that separates "the apiserver said no" from
@@ -933,9 +949,10 @@ func TestDeleteClearsARefusalOnceTheRetrySucceeds(t *testing.T) {
 	}
 }
 
-// A read that fails proves nothing, and must not settle a phase. Crediting it would let one 503 on the
-// namespace read start the ClusterQueue deletes while the namespace and its admitted Workloads are still
-// there — the same resource-in-use pin as an out-of-order teardown, reached through the error path instead.
+// A read that fails proves nothing, and must not settle a phase.
+// Crediting it would let one 503 on the namespace read start the ClusterQueue deletes while the namespace
+// and its admitted Workloads are still there — the same resource-in-use pin as an out-of-order teardown,
+// reached through the error path instead.
 func TestDeleteKeepsAPhaseOpenWhileATargetCannotBeRead(t *testing.T) {
 	s := testSeed()
 	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(seedOwned(t, s)...).
@@ -967,11 +984,12 @@ func TestDeleteKeepsAPhaseOpenWhileATargetCannotBeRead(t *testing.T) {
 // Our object can be deleted and a different one created under our name while teardown is running — the one
 // case a create-time stamp cannot rule out, and the reason recoverTargets records a UID at all.
 //
-// Three separate rules meet here. The replacement is never deleted: it is a stranger's object under our name.
+// Three separate rules meet here.
+// The replacement is never deleted: it is a stranger's object under our name.
 // It does not hold its phase open either: a different UID at our name is proof ours is gone, so the Workloads
 // it held went with it and the later phases are safe to run — waiting instead would spend the whole budget on
-// a deletion this run does not control. And it is still residue, because "someone else's object is here" is
-// not "our teardown was clean".
+// a deletion this run does not control.
+// And it is still residue, because "someone else's object is here" is not "our teardown was clean".
 func TestDeleteStopsAtOurNameOnceAnotherTransactionTakesIt(t *testing.T) {
 	s := testSeed()
 	nsReads := 0

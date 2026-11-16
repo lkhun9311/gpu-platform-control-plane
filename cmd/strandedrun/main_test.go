@@ -25,9 +25,9 @@ import (
 
 // An absent label and a label of zero are different facts, and the parse must keep them apart.
 //
-// The device plugin selects on the label, so an unlabelled worker advertises nothing. Reading that as a node of
-// size zero would let a broken render pass as a cluster with less capacity -- the same inversion the census
-// refuses one layer up, arriving through the flag parser instead.
+// The device plugin selects on the label, so an unlabelled worker advertises nothing.
+// Reading that as a node of size zero would let a broken render pass as a cluster with less capacity -- the
+// same inversion the census refuses one layer up, arriving through the flag parser instead.
 //
 // Mutation that turns this red: default an empty label field to Labelled 0, Present true.
 func TestAnAbsentLabelIsNotALabelOfZero(t *testing.T) {
@@ -77,8 +77,8 @@ func TestTheFlagParsersRefuseWhatTheyCannotRead(t *testing.T) {
 //
 // Together rather than separately because the kind configuration mounts ./scheduler-config.yaml by relative
 // path: a caller who rendered them in separate invocations could create a cluster whose mounted profile came
-// from a different arm than the configuration that named it. That is the silent-treatment failure this command
-// exists to prevent, arriving through a second door.
+// from a different arm than the configuration that named it.
+// That is the silent-treatment failure this command exists to prevent, arriving through a second door.
 //
 // Mutation that turns this red: write only the kind configuration, or change the mount path without changing
 // the file name.
@@ -175,19 +175,21 @@ func TestRenderClusterRequiresTheArmToBeStatedInFull(t *testing.T) {
 //
 // The pair is the point. -settled is the run operator's assertion that terminating pods and in-flight bindings
 // had resolved, and it is not an observation of anything about the ledger: the reservation balance cannot see a
-// submission omitted entirely, because a ledger missing a row balances perfectly well. Only the frozen protocol
-// knows that a third submission should have been there.
+// submission omitted entirely, because a ledger missing a row balances perfectly well.
+// Only the frozen protocol knows that a third submission should have been there.
 //
 // Mutation that turns this red: skip the membership check when -protocol is supplied, or accept -protocol
 // without -step-number so the check has no step to judge.
 func TestTheProtocolCatchesALedgerRowThatSettledCannotSee(t *testing.T) {
-	// The honest ledger at step 3 is s1, s2, s3. This one drops s3 -- the discriminating request, which is
-	// exactly the row an arm would benefit from losing.
+	// The honest ledger at step 3 is s1, s2, s3.
+	// This one drops s3 -- the discriminating request, which is exactly the row an arm would benefit from
+	// losing.
 	const nodes = "stranded-worker:2:1,stranded-worker2:1:1,stranded-worker3:1:0"
 	const shortLedger = "s1:1:bound:stranded-worker,s2:1:bound:stranded-worker2"
 
 	// Without the protocol, the short ledger is a perfectly valid census: it balances, and every submission in
-	// it was observed. Nothing in the reading says a row is missing.
+	// it was observed.
+	// Nothing in the reading says a row is missing.
 	if err := takeCensus([]string{"-step=c3", "-nodes=" + nodes, "-submissions=" + shortLedger,
 		"-settled"}); err != nil {
 		t.Fatalf("the short ledger was refused without a protocol, so this test no longer demonstrates the "+
@@ -245,7 +247,8 @@ func TestTheProtocolFlagsMustBeSuppliedTogether(t *testing.T) {
 //
 // kind mounts scheduler-config.yaml by RELATIVE path, so a leftover file plus a kind-config that no longer
 // references it is not inert: a later `kind create` from that directory would find the previous arm's profile
-// sitting there. Worse, nothing in the artifacts would say so -- every file would read S-default.
+// sitting there.
+// Worse, nothing in the artifacts would say so -- every file would read S-default.
 //
 // Mutation that turns this red: write only the files the arm produces without removing the others.
 func TestRenderingTheReferenceRemovesTheTreatmentsStaleProfile(t *testing.T) {

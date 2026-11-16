@@ -51,20 +51,23 @@ const (
 	// conditionAdmitting reports whether the Kueue ClusterQueue this policy owns can actually admit work.
 	//
 	// It exists because Synced answers a narrower question than a reader assumes: it says the objects were
-	// WRITTEN. A ClusterQueue can be written exactly as specified and still admit nothing — most obviously
-	// when the shared ResourceFlavor it references is absent, which Kueue reports as Active=False
-	// FlavorNotFound. That happened on a live cluster: the policy read Synced=True, phase=Synced, and every
-	// training Job submitted to it sat suspended forever with the tenant's quota apparently in place.
+	// WRITTEN.
+	// A ClusterQueue can be written exactly as specified and still admit nothing — most obviously when the
+	// shared ResourceFlavor it references is absent, which Kueue reports as Active=False FlavorNotFound.
+	// That happened on a live cluster: the policy read Synced=True, phase=Synced, and every training Job
+	// submitted to it sat suspended forever with the tenant's quota apparently in place.
 	//
-	// Two facts, two conditions. Collapsing them means the only signal a reader has cannot distinguish a
-	// quota that exists from a quota that works.
+	// Two facts, two conditions.
+	// Collapsing them means the only signal a reader has cannot distinguish a quota that exists from a
+	// quota that works.
 	//
 	// There is a third fact under this one, and it used to be collapsed too: whether the queue was ASKED.
 	// A ClusterQueue this controller could not read, and one that has not yet published an Active condition,
 	// both reported Admitting=False -- the same answer Kueue gives when the queue authoritatively admits
-	// nothing. An operator reading False cannot act on it without knowing which of the three happened, and
-	// "nobody could ask" is not a denial. Those two now report Unknown, which is what a condition's third
-	// status is for.
+	// nothing.
+	// An operator reading False cannot act on it without knowing which of the three happened, and "nobody
+	// could ask" is not a denial.
+	// Those two now report Unknown, which is what a condition's third status is for.
 	conditionAdmitting  = "Admitting"
 	reasonQueueActive   = "ClusterQueueActive"
 	reasonQueueInactive = "ClusterQueueInactive"
@@ -72,7 +75,8 @@ const (
 	// reasonQueueUnreported is a ClusterQueue that exists and has said nothing about admitting yet.
 	//
 	// Kueue writes Active on its own schedule, so this is the ordinary state between the queue being created
-	// and its first status pass. Reporting it as inactive turns a moment of not-yet into a verdict.
+	// and its first status pass.
+	// Reporting it as inactive turns a moment of not-yet into a verdict.
 	reasonQueueUnreported = "AwaitingQueueStatus"
 	reasonQuotaSynced     = "QuotaSynced"
 	reasonQuotaConflict   = "QuotaConflict"
@@ -163,16 +167,18 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Turn the admission guards on for this namespace BEFORE syncing any ceiling into it.
 	//
-	// The order is the argument, and it is the opposite of the convenient one. Syncing a quota into a
-	// namespace where the guards are off publishes a ceiling that a bare Pod walks straight past -- measured,
-	// not supposed: a Pod asking for two devices ran in a namespace with a synced policy and no Kueue
-	// Workload behind it. Doing the enforcement first means the worst case of a half-finished reconcile is a
-	// guarded namespace with no ceiling yet, rather than a ceiling nobody has to respect.
+	// The order is the argument, and it is the opposite of the convenient one.
+	// Syncing a quota into a namespace where the guards are off publishes a ceiling that a bare Pod walks
+	// straight past -- measured, not supposed: a Pod asking for two devices ran in a namespace with a synced
+	// policy and no Kueue Workload behind it.
+	// Doing the enforcement first means the worst case of a half-finished reconcile is a guarded namespace
+	// with no ceiling yet, rather than a ceiling nobody has to respect.
 	//
-	// A failure here fails the whole reconcile rather than degrading, and that is deliberate. The obvious
-	// alternative -- carry on and record a condition -- reproduces exactly the state this exists to end: a
-	// policy that reads Synced while the bypass it was written to close is open. A missing RBAC grant is
-	// loud, diagnosable and fixed once; a silently unguarded namespace is none of those.
+	// A failure here fails the whole reconcile rather than degrading, and that is deliberate.
+	// The obvious alternative -- carry on and record a condition -- reproduces exactly the state this
+	// exists to end: a policy that reads Synced while the bypass it was written to close is open.
+	// A missing RBAC grant is loud, diagnosable and fixed once; a silently unguarded namespace is none of
+	// those.
 	if err := r.ensureNamespaceEnforced(ctx, policy.Spec.TargetNamespace); err != nil {
 		return r.markDegraded(ctx, &policy, "EnforcementNotApplied", fmt.Sprintf(
 			"could not mark namespace %q as GPU-quota-enforced, so this policy's ceiling would not be "+
@@ -210,8 +216,9 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		Message:            syncedMessage,
 		ObservedGeneration: policy.Generation,
 	})
-	// Reported only for a policy that has a queue at all. Without training quota the GPU ceiling is the
-	// namespace ResourceQuota, which admits nothing and is not supposed to.
+	// Reported only for a policy that has a queue at all.
+	// Without training quota the GPU ceiling is the namespace ResourceQuota, which admits nothing and
+	// is not supposed to.
 	if policy.Spec.TrainingQuota {
 		cond := r.admittingCondition(ctx, &policy)
 		cond.ObservedGeneration = policy.Generation
@@ -348,9 +355,10 @@ func (r *GPUQuotaPolicyReconciler) markDegraded(ctx context.Context, policy *pla
 // reworded: an operator searching for "FlavorNotFound" should find it here, and a reason this controller
 // invented would be one more string to correlate.
 //
-// An unreadable queue is reported as not admitting rather than as an error on the reconcile. The policy's
-// other guarantees still hold and failing the whole reconcile would hide them behind a read that may recover
-// on its own; what must not happen is the condition silently staying True from a previous pass.
+// An unreadable queue is reported as not admitting rather than as an error on the reconcile.
+// The policy's other guarantees still hold and failing the whole reconcile would hide them behind a read
+// that may recover on its own; what must not happen is the condition silently staying True from a previous
+// pass.
 func (r *GPUQuotaPolicyReconciler) admittingCondition(ctx context.Context, policy *platformv1.GPUQuotaPolicy) metav1.Condition {
 	name := kueueQueueName(policy.Spec.Tenant)
 	var cq kueuev1beta1.ClusterQueue
@@ -364,7 +372,8 @@ func (r *GPUQuotaPolicyReconciler) admittingCondition(ctx context.Context, polic
 	active := meta.FindStatusCondition(cq.Status.Conditions, "Active")
 	if active == nil {
 		// Also Unknown, and for a different reason worth its own name: the queue is there and has not
-		// answered yet. Reported as ClusterQueueInactive it was indistinguishable from Kueue saying no.
+		// answered yet.
+		// Reported as ClusterQueueInactive it was indistinguishable from Kueue saying no.
 		return metav1.Condition{
 			Type: conditionAdmitting, Status: metav1.ConditionUnknown, Reason: reasonQueueUnreported,
 			Message: fmt.Sprintf("ClusterQueue %s has not reported whether it is active", name),
@@ -409,12 +418,14 @@ func (r *GPUQuotaPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // ordinary steady-state reconcile issues no write at all -- this runs on every reconcile of every policy,
 // and an unconditional patch would be a write per reconcile forever.
 //
-// It never REMOVES the label, including when a policy is deleted. That asymmetry is deliberate: turning
-// enforcement off is the operation that re-opens a bypass, and it would fire on a policy deleted by mistake,
-// on a finalizer race, or on any reconcile that saw a stale cache. Leaving a namespace guarded after its
-// policy is gone costs a refusal message that names a ClusterQueue nobody is using; removing it costs the
-// guarantee. An operator who genuinely wants the namespace unguarded can remove one label by hand, which is
-// the correct amount of friction for that direction.
+// It never REMOVES the label, including when a policy is deleted.
+// That asymmetry is deliberate: turning enforcement off is the operation that re-opens a bypass, and it
+// would fire on a policy deleted by mistake, on a finalizer race, or on any reconcile that saw a stale
+// cache.
+// Leaving a namespace guarded after its policy is gone costs a refusal message that names a ClusterQueue
+// nobody is using; removing it costs the guarantee.
+// An operator who genuinely wants the namespace unguarded can remove one label by hand, which is the correct
+// amount of friction for that direction.
 func (r *GPUQuotaPolicyReconciler) ensureNamespaceEnforced(ctx context.Context, name string) error {
 	var ns corev1.Namespace
 	if err := r.Get(ctx, types.NamespacedName{Name: name}, &ns); err != nil {

@@ -20,12 +20,14 @@ import (
 )
 
 // These specs cover what a SUCCESSFUL create can still get wrong, and what a same-transaction adoption can
-// still be wrong about. Both were gaps: createOwned trusted a create that returned no error, and treated a
-// matching transaction label as the end of the question.
+// still be wrong about.
+// Both were gaps: createOwned trusted a create that returned no error, and treated a matching transaction
+// label as the end of the question.
 //
-// Neither is hypothetical in shape. Admission plugins rewrite labels, and Kueue has its own webhooks over
-// exactly these kinds; a partially applied earlier attempt under the same transaction leaves objects whose
-// names match and whose knobs do not.
+// Neither is hypothetical in shape.
+// Admission plugins rewrite labels, and Kueue has its own webhooks over exactly these kinds; a partially
+// applied earlier attempt under the same transaction leaves objects whose names match and whose knobs do
+// not.
 
 // kueueScheme is testScheme plus the Kueue kinds, which the fixtures are made of.
 func kueueScheme(t *testing.T) *runtime.Scheme {
@@ -41,7 +43,8 @@ func kueueScheme(t *testing.T) *runtime.Scheme {
 // plugin that rewrites metadata.
 //
 // The response is what the object carries afterwards, because controller-runtime decodes the apiserver's
-// answer back into the object passed to Create. That is the whole reason the check needs no second read.
+// answer back into the object passed to Create.
+// That is the whole reason the check needs no second read.
 func strippingClient(t *testing.T) client.Client {
 	t.Helper()
 	scheme := kueueScheme(t)
@@ -84,7 +87,8 @@ func TestCreateOwnedRefusesWhenTheStampDidNotLand(t *testing.T) {
 }
 
 func TestCreateOwnedAcceptsAStampThatLanded(t *testing.T) {
-	// The control. Without it a createOwned that refused every create would satisfy the spec above.
+	// The control.
+	// Without it a createOwned that refused every create would satisfy the spec above.
 	scheme := kueueScheme(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	cq := &kueuev1beta2.ClusterQueue{
@@ -96,8 +100,9 @@ func TestCreateOwnedAcceptsAStampThatLanded(t *testing.T) {
 }
 
 func TestCreateOwnedRefusesAdoptingADifferentMechanism(t *testing.T) {
-	// Same transaction, same name, different knob. The label says WHO created it and says nothing about
-	// WHAT was created, and what was created is the thing this lab measures.
+	// Same transaction, same name, different knob.
+	// The label says WHO created it and says nothing about WHAT was created, and what was created is
+	// the thing this lab measures.
 	//
 	// Mutation that turns this red: stop comparing reclaimWithinCohort in sameMechanism.
 	scheme := kueueScheme(t)
@@ -131,9 +136,9 @@ func TestCreateOwnedRefusesAdoptingADifferentMechanism(t *testing.T) {
 
 // The claim is the resume arms' mechanism the way reclaimWithinCohort is the reclaim study's, and until the
 // PersistentVolumeClaim case existed sameMechanism fell through to nil for this kind — so a claim left by an
-// earlier attempt UNDER THE SAME TRANSACTION was adopted whatever class it had been made with. An operator
-// rerunning with a different -state-class would then measure the old class's binding behaviour and record it
-// under the new class's name.
+// earlier attempt UNDER THE SAME TRANSACTION was adopted whatever class it had been made with.
+// An operator rerunning with a different -state-class would then measure the old class's binding behaviour
+// and record it under the new class's name.
 //
 // That gap was found by deleting the branch and watching the suite stay green, not by reading the code.
 //
@@ -159,8 +164,9 @@ func TestCreateOwnedRefusesAdoptingAClaimOfAnotherClass(t *testing.T) {
 	}
 }
 
-// The control. Retrying after a partial setup is why adoption exists, and a claim comparison that never
-// passed would make every rerun of a checkpointing arm fail on its own leftover.
+// The control.
+// Retrying after a partial setup is why adoption exists, and a claim comparison that never passed would
+// make every rerun of a checkpointing arm fail on its own leftover.
 //
 // Mutation that turns this red: make sameStateClaim return an error unconditionally.
 func TestCreateOwnedAdoptsAClaimOfTheSameClass(t *testing.T) {
@@ -181,8 +187,9 @@ func TestCreateOwnedAdoptsAClaimOfTheSameClass(t *testing.T) {
 }
 
 func TestCreateOwnedAdoptsAMatchingMechanism(t *testing.T) {
-	// The control that keeps the check from being "refuse every adoption". Retrying after a partial setup is
-	// the reason adoption exists at all, and a spec comparison that never passes would remove it.
+	// The control that keeps the check from being "refuse every adoption".
+	// Retrying after a partial setup is the reason adoption exists at all, and a spec comparison that never
+	// passes would remove it.
 	//
 	// Mutation that turns this red: make sameMechanism return an error unconditionally.
 	scheme := kueueScheme(t)
@@ -318,9 +325,9 @@ func TestCreateOwnedRefusesEveryExperimentDefiningDifference(t *testing.T) {
 		{"flavor the quota is charged against", func(c *kueuev1beta2.ClusterQueue) {
 			c.Spec.ResourceGroups[0].Flavors[0].Name = "flavor-other"
 		}, "flavor"},
-		// The four rows below were absent while this table read as complete coverage of the mechanism. Each
-		// one changes what the queue admits without changing anything the six rows above compare, so an arm
-		// could adopt a queue that admitted nothing and record the run as executed.
+		// The four rows below were absent while this table read as complete coverage of the mechanism.
+		// Each one changes what the queue admits without changing anything the six rows above compare, so
+		// an arm could adopt a queue that admitted nothing and record the run as executed.
 		{"stopPolicy", func(c *kueuev1beta2.ClusterQueue) {
 			hold := kueuev1beta2.HoldAndDrain
 			c.Spec.StopPolicy = &hold
@@ -426,9 +433,9 @@ func TestCreateOwnedRefusesAFlavorThatLostItsIsolation(t *testing.T) {
 // The FlavorUsage barrier must read KUEUE's accounting, not this operator's phase field.
 //
 // The distinction is the barrier's whole purpose: it gates the next submission on borrowing having taken
-// effect, and an MLTrainingJob this operator marked Running proves nothing about what Kueue charged. The
-// earlier implementation summed declared Spec.GPUCount over Running jobs in the namespace, which holds
-// perfectly well while Kueue has admitted nothing at all.
+// effect, and an MLTrainingJob this operator marked Running proves nothing about what Kueue charged.
+// The earlier implementation summed declared Spec.GPUCount over Running jobs in the namespace, which
+// holds perfectly well while Kueue has admitted nothing at all.
 //
 // Mutation that turns this red: read MLTrainingJob phases instead of ClusterQueue status.
 func TestFlavorUsageReadsKueueNotOurOwnPhase(t *testing.T) {
@@ -466,8 +473,9 @@ func TestFlavorUsageReadsKueueNotOurOwnPhase(t *testing.T) {
 		t.Fatalf("usage = %d, want 0: Kueue charged nothing, whatever our own phase field says", got)
 	}
 
-	// The control: once Kueue does report usage against that flavor, the barrier must see it. Without this a
-	// function returning 0 unconditionally would satisfy the assertion above and the barrier would never lift.
+	// The control: once Kueue does report usage against that flavor, the barrier must see it.
+	// Without this a function returning 0 unconditionally would satisfy the assertion above and the barrier
+	// would never lift.
 	charged := &kueuev1beta2.ClusterQueue{
 		Name: "cq2",
 		Status: kueuev1beta2.ClusterQueueStatus{

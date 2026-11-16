@@ -99,8 +99,8 @@ func TestGeneratedScenariosPassValidation(t *testing.T) {
 }
 
 func TestValidateTraceStudyRules(t *testing.T) {
-	// A reclaim trace is a two-tenant borrowing story; a FIFO trace is single-tenant. Crossing the studies
-	// would exercise a different mechanism than the one under test.
+	// A reclaim trace is a two-tenant borrowing story; a FIFO trace is single-tenant.
+	// Crossing the studies would exercise a different mechanism than the one under test.
 	reclaim := ReclaimScenario(true, 600)
 	if err := ValidateTrace(StudyFIFO, reclaim); err == nil {
 		t.Fatalf("a two-tenant trace must fail the single-tenant FIFO study")
@@ -198,9 +198,9 @@ func TestTerminationContractTraceRejectsADoseOutsideTheGracePeriod(t *testing.T)
 //
 // The guard this replaces permitted only the self-completing side while its own comment described the
 // grace-bounded side as the thing being excluded — so the experiment named "termination contract" could
-// never reach the regime where a termination contract actually binds. An ignoring victim with less service
-// left than the grace period finishes on its own; the platform's configured patience never applies, and
-// could be any value without changing the result.
+// never reach the regime where a termination contract actually binds.
+// An ignoring victim with less service left than the grace period finishes on its own; the platform's
+// configured patience never applies, and could be any value without changing the result.
 //
 // Mutation that turns this red: swap the two comparisons in the regime switch.
 func TestTerminationContractTraceRefusesADoseThatIsNotTheDeclaredRegime(t *testing.T) {

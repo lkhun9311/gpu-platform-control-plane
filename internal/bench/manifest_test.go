@@ -86,11 +86,13 @@ var _ = Describe("LoadManifest", func() {
 	})
 
 	It("refuses a manifest frozen against prompt bytes this binary does not send", func() {
-		// traceChecksum cannot catch this. The trace records prompt LENGTHS and the text is synthesised at
-		// send time, so a binary built from a different corpus replays the same checksummed trace as
-		// different bytes on the wire -- and a report comparing that arm against another would attribute
-		// the difference to the policy under test. Here the trace file is untouched and its checksum still
-		// matches; only the corpus differs, and that alone must be enough to refuse the load.
+		// traceChecksum cannot catch this.
+		// The trace records prompt LENGTHS and the text is synthesised at send time, so a binary built
+		// from a different corpus replays the same checksummed trace as different bytes on the wire -- and
+		// a report comparing that arm against another would attribute the difference to the policy under
+		// test.
+		// Here the trace file is untouched and its checksum still matches; only the corpus differs, and
+		// that alone must be enough to refuse the load.
 		dir := GinkgoT().TempDir()
 		path := writeTestManifest(dir, func(m *RunManifest) {
 			m.PromptCorpusSHA = "1111111111111111111111111111111111111111111111111111111111111111"
@@ -163,9 +165,9 @@ var _ = Describe("LoadManifest", func() {
 
 var _ = Describe("RequireProvenance", func() {
 	// Two fields were declared on RunManifest for provenance and never set by anything: no gen-trace flag
-	// accepted them, no script passed them, and every manifest this repository produced left them empty. A
-	// paid run's numbers belong to a build, and once the cluster is gone the record is the only place that
-	// association can live.
+	// accepted them, no script passed them, and every manifest this repository produced left them empty.
+	// A paid run's numbers belong to a build, and once the cluster is gone the record is the only place
+	// that association can live.
 
 	full := func() RunManifest {
 		return RunManifest{
@@ -196,8 +198,9 @@ var _ = Describe("RequireProvenance", func() {
 	// The string the paid ladder actually recorded, seven times, past this guard.
 	//
 	// hack/m5c-matrix.sh derives SOURCE_COMMIT with `git rev-parse ... || echo unknown`, and on the rented
-	// instance the source arrives as a tarball with no .git. The guard refused an EMPTY gatewaySHA and
-	// "unknown" is not empty, so replay --require-provenance accepted evidence that names no build.
+	// instance the source arrives as a tarball with no .git.
+	// The guard refused an EMPTY gatewaySHA and "unknown" is not empty, so replay --require-provenance
+	// accepted evidence that names no build.
 	It("refuses a gateway SHA that names no build", func() {
 		for _, bad := range []string{"unknown", "none", "HEAD", "not-a-sha", "0f3c1a", strings.Repeat("a", 41)} {
 			m := full()
@@ -213,8 +216,9 @@ var _ = Describe("RequireProvenance", func() {
 	})
 
 	// hack/m5b-arms.sh:440 appends this on purpose when the tree is not clean, and nothing on that path
-	// refuses a dirty tree before the card is rented. A commit plus "the tree was modified" still names a
-	// build, so refusing it would fail a paid run at its first replay rather than improve the record.
+	// refuses a dirty tree before the card is rented.
+	// A commit plus "the tree was modified" still names a build, so refusing it would fail a paid run at
+	// its first replay rather than improve the record.
 	It("accepts a commit marked dirty, and nothing else wearing the suffix", func() {
 		m := full()
 		m.GatewaySHA = "0f3c1a9-dirty"
@@ -234,8 +238,9 @@ var _ = Describe("RequireProvenance", func() {
 	})
 
 	It("refuses a tag, which is what the paid scripts actually used", func() {
-		// hack/m5b-arms.sh defaulted GW_IMAGE to gateway:m5b. Recording that would be provenance theatre: the
-		// name identifies whatever was pushed under it most recently, so it says nothing after the next build.
+		// hack/m5b-arms.sh defaulted GW_IMAGE to gateway:m5b.
+		// Recording that would be provenance theatre: the name identifies whatever was pushed under it most
+		// recently, so it says nothing after the next build.
 		m := full()
 		m.ImageDigests["gateway"] = "gateway:m5b"
 		err := m.RequireProvenance()
@@ -243,8 +248,8 @@ var _ = Describe("RequireProvenance", func() {
 	})
 
 	It("refuses a digest that is not a digest", func() {
-		// A reference can contain @sha256: and still be nonsense. Truncated and non-hex both fail, so the
-		// check is on the value rather than on the punctuation.
+		// A reference can contain @sha256: and still be nonsense.
+		// Truncated and non-hex both fail, so the check is on the value rather than on the punctuation.
 		for _, bad := range []string{
 			"gateway@sha256:" + strings.Repeat("a", 63),
 			"gateway@sha256:" + strings.Repeat("g", 64),
@@ -285,8 +290,9 @@ var _ = Describe("RequireProvenance and the tokenizer revision", func() {
 	// A short SHA is accepted for the gateway build and must NOT be accepted here.
 	//
 	// commitShaped allows 7 to 40 characters and a -dirty suffix because a build from a working tree is
-	// still findable that way. A model revision is an upstream hash: a prefix would let two tokenizers share
-	// one recorded identity, and "dirty" describes nothing upstream.
+	// still findable that way.
+	// A model revision is an upstream hash: a prefix would let two tokenizers share one recorded identity,
+	// and "dirty" describes nothing upstream.
 	It("refuses a revision that is not a full upstream hash", func() {
 		for _, bad := range []string{
 			"aa8e725", // the prefix commitShaped would accept

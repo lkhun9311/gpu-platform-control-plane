@@ -33,8 +33,9 @@ const runToken = "<RUN>"
 // admits, borrows, reclaims, and orders, with run-scoped identifiers canonicalized.
 //
 // The review's contradiction was that a literal "exactly one JSON path differs" check must fail across
-// arms whose names and references all differ by run id. Projecting to this canonical policy, then diffing
-// the projections, compares the mechanism and nothing else, so the one intended knob is the only diff.
+// arms whose names and references all differ by run id.
+// Projecting to this canonical policy, then diffing the projections, compares the mechanism and nothing
+// else, so the one intended knob is the only diff.
 //
 // The projection is deliberately broad (borrowing/lending limits, borrow-within-cohort, fungibility, stop
 // policy, and EVERY covered resource and flavor quota, not just the first), because a silent difference in
@@ -55,8 +56,9 @@ type CQPolicy struct {
 	// that silently narrowed admission is caught.
 	NamespaceSelectorEmpty bool
 	// Resources is a canonical dump of every resource group: covered resources and, per flavor, the nominal
-	// quota and borrowing/lending limits, with run-scoped flavor names canonicalized. A change to any quota,
-	// limit, covered resource, or flavor surfaces here rather than being dropped by projecting only [0][0][0].
+	// quota and borrowing/lending limits, with run-scoped flavor names canonicalized.
+	// A change to any quota, limit, covered resource, or flavor surfaces here rather than being dropped by
+	// projecting only [0][0][0].
 	Resources string
 }
 
@@ -124,9 +126,10 @@ func quantityOrNil(q *resource.Quantity) string {
 }
 
 // canonicalize replaces a trailing "-"+runID suffix on an identifier with a run token, leaving the rest
-// intact. It strips only the exact generated suffix (not every occurrence), so a short run id like "a"
-// cannot rewrite fixed text such as "tenant-a", and two different environment names sharing a suffix are
-// not collapsed.
+// intact.
+// It strips only the exact generated suffix (not every occurrence), so a short run id like "a" cannot
+// rewrite fixed text such as "tenant-a", and two different environment names sharing a suffix are not
+// collapsed.
 func canonicalize(name, runID string) string {
 	if runID == "" {
 		return name
@@ -174,10 +177,11 @@ func studyKnobField(study Study) (string, error) {
 // AssertOneKnobDiff verifies that two variants of a study differ, across their ClusterQueues, in EXACTLY
 // the study's one intended policy field and nowhere else.
 //
-// It requires EVERY paired ClusterQueue to differ in exactly the knob. Requiring only that some queue shows
-// the knob (and none leaks anything else) would pass a broken reclaim arm that flipped just one tenant's
-// queue, leaving the other at the old policy so no reclamation actually occurs. It pairs queues by their
-// canonicalized name, so it works whether the arms share a run id or not.
+// It requires EVERY paired ClusterQueue to differ in exactly the knob.
+// Requiring only that some queue shows the knob (and none leaks anything else) would pass a broken reclaim
+// arm that flipped just one tenant's queue, leaving the other at the old policy so no reclamation actually
+// occurs.
+// It pairs queues by their canonicalized name, so it works whether the arms share a run id or not.
 func AssertOneKnobDiff(study Study, a, b *FixtureSet, runIDa, runIDb string) error {
 	knob, err := studyKnobField(study)
 	if err != nil {

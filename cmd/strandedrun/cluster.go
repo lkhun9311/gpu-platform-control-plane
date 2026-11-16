@@ -25,16 +25,17 @@ import (
 // ClusterName is the study's own kind cluster.
 //
 // Its own name rather than `platform`, and that is a requirement rather than tidiness: the `platform` cluster
-// is weeks old and carries Argo CD, cert-manager, KServe and Kueue that other work depends on. A study that
-// recreated it would destroy evidence it has no claim to, and one that reused it would measure a scheduler
-// governed by configuration this study did not set.
+// is weeks old and carries Argo CD, cert-manager, KServe and Kueue that other work depends on.
+// A study that recreated it would destroy evidence it has no claim to, and one that reused it would measure a
+// scheduler governed by configuration this study did not set.
 const ClusterName = "stranded"
 
 // NodeLabelKey marks a worker with the GPU count it should advertise.
 //
 // The count reaches the node as a LABEL rather than as a per-node manifest, because the device plugin is a
-// DaemonSet: one object, every node. Selecting on a label is what lets one cluster hold workers that advertise
-// different capacities, which is the whole shape a fragmentation study needs.
+// DaemonSet: one object, every node.
+// Selecting on a label is what lets one cluster hold workers that advertise different capacities, which is the
+// whole shape a fragmentation study needs.
 const NodeLabelKey = "stranded.gpu-platform/devices"
 
 // NodeLayout is how many fake devices each worker advertises.
@@ -47,8 +48,9 @@ type NodeLayout []int
 // Validate refuses a layout that cannot host the phenomenon the study measures.
 //
 // The amendment corrected the original registration on one point here: heterogeneous nodes and more than two
-// workers are NOT prerequisites. Two identical two-GPU nodes each holding one device already block a two-device
-// request with two devices free. So this refuses only what genuinely cannot strand.
+// workers are NOT prerequisites.
+// Two identical two-GPU nodes each holding one device already block a two-device request with two devices free.
+// So this refuses only what genuinely cannot strand.
 func (l NodeLayout) Validate() error {
 	if len(l) < 2 {
 		return fmt.Errorf("a layout of %d worker(s) cannot strand anything: stranding is capacity free on one "+
@@ -64,8 +66,9 @@ func (l NodeLayout) Validate() error {
 		total += n
 	}
 	// The witness request the amendment requires -- max(f_i) < q <= sum(f_i) -- can only exist if the largest
-	// single node is smaller than the total. A cluster of one-device nodes satisfies that; a cluster whose
-	// largest node holds everything cannot strand, because anything that fits at all fits there.
+	// single node is smaller than the total.
+	// A cluster of one-device nodes satisfies that; a cluster whose largest node holds everything cannot
+	// strand, because anything that fits at all fits there.
 	maxNode := 0
 	for _, n := range l {
 		if n > maxNode {
@@ -89,15 +92,18 @@ func (l NodeLayout) Validate() error {
 // governs a placement, rather than this renderer.
 //
 // nodeImage is REQUIRED and there is no default, which is the amendment's demand that the scheduler version be
-// registered rather than assumed. Left to kind, the version is whatever that kind binary defaults to: this host
-// carries two clusters running 1.31.0 and 1.35.8, so the same rendered file months apart would run different
-// schedulers with different plugin defaults. A difference between runs would then be indistinguishable from a
-// difference between arms, which is the one comparison this study exists to make.
+// registered rather than assumed.
+// Left to kind, the version is whatever that kind binary defaults to: this host carries two clusters running
+// 1.31.0 and 1.35.8, so the same rendered file months apart would run different schedulers with different
+// plugin defaults.
+// A difference between runs would then be indistinguishable from a difference between arms, which is the one
+// comparison this study exists to make.
 //
-// The mount is a RELATIVE path, resolved by kind against the working directory. Measured rather than assumed:
-// a throwaway one-node cluster with `hostPath: ./probe.txt` was created on kind v0.33.0 and the file arrived
-// inside the node with its content intact. Every extraMounts precedent in this repository uses an absolute
-// path, so there was nothing here to read the answer off.
+// The mount is a RELATIVE path, resolved by kind against the working directory.
+// Measured rather than assumed: a throwaway one-node cluster with `hostPath: ./probe.txt` was created on kind
+// v0.33.0 and the file arrived inside the node with its content intact.
+// Every extraMounts precedent in this repository uses an absolute path, so there was nothing here to read the
+// answer off.
 func KindConfigYAML(ap ArmProfile, l NodeLayout, nodeImage string) (string, error) {
 	if err := ap.Validate(); err != nil {
 		return "", err
@@ -109,7 +115,8 @@ func KindConfigYAML(ap ArmProfile, l NodeLayout, nodeImage string) (string, erro
 		return "", err
 	}
 	// The reference arm renders no scheduler profile at all, so nothing calls the renderer that would refuse an
-	// empty one. That is the point of the explicit mode: absence is stated, not inferred from a zero value.
+	// empty one.
+	// That is the point of the explicit mode: absence is stated, not inferred from a zero value.
 	sched := ""
 	if ap.Arm.InstallsSchedulerConfig() {
 		var err error
@@ -135,8 +142,9 @@ func KindConfigYAML(ap ArmProfile, l NodeLayout, nodeImage string) (string, erro
 		// it.
 		//
 		// All three of these -- the mount, the --config argument and the extraVolumes entry -- belong to the
-		// TREATMENT. The reference arm emits none of them, which is what makes it the scheduler the pinned
-		// node image ships rather than a differently-configured one.
+		// TREATMENT.
+		// The reference arm emits none of them, which is what makes it the scheduler the pinned node image
+		// ships rather than a differently-configured one.
 		b.WriteString("    extraMounts:\n")
 		b.WriteString("      - hostPath: ./scheduler-config.yaml\n")
 		b.WriteString("        containerPath: /etc/kubernetes/stranded-scheduler.yaml\n")
@@ -183,12 +191,13 @@ func KindConfigYAML(ap ArmProfile, l NodeLayout, nodeImage string) (string, erro
 // DevicePluginYAML renders one DaemonSet per distinct device count in the layout.
 //
 // config/device-plugin is left untouched: it hardcodes FAKE_GPU_COUNT "1" and runs everywhere, which is what
-// every other study on this cluster family expects. Editing it to take a per-node count would change the
-// capacity every one of those studies sees, to serve this one.
+// every other study on this cluster family expects.
+// Editing it to take a per-node count would change the capacity every one of those studies sees, to serve
+// this one.
 //
 // One DaemonSet per COUNT rather than per node, because a DaemonSet already selects a set of nodes -- and the
-// label carries the count, so the selector and the environment variable are the same fact read twice. They are
-// rendered together here so they cannot drift.
+// label carries the count, so the selector and the environment variable are the same fact read twice.
+// They are rendered together here so they cannot drift.
 func DevicePluginYAML(l NodeLayout, namespace, image string) (string, error) {
 	if err := l.Validate(); err != nil {
 		return "", err
@@ -205,10 +214,11 @@ func DevicePluginYAML(l NodeLayout, namespace, image string) (string, error) {
 	var b strings.Builder
 	// The namespace is part of the manifest, not a precondition the operator is expected to have met.
 	//
-	// Measured on the first reference-arm cluster: every DaemonSet and its RBAC failed with
-	// `namespaces "gpu-platform-control-plane-system" not found`, the nodes advertised nothing, and the live
-	// capacity loop honestly reported <none> six times. The treatment cluster had hidden this for a day --
-	// something else had created that namespace there, so a manifest that assumed it worked by accident.
+	// Measured on the first reference-arm cluster: every DaemonSet and its RBAC failed with `namespaces
+	// "gpu-platform-control-plane-system" not found`, the nodes advertised nothing, and the live capacity
+	// loop honestly reported <none> six times.
+	// The treatment cluster had hidden this for a day -- something else had created that namespace there, so
+	// a manifest that assumed it worked by accident.
 	//
 	// A rendered artifact that cannot be applied to an empty cluster is not a rendered artifact; putting the
 	// creation in the shell instead would mean the run applies something the renderer never emitted.
@@ -221,13 +231,15 @@ func DevicePluginYAML(l NodeLayout, namespace, image string) (string, error) {
 		//
 		// A :latest tag defaults to Always, so the kubelet re-pulls even after `kind load docker-image`
 		// has put the layers on the node -- and a locally built tag exists in no registry, so the pull
-		// fails with ImagePullBackOff. The first live cluster showed exactly that: three pods scheduled
-		// onto the right workers, every label correct, `crictl images` listing the image on all three,
-		// and nothing advertising a device.
+		// fails with ImagePullBackOff.
+		// The first live cluster showed exactly that: three pods scheduled onto the right workers,
+		// every label correct, `crictl images` listing the image on all three, and nothing advertising
+		// a device.
 		//
 		// hack/m6-kind-e2e.sh:108 corrects it with a kubectl patch after applying the shared manifest,
-		// and config/gateway-kind does the same through a kustomize overlay. This renderer produces the
-		// manifest, so it belongs in the manifest rather than in a correction applied afterwards.
+		// and config/gateway-kind does the same through a kustomize overlay.
+		// This renderer produces the manifest, so it belongs in the manifest rather than in a
+		// correction applied afterwards.
 		fmt.Fprintf(&b, `# Advertises %d fake device(s) on every worker labelled %s=%d.
 apiVersion: apps/v1
 kind: DaemonSet

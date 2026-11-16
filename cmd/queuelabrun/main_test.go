@@ -92,14 +92,15 @@ func TestWaitForHorizonPastDeadlineReturnsImmediately(t *testing.T) {
 }
 
 // Gate 0 item 18, and the reason this is a P0 rather than a tidiness point: the horizon the reconstruction
-// censors against used to be col.elapsed(), read AFTER the collector had been cancelled and joined. That is
-// the observation window plus however long shutdown took — a different boundary on every run, and a wider
-// one exactly when the API server is slow, so two runs of the same protocol would be censored at two
+// censors against used to be col.elapsed(), read AFTER the collector had been cancelled and joined.
+// That is the observation window plus however long shutdown took — a different boundary on every run, and a
+// wider one exactly when the API server is slow, so two runs of the same protocol would be censored at two
 // different instants and their numbers would not be comparable.
 //
 // The test drives reconstructAtHorizon, which is the real call site, twice with a shutdown-shaped delay
-// between them. Both the value and its independence from that delay are asserted: a horizon that moved with
-// the clock would give the first call a boundary of a few microseconds, which is before every event here.
+// between them.
+// Both the value and its independence from that delay are asserted: a horizon that moved with the clock
+// would give the first call a boundary of a few microseconds, which is before every event here.
 func TestReconstructHorizonIsTheStampedInstantNotWhateverShutdownTook(t *testing.T) {
 	const horizon = 30 * time.Second
 	const submittedAt = 2 * time.Second
@@ -126,7 +127,8 @@ func TestReconstructHorizonIsTheStampedInstantNotWhateverShutdownTook(t *testing
 	}
 
 	// Shutdown takes a while — cancelling the watches, joining four goroutines, a slow API server closing
-	// them. None of that may move the boundary.
+	// them.
+	// None of that may move the boundary.
 	time.Sleep(150 * time.Millisecond)
 
 	second, err := reconstructAtHorizon(col, queuelab.ArmNRef, trace, events)
@@ -208,10 +210,10 @@ func TestDispatchOperatorModeRefusesWithoutTouchingTheCluster(t *testing.T) {
 // the dispatch site would leave the helper untouched and the suite green.
 //
 // So this drives the real dispatchOperatorMode against a fake cluster and captures the context the mode
-// function is actually handed. It asserts the two properties the design argues for together: the context is
-// BOUNDED, so a hung API server cannot hang a recovery indefinitely, and it is LIVE and derived from
-// Background rather than from any signal handling, so a Ctrl-C cannot cut a break in half between its Get
-// and its Patch.
+// function is actually handed.
+// It asserts the two properties the design argues for together: the context is BOUNDED, so a hung API
+// server cannot hang a recovery indefinitely, and it is LIVE and derived from Background rather than from
+// any signal handling, so a Ctrl-C cannot cut a break in half between its Get and its Patch.
 // Both properties are sampled INSIDE the client call rather than from a captured context afterwards:
 // dispatchOperatorMode cancels on the way out, as it must, so a context inspected after it returns is
 // always cancelled and would prove the opposite of what this test is for.
@@ -332,10 +334,12 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 }
 
 // This covers exactly two of run()'s seventeen returns — the connect failure and the acquisition refusal —
-// and its name says so. An earlier version claimed to cover every path, which it could not: the other
-// fifteen need a live cluster, and a reviewer proved the gap by deleting four `o = ...` assignments and
-// watching go vet stay silent and the suite stay green. The totality invariant is enforced in
-// buildRecord's classified() instead; see TestBuildRecordRefusesAZeroDisposition.
+// and its name says so.
+// An earlier version claimed to cover every path, which it could not: the other fifteen need a live
+// cluster, and a reviewer proved the gap by deleting four `o = ...` assignments and watching go vet stay
+// silent and the suite stay green.
+// The totality invariant is enforced in buildRecord's classified() instead; see
+// TestBuildRecordRefusesAZeroDisposition.
 //
 // These two are still worth pinning by hand because they bracket the emergency-release defer: the connect
 // failure returns before it is registered, and the acquisition refusal is the last return before it is.
@@ -372,8 +376,8 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 }
 
 // The preview note is the one free-text field in either record, so a future writer could fold run data into
-// it and hand a preview the reconstructable evidence previewRecord has no field for. It must therefore be the
-// same constant whatever the run did.
+// it and hand a preview the reconstructable evidence previewRecord has no field for.
+// It must therefore be the same constant whatever the run did.
 func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
 	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, nil, recordIdentity{RunID: "r1", Arm: "A-honor"}, nil, true,
 		time.Now(), time.Now()).(previewRecord)
@@ -391,9 +395,9 @@ func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
 
 // The note is persisted into every preview record, so it is a durable statement read by somebody who has only
 // the file — and it said the validity gates were not enforced, which was false of every build that wrote it.
-// run() takes no preview flag, so no gate has ever been waived for a preview. That is the same defect the
-// UnimplementedGates field was already fixed for, and it fails the same way: a reader who checks the claim and
-// finds it false learns to discount the rest of the note, conclusion included.
+// run() takes no preview flag, so no gate has ever been waived for a preview.
+// That is the same defect the UnimplementedGates field was already fixed for, and it fails the same way: a
+// reader who checks the claim and finds it false learns to discount the rest of the note, conclusion included.
 //
 // The assertions are on the SHAPE of the claim, not on the exact wording, because the wording may be improved
 // and the two properties may not: the note must not say checking was weakened, and it must name the ledger it
@@ -402,8 +406,8 @@ func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
 // Mutation that turns this red: restore
 // "preview: the validity gates were not enforced, so this is a smoke check and not evidence".
 func TestThePreviewNoteNamesTheWithheldLedgerAndNoWaivedGate(t *testing.T) {
-	// Every spelling the old note and its neighbours reached for. A preview differs from a run in what it
-	// PERSISTS, so any of these describes the build wrongly.
+	// Every spelling the old note and its neighbours reached for.
+	// A preview differs from a run in what it PERSISTS, so any of these describes the build wrongly.
 	for _, falsehood := range []string{"not enforced", "gates were", "without the validity gates", "not checked"} {
 		if strings.Contains(previewNote, falsehood) {
 			t.Fatalf("the note claims checking was weakened (%q), which no build has ever done to a preview: %q",
@@ -421,8 +425,9 @@ func TestThePreviewNoteNamesTheWithheldLedgerAndNoWaivedGate(t *testing.T) {
 }
 
 // A refusal that fired before -runid was read still has to leave a record a reader can open, and
-// decodeRunRecord requires a non-empty run id. The sentinel only works if it can never be confused with a
-// run id somebody actually passed, which is a property of runIDPattern rather than of the constant.
+// decodeRunRecord requires a non-empty run id.
+// The sentinel only works if it can never be confused with a run id somebody actually passed, which is a
+// property of runIDPattern rather than of the constant.
 func TestRefusalRecordIsReadableEvenWithoutARunID(t *testing.T) {
 	if runIDPattern.MatchString(unidentifiedRunID) {
 		t.Fatalf("%q is an acceptable run id, so a real run could collide with the sentinel", unidentifiedRunID)
@@ -452,10 +457,10 @@ func TestRefusalRecordIsReadableEvenWithoutARunID(t *testing.T) {
 // leave one: a record written only when asked for would be absent exactly when an operator is trying to work
 // out what a surprising refusal did.
 //
-// The default must also differ per invocation. It used to be one fixed name, which composed into a real
-// defect: writeRecord replaces by rename, so a mistyped command in the same working directory destroyed the
-// previous run's record — a refusal erasing evidence, inside the change written to stop refusals erasing
-// evidence.
+// The default must also differ per invocation.
+// It used to be one fixed name, which composed into a real defect: writeRecord replaces by rename, so a
+// mistyped command in the same working directory destroyed the previous run's record — a refusal erasing
+// evidence, inside the change written to stop refusals erasing evidence.
 func TestRecordPathNamesEveryInvocationSeparately(t *testing.T) {
 	if got := recordPathFor("/tmp/rec1.json", time.Now(), 1234); got != "/tmp/rec1.json" {
 		t.Fatalf("-out must name the record, got %q", got)
@@ -478,9 +483,9 @@ func TestRecordPathNamesEveryInvocationSeparately(t *testing.T) {
 }
 
 // A zero disposition is the silent lie this task exists to prevent, and no test can walk the seventeen
-// returns that could produce one: fifteen need a live cluster. So the invariant is enforced where every
-// record is built rather than audited where only some are reachable — a reviewer deleted four `o = ...`
-// assignments and neither go vet nor the suite noticed.
+// returns that could produce one: fifteen need a live cluster.
+// So the invariant is enforced where every record is built rather than audited where only some are
+// reachable — a reviewer deleted four `o = ...` assignments and neither go vet nor the suite noticed.
 func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	rr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now()).(runRecord)
 	if !ok {
@@ -511,8 +516,9 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 }
 
 // readsBackFine stands in for a read-back that found the record readable, for the tests below that are about
-// the publish ordering rather than about the artifact. They inject a writer that touches no disk, so the real
-// verifier would fail on a path they never created and every one of them would be measuring the filesystem.
+// the publish ordering rather than about the artifact.
+// They inject a writer that touches no disk, so the real verifier would fail on a path they never created and
+// every one of them would be measuring the filesystem.
 func readsBackFine(string, bool) error { return nil }
 
 // neverVerified fails if the read-back is attempted at all, which is the assertion the failed-write test
@@ -527,8 +533,9 @@ func neverVerified(t *testing.T) recordVerifier {
 }
 
 // The persist-before-publish ordering is the rule this whole task establishes, and it used to live inline
-// in main(), which no test can call. If a persistence failure still rendered, an unrecorded result would
-// reach the terminal and a non-zero exit could not retract it.
+// in main(), which no test can call.
+// If a persistence failure still rendered, an unrecorded result would reach the terminal and a non-zero
+// exit could not retract it.
 func TestReportRunPublishesNothingWhenTheRecordCannotBePersisted(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	res := queuelab.LabResult{Arm: "A-honor"}
@@ -592,9 +599,9 @@ func TestReportRunPublishesOnceTheRecordIsDurable(t *testing.T) {
 //
 // run() hands back a nil Result on every path that failed, so this scenario needs the caller to be wrong
 // about that — a Result surviving alongside a failing disposition — and the check that must catch it is the
-// disposition gate, not the nil check. Rendering here would put a number on the terminal for a run whose own
-// collector desynced, which is exactly the "a run that looked fine was allowed to count" failure this lab
-// published once already.
+// disposition gate, not the nil check.
+// Rendering here would put a number on the terminal for a run whose own collector desynced, which is exactly
+// the "a run that looked fine was allowed to count" failure this lab published once already.
 func TestReportRunRendersNoResultUnlessTheChecksPassed(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	res := queuelab.LabResult{Arm: "A-honor"}
@@ -678,10 +685,10 @@ func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
 // The other half of the same guarantee, and the half that was missing.
 //
 // buildRecord omits measurement from a preview because handing back the numbers directly returns exactly what
-// the withheld ledger protects. The rendered result was not gated the same way, so a preview printed
-// wastedGPUSeconds, the occupancy total and the wait percentile to stdout — where a shell redirect captures
-// them as well as a file does. Withholding one channel while the other prints the same figures is not a
-// guarantee, it is a formality.
+// the withheld ledger protects.
+// The rendered result was not gated the same way, so a preview printed wastedGPUSeconds, the occupancy total
+// and the wait percentile to stdout — where a shell redirect captures them as well as a file does.
+// Withholding one channel while the other prints the same figures is not a guarantee, it is a formality.
 //
 // Mutation that turns this red: render the result for a preview as before.
 func TestReportRunWithholdsTheNumbersFromAPreview(t *testing.T) {
@@ -721,10 +728,12 @@ func TestReportRunWithholdsTheNumbersFromAPreview(t *testing.T) {
 // must change the exit code: exit 0 on an unreadable artifact is exactly how a number gets quoted out of a
 // document nobody can re-derive it from.
 //
-// What it must NOT do is withhold the output. That is the asymmetry with a write failure, and the reason for
-// it is that the two are different states: a failed write may mean nothing durable exists, while an unreadable
-// record is durable bytes this build's reader refuses. Suppressing the ledger there would delete the last
-// usable account of the run at the moment the file stopped being one.
+// What it must NOT do is withhold the output.
+// That is the asymmetry with a write failure, and the reason for it is that the two are different states: a
+// failed write may mean nothing durable exists, while an unreadable record is durable bytes this build's
+// reader refuses.
+// Suppressing the ledger there would delete the last usable account of the run at the moment the file stopped
+// being one.
 //
 // Mutation that turns this red: drop `|| verifyErr != nil` from reportRun's return condition, so an
 // unreadable record is announced on stderr and still exits 0.
@@ -749,9 +758,10 @@ func TestReportRunFailsARunWhoseRecordCannotBeReadBack(t *testing.T) {
 	if !strings.Contains(stderr.String(), "schema 7 is not 6") {
 		t.Fatalf("the reader's own reason must reach the operator, got %q", stderr.String())
 	}
-	// The evidence must survive. Destroying it here is one failure this branch was written to avoid, and
-	// leaving it on stdout is the other: a non-zero exit cannot retract a number a shell redirect already
-	// captured, so an unreadable record must not leave anything countable on the channel a caller quotes.
+	// The evidence must survive.
+	// Destroying it here is one failure this branch was written to avoid, and leaving it on stdout is the
+	// other: a non-zero exit cannot retract a number a shell redirect already captured, so an unreadable
+	// record must not leave anything countable on the channel a caller quotes.
 	// Both halves are asserted together on purpose — either one alone is satisfied by a change that breaks
 	// the other, and this function has already been wrong in each direction once.
 	if !strings.Contains(stderr.String(), "job=a1") {
@@ -771,7 +781,8 @@ func TestReportRunFailsARunWhoseRecordCannotBeReadBack(t *testing.T) {
 // This is a regression the diversion introduced and a review caught. main prints the OPENING banner to stdout
 // unconditionally; the closing one followed publish, so a refused read-back sent it to stderr and left stdout
 // holding an opening banner with nothing under it — which is, word for word, the state the closing banner's
-// own comment says it exists to prevent. The fix that protected one property broke the other.
+// own comment says it exists to prevent.
+// The fix that protected one property broke the other.
 //
 // Mutation that turns this red: print the closing banner to publish again.
 func TestReportRunClosesThePreviewBannerOnTheChannelItOpenedOn(t *testing.T) {
@@ -891,15 +902,16 @@ func fullScheme(t *testing.T) *runtime.Scheme {
 	return scheme
 }
 
-// fakeSchedulerCreate stands in for the Kueue scheduler this fake cluster has none of. It stamps every
-// MLTrainingJob straight to Running — the fact the barrier-staged schedule depends on — so an uncontested
-// arm falls through to run()'s own explicit release exactly as it would against a real, empty cluster with
-// nothing else competing for the worker.
+// fakeSchedulerCreate stands in for the Kueue scheduler this fake cluster has none of.
+// It stamps every MLTrainingJob straight to Running — the fact the barrier-staged schedule depends on — so
+// an uncontested arm falls through to run()'s own explicit release exactly as it would against a real,
+// empty cluster with nothing else competing for the worker.
 //
 // The UID it used to set by hand now comes from stampUIDOnCreate, which does it for every kind rather than
-// for MLTrainingJob alone. The collector's UID-keyed cache always needed one; teardown needs one on the
-// namespace and the fixtures too, and a fake cluster that assigned UIDs to exactly one kind would report
-// residue for every run() test purely as an artefact of the double.
+// for MLTrainingJob alone.
+// The collector's UID-keyed cache always needed one; teardown needs one on the namespace and the fixtures
+// too, and a fake cluster that assigned UIDs to exactly one kind would report residue for every run() test
+// purely as an artefact of the double.
 func fakeSchedulerCreate(ctx context.Context, c client.WithWatch, obj client.Object,
 	opts ...client.CreateOption) error {
 	if mltj, ok := obj.(*platformv1.MLTrainingJob); ok {
@@ -910,10 +922,10 @@ func fakeSchedulerCreate(ctx context.Context, c client.WithWatch, obj client.Obj
 		// Admission is two things, and this double used to do one of them.
 		//
 		// A real Kueue marks the workload admitted AND charges its request against the ResourceFlavor, which
-		// is what ClusterQueue.Status.FlavorsUsage reports. Modelling only the phase left the double able to
-		// satisfy a barrier that reads phases and unable to satisfy one that reads Kueue's accounting — and
-		// the barrier's implementation used to read phases. The double was not merely incomplete; it was the
-		// shape the implementation had been fitted to.
+		// is what ClusterQueue.Status.FlavorsUsage reports.
+		// Modelling only the phase left the double able to satisfy a barrier that reads phases and unable to
+		// satisfy one that reads Kueue's accounting — and the barrier's implementation used to read phases.
+		// The double was not merely incomplete; it was the shape the implementation had been fitted to.
 		return chargeFakeFlavorUsage(ctx, c, mltj)
 	}
 	return stampUIDOnCreate(ctx, c, obj, opts...)
@@ -963,8 +975,9 @@ func chargeFakeFlavorUsage(ctx context.Context, c client.WithWatch, mltj *platfo
 			})
 		}
 		// A plain Update rather than Status().Update: the fake tracker stores the whole object, and the status
-		// subresource is only registered for the kinds these tests already needed it for. This is double code,
-		// so writing the field directly is the shortest faithful way to say "Kueue charged it".
+		// subresource is only registered for the kinds these tests already needed it for.
+		// This is double code, so writing the field directly is the shortest faithful way to say "Kueue
+		// charged it".
 		if err := c.Update(ctx, cq); err != nil {
 			return err
 		}
@@ -977,8 +990,9 @@ func chargeFakeFlavorUsage(ctx context.Context, c client.WithWatch, mltj *platfo
 //
 // Without it no full run can start at all: each of the collector's four streams takes its baseline from a
 // List and refuses an empty resource version, because a watch resumed from one starts at "now" and the gap
-// between the list and the watch is then invisible. That refusal is the correct behaviour against a real
-// cluster and an artefact of the double against this one, so the double is what changes.
+// between the list and the watch is then invisible.
+// That refusal is the correct behaviour against a real cluster and an artefact of the double against this
+// one, so the double is what changes.
 //
 // The value is fixed rather than incremented because nothing here reads it back: the fake client's Watch
 // ignores the resume version entirely, and what these tests exercise is run()'s ordering around the streams,
@@ -1000,9 +1014,11 @@ func fakeSchedulerList(ctx context.Context, c client.WithWatch, list client.Obje
 // That refusal is correct against a real apiserver and an artefact of the fake client's tracker, which stamps
 // nothing, so the double is what changes.
 //
-// Nodes ALONE, deliberately. The tests that use this are about what run() does after an early return, and they
-// reach those returns because the collector's namespaced streams refuse their own unstamped baseline. Stamping
-// every list would send them down the full protocol instead and they would stop testing the path they name.
+// Nodes ALONE, deliberately.
+// The tests that use this are about what run() does after an early return, and they reach those returns
+// because the collector's namespaced streams refuse their own unstamped baseline.
+// Stamping every list would send them down the full protocol instead and they would stop testing the path they
+// name.
 func fakeNodeList(ctx context.Context, c client.WithWatch, list client.ObjectList,
 	opts ...client.ListOption) error {
 	if err := c.List(ctx, list, opts...); err != nil {
@@ -1016,10 +1032,12 @@ func fakeNodeList(ctx context.Context, c client.WithWatch, list client.ObjectLis
 
 // stubWatch never delivers an event; it exists only to close once ctx is cancelled, which the fake client's
 // real Watch — a thin wrapper over an in-memory tracker with no notion of context at all — never does on its
-// own. It predates the streams: collector.watch read the raw watch channel and could only rejoin its
-// goroutines when that channel closed, so without this a full run() against a bare fake client hung in
-// col.wait() forever. RetryWatcher no longer needs it — it selects on the context and gives up on the
-// underlying watch — but the stub stays because it is also what keeps these tests deterministic.
+// own.
+// It predates the streams: collector.watch read the raw watch channel and could only rejoin its goroutines
+// when that channel closed, so without this a full run() against a bare fake client hung in col.wait()
+// forever.
+// RetryWatcher no longer needs it — it selects on the context and gives up on the underlying watch — but the
+// stub stays because it is also what keeps these tests deterministic.
 //
 // It costs nothing in fidelity here: every fact this file's full-run tests depend on — an MLTrainingJob's
 // Submitted event and its Status.Phase for the barrier checks — is written directly rather than observed off
@@ -1047,10 +1065,11 @@ func fakeSchedulerWatch(ctx context.Context, c client.WithWatch, obj client.Obje
 
 // run()'s own release — at the very end, after reconstruction and cardinality have already passed, not the
 // deferred emergency one that covers early returns — is the last thing standing between a computed result
-// and calling the worker restored. If it fails, run() must reach classifyReleaseFailure, not the phase
-// classifier every earlier failure in this function uses, because this release ran to completion rather than
-// being cut short partway through: a failure here means the worker is still held, in full, with nothing left
-// to retry, which is what dispWorkerNotRestored says and dispCancelled does not.
+// and calling the worker restored.
+// If it fails, run() must reach classifyReleaseFailure, not the phase classifier every earlier failure in
+// this function uses, because this release ran to completion rather than being cut short partway through: a
+// failure here means the worker is still held, in full, with nothing left to retry, which is what
+// dispWorkerNotRestored says and dispCancelled does not.
 //
 // Driving this requires run() to actually complete its protocol, so the Node patch this test fails is
 // counted rather than the first one intercepted: the first Node patch is acquireWorker's own, and only the
@@ -1060,8 +1079,8 @@ func fakeSchedulerWatch(ctx context.Context, c client.WithWatch, obj client.Obje
 // spine.go), which is a protocol constant the experiment's validity rests on and is deliberately not made
 // configurable for tests — a test-only override would be exactly the seam that later gets used in
 // production. -short skips it for that reason: `go test -short` does NOT check that an explicit release
-// failure is recorded as worker-not-restored with nothing rendered. Only a full `go test` (no -short)
-// exercises this acceptance condition.
+// failure is recorded as worker-not-restored with nothing rendered.
+// Only a full `go test` (no -short) exercises this acceptance condition.
 func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives run() through the full 40-second protocol dose to reach the explicit-release path; " +
@@ -1132,23 +1151,24 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 // mistaken for the reason restoration failed (see cleanupContext's and classifyReleaseFailure's comments).
 //
 // This drives that scenario for real: it cancels the run's own context from inside the release-phase Patch,
-// the instant restoration is in flight, and checks two things. First, that the context the release actually
-// ran on was still live the moment cancellation landed elsewhere — proving cleanupContext is genuinely
-// independent rather than only documented as such, since a regression that handed the release the run's own
-// context would show Canceled here immediately, before the injected failure below even matters. Second, that
-// the disposition which follows names the release failure and never cancellation: the wrong implementation
-// this guards against is routing the release failure through the PHASE classifier (classifyPhaseFailure)
-// instead of classifyReleaseFailure, which is why the injected failure itself wraps context.Canceled — the
-// phase classifier treats that as cancellation outright and would relabel this run cancelled, exactly the
-// misreading two accounts of one run — a worker still held, reported as merely interrupted — that this
-// design exists to prevent.
+// the instant restoration is in flight, and checks two things.
+// First, that the context the release actually ran on was still live the moment cancellation landed
+// elsewhere — proving cleanupContext is genuinely independent rather than only documented as such, since a
+// regression that handed the release the run's own context would show Canceled here immediately, before the
+// injected failure below even matters.
+// Second, that the disposition which follows names the release failure and never cancellation: the wrong
+// implementation this guards against is routing the release failure through the PHASE classifier
+// (classifyPhaseFailure) instead of classifyReleaseFailure, which is why the injected failure itself wraps
+// context.Canceled — the phase classifier treats that as cancellation outright and would relabel this run
+// cancelled, exactly the misreading two accounts of one run — a worker still held, reported as merely
+// interrupted — that this design exists to prevent.
 //
 // This test is real time, not simulated: it drives run() through the actual doseSec=40 protocol wait (see
 // spine.go), which is a protocol constant the experiment's validity rests on and is deliberately not made
 // configurable for tests — a test-only override would be exactly the seam that later gets used in
 // production. -short skips it for that reason: `go test -short` does NOT check the acceptance condition
-// above — that a cancellation arriving while restoration is in flight never relabels the run cancelled. Only
-// a full `go test` (no -short) exercises it.
+// above — that a cancellation arriving while restoration is in flight never relabels the run cancelled.
+// Only a full `go test` (no -short) exercises it.
 func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives run() through the full 40-second protocol dose to reach the explicit-release path; " +
@@ -1222,8 +1242,9 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 //
 // The property these tests are about — teardown happens before the worker's markers come off — is a
 // property of the ORDER of calls, and no final state can show it: the node ends up released and the
-// namespace ends up gone whichever order they happened in. This is the same reason Task 1's phase-order
-// test had to assert on a call log rather than on what the cluster looked like afterwards.
+// namespace ends up gone whichever order they happened in.
+// This is the same reason Task 1's phase-order test had to assert on a call log rather than on what the
+// cluster looked like afterwards.
 type runCall struct {
 	Op   string // "delete" | "patch"
 	Kind string
@@ -1231,7 +1252,8 @@ type runCall struct {
 	// Dedicated says whether a patched Node still carried the dedication label at the moment it was written.
 	// It exists because "the second Node patch" stopped being a synonym for "the release": a held worker now
 	// gets a residue record patched onto it as well, and that patch — like the acquisition's — leaves the label
-	// on, while only a release takes it off. Meaningless on any call that is not a Node patch.
+	// on, while only a release takes it off.
+	// Meaningless on any call that is not a Node patch.
 	Dedicated bool
 }
 
@@ -1294,8 +1316,9 @@ func stampUIDOnCreate(ctx context.Context, c client.WithWatch, obj client.Object
 	return c.Create(ctx, obj, opts...)
 }
 
-// firstIndexOf reports where a call appears in the log, or -1. The tests assert on indices rather than on
-// mere presence, because presence is what both the right and the wrong order have in common.
+// firstIndexOf reports where a call appears in the log, or -1.
+// The tests assert on indices rather than on mere presence, because presence is what both the right and
+// the wrong order have in common.
 func firstIndexOf(calls []runCall, op, kind string, nth int) int {
 	seen := 0
 	for i, c := range calls {
@@ -1331,9 +1354,9 @@ func releasePatchIndex(calls []runCall) int {
 // between acquiring the worker and reconstructing the result, and therefore the common case.
 //
 // If the worker's label and NoSchedule taint came off first, the next run would acquire a node whose GPUs
-// this run's namespace is still holding, and it would look perfectly free while doing it. The assertion is
-// on the index of the namespace delete against the index of the release patch, because both calls happen in
-// either order and only their sequence distinguishes the two implementations.
+// this run's namespace is still holding, and it would look perfectly free while doing it.
+// The assertion is on the index of the namespace delete against the index of the release patch, because
+// both calls happen in either order and only their sequence distinguishes the two implementations.
 func TestRunTearsDownBeforeTheEmergencyReleaseOnAnEarlyReturn(t *testing.T) {
 	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -1382,7 +1405,8 @@ func TestRunTearsDownBeforeTheEmergencyReleaseOnAnEarlyReturn(t *testing.T) {
 
 // The same ordering on the path that returns normally, which a defer cannot get right on its own: an inline
 // release always runs before a defer registered later, so the happy path has to call teardown explicitly and
-// in the right place. Nothing about the deferred path can show that.
+// in the right place.
+// Nothing about the deferred path can show that.
 //
 // This test is real time, not simulated: it drives run() through the actual doseSec=40 protocol wait, the
 // same as the two release tests above and for the same reason — the dose is a protocol constant the
@@ -1440,11 +1464,12 @@ func TestRunTearsDownBeforeItsOwnReleaseOnTheHappyPath(t *testing.T) {
 // there (only the namespace is ever cleaned up by hand), so applyFixtures refuses and the run returns early
 // with its own namespace already created.
 //
-// Everything this test asserts used to be the other way round. Recovery refused the whole batch on the first
-// foreign target, so teardown issued no Delete at all, the run's own namespace stayed on the cluster, the
-// record carried disposition residue-left with an EMPTY residue array — naming nothing, which a next-run gate
-// keying on len(Residue) > 0 waves straight through — and the worker was held forever for a run whose only
-// cluster write it could not undo was one it had not made.
+// Everything this test asserts used to be the other way round.
+// Recovery refused the whole batch on the first foreign target, so teardown issued no Delete at all, the
+// run's own namespace stayed on the cluster, the record carried disposition residue-left with an EMPTY
+// residue array — naming nothing, which a next-run gate keying on len(Residue) > 0 waves straight through —
+// and the worker was held forever for a run whose only cluster write it could not undo was one it had not
+// made.
 //
 // The worker going back is the deliberate half, and the disposition still reporting residue is the other:
 // every object still standing here is one this run did not create, so holding contains nothing — the taint
@@ -1529,7 +1554,8 @@ func TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt(t *testing.T) {
 
 // residueHoldsWorker is the whole of that decision, so the mixed case is pinned here rather than through a
 // second full run: one foreign object among objects this run really did leave behind must still hold the
-// worker. Holding is decided by what is NOT foreign, not by whether anything foreign is present.
+// worker.
+// Holding is decided by what is NOT foreign, not by whether anything foreign is present.
 func TestResidueHoldsTheWorkerUnlessEverythingLeftIsSomebodyElses(t *testing.T) {
 	foreign := residue{Observation: observation{Target: target{Kind: "ResourceFlavor", Name: "rf"}, Found: true,
 		UID: "theirs", Foreign: true}, Absence: absenceForeign}
@@ -1560,8 +1586,9 @@ func TestResidueHoldsTheWorkerUnlessEverythingLeftIsSomebodyElses(t *testing.T) 
 
 // Residue is not a failure to compute a result — it is a fact about the cluster, and two things must follow
 // from it: the outcome says so without losing what the run was already failing at, and the worker STAYS
-// DEDICATED. Releasing it would strip the NoSchedule taint from a node whose namespace is still there, and
-// an annotation cannot contain a GPU Pod; a teardown timeout deliberately sacrifices worker availability to
+// DEDICATED.
+// Releasing it would strip the NoSchedule taint from a node whose namespace is still there, and an
+// annotation cannot contain a GPU Pod; a teardown timeout deliberately sacrifices worker availability to
 // preserve isolation.
 //
 // The namespace delete is refused rather than merely slow, because that is the shape that also proves the
@@ -1601,7 +1628,8 @@ func TestRunTeardownResidueAmendsTheOutcomeAndHoldsTheWorker(t *testing.T) {
 			dispResidueLeft, o.Disposition, o.Reason)
 	}
 	// amend, not assignment: this run failed at setup AND then failed to clean up, and those are not the
-	// same event. The record is the only account of it that survives the process.
+	// same event.
+	// The record is the only account of it that survives the process.
 	if !strings.Contains(o.Reason, "applying fixtures") {
 		t.Fatalf("the amended outcome must keep what run() originally decided as the cause in its (after …) "+
 			"chain, got %q", o.Reason)
@@ -1644,9 +1672,9 @@ func TestRunTeardownResidueAmendsTheOutcomeAndHoldsTheWorker(t *testing.T) {
 //
 // Every other residue test in this package drives an early return: the fixture Create is refused, so run()
 // never gets past setup and the inline branch on the happy path — the one that decides both that the worker
-// stays and that no result is handed back — is reached by nothing. Deleting that branch outright and
-// replacing it with `_ = holdWorker` left the entire package green, which is why this test exists rather than
-// a stronger assertion somewhere cheaper.
+// stays and that no result is handed back — is reached by nothing.
+// Deleting that branch outright and replacing it with `_ = holdWorker` left the entire package green, which
+// is why this test exists rather than a stronger assertion somewhere cheaper.
 //
 // This test is real time, not simulated: it drives run() through the actual doseSec=40 protocol wait, the
 // same as the other full-run tests here and for the same reason — the dose is a protocol constant the
@@ -1680,10 +1708,11 @@ func TestRunHoldsTheWorkerWhenTheHappyPathLeavesResidue(t *testing.T) {
 		queuelab.ArmNRef, stateRequest{}, "r8", "queuelab-r8", "platform-worker", selfCompletingProtocol(), 45*time.Second, "", "", "", io.Discard, now, sleep)
 
 	// The run must genuinely have completed its protocol, or this test is another early-return test wearing a
-	// longer sleep. The owner row is submitted only after the victim has been Ready for the whole 40-second
-	// dose, so an event for it is evidence the schedule ran to its last step; and the outcome carrying no
-	// "(after …)" chain is evidence run() reached teardown with nothing already decided against it, which
-	// only the path through reconstruction and the cardinality check does.
+	// longer sleep.
+	// The owner row is submitted only after the victim has been Ready for the whole 40-second dose, so an
+	// event for it is evidence the schedule ran to its last step; and the outcome carrying no "(after …)"
+	// chain is evidence run() reached teardown with nothing already decided against it, which only the path
+	// through reconstruction and the cardinality check does.
 	submittedOwner := false
 	for _, e := range events {
 		if e.Job == queuelab.OwnerRow {
@@ -1805,8 +1834,8 @@ func TestRunStampsTheResidueRecordWhenItHoldsTheWorker(t *testing.T) {
 	}
 }
 
-// A foreign-only residue releases the worker on purpose, so no refusal will ever quote a record. Writing one
-// would leave a marker on a node whose release path has already run.
+// A foreign-only residue releases the worker on purpose, so no refusal will ever quote a record.
+// Writing one would leave a marker on a node whose release path has already run.
 //
 // The harness is TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt's: a cluster-scoped flavor from a
 // previous attempt under the same run id, which applyFixtures refuses and teardown then classifies foreign.
@@ -1872,8 +1901,9 @@ func TestRunDoesNotStampWhenTheWorkerIsReleased(t *testing.T) {
 }
 
 // reportResidue used to write straight to os.Stderr, which made its text unassertable and is exactly how a
-// false sentence in the released branch (see the next test) survived two reviews. This pins the held branch
-// the same way, so a future change to either has to answer to a literal string instead of to nothing.
+// false sentence in the released branch (see the next test) survived two reviews.
+// This pins the held branch the same way, so a future change to either has to answer to a literal string
+// instead of to nothing.
 func TestReportResidueHeldMessage(t *testing.T) {
 	var buf bytes.Buffer
 	left := []residue{{Observation: observation{Target: target{Kind: "Namespace", Name: "queuelab-r7"}},
@@ -1897,10 +1927,10 @@ func TestReportResidueHeldMessage(t *testing.T) {
 
 // This is the finding itself: since 62e74c4, a namespace THIS RUN created and deleted can still be observed
 // Terminating and classified absenceForeign — so the released branch's old text ("nothing this run created
-// is still on the cluster") is false in exactly the window an operator is most likely to read it. This test
-// drives that scenario — a residue entry that is foreign, which is the only way reportResidue is ever
-// called with held=false (residueHoldsWorker's own contract) — and pins that the message no longer asserts
-// the negative it cannot know, while still giving the released-branch advice.
+// is still on the cluster") is false in exactly the window an operator is most likely to read it.
+// This test drives that scenario — a residue entry that is foreign, which is the only way reportResidue is
+// ever called with held=false (residueHoldsWorker's own contract) — and pins that the message no longer
+// asserts the negative it cannot know, while still giving the released-branch advice.
 //
 // Mutation this catches: reverting the released-branch Fprintf back to "nothing this run created is still
 // on the cluster, but these names are held by another transaction" makes the first assertion below fail,
@@ -1946,9 +1976,9 @@ func TestReportResidueReleasedMessageAssertsNoNegativeItCannotKnow(t *testing.T)
 }
 
 // The stamp is written on a path that is already reporting failure, and the fact that matters — the worker is
-// held — is carried by the label and the taint, which are already installed. Failing the run on it would
-// misreport that: it would turn a run that did exactly what it decided into a run that decided something
-// else, and no next-run gate keys on this annotation.
+// held — is carried by the label and the taint, which are already installed.
+// Failing the run on it would misreport that: it would turn a run that did exactly what it decided into a run
+// that decided something else, and no next-run gate keys on this annotation.
 func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
 	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -1968,8 +1998,9 @@ func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
 				}
 				return c.Delete(ctx, obj, opts...)
 			},
-			// Only the write that sets residueKey is rejected. Acquisition patches the same Node and must still
-			// succeed, or this test would be about a run that never got a worker at all.
+			// Only the write that sets residueKey is rejected.
+			// Acquisition patches the same Node and must still succeed, or this test would be about a run that
+			// never got a worker at all.
 			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
 				opts ...client.PatchOption) error {
 				if _, ok := obj.GetAnnotations()[residueKey]; ok {
@@ -1999,7 +2030,8 @@ func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
 		t.Fatalf("the stamp was rejected and yet the node carries %q; this test proved nothing", raw)
 	}
 	// The worker must still be held: label and taint are what contain, and they were never the thing that
-	// failed. Asserted on the node itself and on the call log, the way the existing residue tests do.
+	// failed.
+	// Asserted on the node itself and on the call log, the way the existing residue tests do.
 	var n corev1.Node
 	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &n); err != nil {
 		t.Fatalf("read the worker back: %v", err)
@@ -2018,20 +2050,21 @@ func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
 
 // Submission is the point of no return: work offered to the cluster runs, competes for the worker's GPUs and
 // finishes whether or not anything was watching, and no later read can reconstruct the transitions it made in
-// between. So run() must prove its four streams open BEFORE it submits, and refuse the run when it cannot.
+// between.
+// So run() must prove its four streams open BEFORE it submits, and refuse the run when it cannot.
 //
-// This is the run-level half of the barrier that awaitEstablished implements. Its collector-level tests can
-// only show the wait returning an error; this one shows what the run does with it, which is the property that
-// actually matters — the previous implementation called col.start and fell straight into the submit loop, so
-// a watch that never established held up precisely nothing.
+// This is the run-level half of the barrier that awaitEstablished implements.
+// Its collector-level tests can only show the wait returning an error; this one shows what the run does with
+// it, which is the property that actually matters — the previous implementation called col.start and fell
+// straight into the submit loop, so a watch that never established held up precisely nothing.
 //
 // The Pod watch is refused with a WRAPPED Forbidden because that is the case with no other signal in it:
 // RetryWatcher terminates the stream having forwarded no event and no status, and startWatchStream has
 // already returned a nil error by then, so nothing but the barrier's own End() arm can notice.
 //
-// Mutation that turns this red: delete the col.awaitEstablished block from run(). The run then submits its
-// whole trace under a Pod stream that does not exist, spends the full horizon, and this test counts the
-// submissions it was not supposed to make.
+// Mutation that turns this red: delete the col.awaitEstablished block from run().
+// The run then submits its whole trace under a Pod stream that does not exist, spends the full horizon,
+// and this test counts the submissions it was not supposed to make.
 func TestRunSubmitsNothingWhenAStreamCannotBeEstablished(t *testing.T) {
 	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "",
 		errors.New("no watch permission"))
@@ -2092,15 +2125,16 @@ func TestRunSubmitsNothingWhenAStreamCannotBeEstablished(t *testing.T) {
 // only a test driving run() itself can observe.
 //
 // The mutation this exists for is the natural wrong implementation — col.start(context.WithTimeout(cctx,
-// establishBudget)) — and it is the one that must not be able to ship green. It is silent by construction:
-// the streams die a budget into the window, every ending reads Cancelled because the caller's own context
-// expired, no consumer desyncs, and the run reports checks-passed over a window it observed almost none of.
+// establishBudget)) — and it is the one that must not be able to ship green.
+// It is silent by construction: the streams die a budget into the window, every ending reads Cancelled
+// because the caller's own context expired, no consumer desyncs, and the run reports checks-passed over a
+// window it observed almost none of.
 // Every other test in this package stays green under it, which is precisely why this one asserts on the
 // context rather than on any consequence of it.
 //
-// The Pod watch is refused permanently so the run returns in milliseconds. What this test reads — the
-// contexts the four streams were opened with — all exists before that refusal is noticed, so nothing about
-// the assertion depends on how the run ends.
+// The Pod watch is refused permanently so the run returns in milliseconds.
+// What this test reads — the contexts the four streams were opened with — all exists before that refusal
+// is noticed, so nothing about the assertion depends on how the run ends.
 func TestRunHandsTheStreamsAnUnboundedContext(t *testing.T) {
 	spy := &deadlineSpy{}
 	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "",
@@ -2145,9 +2179,10 @@ func TestRunHandsTheStreamsAnUnboundedContext(t *testing.T) {
 // this run's is left on a cluster it never should have touched), and it has to give the worker back (so the
 // next attempt is not blocked by a run that never started).
 //
-// Mutation that turns this red: delete the qualifyWorker block from run(). That is the mutation that
-// matters most here — the component would still exist, still be correct and still be tested in isolation,
-// which is precisely the defect the previous gate shipped and had to be caught live.
+// Mutation that turns this red: delete the qualifyWorker block from run().
+// That is the mutation that matters most here — the component would still exist, still be correct and
+// still be tested in isolation, which is precisely the defect the previous gate shipped and had to be
+// caught live.
 func TestRunRefusesToCreateAnythingOnAContaminatedWorker(t *testing.T) {
 	var (
 		mu      sync.Mutex
@@ -2190,8 +2225,9 @@ func TestRunRefusesToCreateAnythingOnAContaminatedWorker(t *testing.T) {
 		t.Fatalf("the refusal must carry what it saw into the record, got %+v", qual)
 	}
 
-	// The worker has to go back. A refusal that holds the node is indistinguishable from a crash to the next
-	// operator, and there is nothing of this run's on it to contain.
+	// The worker has to go back.
+	// A refusal that holds the node is indistinguishable from a crash to the next operator, and there is
+	// nothing of this run's on it to contain.
 	var n corev1.Node
 	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &n); err != nil {
 		t.Fatalf("read the node back: %v", err)
@@ -2378,13 +2414,14 @@ func TestAPassingRunRecordsTheWindowItHeld(t *testing.T) {
 // both see a correct tuple and both pass — which is precisely the run that used to publish a number measured
 // on a shared machine.
 //
-// The Node's stored state is never actually changed, only what the view observes. That is deliberate: it
-// isolates what this test is about (the continuous view is the only thing that can see this) and leaves the
-// release path exercising the same clean node every other run() test does.
+// The Node's stored state is never actually changed, only what the view observes.
+// That is deliberate: it isolates what this test is about (the continuous view is the only thing that can
+// see this) and leaves the release path exercising the same clean node every other run() test does.
 //
-// Mutation that turns this red: delete the `col.desync(reason)` fold in run(). The window still records the
-// violation, the record still carries it, and the run prints its number anyway — the split between having
-// evidence and enforcing it, which is the whole failure mode this gate is against.
+// Mutation that turns this red: delete the `col.desync(reason)` fold in run().
+// The window still records the violation, the record still carries it, and the run prints its number anyway
+// — the split between having evidence and enforcing it, which is the whole failure mode this gate is
+// against.
 func TestRunRefusesToPublishAWorkerThatWasSharedMidRun(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives run() through its 45-second observation window to reach the invalidation")
@@ -2444,8 +2481,8 @@ func TestRunRefusesToPublishAWorkerThatWasSharedMidRun(t *testing.T) {
 //
 // The ordering is not cosmetic. qualifyWorker does a Node Get and an unfiltered cluster-wide Pod List — the
 // most expensive call in setup — and every millisecond of it used to sit inside the one interval this gate
-// does not watch, between acquire's own verify and the window's baseline. Nothing in the sentinel depends on
-// qualification, so the cost bought nothing.
+// does not watch, between acquire's own verify and the window's baseline.
+// Nothing in the sentinel depends on qualification, so the cost bought nothing.
 //
 // Mutation that turns this red: move the startOwnershipSentinel call and its defer back below qualifyWorker.
 // This run then refuses before the window is ever opened, the record carries no window for it, and the
@@ -2488,13 +2525,13 @@ func TestAnUnqualifiedRunStillRecordsTheWindowItOpened(t *testing.T) {
 //
 // The harness is TestRunSubmitsNothingWhenAStreamCannotBeEstablished's, and the wrapped Forbidden is chosen
 // for the same reason it is there: RetryWatcher terminates having forwarded no event and no status, so the
-// Pod stream ends with neither Cancelled nor Stopped and with nothing else to give it away. That ending is
-// exactly the shape the record has to carry, because it is the only thing distinguishing a lost stream from
-// an orderly one.
+// Pod stream ends with neither Cancelled nor Stopped and with nothing else to give it away.
+// That ending is exactly the shape the record has to carry, because it is the only thing distinguishing a
+// lost stream from an orderly one.
 //
-// Mutation that turns this red: delete the `obs = col.evidence(...)` defer from run(). Every assertion below
-// then has nothing to read, and the record of a run that observed almost nothing goes back to looking like
-// the record of a run that observed everything.
+// Mutation that turns this red: delete the `obs = col.evidence(...)` defer from run().
+// Every assertion below then has nothing to read, and the record of a run that observed almost nothing goes
+// back to looking like the record of a run that observed everything.
 func TestARefusedEstablishmentRecordsWhichStreamDiedAndThatNothingWasEstablished(t *testing.T) {
 	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "",
 		errors.New("no watch permission"))
@@ -2576,14 +2613,15 @@ func TestARefusedEstablishmentRecordsWhichStreamDiedAndThatNothingWasEstablished
 // captured and then dropped at buildRecord, would leave every other test in this package green while every
 // admissible record in the archive said nothing about how it had been observed.
 //
-// Mutation that turns this red: delete the `obs = col.evidence(...)` defer from run(). The run is unchanged
-// and the number is unchanged, and the record then says a run that observed its whole window observed
-// nothing — which deriveValidity correctly refuses, so the verdict flips with it.
+// Mutation that turns this red: delete the `obs = col.evidence(...)` defer from run().
+// The run is unchanged and the number is unchanged, and the record then says a run that observed its whole
+// window observed nothing — which deriveValidity correctly refuses, so the verdict flips with it.
 //
 // What this cannot reach is main's own buildRecord call, for the reason reportRun was extracted in the first
-// place: no test can call main. Passing nil for obs there would leave this test green, and the only thing
-// standing between that and a shipped archive of observation-less records is that the argument has a name at
-// the call site and a live run prints the block it wrote.
+// place: no test can call main.
+// Passing nil for obs there would leave this test green, and the only thing standing between that and a
+// shipped archive of observation-less records is that the argument has a name at the call site and a live
+// run prints the block it wrote.
 func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives run() to a passing disposition, which takes the 45-second observation window")
@@ -2616,8 +2654,8 @@ func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) 
 			time.Duration(obs.EstablishedNs), time.Duration(obs.EstablishBudgetNs))
 	}
 	for _, s := range obs.Streams {
-		// Cancelled, because the ordinary shutdown cancels the observation context at the horizon. Neither flag
-		// would be a stream that died mid-run, and this run published a number.
+		// Cancelled, because the ordinary shutdown cancels the observation context at the horizon.
+		// Neither flag would be a stream that died mid-run, and this run published a number.
 		if !s.Ended || !s.Cancelled || s.LastStatus != "" {
 			t.Fatalf("the %s stream of a passing run ended as %+v", s.Kind, s)
 		}
@@ -2637,9 +2675,10 @@ func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) 
 		t.Fatalf("a run with every implemented gate's evidence intact is %q, got %+v:\n%s",
 			verdictAdmissible, got.Validity, b)
 	}
-	// Exactly recordUnchecked, and not a roadmap of work still to do. Something is still genuinely outside
-	// what this build can check — the canary probes a Pod it creates itself, so the MLTrainingJob-to-Job-to-Pod
-	// path a run's workload actually takes is not what was qualified — and the record has to keep saying so.
+	// Exactly recordUnchecked, and not a roadmap of work still to do.
+	// Something is still genuinely outside what this build can check — the canary probes a Pod it creates
+	// itself, so the MLTrainingJob-to-Job-to-Pod path a run's workload actually takes is not what was qualified
+	// — and the record has to keep saying so.
 	// What it must not do is assert this build lacks the very gates whose evidence it carries, which tells its
 	// reader to discount that evidence.
 	if !reflect.DeepEqual(got.Validity.UnimplementedGates, recordUnchecked(workloadProvenance{})) {
@@ -2653,8 +2692,9 @@ func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) 
 //
 // The worker is HELD here — this run's own namespace could not be deleted — and the line an operator reads
 // has to say that, because the two branches send them to opposite places: a held worker needs
-// -inspect-worker and patience, a released one needs nothing at all. Every previous test of this text drove
-// reportResidue directly, which cannot show that run() passes the right `held` down to it.
+// -inspect-worker and patience, a released one needs nothing at all.
+// Every previous test of this text drove reportResidue directly, which cannot show that run() passes the
+// right `held` down to it.
 //
 // Mutation that turns this red: pass `false` instead of `hold` at tearDownBeforeRelease's reportResidue call.
 // The residue, the disposition and the held node are all unchanged — every other test stays green — and the
@@ -2707,9 +2747,10 @@ func TestRunTellsItsWriterTheWorkerIsHeldWhenItIsHeld(t *testing.T) {
 }
 
 // The other branch, and the one whose sentence was rewritten twice for claiming more than the code could
-// know. Every name left standing here belongs to a previous attempt, so the worker goes back — and the line
-// may say only that nothing left carries THIS run's stamp, never that nothing this run created is still on
-// the cluster, which a terminating namespace of our own can falsify.
+// know.
+// Every name left standing here belongs to a previous attempt, so the worker goes back — and the line may
+// say only that nothing left carries THIS run's stamp, never that nothing this run created is still on the
+// cluster, which a terminating namespace of our own can falsify.
 //
 // The harness is TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt's, driven for the text rather than
 // for the call ordering.
@@ -2765,10 +2806,12 @@ func TestRunTellsItsWriterTheWorkerWentBackWhenItDid(t *testing.T) {
 // A run bought for device evidence that returns none is a failed run.
 //
 // Device observation is an optional axis everywhere else, and that default is right: a run with no exporter
-// is still a valid control-plane measurement, and requiring one would make every kind run impossible. On
-// rented hardware the default inverts. A run whose observer was never wired up, or whose exporter died three
-// scrapes in, completes normally and writes a well-formed record saying device-not-observed -- which these
-// pages call "a CPU run that cost money". The harness was very good at preserving the wrong deliverable.
+// is still a valid control-plane measurement, and requiring one would make every kind run impossible.
+// On rented hardware the default inverts.
+// A run whose observer was never wired up, or whose exporter died three scrapes in, completes normally and
+// writes a well-formed record saying device-not-observed -- which these pages call "a CPU run that cost
+// money".
+// The harness was very good at preserving the wrong deliverable.
 //
 // Mutations that turn this red: ignore the flag; overwrite an earlier failure with this one; invalidate a
 // run that DID establish device work.
@@ -2792,8 +2835,9 @@ func TestARunBoughtForDeviceEvidenceFailsWithoutIt(t *testing.T) {
 		t.Fatalf("a run that established device work was failed by the requirement it satisfied: %v", got)
 	}
 
-	// An earlier failure keeps its own reason. The first failure is what an operator acts on, and a desync
-	// hidden behind "no device evidence" sends them to the exporter for a broken watch stream.
+	// An earlier failure keeps its own reason.
+	// The first failure is what an operator acts on, and a desync hidden behind "no device evidence" sends
+	// them to the exporter for a broken watch stream.
 	desynced := outcome{Disposition: dispCollectorDesync, Reason: "the Pod stream ended on its own"}
 	if got := requireDeviceEvidence(desynced, absent, true, io.Discard); got.Disposition != dispCollectorDesync {
 		t.Fatalf("a run that had already failed had its reason replaced: %v", got)

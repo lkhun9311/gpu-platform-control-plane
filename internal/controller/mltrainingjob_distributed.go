@@ -158,8 +158,8 @@ func buildRendezvousService(mltj *platformv1.MLTrainingJob, attempt int32) *core
 
 // ensureRendezvousService makes this job's Service exist, and reports whether it is this job's own.
 //
-// It creates and never adopts.
-// controllerutil.CreateOrUpdate is not used because it would set an owner on a Service someone else created between our read and our write, and SetControllerReference compares owners by kind and name, not UID, so an earlier incarnation's Service would pass as ours.
+// It creates and never adopts. controllerutil.CreateOrUpdate is not used because it would set an owner on a Service someone else created between our read and our write, and SetControllerReference compares owners by kind and name, not UID, so an earlier
+// incarnation's Service would pass as ours.
 // A create that loses that race fails with AlreadyExists, and the Service is judged on the next pass instead.
 //
 // A nil condition with ready false means "not decided yet": nothing is wrong, and the caller only waits.

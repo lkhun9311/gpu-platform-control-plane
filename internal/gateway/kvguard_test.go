@@ -93,10 +93,11 @@ var _ = Describe("parseKVMetrics", func() {
 	})
 
 	It("reads vllm:num_requests_waiting and not the by_reason family whose name extends it", func() {
-		// 0.27.1 added vllm:num_requests_waiting_by_reason. Its name has the series the guard reads as a
-		// strict prefix, and in the captured scrape its "capacity" series carries the same 32 the guard
-		// wants -- so a prefix-matching reader would look correct here and be wrong the moment the two
-		// diverge. Give the guard only the by_reason family and it must refuse rather than answer 32.
+		// 0.27.1 added vllm:num_requests_waiting_by_reason.
+		// Its name has the series the guard reads as a strict prefix, and in the captured scrape its
+		// "capacity" series carries the same 32 the guard wants -- so a prefix-matching reader would
+		// look correct here and be wrong the moment the two diverge.
+		// Give the guard only the by_reason family and it must refuse rather than answer 32.
 		text := `# HELP vllm:kv_cache_usage_perc x
 # TYPE vllm:kv_cache_usage_perc gauge
 vllm:kv_cache_usage_perc{engine="0"} 0.5
@@ -461,9 +462,9 @@ var _ = Describe("backendScraper", func() {
 		}
 		Expect(b.snap.Load().fresh).To(BeFalse())
 
-		// Resume with a single over-threshold sample. Without the reset this would be "sample 2
-		// of 2" (the t=0 sample plus this one) and engage immediately; with the reset it is
-		// "sample 1 of 2" and must not engage yet.
+		// Resume with a single over-threshold sample.
+		// Without the reset this would be "sample 2 of 2" (the t=0 sample plus this one) and
+		// engage immediately; with the reset it is "sample 1 of 2" and must not engage yet.
 		h.setMode("engage")
 		now = base.Add(10 * time.Second)
 		b.tick(context.Background())
@@ -606,9 +607,9 @@ var _ = Describe("kvAwareAdmitter.Admit", func() {
 
 var _ = Describe("scraperManager idle eviction", func() {
 	// Unregister existed with no production caller, so every backend ever routed to kept a goroutine, an HTTP
-	// client, a scrape every interval, and a live gauge until the process exited. A deleted or renamed model
-	// left admission_guard_engaged=1 on a machine that no longer exists — a reading of something that is not
-	// there, which is worse than losing the series.
+	// client, a scrape every interval, and a live gauge until the process exited.
+	// A deleted or renamed model left admission_guard_engaged=1 on a machine that no longer exists — a
+	// reading of something that is not there, which is worse than losing the series.
 	//
 	// The clock is injected and sweep is driven directly, so nothing here waits on a ticker.
 	//
@@ -668,8 +669,9 @@ var _ = Describe("scraperManager idle eviction", func() {
 })
 
 // The race the first version of sweep had: it read the stale set, released the lock, and only then called
-// Unregister. A request arriving in that window re-registered the backend — stamping lastRouted and returning
-// early because the scraper still existed — and the eviction then stopped a scraper serving live traffic and
+// Unregister.
+// A request arriving in that window re-registered the backend — stamping lastRouted and returning early
+// because the scraper still existed — and the eviction then stopped a scraper serving live traffic and
 // deleted its gauges.
 //
 // Driven with -race and a Register hammering concurrently, so the assertion is about the invariant rather
@@ -677,15 +679,16 @@ var _ = Describe("scraperManager idle eviction", func() {
 //
 // Mutation that turns this red: collect the stale set under the lock, release it, then Unregister.
 // The race the first version of sweep had: it read the stale set, released the lock, and only then called
-// Unregister. A request arriving in that window re-registered the backend — stamping lastRouted and returning
-// early because the scraper still existed — and the eviction then stopped a scraper serving live traffic and
+// Unregister.
+// A request arriving in that window re-registered the backend — stamping lastRouted and returning early
+// because the scraper still existed — and the eviction then stopped a scraper serving live traffic and
 // deleted its gauges.
 //
-// The interleaving is forced rather than hoped for. Each trial makes the backend genuinely stale, then runs
-// one sweep against a Register spinning beside it. Under the bug the Register lands in the gap, succeeds
-// against the still-present entry, and is undone by the Unregister that follows — leaving NO scraper, which
-// is a state the fixed code cannot reach: there, whichever of the two wins the lock, the backend ends up
-// registered.
+// The interleaving is forced rather than hoped for.
+// Each trial makes the backend genuinely stale, then runs one sweep against a Register spinning beside it.
+// Under the bug the Register lands in the gap, succeeds against the still-present entry, and is undone by
+// the Unregister that follows — leaving NO scraper, which is a state the fixed code cannot reach: there,
+// whichever of the two wins the lock, the backend ends up registered.
 //
 // Mutation that turns this red: collect the stale set under the lock, release it, then Unregister.
 var _ = Describe("scraperManager eviction under concurrent routing", func() {
@@ -983,18 +986,21 @@ func (s *statelessRecorder) Admit(_ context.Context, _ RequestMeta, b *BackendRe
 	return true, ""
 }
 
-// Registration covers every candidate. Which candidates are ASKED depends on whether asking costs anything.
+// Registration covers every candidate.
+// Which candidates are ASKED depends on whether asking costs anything.
 //
 // Registering only the head meant that when the head went down its scraper hit the same dead Service, its
 // snapshot went stale, and the kv-aware guard — which fails OPEN on staleness — admitted everything, while
-// the spare absorbing all the traffic had no scraper at all. The guard went blind exactly when fallback made
-// it matter, and nothing reported it: every request still succeeded.
+// the spare absorbing all the traffic had no scraper at all.
+// The guard went blind exactly when fallback made it matter, and nothing reported it: every request still
+// succeeded.
 //
-// Asking only the head was the same shape of mistake one level up. The head is the backend TRIED first, not
-// the one that will serve, so a stale head bypassing the guard let the request reach a spare nobody
-// consulted. A stateless admitter is now asked about every candidate and one dissent rejects; a stateful one
-// is still asked once, because static-cap spends tokens per call and billing one request several times would
-// make the arm measure something other than offered load.
+// Asking only the head was the same shape of mistake one level up.
+// The head is the backend TRIED first, not the one that will serve, so a stale head bypassing the guard let
+// the request reach a spare nobody consulted.
+// A stateless admitter is now asked about every candidate and one dissent rejects; a stateful one is still
+// asked once, because static-cap spends tokens per call and billing one request several times would make the
+// arm measure something other than offered load.
 //
 // Mutations that turn these red: register targets[0] only; ask targets[0] only for a stateless admitter; ask
 // every candidate regardless of statelessness; or take the last verdict rather than the first dissent.
@@ -1045,11 +1051,13 @@ var _ = Describe("admitCandidates", func() {
 	})
 
 	// Asking stops at the first dissent, so a rejecting head is never overruled by a permissive spare behind
-	// it. Without this a "take the last verdict" implementation would satisfy the two specs above.
+	// it.
+	// Without this a "take the last verdict" implementation would satisfy the two specs above.
 	// The regression the all-candidate change introduced: forwarding tries at most maxBackendAttempts, so a
 	// candidate past that cap can never serve, and letting it vote meant a request could be refused on the
-	// pressure of a machine it would never have reached. The caller caps once and every stage shares the
-	// slice; this asserts the shared slice is what admission sees.
+	// pressure of a machine it would never have reached.
+	// The caller caps once and every stage shares the slice; this asserts the shared slice is what admission
+	// sees.
 	It("never consults a candidate the request could not reach", func() {
 		rec := &statelessRecorder{rejectFor: "third"}
 		resolved := []*BackendRef{
@@ -1103,12 +1111,14 @@ func (f admitterFunc) Admit(ctx context.Context, m RequestMeta, b *BackendRef, t
 // An admit says why, because three different admits mean three different things about the guard.
 //
 // Admit returned (true, "") when the backend was never registered, when its telemetry had gone stale, when
-// there was no pressure, and when the caller was premium. In the evidence and in the decisions metric those
-// are one outcome, so an arm C that spent a whole run blind -- scraper never succeeding, guard bypassed on
-// every request -- is indistinguishable from an arm C that watched a calm backend and correctly let
-// everything through. The first is a broken run reported as a scientific FAIL; the second is a result.
+// there was no pressure, and when the caller was premium.
+// In the evidence and in the decisions metric those are one outcome, so an arm C that spent a whole run
+// blind -- scraper never succeeding, guard bypassed on every request -- is indistinguishable from an arm C
+// that watched a calm backend and correctly let everything through.
+// The first is a broken run reported as a scientific FAIL; the second is a result.
 //
-// The 2026-09-03 run cannot be told apart on this axis at all. Its evidence carries only statuses.
+// The 2026-09-03 run cannot be told apart on this axis at all.
+// Its evidence carries only statuses.
 var _ = Describe("why the kv-aware guard admitted a request", func() {
 	ctx := context.Background()
 	backend := &BackendRef{Namespace: "why-ns", Name: "why-backend"}
@@ -1156,14 +1166,17 @@ var _ = Describe("why the kv-aware guard admitted a request", func() {
 // What the guard SAW, not only what it decided.
 //
 // A request now records why it was admitted, which separates a guard that was blind from one that saw a calm
-// backend. It does not say how calm. "not_engaged" is the same string whether the cache was at 0.10 and the
-// load never pressured the engine, or at 0.83 against a threshold of 0.85 -- and those call for opposite
-// conclusions: the first says the experiment failed to create the condition it is testing, the second says
-// the threshold is set past where the damage happens.
+// backend.
+// It does not say how calm.
+// "not_engaged" is the same string whether the cache was at 0.10 and the load never pressured the engine, or
+// at 0.83 against a threshold of 0.85 -- and those call for opposite conclusions: the first says the
+// experiment failed to create the condition it is testing, the second says the threshold is set past where
+// the damage happens.
 //
 // C/R1 came back at 83.747 in the last paid run with the guard rejecting 15.3% of eligible traffic, and the
-// evidence cannot distinguish those two explanations. That is the question the pilot exists to answer, so
-// the numbers the decision was made on travel with the request that made it.
+// evidence cannot distinguish those two explanations.
+// That is the question the pilot exists to answer, so the numbers the decision was made on travel with the
+// request that made it.
 var _ = Describe("the pressure the guard was looking at", func() {
 	backend := &BackendRef{Namespace: "saw-ns", Name: "saw-backend"}
 

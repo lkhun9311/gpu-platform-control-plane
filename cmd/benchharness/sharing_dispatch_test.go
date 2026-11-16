@@ -29,8 +29,9 @@ import (
 // computed against a zero ArmSummary.
 //
 // A zero value has TTFTMsP99 = 0, so every ratio built from it is either 0 or a division this code guards
-// into 0 -- and every one of those still PRINTS, as a number a reader would take for a measurement. This is
-// the same failure the price-of-protection evaluator was fixed for, arriving one level up in the dispatch.
+// into 0 -- and every one of those still PRINTS, as a number a reader would take for a measurement.
+// This is the same failure the price-of-protection evaluator was fixed for, arriving one level up in the
+// dispatch.
 func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T) {
 	full := map[string]bench.ArmSummary{
 		bench.ArmR1:          {Arm: bench.ArmR1, TTFTMsP99: 67.3, TailSampleSize: 200},
@@ -56,26 +57,31 @@ func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T)
 			kept = append(kept, s)
 		}
 		got := evaluateSharingMatrix(partial, kept, nil, nil)
-		// AMENDED 2026-09-12. This used to require nil, and nil was worse than it looked: the caller only
-		// runs the verdict when this is non-nil, so `report` printed a stderr warning and exited ZERO --
-		// and the paid runner calls it as `... || fail`. The property worth holding is not "no result" but
-		// "no ratio computed from a zero ArmSummary", and one uncomputable gate says that out loud.
+		// AMENDED 2026-09-12.
+		// This used to require nil, and nil was worse than it looked: the caller only runs the verdict
+		// when this is non-nil, so `report` printed a stderr warning and exited ZERO -- and the paid
+		// runner calls it as `... || fail`.
+		// The property worth holding is not "no result" but "no ratio computed from a zero ArmSummary",
+		// and one uncomputable gate says that out loud.
 		if got == nil {
 			t.Fatalf("evidence missing %s produced no result at all, so the verdict block never runs and the "+
 				"command exits zero on a run with no %s", missing, missing)
 		}
-		// AMENDED 2026-10-03, from 1 to 2. The declared-load gate is prepended on BOTH of this wrapper's
-		// exits, deliberately: a check that vanishes on the path where the evidence is already in doubt is
-		// the shape this repository keeps finding in its own gates. Still an exact count rather than a
-		// minimum, because the property being held is that nothing is SCORED here -- a third reading would
-		// mean a ratio built from a zero ArmSummary had been computed after all.
+		// AMENDED 2026-10-03, from 1 to 2.
+		// The declared-load gate is prepended on BOTH of this wrapper's exits, deliberately: a check that
+		// vanishes on the path where the evidence is already in doubt is the shape this repository keeps
+		// finding in its own gates.
+		// Still an exact count rather than a minimum, because the property being held is that nothing is
+		// SCORED here -- a third reading would mean a ratio built from a zero ArmSummary had been computed
+		// after all.
 		if len(got.Readings) != 2 {
 			t.Errorf("evidence missing %s produced %d readings, want the declared-load gate plus one refusal; "+
 				"every ratio beyond those is built from a zero ArmSummary and would print as a measurement",
 				missing, len(got.Readings))
 		}
-		// Found by ID rather than by index. The refusal used to be Readings[0] and is now behind 4e, and an
-		// index would have gone on passing while asserting something about a different reading.
+		// Found by ID rather than by index.
+		// The refusal used to be Readings[0] and is now behind 4e, and an index would have gone on passing
+		// while asserting something about a different reading.
 		var refusal bench.PoPReading
 		for _, r := range got.Readings {
 			if r.ID == "4" {
@@ -108,11 +114,13 @@ func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T)
 //
 // sharingRunInvalid walks the readings and returns on the first one it recognises, so a gate that is absent
 // from the list is a gate that cannot fail -- "we never checked" and "we checked and it agreed" would share
-// an exit status and a printed page. That is the defect class this whole gate exists to close, and it would
-// be perfectly possible to reintroduce it here by attaching 4e on only the scored path.
+// an exit status and a printed page.
+// That is the defect class this whole gate exists to close, and it would be perfectly possible to
+// reintroduce it here by attaching 4e on only the scored path.
 //
-// FIRST because it is a premise. Readings 4 and 4b ask whether the load created contention; a reader who
-// meets them above the gate is reading answers about a trace nobody has vouched for yet.
+// FIRST because it is a premise.
+// Readings 4 and 4b ask whether the load created contention; a reader who meets them above the gate is
+// reading answers about a trace nobody has vouched for yet.
 func TestTheDeclaredLoadGateIsPresentOnEveryPathAndComesFirst(t *testing.T) {
 	complete := map[string]bench.ArmSummary{
 		bench.ArmR1:          {Arm: bench.ArmR1, TTFTMsP99: 67.3, TailSampleSize: 200},
@@ -209,9 +217,10 @@ func TestASubsetRunIsAMatrixWithFewerArmsRatherThanAFailedOne(t *testing.T) {
 // The refusal the runner writes must be the refusal the report finds, from a directory it discovers itself.
 //
 // Reading 4c can only fire on a recorded refusal, and nothing outside the unit tests populated that map
-// until refusalsBeside existed. The firing itself is covered in internal/bench; what is covered here is the
-// half that cannot be: that a file written beside the raw evidence is picked up without an operator
-// remembering a flag, and that an absent file yields no refusals rather than an empty-string entry.
+// until refusalsBeside existed.
+// The firing itself is covered in internal/bench; what is covered here is the half that cannot be: that a
+// file written beside the raw evidence is picked up without an operator remembering a flag, and that an
+// absent file yields no refusals rather than an empty-string entry.
 func TestTheReportFindsTheRefusalTheRunnerWroteBesideTheEvidence(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"raw-R1-1.jsonl", "raw-shared-1.jsonl"} {
@@ -235,7 +244,8 @@ func TestTheReportFindsTheRefusalTheRunnerWroteBesideTheEvidence(t *testing.T) {
 			"files precisely so that `benchharness report` needs no extra argument to see it", got["mps"], want)
 	}
 
-	// An empty file is not a refusal. The runner writes a reason or it writes nothing.
+	// An empty file is not a refusal.
+	// The runner writes a reason or it writes nothing.
 	if err := os.WriteFile(filepath.Join(dir, "refused-timeSlicing.txt"), []byte("  \n"), 0o600); err != nil {
 		t.Fatalf("write the empty refusal: %v", err)
 	}

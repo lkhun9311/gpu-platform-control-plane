@@ -15,11 +15,12 @@ import (
 // The paired comparison rests on a premise nothing checked: every arm is offered the SAME premium requests.
 //
 // The registration's reading 4 divides `shared`'s premium tail by R1's, and the per-repetition ratios are read
-// as a paired comparison. That is only legitimate if the two arms received the same premium traffic -- same
-// arrival offsets, same prompt lengths, same output caps, in the same order. gen-trace builds R1 by filtering
-// the contending tenant out of the SAME trace, so the premise is true by construction, and "by construction"
-// is exactly the kind of claim this repository has been wrong about: the construction can change, and a run
-// whose arms were offered different premium traffic would still produce a ratio that looks fine.
+// as a paired comparison.
+// That is only legitimate if the two arms received the same premium traffic -- same arrival offsets, same
+// prompt lengths, same output caps, in the same order. gen-trace builds R1 by filtering the contending tenant
+// out of the SAME trace, so the premise is true by construction, and "by construction" is exactly the kind of
+// claim this repository has been wrong about: the construction can change, and a run whose arms were offered
+// different premium traffic would still produce a ratio that looks fine.
 //
 // Measured on the 2026-10-02 archive before this test was written: all three arms, all five repetitions,
 // 4,655 premium rows each, one fingerprint across the lot.
@@ -42,11 +43,13 @@ func premiumFingerprint(t *testing.T, path string) (string, int) {
 		if r.Tenant != PremiumTenant {
 			continue
 		}
-		// Every field that describes what was OFFERED. Tenant is included even though it is constant here,
-		// because a trace that renamed the premium tenant would otherwise fingerprint identically.
-		// h.Write with fmt.Appendf rather than fmt.Fprintf: hash.Hash never returns an error, and an ignored
-		// Fprintf result is a habit worth not having in a file whose whole output is a digest. The bytes are
-		// identical either way -- the archives still fingerprint 443db0939d9846de and 52df4f52668151e2.
+		// Every field that describes what was OFFERED.
+		// Tenant is included even though it is constant here, because a trace that renamed the premium
+		// tenant would otherwise fingerprint identically. h.Write with fmt.Appendf rather than fmt.Fprintf:
+		// hash.Hash never returns an error, and an ignored Fprintf result is a habit worth not having in a
+		// file whose whole output is a digest.
+		// The bytes are identical either way -- the archives still fingerprint 443db0939d9846de and
+		// 52df4f52668151e2.
 		h.Write(fmt.Appendf(nil, "%d|%v|%d|%d|%d|%s\n",
 			r.Index, r.IsNoisy, r.MaxOutputTokens, r.OffsetMs, r.PromptLenChars, r.Tenant))
 		n++
@@ -80,12 +83,12 @@ func archiveArmReps(t *testing.T, dir string) map[string][]string {
 // disagreementsAcrossArms walks one archive and returns every cell that was offered different premium
 // traffic from the first, as sentences naming both sides.
 //
-// Extracted so the synthetic violations below exercise THIS comparison rather than a copy of it. The first
-// version inlined the walk in the archive test and re-implemented it in the synthetic one, and a mutation
-// proved the cost: narrowing the grouping in the archive test changed nothing, because the synthetic test's
-// own copy still compared across arms. That is the same defect this repository recorded as "mutate every copy
-// of the thing you are testing" -- and writing a second copy inside the test that was supposed to catch it is
-// how it recurred.
+// Extracted so the synthetic violations below exercise THIS comparison rather than a copy of it.
+// The first version inlined the walk in the archive test and re-implemented it in the synthetic one, and a
+// mutation proved the cost: narrowing the grouping in the archive test changed nothing, because the synthetic
+// test's own copy still compared across arms.
+// That is the same defect this repository recorded as "mutate every copy of the thing you are testing" -- and
+// writing a second copy inside the test that was supposed to catch it is how it recurred.
 func disagreementsAcrossArms(t *testing.T, byArm map[string][]string, arms []string) []string {
 	t.Helper()
 	var out []string
@@ -100,10 +103,10 @@ func disagreementsAcrossArms(t *testing.T, byArm map[string][]string, arms []str
 			// The count is NOT compared separately, and that is deliberate.
 			//
 			// premiumFingerprint hashes one line per premium row, so a cell offering a different number of
-			// requests cannot produce the same digest -- dropping a row changes it. A separate count
-			// comparison would therefore be a branch no fixture can reach: a mutation that deleted it stayed
-			// green because every input that would trip it trips the digest first. The count is still
-			// REPORTED, because "20 rows against 19" is what an operator needs to see.
+			// requests cannot produce the same digest -- dropping a row changes it.
+			// A separate count comparison would therefore be a branch no fixture can reach: a mutation that
+			// deleted it stayed green because every input that would trip it trips the digest first.
+			// The count is still REPORTED, because "20 rows against 19" is what an operator needs to see.
 			if got != want {
 				out = append(out, fmt.Sprintf("%s (%d rows, %s) against %s (%d rows, %s)",
 					filepath.Base(p), n, got, wantFrom, wantN, want))
@@ -117,8 +120,8 @@ func disagreementsAcrossArms(t *testing.T, byArm map[string][]string, arms []str
 // first repetition.
 //
 // Separate from the across-arms walk because the two claims are different: one says the arms are comparable,
-// the other says a repetition's spread is the machine's rather than the load's. A single function covering
-// both would let one mutation satisfy the other's fixture.
+// the other says a repetition's spread is the machine's rather than the load's.
+// A single function covering both would let one mutation satisfy the other's fixture.
 func disagreementsWithinArms(t *testing.T, byArm map[string][]string) []string {
 	t.Helper()
 	var out []string
@@ -148,8 +151,9 @@ func disagreementsWithinArms(t *testing.T, byArm map[string][]string) []string {
 // Every arm and repetition of one run offers the same premium requests.
 //
 // Skipped when the archive is absent: run outputs are gitignored, so a clean checkout has none and a failure
-// there would be about the checkout. The archives that ARE present are the ones whose figures this repository
-// publishes, which is where the premise has to hold.
+// there would be about the checkout.
+// The archives that ARE present are the ones whose figures this repository publishes, which is where the
+// premise has to hold.
 func TestEveryArmIsOfferedTheSamePremiumTraffic(t *testing.T) {
 	for _, tc := range []struct {
 		dir  string
@@ -197,10 +201,11 @@ func TestEveryArmIsOfferedTheSamePremiumTraffic(t *testing.T) {
 // check itself.
 //
 // Two mutations of the test above came back GREEN: dropping offsetMs from the fingerprint, and narrowing the
-// comparison to within one arm. Both are green for the same reason -- every arm and repetition in both
-// archives agrees on every field, so any subset of fields and any grouping still reports "all equal". A test
-// whose only fixtures satisfy it cannot say which difference it would catch, and this is the third time today
-// that shape has appeared.
+// comparison to within one arm.
+// Both are green for the same reason -- every arm and repetition in both archives agrees on every field, so
+// any subset of fields and any grouping still reports "all equal".
+// A test whose only fixtures satisfy it cannot say which difference it would catch, and this is the third
+// time today that shape has appeared.
 func writeTrace(t *testing.T, dir, name string, rows []TraceRow) string {
 	t.Helper()
 	var b strings.Builder
@@ -287,10 +292,11 @@ func TestTheArchiveComparisonRefusesArmsOfferedDifferentTraffic(t *testing.T) {
 	writeTrace(t, dir, "trace-shared-2.jsonl", base)
 	// timeSlicing's repetitions agree with EACH OTHER and differ from the other two arms.
 	//
-	// The shape matters. The first version made one timeSlicing cell differ from its own sibling, and a
-	// mutation that narrowed the comparison to within one arm stayed green -- because that fixture is caught
-	// by the within-arm walk and never needs the across-arm one. A violation that only the across-arm
-	// comparison can see has to be consistent inside its arm.
+	// The shape matters.
+	// The first version made one timeSlicing cell differ from its own sibling, and a mutation that narrowed
+	// the comparison to within one arm stayed green -- because that fixture is caught by the within-arm walk
+	// and never needs the across-arm one.
+	// A violation that only the across-arm comparison can see has to be consistent inside its arm.
 	shifted := make([]TraceRow, len(base))
 	copy(shifted, base)
 	shifted[9].OffsetMs += 5
@@ -317,7 +323,8 @@ func TestTheArchiveComparisonRefusesArmsOfferedDifferentTraffic(t *testing.T) {
 	//
 	// The assertion said "timeSlicing-2" while the fixture was being reshaped, and it failed on
 	// timeSlicing-1 -- the test was still describing the previous fixture, where one cell differed from its
-	// own sibling. Naming the arm rather than one cell is what the current fixture supports.
+	// own sibling.
+	// Naming the arm rather than one cell is what the current fixture supports.
 	if len(disagreements) != 2 {
 		t.Errorf("want both timeSlicing repetitions reported, got %d: %s", len(disagreements), strings.Join(disagreements, "; "))
 	}
@@ -338,9 +345,10 @@ func TestTheArchiveComparisonRefusesArmsOfferedDifferentTraffic(t *testing.T) {
 // The repetitions are the SAME trace replayed, and that bounds what their spread can mean.
 //
 // Written because the narrow spread is quoted as a result -- the 2026-10-01 run's five ratios span 0.08 --
-// and a reader can take it for evidence about GPUs. It is not: identical offered traffic means the variation
-// between repetitions is the machine's, on one card, in one session. This test pins the premise so the
-// caveat beside the number stays true.
+// and a reader can take it for evidence about GPUs.
+// It is not: identical offered traffic means the variation between repetitions is the machine's, on one
+// card, in one session.
+// This test pins the premise so the caveat beside the number stays true.
 func TestRepetitionsReplayTheSameTrace(t *testing.T) {
 	const dir = "../../hack/m5c-20261002-014903/m5c-run"
 	if _, err := os.Stat(dir); err != nil {
@@ -355,8 +363,8 @@ func TestRepetitionsReplayTheSameTrace(t *testing.T) {
 // And a within-arm violation, so the check above is not green only because every real archive satisfies it.
 //
 // A mutation that disabled the within-arm comparison entirely came back green: the real repetitions ARE
-// identical, so deleting the comparison changes nothing any fixture notices. This is the companion to the
-// across-arms case and exists for the same reason.
+// identical, so deleting the comparison changes nothing any fixture notices.
+// This is the companion to the across-arms case and exists for the same reason.
 func TestTheWithinArmComparisonRefusesARepetitionOfferedDifferentTraffic(t *testing.T) {
 	dir := t.TempDir()
 	base := premiumOffered(20)

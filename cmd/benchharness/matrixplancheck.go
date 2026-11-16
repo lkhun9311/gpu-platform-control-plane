@@ -15,9 +15,10 @@ import (
 // gives: the thing being checked is the artefact the run will actually replay and not a number somebody
 // typed twice.
 //
-// --arms is the whole planned arm list and is checked on EVERY cell rather than once. The set-level question
-// -- is the isolated baseline in the plan at all -- cannot be answered from a single cell's trace, and a
-// shell that has to remember to ask it once somewhere else is a shell that can forget to.
+// --arms is the whole planned arm list and is checked on EVERY cell rather than once.
+// The set-level question -- is the isolated baseline in the plan at all -- cannot be answered from a single
+// cell's trace, and a shell that has to remember to ask it once somewhere else is a shell that can forget
+// to.
 func matrixPlanCheck(args []string) error {
 	fs := flag.NewFlagSet("matrix-plan-check", flag.ExitOnError)
 	trace := fs.String("trace", "", "the generated trace file to check")
@@ -28,11 +29,13 @@ func matrixPlanCheck(args []string) error {
 	//
 	// It exists because a registration said "reproduction" and nothing checked it: the 2026-10-02 run was
 	// registered as a five-repetition reproduction of the 2026-09-13 pilot and offered a 294-token premium
-	// prompt against that pilot's 50. Every check above passed it, because they ask whether a cell is
-	// SCORABLE and not whether it is the same load as a named prior run.
+	// prompt against that pilot's 50.
+	// Every check above passed it, because they ask whether a cell is SCORABLE and not whether it is the
+	// same load as a named prior run.
 	//
 	// Empty is not a silent pass: a plan that makes no reproduction claim has nothing to compare, and the
-	// claim lives in the registration. What this flag closes is the case where the claim IS made.
+	// claim lives in the registration.
+	// What this flag closes is the case where the claim IS made.
 	reproduces := fs.String("reproduces", "", "a prior run's m5c-run directory this plan claims to reproduce; refuses before launch when the offered load differs")
 	manifest := fs.String("manifest", "", "the manifest gen-trace wrote beside --trace; required with --reproduces")
 	if err := fs.Parse(args); err != nil {
@@ -94,9 +97,11 @@ func matrixPlanCheck(args []string) error {
 	// An EXPLICITLY empty --reproduces is a caller's mistake, not a claim of nothing.
 	//
 	// Without this, `--reproduces ""` and omitting the flag behave identically, so a shell that meant to pass
-	// an archive and interpolated an unset variable claims nothing and passes. A mutation proved it: making
-	// the matrix pass `--reproduces "${REPRODUCES:-}"` unconditionally changed no test. Distinguishing
-	// "absent" from "present and empty" is the same rule this repository applies to every other check.
+	// an archive and interpolated an unset variable claims nothing and passes.
+	// A mutation proved it: making the matrix pass `--reproduces "${REPRODUCES:-}"` unconditionally changed
+	// no test.
+	// Distinguishing "absent" from "present and empty" is the same rule this repository applies to every
+	// other check.
 	explicit := false
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "reproduces" {
@@ -123,8 +128,9 @@ func matrixPlanCheck(args []string) error {
 		// nobody generated -- and both halves would pass while describing different things.
 		//
 		// The manifest's own checksum is the binding, because LoadManifest has already verified it against
-		// the file the manifest names. Comparing it to this trace's bytes asks the one question that
-		// matters: is the artefact I counted the artefact this claim is about?
+		// the file the manifest names.
+		// Comparing it to this trace's bytes asks the one question that matters: is the artefact I counted
+		// the artefact this claim is about?
 		traceSum, err := bench.ChecksumFile(*trace)
 		if err != nil {
 			return fmt.Errorf("checksum the trace %s: %w", *trace, err)

@@ -53,8 +53,8 @@ type BlocksResult struct {
 // RunBlocks runs the planned blocks in order, then replacements for invalid ones, until enough are valid or a stop rule
 // ends the campaign (#607).
 //
-// Every block is checked against the budget for all the valid blocks still needed before it starts, since a session
-// that can afford only the next block would spend money on a pilot it cannot complete.
+// Every block is checked against the budget for all the valid blocks still needed before it starts, since a session that
+// can afford only the next block would spend money on a pilot it cannot complete.
 // A replacement takes the next block number, so its seed and orders are the ones its number fixes, and it starts only
 // after every planned block has ended, as AnalysisSet requires.
 // When dispatch lag invalidates two blocks of one treatment the campaign stops: replacing blocks a treatment keeps

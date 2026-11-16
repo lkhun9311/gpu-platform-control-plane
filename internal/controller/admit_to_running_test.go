@@ -24,9 +24,9 @@ func conditionOf(status *platformv1.MLTrainingJobStatus) *metav1.Condition {
 
 // TestTheWaitIsRecordedOnlyWhenBothEndsWereWatched is the whole rule.
 //
-// A tenant is admitted, then runs, and this controller saw both transitions. Kueue's stamp is the start
-// because Kueue is the component that admitted; this controller's observation is the end because nothing
-// else here can see a Pod become active.
+// A tenant is admitted, then runs, and this controller saw both transitions.
+// Kueue's stamp is the start because Kueue is the component that admitted; this controller's observation
+// is the end because nothing else here can see a Pod become active.
 func TestTheWaitIsRecordedOnlyWhenBothEndsWereWatched(t *testing.T) {
 	var s platformv1.MLTrainingJobStatus
 
@@ -53,9 +53,10 @@ func TestTheWaitIsRecordedOnlyWhenBothEndsWereWatched(t *testing.T) {
 // TestAJobThatFinishedWithoutEverRunningSaysSo closes the silence the ready-count phase introduced.
 //
 // The phase enters Running on `.status.ready`, so a Pod behind a failing readiness probe, or one short
-// enough to start and finish between two reconciles, never produces that transition. Every other refusal
-// fires on the way INTO Running, so such a job used to end with an empty admitToRunningSeconds, no counter
-// and no condition -- while the field's own documentation promises a condition saying why.
+// enough to start and finish between two reconciles, never produces that transition.
+// Every other refusal fires on the way INTO Running, so such a job used to end with an empty
+// admitToRunningSeconds, no counter and no condition -- while the field's own documentation promises a
+// condition saying why.
 func TestAJobThatFinishedWithoutEverRunningSaysSo(t *testing.T) {
 	var s platformv1.MLTrainingJobStatus
 
@@ -96,9 +97,10 @@ func TestAFailedJobThatNeverRanSaysSoToo(t *testing.T) {
 
 // TestAMeasuredWindowIsNotOverwrittenWhenTheJobFinishes guards the branch from firing on the normal end.
 //
-// Succeeded follows Running for every job that worked. If the terminal branch did not check
-// RunningObservedAt it would replace a True/Observed condition with a refusal on the very jobs that were
-// measured correctly -- turning the fix into a way to lose good measurements.
+// Succeeded follows Running for every job that worked.
+// If the terminal branch did not check RunningObservedAt it would replace a True/Observed condition with
+// a refusal on the very jobs that were measured correctly -- turning the fix into a way to lose good
+// measurements.
 func TestAMeasuredWindowIsNotOverwrittenWhenTheJobFinishes(t *testing.T) {
 	var s platformv1.MLTrainingJobStatus
 
@@ -120,8 +122,9 @@ func TestAMeasuredWindowIsNotOverwrittenWhenTheJobFinishes(t *testing.T) {
 
 // TestAnEarlierMoreSpecificRefusalSurvivesTheTerminalPhase keeps the reasons from being flattened.
 //
-// KueueStampMissing says the window had no start; RunningNotObserved says it had no end. A job with the
-// first then reaching Succeeded must keep the first, the same way the Running branch already leaves it.
+// KueueStampMissing says the window had no start; RunningNotObserved says it had no end.
+// A job with the first then reaching Succeeded must keep the first, the same way the Running branch
+// already leaves it.
 func TestAnEarlierMoreSpecificRefusalSurvivesTheTerminalPhase(t *testing.T) {
 	var s platformv1.MLTrainingJobStatus
 
@@ -142,12 +145,14 @@ func TestAnEarlierMoreSpecificRefusalSurvivesTheTerminalPhase(t *testing.T) {
 // TestAControllerThatMissedAdmissionRefusesToInventTheWait is the case the whole design exists for.
 //
 // Kueue's admission stamp survives on the Workload, so subtracting it from now would always produce a
-// number. That number would describe a window nobody watched, and it would enter the histogram looking
-// exactly like a measured one.
+// number.
+// That number would describe a window nobody watched, and it would enter the histogram looking exactly
+// like a measured one.
 func TestAControllerThatMissedAdmissionRefusesToInventTheWait(t *testing.T) {
 	var s platformv1.MLTrainingJobStatus
 
-	// The controller's first sight of this job is already Running. Kueue's stamp is available and old.
+	// The controller's first sight of this job is already Running.
+	// Kueue's stamp is available and old.
 	admitted := at(0)
 	out := recordAdmitToRunning(&s, mltjPhasePending, mltjPhaseRunning, &admitted, at(90))
 
@@ -175,8 +180,9 @@ func TestAControllerThatMissedAdmissionRefusesToInventTheWait(t *testing.T) {
 
 // TestClockSkewIsRefusedRatherThanClamped keeps a disagreement out of the tail.
 //
-// A negative interval means the two clocks disagree. Clamping it to zero would enter the histogram as the
-// fastest reclaim this platform ever achieved, which is the most flattering possible reading of a fault.
+// A negative interval means the two clocks disagree.
+// Clamping it to zero would enter the histogram as the fastest reclaim this platform ever achieved, which
+// is the most flattering possible reading of a fault.
 func TestClockSkewIsRefusedRatherThanClamped(t *testing.T) {
 	var s platformv1.MLTrainingJobStatus
 
@@ -211,10 +217,11 @@ func TestAnAdmittedWorkloadWithNoStampHasNoWindowStart(t *testing.T) {
 // A refusal that named the real cause must survive the transition that follows it.
 //
 // AdmittedAt is nil in two ways, and the Running branch cannot tell them apart from the field alone: either
-// this controller never saw the admission, or it saw it and Kueue carried no usable stamp. The second is
-// already recorded, accurately, one transition earlier. Running used to overwrite it with a message reading
-// "this job was already past admission when this controller first saw it" -- which is false, because the
-// controller saw it and said so. The unobserved counter was also incremented twice for one job.
+// this controller never saw the admission, or it saw it and Kueue carried no usable stamp.
+// The second is already recorded, accurately, one transition earlier.
+// Running used to overwrite it with a message reading "this job was already past admission when this
+// controller first saw it" -- which is false, because the controller saw it and said so.
+// The unobserved counter was also incremented twice for one job.
 //
 // Mutation that turns this red: drop the existing-refusal check in the Running branch.
 func TestAStampMissingRefusalIsNotRewrittenAsNeverObserved(t *testing.T) {
@@ -236,8 +243,8 @@ func TestAStampMissingRefusalIsNotRewrittenAsNeverObserved(t *testing.T) {
 
 // TestTheWindowIsRecordedOnce keeps a requeue from restamping a measurement.
 //
-// Reconcile runs on every watch event, and a job sitting in Running produces many of them. Only the
-// transition is the observation.
+// Reconcile runs on every watch event, and a job sitting in Running produces many of them.
+// Only the transition is the observation.
 func TestTheWindowIsRecordedOnce(t *testing.T) {
 	var s platformv1.MLTrainingJobStatus
 	admitted := at(0)
@@ -260,8 +267,9 @@ func TestTheWindowIsRecordedOnce(t *testing.T) {
 //
 // The buckets exist to separate three regimes that already have measurements: a borrower that honoured
 // SIGTERM (2.180 s), one that ignored it (31.213 s), and the admission webhook's cap on how long a
-// borrower may take to stop (120 s). A bucket layout that puts the first two in the same bin would report
-// the difference this platform was built to bound as no difference at all.
+// borrower may take to stop (120 s).
+// A bucket layout that puts the first two in the same bin would report the difference this platform was
+// built to bound as no difference at all.
 func TestTheQueuelabNumbersLandInDistinctBuckets(t *testing.T) {
 	buckets := []float64{0.5, 1, 2, 5, 10, 20, 30, 45, 60, 90, 120, 240}
 	bucketOf := func(v float64) int {
@@ -284,9 +292,10 @@ func TestTheQueuelabNumbersLandInDistinctBuckets(t *testing.T) {
 // TestARestartedPodDoesNotRestampTheWait covers the transition the phase ladder can repeat.
 //
 // A Job whose Pods all die drops to Active=0 and the phase falls back to Admitted, then returns to Running
-// when a replacement starts. That is a second Admitted-to-Running transition, and without the guard it
-// would overwrite the measured wait with the time since the ORIGINAL admission -- reporting a reclaim of
-// several minutes for a job that started in four seconds.
+// when a replacement starts.
+// That is a second Admitted-to-Running transition, and without the guard it would overwrite the measured
+// wait with the time since the ORIGINAL admission -- reporting a reclaim of several minutes for a job that
+// started in four seconds.
 func TestARestartedPodDoesNotRestampTheWait(t *testing.T) {
 	var s platformv1.MLTrainingJobStatus
 	admitted := at(0)
@@ -312,8 +321,10 @@ func TestARestartedPodDoesNotRestampTheWait(t *testing.T) {
 // TestEveryConditionCarriesATransitionTime pins what the apiserver requires.
 //
 // metav1.Condition.LastTransitionTime has no omitempty and the apiserver rejects a zero value with
-// "Required value". Unit tests that only read Status and Reason passed while every write this file made was
-// invalid, and the envtest suite is what found it. This asserts it here so the cheap test fails first.
+// "Required value".
+// Unit tests that only read Status and Reason passed while every write this file made was invalid, and the
+// envtest suite is what found it.
+// This asserts it here so the cheap test fails first.
 func TestEveryConditionCarriesATransitionTime(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

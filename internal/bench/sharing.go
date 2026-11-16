@@ -20,15 +20,18 @@ import "fmt"
 
 // Sharing-mode sizing, in code rather than in a page, because the page cannot refuse.
 //
-// M5-c puts more than one engine on one card. Time-slicing and MPS do NOT partition memory -- the
-// processes share one pool, so each engine's gpu-memory-utilization is a slice of the same total and the
-// slices have to add up. Get that wrong and nothing warns you: the second engine starts, profiles, finds
-// almost no room for a KV cache, and serves a handful of tokens per sequence. It looks like a working
-// experiment and measures the allocator.
+// M5-c puts more than one engine on one card.
+// Time-slicing and MPS do NOT partition memory -- the processes share one pool, so each engine's
+// gpu-memory-utilization is a slice of the same total and the slices have to add up.
+// Get that wrong and nothing warns you: the second engine starts, profiles, finds almost no room for a
+// KV cache, and serves a handful of tokens per sequence.
+// It looks like a working experiment and measures the allocator.
 //
-// The arithmetic below decided the card. Two Qwen2.5-3B engines on a T4 leave 10 MiB of KV each -- 284
-// tokens, less than one prompt -- so the sharing matrix cannot run on the card M5-b uses. On an A10G it
-// leaves 3.6 GiB each. That is a hardware conclusion reached before renting the hardware.
+// The arithmetic below decided the card.
+// Two Qwen2.5-3B engines on a T4 leave 10 MiB of KV each -- 284 tokens, less than one prompt -- so the
+// sharing matrix cannot run on the card M5-b uses.
+// On an A10G it leaves 3.6 GiB each.
+// That is a hardware conclusion reached before renting the hardware.
 
 // GPUModel is a served model's memory shape, in the units a sizing decision needs.
 type GPUModel struct {
@@ -46,9 +49,10 @@ type GPUCard struct {
 	Name string
 	// TotalMiB is what nvidia-smi reports, not the marketing capacity.
 	//
-	// Vendor-reported and NOT measured here. Confirm it on the card in the session's first minute; every
-	// figure derived from it inherits the error, and a card that reports less than assumed is the case that
-	// silently produces a useless run rather than a failed one.
+	// Vendor-reported and NOT measured here.
+	// Confirm it on the card in the session's first minute; every figure derived from it inherits the
+	// error, and a card that reports less than assumed is the case that silently produces a useless run
+	// rather than a failed one.
 	TotalMiB int
 }
 
@@ -58,7 +62,8 @@ type SharingPlan struct {
 	// Model is the model every engine on the card serves; the matrix compares sharing modes, so varying the
 	// model between engines would vary two things at once.
 	Model GPUModel
-	// Engines is how many vLLM processes share the card. One is the exclusive arm.
+	// Engines is how many vLLM processes share the card.
+	// One is the exclusive arm.
 	Engines int
 	// UtilizationPerEngine is each engine's --gpu-memory-utilization.
 	//
@@ -97,16 +102,16 @@ func (p SharingPlan) KVTokensPerEngine() int {
 // minUsefulKVTokens is the floor below which a plan is not a smaller experiment but a different one.
 //
 // An engine whose cache cannot hold a few of the trace's own prompts spends its life evicting, so what the
-// arm measures is recomputation rather than the sharing mode under test. The contender prompt measures
-// 7,695 tokens (internal/bench/testdata/tokenizer_calibration.json); four of them concurrently is the
-// smallest cache that lets the scheduler batch at all.
+// arm measures is recomputation rather than the sharing mode under test.
+// The contender prompt measures 7,695 tokens (internal/bench/testdata/tokenizer_calibration.json); four of
+// them concurrently is the smallest cache that lets the scheduler batch at all.
 const minUsefulKVTokens = 4 * 7695
 
 // Validate refuses a plan that cannot produce a result, and says which way it fails.
 //
-// It is deliberately not a warning. A plan that overcommits the card is not a degraded experiment, it is an
-// experiment whose numbers describe the allocator, and the place to find that out is here rather than after
-// the card is rented.
+// It is deliberately not a warning.
+// A plan that overcommits the card is not a degraded experiment, it is an experiment whose numbers describe
+// the allocator, and the place to find that out is here rather than after the card is rented.
 func (p SharingPlan) Validate() error {
 	if p.Engines <= 0 {
 		return fmt.Errorf("a plan needs at least one engine, got %d", p.Engines)
@@ -129,10 +134,12 @@ func (p SharingPlan) Validate() error {
 	return nil
 }
 
-// The cards and models the matrix was sized against. Figures are vendor-reported or computed from the
-// model config, never guessed; see hack/m5c-sharing-sizing.md for where each came from.
+// The cards and models the matrix was sized against.
+// Figures are vendor-reported or computed from the model config, never guessed; see
+// hack/m5c-sharing-sizing.md for where each came from.
 var (
-	// CardT4 is what M5-b runs on. It cannot host the sharing matrix, which is why M5-c does not use it.
+	// CardT4 is what M5-b runs on.
+	// It cannot host the sharing matrix, which is why M5-c does not use it.
 	CardT4 = GPUCard{Name: "NVIDIA T4 16GB", TotalMiB: 15_360}
 	// CardA10G is g5.xlarge: four vCPU, so it fits the same granted quota as g4dn.xlarge.
 	CardA10G = GPUCard{Name: "NVIDIA A10G 24GB", TotalMiB: 23_028}

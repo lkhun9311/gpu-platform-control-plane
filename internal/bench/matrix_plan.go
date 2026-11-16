@@ -9,23 +9,26 @@ import (
 // MatrixPlanRefusal says whether one planned frozen-matrix cell could EVER be scored, before anything is rented.
 //
 // It is the frozen matrix's half of what LadderPlanRefusal does for the ladder, and it exists for the same
-// reason: every refusal here already existed and every one of them fired ON THE RENTED CARD. `replay`
-// validates the arm against its study after the engines are up, and the cell floors are applied by the
-// readings after the replay has finished. A mistyped study, an arm the registry does not admit, or a load
-// whose premium tail the readings would refuse therefore cost a bring-up each time -- and the frozen matrix
-// had no local plan check at all, because PLAN_ONLY was implemented for a ladder and refused anything else.
+// reason: every refusal here already existed and every one of them fired ON THE RENTED CARD.
+// `replay` validates the arm against its study after the engines are up, and the cell floors are applied by
+// the readings after the replay has finished.
+// A mistyped study, an arm the registry does not admit, or a load whose premium tail the readings would
+// refuse therefore cost a bring-up each time -- and the frozen matrix had no local plan check at all,
+// because PLAN_ONLY was implemented for a ladder and refused anything else.
 //
 // The floor it applies is MinTailSamples and it is applied PER CELL, because a cell is one repetition and
 // RegisteredEstimandFor refuses an arm whose MinRepetitionTail falls below it -- not only one whose pooled
-// tail does. A matrix of fifteen cells that each offer 94 premium requests pools 1410 and is still refused.
+// tail does.
+// A matrix of fifteen cells that each offer 94 premium requests pools 1410 and is still refused.
 //
 // TWO REFUSALS THE LADDER MAKES ARE DELIBERATELY ABSENT, and saying so is the point of this paragraph.
 // LadderPlanRefusal also demands that an isolated baseline carry no contender and that a contended cell
-// hold the contender at a fixed count. Neither can be violated by the generator this matrix uses: gen-trace
-// filters the contending tenant out of an isolated baseline itself (cmd/benchharness/main.go, the
-// IsIsolatedBaseline block), and it refuses a contender weight of zero outright with "tenant
-// \"standard-noisy\" weight must be positive". A refusal no fixture can reach is a refusal no mutation can
-// test, and this repository has already shipped one of those.
+// hold the contender at a fixed count.
+// Neither can be violated by the generator this matrix uses: gen-trace filters the contending tenant out of
+// an isolated baseline itself (cmd/benchharness/main.go, the IsIsolatedBaseline block), and it refuses a
+// contender weight of zero outright with "tenant \"standard-noisy\" weight must be positive".
+// A refusal no fixture can reach is a refusal no mutation can test, and this repository has already shipped
+// one of those.
 func MatrixPlanRefusal(study, arm string, premiumOffers int) error {
 	s, ok := LookupStudy(study)
 	if !ok {
@@ -105,9 +108,10 @@ func instrumentValidationArmSetRefusal(s Study, arms []string) error {
 // MatrixPlanArmSetRefusal says whether the arm LIST a frozen run was given can be scored at all.
 //
 // EvaluateSharingMatrix already refuses a run with no R1 or no `shared` and names which is missing, because
-// every reading divides by R1 or compares against `shared`. That refusal arrives after the whole matrix has
-// been bought; asked here it costs nothing. It is a question about the SET rather than about a cell, which
-// is why it is a second function: no single cell's trace can answer it.
+// every reading divides by R1 or compares against `shared`.
+// That refusal arrives after the whole matrix has been bought; asked here it costs nothing.
+// It is a question about the SET rather than about a cell, which is why it is a second function: no single
+// cell's trace can answer it.
 func MatrixPlanArmSetRefusal(study string, arms []string) error {
 	s, ok := LookupStudy(study)
 	if !ok {
@@ -127,9 +131,10 @@ func MatrixPlanArmSetRefusal(study string, arms []string) error {
 		}
 		return nil
 	}
-	// The admission pilot's family has no `shared`: its control is off. A pilot stage buys a subset of the pilot's
-	// arms with R1 and off in it; the diagnostic and v26 buy exactly their registered arms, which their scorers
-	// require cell by cell (v26 review, C6: the matrix had been passing the sharing matrix's default arms here).
+	// The admission pilot's family has no `shared`: its control is off.
+	// A pilot stage buys a subset of the pilot's arms with R1 and off in it; the diagnostic and v26 buy exactly
+	// their registered arms, which their scorers require cell by cell (v26 review, C6: the matrix had been passing
+	// the sharing matrix's default arms here).
 	// The length calibration has no bare off: its references are off at each length, and every registered arm is
 	// required, as its scorer requires each cell.
 	if s.ID == StudyLengthCalibration || s.ID == StudyHeadroomCalibration || s.ID == StudyLengthRobustness || s.ID == StudyHeadroomMain {
@@ -169,13 +174,15 @@ func MatrixPlanArmSetRefusal(study string, arms []string) error {
 	required := []struct{ arm, why string }{
 		{ArmR1, "the isolated baseline both bars divide by"},
 	}
-	// The sharing matrix's control is the bare `shared`. A study that names its contended arms by BE level
-	// admits no bare `shared` at all, so requiring it would refuse every plan that study can make; what that
-	// study needs instead is at least one contended arm to divide by the baseline.
+	// The sharing matrix's control is the bare `shared`.
+	// A study that names its contended arms by BE level admits no bare `shared` at all, so requiring it
+	// would refuse every plan that study can make; what that study needs instead is at least one contended
+	// arm to divide by the baseline.
 	//
-	// Only for a study whose contended arms ARE per-level names. Every other study keeps the old pair: the
-	// price-of-protection sweep admits no bare `shared` either, and a plan check run against it with the
-	// matrix's arms must reach the refusal that names the mismatched study rather than this one.
+	// Only for a study whose contended arms ARE per-level names.
+	// Every other study keeps the old pair: the price-of-protection sweep admits no bare `shared` either,
+	// and a plan check run against it with the matrix's arms must reach the refusal that names the
+	// mismatched study rather than this one.
 	perLevel := slices.ContainsFunc(s.Arms, isTailCrossingArm)
 	if !perLevel {
 		required = append(required, struct{ arm, why string }{ArmShared, "the control every improvement is measured from"})

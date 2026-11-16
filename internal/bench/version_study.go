@@ -12,7 +12,8 @@ import (
 //
 // This file holds the parts of that registration a program can check: the arms, what may differ between the
 // treatments' engines, the loads and their order, the windows, the block order and workload seeds, the phase bounds
-// and budget, and which values are still open. The spec is the authority for why each value is what it is.
+// and budget, and which values are still open.
+// The spec is the authority for why each value is what it is.
 
 // The three treatments of the version study.
 const (
@@ -214,8 +215,9 @@ func (d VersionStudyDesign) PaidRunRefusal() error {
 }
 
 // versionAsyncRehearsalDesign is the registered design with durations short enough to rehearse a whole campaign
-// against the stub engine in minutes (#638). Everything that decides validity or the verdict is the registered
-// design's; only how long each phase runs, and the population floor that follows from it, differ.
+// against the stub engine in minutes (#638).
+// Everything that decides validity or the verdict is the registered design's; only how long each phase runs,
+// and the population floor that follows from it, differ.
 func versionAsyncRehearsalDesign() VersionStudyDesign {
 	d := versionAsyncDesign()
 	d.Rehearsal = true
@@ -460,7 +462,8 @@ func usd(seconds int, ratePerHour float64) float64 {
 // MayStartBlock says whether the session can still afford every valid block it needs, not merely the next one.
 //
 // ratePerHour is the instance price plus the other session charges per hour; validStillNeeded counts the valid blocks
-// missing from the planned total. Each is charged at its bound, and teardown and the reserve are held back (attack item 13).
+// missing from the planned total.
+// Each is charged at its bound, and teardown and the reserve are held back (attack item 13).
 func (d VersionStudyDesign) MayStartBlock(spentUSD, ratePerHour float64, validStillNeeded, windowSeconds int) bool {
 	if !(ratePerHour > 0) || math.IsInf(ratePerHour, 0) || math.IsNaN(spentUSD) || spentUSD < 0 || validStillNeeded < 1 || windowSeconds <= 0 {
 		return false

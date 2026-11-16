@@ -77,8 +77,8 @@ func asEngineKeys(t *testing.T, args []string) map[string]string {
 	return got
 }
 
-// The engine is the one the measurement ran, less the two entries that only instrumented it.
-// port and served_model_name are infrastructure: the pilot's validator exempts the port, and the served name is what the gateway routes on.
+// The engine is the one the measurement ran, less the two entries that only instrumented it. port and served_model_name are infrastructure:
+// the pilot's validator exempts the port, and the served name is what the gateway routes on.
 // The cap is passed as the literal 384, not the constant under test, so changing the constant turns this red.
 func TestRenderedArgsAreTheMeasuredHoldCapEngine(t *testing.T) {
 	want := pilotExpected(t, 384)
@@ -357,8 +357,8 @@ func TestEngineProfileKeepsTheValidatedProfiles(t *testing.T) {
 }
 
 // The gateway binds a tier on every backend whose engine this controller renders, in Off as well as HoldCap
-// (internal/gateway BackendRef.PriorityScheduled), on the strength of this one fact. A profile without priority
-// scheduling would be sent priorities it may refuse.
+// (internal/gateway BackendRef.PriorityScheduled), on the strength of this one fact.
+// A profile without priority scheduling would be sent priorities it may refuse.
 // Mutation that turns this red: drop --scheduling-policy=priority from a profile.
 func TestEveryRenderedProfileSchedulesByPriority(t *testing.T) {
 	for name, p := range vllmProfiles {

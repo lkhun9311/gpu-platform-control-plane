@@ -17,20 +17,22 @@ limitations under the License.
 // Command platformctl reads and writes the operations ledger from a shell.
 //
 // It exists because the ledger's whole claim is evidence that outlives the cluster that produced it, and a
-// record that needs Go written against it to be read is not evidence anyone can check. The seven other
-// binaries here are all things you point AT a live cluster; none of them reads a durable record, and
-// workloadrunctl -- the superficially closest -- "runs the WorkloadRun reconciler and nothing else".
+// record that needs Go written against it to be read is not evidence anyone can check.
+// The seven other binaries here are all things you point AT a live cluster; none of them reads a durable
+// record, and workloadrunctl -- the superficially closest -- "runs the WorkloadRun reconciler and nothing
+// else".
 //
 // Design of record: docs/superpowers/specs/2026-09-27-operations-ledger-slice-one-design.md.
 //
 // Two conventions worth stating because they are deliberate refusals:
 //
-// -ledger has NO DEFAULT. A default path would let `project` create a database the operator never named, in a
-// directory they were not thinking about, and let `list` read one they did not mean.
+// -ledger has NO DEFAULT.
+// A default path would let `project` create a database the operator never named, in a directory they were not
+// thinking about, and let `list` read one they did not mean.
 //
-// `project` prints what it recorded rather than "ok". A projector that reported success would make "wrote
-// nothing because the cluster had nothing" and "wrote nothing because the ledger was already ahead" the same
-// output, and those are different facts.
+// `project` prints what it recorded rather than "ok".
+// A projector that reported success would make "wrote nothing because the cluster had nothing" and "wrote
+// nothing because the ledger was already ahead" the same output, and those are different facts.
 package main
 
 import (
@@ -141,8 +143,8 @@ func project(args []string) error {
 	}
 	defer func() { _ = store.Close() }()
 
-	// The projection time is taken once, here, and passed in. Reading the clock inside the projector would
-	// stamp rows from one projection with different times.
+	// The projection time is taken once, here, and passed in.
+	// Reading the clock inside the projector would stamp rows from one projection with different times.
 	p, err := store.ProjectWorkloadRuns(runs.Items, time.Now())
 	if err != nil {
 		return err
@@ -176,15 +178,16 @@ func list(args []string) error {
 		return err
 	}
 	if len(runs) == 0 {
-		// Said out loud rather than left as empty output. Printing nothing would look the same as a command
-		// that failed to run, and the point of OpenForRead's refusal is that those two are not the same.
+		// Said out loud rather than left as empty output.
+		// Printing nothing would look the same as a command that failed to run, and the point of
+		// OpenForRead's refusal is that those two are not the same.
 		fmt.Printf("no runs recorded in %s\n", *path)
 		return nil
 	}
 
 	// The per-row errors are dropped deliberately, and that is not the same as discarding them: tabwriter
-	// keeps the first write error and hands it back from Flush, which is returned. So the failure has exactly
-	// one reporting path rather than none.
+	// keeps the first write error and hands it back from Flush, which is returned.
+	// So the failure has exactly one reporting path rather than none.
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAMESPACE\tNAME\tSCENARIO\tPHASE\tVERDICT\tTARGET\tPROJECTED")
 	for _, r := range runs {
@@ -229,8 +232,8 @@ func get(args []string) error {
 	}
 	if err != nil {
 		// Including ledger.ErrNoSuchRun (a run nobody projected is not a run that happened and recorded
-		// nothing) and ledger.ErrAmbiguousRun, whose message names the UIDs to pass back through -uid. Both
-		// exit non-zero on purpose.
+		// nothing) and ledger.ErrAmbiguousRun, whose message names the UIDs to pass back through -uid.
+		// Both exit non-zero on purpose.
 		return err
 	}
 

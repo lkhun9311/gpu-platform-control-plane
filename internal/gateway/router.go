@@ -93,7 +93,8 @@ func specRouting(d *platformv1.InferenceDeployment) string {
 //
 // Read from the EngineInForce condition, never from spec.engine alone, for the reason backendAdmission reads HoldCap
 // from status: adding spec.engine to a backend says what is wanted, and until the rollout completes the Pods serving it
-// are the old ones, which may not accept a priority. A condition from an older generation is not trusted.
+// are the old ones, which may not accept a priority.
+// A condition from an older generation is not trusted.
 func enginePriorityScheduled(d *platformv1.InferenceDeployment) bool {
 	if d.Spec.Engine == nil || d.Spec.Engine.VLLM == nil {
 		return false
@@ -184,9 +185,10 @@ func (s *Server) backendsFor(ctx context.Context, policy *platformv1.GPUQuotaPol
 	//
 	// A second deployment serving the same model used to be logged as an operator problem and then discarded.
 	// It is the ordinary shape of a served model — a rollout, a second replica set, a spare — and discarding it
-	// meant a request failed whenever the one chosen backend was down, while a healthy alternative sat one
-	// list entry away. The head stays exactly what it was, so a single-backend model routes identically and no
-	// existing behaviour moves; the tail is what fallback walks.
+	// meant a request failed whenever the one chosen backend was down, while a healthy alternative sat one list
+	// entry away.
+	// The head stays exactly what it was, so a single-backend model routes identically and no existing
+	// behaviour moves; the tail is what fallback walks.
 	//
 	// Oldest-first rather than newest, because a request must resolve deterministically across gateway
 	// replicas: two gateways picking different heads for the same model would make latency depend on which

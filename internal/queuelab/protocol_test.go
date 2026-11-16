@@ -130,8 +130,9 @@ func TestArmAssertCardinality(t *testing.T) {
 
 // TestTheIdlingArmsDifferOnlyInDuty is the claim that makes the study a study.
 //
-// Two axes at once would give a difference that carries both. These two arms must be identical in policy and
-// in termination contract, and differ in exactly one thing: how much of its service the victim computes for.
+// Two axes at once would give a difference that carries both.
+// These two arms must be identical in policy and in termination contract, and differ in exactly one thing:
+// how much of its service the victim computes for.
 func TestTheIdlingArmsDifferOnlyInDuty(t *testing.T) {
 	rows := []string{OwnRow, VictimRow, OwnerRow}
 
@@ -191,8 +192,9 @@ func TestTheIdlingArmsDifferOnlyInDuty(t *testing.T) {
 // TestTheIdlingArmsUseTheIgnoringContract records why, because it is not arbitrary.
 //
 // A honouring victim stops in milliseconds, so its hold is shorter than a scrape interval and the observer
-// has nothing inside it. That is the defect that invalidated a measured run once already. The idling study
-// needs samples inside the hold, so it fixes the contract at the ignoring one.
+// has nothing inside it.
+// That is the defect that invalidated a measured run once already.
+// The idling study needs samples inside the hold, so it fixes the contract at the ignoring one.
 func TestTheIdlingArmsUseTheIgnoringContract(t *testing.T) {
 	for _, a := range []Arm{ArmDFull, ArmDQuarter} {
 		got, err := a.ContractFor(VictimRow)
@@ -254,7 +256,8 @@ func TestWhatEachArmDecidesAboutTheProgressFile(t *testing.T) {
 		{ArmEResume, VictimRow, StatePlan{Checkpoint: true, Restore: true}},
 		{ArmEFresh, VictimRow, StatePlan{Checkpoint: true}},
 		// The treatment is the VICTIM's behaviour, so the other two rows carry no progress file even under
-		// the arms that are about one. Checkpointing them would put the write cost into every manifest.
+		// the arms that are about one.
+		// Checkpointing them would put the write cost into every manifest.
 		{ArmEResume, OwnRow, StatePlan{}},
 		{ArmEResume, OwnerRow, StatePlan{}},
 		{ArmEFresh, OwnRow, StatePlan{}},
@@ -279,8 +282,9 @@ func TestWhatEachArmDecidesAboutTheProgressFile(t *testing.T) {
 	}
 
 	// Restoring without checkpointing is a run reading a file it never wrote, which would be resuming
-	// somebody else's work. No arm may ask for it, and this sweeps every combination rather than trusting
-	// the table above to have listed the one that could.
+	// somebody else's work.
+	// No arm may ask for it, and this sweeps every combination rather than trusting the table above to
+	// have listed the one that could.
 	for _, a := range []Arm{ArmAHonor, ArmAIgnore, ArmNRef, ArmDFull, ArmDQuarter, ArmEFresh, ArmEResume} {
 		for _, row := range []string{OwnRow, VictimRow, OwnerRow} {
 			p, err := a.StateFor(row)

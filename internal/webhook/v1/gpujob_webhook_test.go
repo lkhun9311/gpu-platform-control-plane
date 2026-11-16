@@ -38,8 +38,9 @@ func gpuJob(devices int64, mutate func(*batchv1.Job)) *batchv1.Job {
 // askJob puts a Job through the handler against a cluster holding `objs` and nothing else.
 //
 // The empty default is the Kueue-authority case: no GPUQuotaPolicy targets the namespace, so nothing says
-// the work is metered by a ceiling and the queue requirement stands. Tests that want the ResourceQuota mode
-// pass the policy and the quota explicitly, which is the only way to reach the branch that admits.
+// the work is metered by a ceiling and the queue requirement stands.
+// Tests that want the ResourceQuota mode pass the policy and the quota explicitly, which is the only way to
+// reach the branch that admits.
 func askJob(t *testing.T, j *batchv1.Job, objs ...client.Object) admission.Response {
 	t.Helper()
 	raw, err := json.Marshal(j)
@@ -67,10 +68,11 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
-// Refusing the Pod is too late. Measured before this guard existed: a Job with grace 600 took the
-// ClusterQueue from used=1 to used=2 within twenty seconds and still held it four minutes later, with
-// job.status.failed stuck at 0 — an admission rejection is not a Pod failure, so backoffLimit never advances
-// and nothing gives the reservation back.
+// Refusing the Pod is too late.
+// Measured before this guard existed: a Job with grace 600 took the ClusterQueue from used=1 to used=2
+// within twenty seconds and still held it four minutes later, with job.status.failed stuck at 0 — an
+// admission rejection is not a Pod failure, so backoffLimit never advances and nothing gives the reservation
+// back.
 //
 // Mutation that turns this red: drop the grace check from the Job guard.
 func TestAJobWhosePodsWouldBeRefusedIsRefusedItself(t *testing.T) {
@@ -86,8 +88,8 @@ func TestAJobWhosePodsWouldBeRefusedIsRefusedItself(t *testing.T) {
 	}
 }
 
-// The queue label is answerable at the Job and not at the Pod, because Kueue reads it from the Job. Refusing
-// at the Pod would tell a user to fix a field their Pod does not have.
+// The queue label is answerable at the Job and not at the Pod, because Kueue reads it from the Job.
+// Refusing at the Pod would tell a user to fix a field their Pod does not have.
 //
 // Mutation that turns this red: drop the queue-label check from the Job guard.
 func TestAGPUJobWithNoQueueIsRefused(t *testing.T) {

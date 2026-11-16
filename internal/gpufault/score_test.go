@@ -238,7 +238,8 @@ func TestScoreCellValidityRulesEachFire(t *testing.T) {
 			f.watchLogs["node"] = "start " + ep(at(time.Second)) + "\n"
 		}},
 		// A wrapper that died after its start record leaves no end, and a quiet control over that watch was valid
-		// (codex audit, 2026-10-28). Mutation that turns it red: stop requiring an end record.
+		// (codex audit, 2026-10-28).
+		// Mutation that turns it red: stop requiring an end record.
 		"V3: watch with no end recorded": {"none", func(f *cellFixture) {
 			f.watchLogs["node"] = "start " + ep(at(-5*time.Second)) + "\n"
 		}},
@@ -251,7 +252,8 @@ func TestScoreCellValidityRulesEachFire(t *testing.T) {
 		"V7: benign value never read by the operator": {"benign", func(f *cellFixture) { f.nhs = f.nhs[:1] }},
 		"V7: no sentinel": {"none", func(f *cellFixture) { delete(f.env, "sentinel_value") }},
 		// A control watched for one second and called QUIET says nothing of the 120 the registration fixed (review
-		// r7, 2026-11-07). Mutation that turns these red: drop the window-length check, or the sentinel order check.
+		// r7, 2026-11-07).
+		// Mutation that turns these red: drop the window-length check, or the sentinel order check.
 		"V3: window shorter than registered": {"benign", func(f *cellFixture) { f.env["t_window_end"] = ep(at(time.Second)) }},
 		"V3: no-injection window shorter than registered": {"none", func(f *cellFixture) {
 			f.env["t_window_end"] = ep(at(119 * time.Second))

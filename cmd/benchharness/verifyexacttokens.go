@@ -14,9 +14,9 @@ import (
 // verifyExactTokens checks a study's frozen exact token counts against a live engine.
 //
 // The pilot stamps its traces from counts frozen in the registry, so no arm sends a calibration probe; this is
-// where the frozen counts meet the engine they claim to describe (design page, build item 18). It sends one probe
-// per frozen length straight to the engine, each with the request ID calib-<length>, which every measurement
-// excludes, and refuses if the engine reports a different count for any of them.
+// where the frozen counts meet the engine they claim to describe (design page, build item 18).
+// It sends one probe per frozen length straight to the engine, each with the request ID calib-<length>, which
+// every measurement excludes, and refuses if the engine reports a different count for any of them.
 func verifyExactTokens(args []string) error {
 	fs := flag.NewFlagSet("verify-exact-tokens", flag.ExitOnError)
 	study := fs.String("study", "", "study whose frozen counts are checked (required)")

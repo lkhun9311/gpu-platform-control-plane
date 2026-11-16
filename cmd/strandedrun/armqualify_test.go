@@ -87,10 +87,11 @@ func TestBothRegisteredArmsAreQualifiedByHonestEvidence(t *testing.T) {
 
 // An omitted reading must be refused, never taken for "no".
 //
-// This is the case the three-state Observation exists for, and it is the one a bool could not express. The
-// reference arm PASSES when the profile file is absent, so with `flag.Bool` an operator who simply did not look
-// would supply false, the check would read that as "absent", and the arm would qualify on a reading nobody
-// took. It is the unobserved-disposition failure the demand ledger guards against, arriving in a new place.
+// This is the case the three-state Observation exists for, and it is the one a bool could not express.
+// The reference arm PASSES when the profile file is absent, so with `flag.Bool` an operator who simply did not
+// look would supply false, the check would read that as "absent", and the arm would qualify on a reading nobody
+// took.
+// It is the unobserved-disposition failure the demand ledger guards against, arriving in a new place.
 //
 // Mutation that turns this red: make Observation.Validate accept ObservationUnobserved, or have the caller
 // treat the zero value as ObservationNo.
@@ -194,7 +195,8 @@ func TestTheReferenceArmIsRefusedWhenAnythingWasSupplied(t *testing.T) {
 // The treatment arm is refused when its profile was never supplied or never took.
 //
 // These are the two halves of the silent-treatment failure: a profile that was not passed at all, and one that
-// was loaded and did not move a placement. Reading the configuration back would catch only the first.
+// was loaded and did not move a placement.
+// Reading the configuration back would catch only the first.
 //
 // Mutation that turns this red: drop either refusal in qualifyTreatment.
 func TestTheTreatmentArmIsRefusedWhenItsProfileNeverTook(t *testing.T) {
@@ -275,9 +277,10 @@ func TestSharedEvidenceInvalidatesEitherArm(t *testing.T) {
 // A forbidden argument is matched by flag NAME, not by substring.
 //
 // The scheduler's real arguments are `--authentication-kubeconfig=...`, `--authorization-kubeconfig=...` and
-// `--kubeconfig=...`. A substring search for a flag would match the wrong one of those three, and a search for
-// `--config` would be satisfied by any flag whose VALUE happened to contain that text -- refusing a reference
-// arm that had supplied nothing.
+// `--kubeconfig=...`.
+// A substring search for a flag would match the wrong one of those three, and a search for `--config` would be
+// satisfied by any flag whose VALUE happened to contain that text -- refusing a reference arm that had
+// supplied nothing.
 //
 // Mutation that turns this red: compare with strings.Contains instead of splitting on the first "=".
 func TestAForbiddenArgumentIsMatchedByFlagNameNotSubstring(t *testing.T) {

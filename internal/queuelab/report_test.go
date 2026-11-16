@@ -62,7 +62,8 @@ func assertTimingLinesAdjacent(t *testing.T, out string, wantLines int) {
 
 // TestRenderResultExposesExecutionStartForUnexecutedRows guards the row a refactor is most likely to drop
 // silently: one that was offered but never admitted and never executed, so it has no execution timing to
-// report. Its missing execution is exactly the fact the guard exists to keep visible, not to hide.
+// report.
+// Its missing execution is exactly the fact the guard exists to keep visible, not to hide.
 func TestRenderResultExposesExecutionStartForUnexecutedRows(t *testing.T) {
 	events := ineffectivePreemptionEvents()
 	filtered := events[:0]
@@ -105,9 +106,10 @@ func TestRenderResultSurfacesIneffectivePreemption(t *testing.T) {
 	if !strings.Contains(out, "unattributedOccupancy") {
 		t.Fatalf("unattributed occupancy must be reported:\n%s", out)
 	}
-	// The per-row flag must be pinned on the row that carries it. The earlier form searched the timing line
-	// for the job name, which that line does not contain, so its failure branch was unreachable and deleting
-	// the field from the renderer would not have failed any test.
+	// The per-row flag must be pinned on the row that carries it.
+	// The earlier form searched the timing line for the job name, which that line does not contain, so its
+	// failure branch was unreachable and deleting the field from the renderer would not have failed any
+	// test.
 	foundIneffectiveRow := false
 	for _, o := range res.Outcomes {
 		if !o.PreemptionIneffective {
@@ -199,8 +201,9 @@ var occupancyLinePattern = regexp.MustCompile(`totalOccupancy=([0-9.]+)\(service
 
 func TestRenderResultShowsOccupancyExceedingDeclaredServiceTime(t *testing.T) {
 	// The whole point of printing service time is that a reader can see the pool paid 81 s for 40 s of asked-
-	// for service. A fixture whose declared duration does not match its own events renders the label while
-	// demonstrating the inverse, so the ordering of the two figures is what has to be pinned.
+	// for service.
+	// A fixture whose declared duration does not match its own events renders the label while demonstrating
+	// the inverse, so the ordering of the two figures is what has to be pinned.
 	res, err := Reconstruct("Any", matchedServiceTimeTrace(), reExecutionEvents(), 200*sec)
 	if err != nil {
 		t.Fatal(err)
@@ -244,8 +247,9 @@ func TestRenderResultShowsOccupancyExceedingDeclaredServiceTime(t *testing.T) {
 
 func TestRenderResultShowsCensoredWaitOnlyOnNeverAdmittedRows(t *testing.T) {
 	// The suffix is a lower bound on wait for a row never admitted, and a bare number on an ADMITTED row
-	// would misread as that row's exact wait. Pinning both sides in one rendering is what makes the guard a
-	// constraint: an assertion that only checks the never-admitted row still passes if the guard is deleted.
+	// would misread as that row's exact wait.
+	// Pinning both sides in one rendering is what makes the guard a constraint: an assertion that only
+	// checks the never-admitted row still passes if the guard is deleted.
 	events := ineffectivePreemptionEvents()
 	kept := events[:0]
 	for _, e := range events {
@@ -369,8 +373,9 @@ var unattributedBannerPattern = regexp.MustCompile(`UNATTRIBUTED OCCUPANCY: ([0-
 
 // TestRenderResultUnattributedBannerReportsOnlyNoTerminalPhaseOccupancy is F1: the banner is gated on
 // AnyAttributionUnknown but historically printed the COMBINED unattributed figure, which also folds in
-// occupancy from a Succeeded stop where the cause IS established. Only r2's 47 lacks a terminal phase; r1's
-// 33 must not be added into the number this banner's own sentence claims to describe.
+// occupancy from a Succeeded stop where the cause IS established.
+// Only r2's 47 lacks a terminal phase; r1's 33 must not be added into the number this banner's own sentence
+// claims to describe.
 func TestRenderResultUnattributedBannerReportsOnlyNoTerminalPhaseOccupancy(t *testing.T) {
 	res, err := Reconstruct("Any", f1UnattributedBannerTrace(), f1UnattributedBannerEvents(), 50*sec)
 	if err != nil {
@@ -412,8 +417,9 @@ func TestRenderResultDoesNotContradictCreditedIneffectivePreemption(t *testing.T
 
 func TestRenderResultStatesUncreditedLossOnReExecutedIneffectiveRow(t *testing.T) {
 	// waste=0.0 is true about mechanism and false about loss: the attempt succeeded, was not credited, and
-	// re-ran from zero. Replacing an overclaim with an underclaim is not a fix, so the banner must state the
-	// loss rather than leave a reader to infer it from a zero.
+	// re-ran from zero.
+	// Replacing an overclaim with an underclaim is not a fix, so the banner must state the loss rather than
+	// leave a reader to infer it from a zero.
 	res, err := Reconstruct("Any", reclaimAnyTrace(), reExecutionEvents(), 200*sec)
 	if err != nil {
 		t.Fatal(err)
@@ -445,8 +451,8 @@ func TestRenderResultStatesUncreditedLossOnReExecutedIneffectiveRow(t *testing.T
 }
 
 // The floor line is not optional decoration: it is the only thing on the screen that tells a reader the
-// magnitudes above it have a size below which they say nothing. A render that drops it hands back exactly
-// the output that produced the retracted 0.94 second claim.
+// magnitudes above it have a size below which they say nothing.
+// A render that drops it hands back exactly the output that produced the retracted 0.94 second claim.
 func TestRenderResultAlwaysStatesTheFloor(t *testing.T) {
 	bounded := SpreadOf([]LifecycleEvent{skewed(430 * int64(time.Millisecond)), skewed(2389 * int64(time.Millisecond))})
 	out := RenderResult(LabResult{Arm: "A-honor", TotalWastedGPUSeconds: 41.0, Spread: bounded})

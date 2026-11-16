@@ -20,13 +20,14 @@ func deliveredRow(index int, tpotMs float64) RawRow {
 // TestTPOTPercentilesAreTakenOverSortedSamples catches a wrong number, not a crash.
 //
 // percentile is documented as operating on a SORTED slice and every other caller sorts before calling it
-// (report.go sorts ttft and e2e). The TPOT samples were not sorted, so TPOTMsP50 and TPOTMsP99 were
-// whichever values happened to sit at those positions in arrival order.
+// (report.go sorts ttft and e2e).
+// The TPOT samples were not sorted, so TPOTMsP50 and TPOTMsP99 were whichever values happened to sit at
+// those positions in arrival order.
 //
 // It matters because TPOT p99 is one of the five things the pre-registration requires every arm to
-// report, and reading 1 fails a cell whose TPOT p99 exceeds 1.25x the isolated baseline. An unsorted p99
-// is a number that looks like a tail and is not one, which is the failure this repository's measurement
-// rule exists to prevent: a plausible wrong number is worse than a refusal.
+// report, and reading 1 fails a cell whose TPOT p99 exceeds 1.25x the isolated baseline.
+// An unsorted p99 is a number that looks like a tail and is not one, which is the failure this
+// repository's measurement rule exists to prevent: a plausible wrong number is worse than a refusal.
 func TestTPOTPercentilesAreTakenOverSortedSamples(t *testing.T) {
 	// Deliberately out of order, and deliberately with the largest sample first so that an unsorted
 	// nearest-rank lands nowhere near it.
@@ -37,8 +38,8 @@ func TestTPOTPercentilesAreTakenOverSortedSamples(t *testing.T) {
 	}
 	s := Summarize("off", rows)
 
-	// Sorted, the samples are [1, 2, 100]. Nearest-rank p50 over three observations is the second, and
-	// p99 is the third.
+	// Sorted, the samples are [1, 2, 100].
+	// Nearest-rank p50 over three observations is the second, and p99 is the third.
 	if got, want := s.TPOTMsP50, 2.0; !closeEnough(got, want) {
 		t.Errorf("TPOT p50 = %.3f, want %.3f (samples arrived as 100, 1, 2)", got, want)
 	}
@@ -78,8 +79,9 @@ func closeEnough(a, b float64) bool {
 //
 // This is what the sender actually records for a stream that times out or breaks mid-flight: the status
 // stays 200 because the response headers arrived, the tokens received so far are kept, and ErrorKind
-// names the failure (httpsender.go stamps "timeout" or "stream"). EndUnixNanos is the moment it died,
-// which for a timeout is the deadline rather than the end of any real work.
+// names the failure (httpsender.go stamps "timeout" or "stream").
+// EndUnixNanos is the moment it died, which for a timeout is the deadline rather than the end of any
+// real work.
 func truncatedRow(index int, kind string, spanMs float64) RawRow {
 	r := deliveredRow(index, spanMs)
 	r.ErrorKind = kind
@@ -90,9 +92,9 @@ func truncatedRow(index int, kind string, spanMs float64) RawRow {
 //
 // A stream killed at its 30-second timeout after two tokens reports an inter-token time of 30 seconds.
 // That number describes the timeout, not the engine, and TPOT p99 is the statistic reading 1 uses to
-// fail a cell that "pays for a fast first token with a slow stream". Letting deadlines into it means the
-// arm most likely to be failed on stream quality is whichever arm timed out most, whatever its streams
-// were actually like.
+// fail a cell that "pays for a fast first token with a slow stream".
+// Letting deadlines into it means the arm most likely to be failed on stream quality is whichever arm
+// timed out most, whatever its streams were actually like.
 func TestTruncatedStreamsDoNotEnterTheTPOTTail(t *testing.T) {
 	rows := []RawRow{
 		deliveredRow(0, 5),
@@ -111,10 +113,12 @@ func TestTruncatedStreamsDoNotEnterTheTPOTTail(t *testing.T) {
 //
 // The tokens a broken stream delivered are real work the GPU did, and dropping them would understate
 // what a contending tenant received -- which is the exact quantity the per-tenant share exists to
-// measure. So they are counted. But a share that is partly made of failed streams means something
-// different from one that is not, and this repository's rule is that a quantity may not be described by
-// a cause its ledger does not establish. So the amount is recorded separately rather than folded in
-// silently.
+// measure.
+// So they are counted.
+// But a share that is partly made of failed streams means something different from one that is not, and
+// this repository's rule is that a quantity may not be described by a cause its ledger does not
+// establish.
+// So the amount is recorded separately rather than folded in silently.
 func TestTokensFromTruncatedStreamsAreCountedAndDisclosed(t *testing.T) {
 	rows := []RawRow{
 		deliveredRow(0, 5),
@@ -141,11 +145,12 @@ func tenantRow(index int, tenant string, noisy bool, tpotMs float64) RawRow {
 
 // TestTPOTIsAlsoReportedPerTenant is what the pre-registered TPOT criterion actually needs.
 //
-// The arm-wide TPOT pools every tenant, because it is accumulated before the premium-only filter. That
-// number answers "how did this arm's streams behave", which is a different question from the one reading 1
-// asks: whether the PROTECTED tenant paid for its fast first token with a slow stream. On the paid
-// evidence the arm-wide figure is 266.8 ms for an arm whose premium and noisy streams may be nothing alike,
-// and quoting it against a premium criterion would be describing one tenant with another's number.
+// The arm-wide TPOT pools every tenant, because it is accumulated before the premium-only filter.
+// That number answers "how did this arm's streams behave", which is a different question from the one
+// reading 1 asks: whether the PROTECTED tenant paid for its fast first token with a slow stream.
+// On the paid evidence the arm-wide figure is 266.8 ms for an arm whose premium and noisy streams may be
+// nothing alike, and quoting it against a premium criterion would be describing one tenant with another's
+// number.
 //
 // It is free to fix: the rows are already recorded per tenant.
 func TestTPOTIsAlsoReportedPerTenant(t *testing.T) {

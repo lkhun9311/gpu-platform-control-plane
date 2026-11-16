@@ -59,7 +59,8 @@ var _ = Describe("prospective admission", func() {
 		tokens, streams = p.held(backend)
 		Expect(tokens).To(BeZero())
 		Expect(streams).To(BeZero(), "a second Done released a stream that was not held")
-		// The gauges follow the holds. Mutation that turns this red: drop publish from releaseStream.
+		// The gauges follow the holds.
+		// Mutation that turns this red: drop publish from releaseStream.
 		Expect(testutil.ToFloat64(admissionReservedInputTokens.WithLabelValues(backend.URL.String()))).To(BeZero())
 		Expect(testutil.ToFloat64(admissionRunningStandardStreams.WithLabelValues(backend.URL.String()))).To(BeZero())
 		_, _, _ = p.Reserve(context.Background(), meta(300), backend, "t", tierStandard)
@@ -94,7 +95,8 @@ var _ = Describe("prospective admission", func() {
 	})
 
 	// The two caps are checked and taken in one critical section; if they were not, concurrent requests could
-	// each see room for one more. Run under -race as well.
+	// each see room for one more.
+	// Run under -race as well.
 	It("never holds more than its caps under concurrent reservations", func() {
 		p := newProspectiveAdmitter(1000, 5)
 		var wg sync.WaitGroup
@@ -131,8 +133,8 @@ var _ = Describe("prospective admission in the pipeline", func() {
 	// Mutation that turns this red: drop onFirstBody from the recorder, or release it on WriteHeader instead.
 	//
 	// The gateway is served for real and read by a client, so each check runs after the client has actually
-	// received what it is checking: the headers when Do returns, the first chunk when the read returns. Checking
-	// when the upstream had merely sent its headers raced the gateway's own forwarding of them, and the
+	// received what it is checking: the headers when Do returns, the first chunk when the read returns.
+	// Checking when the upstream had merely sent its headers raced the gateway's own forwarding of them, and the
 	// release-on-WriteHeader mutation stayed green.
 	It("holds the prefill until the first body byte, and the stream until the request ends", func() {
 		release, finish := make(chan struct{}), make(chan struct{})

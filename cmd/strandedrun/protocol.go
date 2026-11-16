@@ -27,18 +27,21 @@ import (
 
 // Protocol is the campaign's frozen protocol as the registration file states it.
 //
-// It is READ rather than restated. The registration page
-// docs/superpowers/specs/2026-09-29-stranded-gpu-frozen-protocol.md states the same matrix in prose, and the
-// only thing that stops those two from becoming two statements of one fact is that the page's derived
-// quantities are recomputed from this file by Validate() rather than typed into Go.
+// It is READ rather than restated.
+// The registration page docs/superpowers/specs/2026-09-29-stranded-gpu-frozen-protocol.md states the same
+// matrix in prose, and the only thing that stops those two from becoming two statements of one fact is that
+// the page's derived quantities are recomputed from this file by Validate() rather than typed into Go.
 //
-// Not embedded with go:embed, and there is no precedent for that in this repository. Embedding would make the
-// binary carry a copy of the protocol, so a run could disagree with the file on disk and say nothing -- which
-// is the drift this arrangement exists to prevent. The path is supplied, and a run that cannot read it fails.
+// Not embedded with go:embed, and there is no precedent for that in this repository.
+// Embedding would make the binary carry a copy of the protocol, so a run could disagree with the file on disk
+// and say nothing -- which is the drift this arrangement exists to prevent.
+// The path is supplied, and a run that cannot read it fails.
 // Every key of the file is declared here, and that is a requirement rather than tidiness: UnmarshalStrict
-// refuses a key this type does not know. The first version of this struct declared eight of the file's keys and
-// the protocol would not load at all -- which is the failure worth having. Under the lenient form it would have
-// loaded cleanly and enforced a subset, while the page claimed the file was canonical and nothing disagreed.
+// refuses a key this type does not know.
+// The first version of this struct declared eight of the file's keys and the protocol would not load at all --
+// which is the failure worth having.
+// Under the lenient form it would have loaded cleanly and enforced a subset, while the page claimed the file
+// was canonical and nothing disagreed.
 type Protocol struct {
 	Version     int                  `json:"version"`
 	Arms        []ProtocolArm        `json:"arms"`
@@ -76,22 +79,24 @@ type Protocol struct {
 	// a campaign whose attempts rule on themselves.
 	PerformedBy string   `json:"performed_by"`
 	JudgedBy    []string `json:"judged_by"`
-	// Cluster records that both arms render the same cluster name, so only one can stand at a time. Checked
-	// rather than declared: a protocol that allowed both at once would describe a campaign whose cells can read
-	// the other arm's cluster and produce a figure with nothing wrong on its face.
+	// Cluster records that both arms render the same cluster name, so only one can stand at a time.
+	// Checked rather than declared: a protocol that allowed both at once would describe a campaign whose cells
+	// can read the other arm's cluster and produce a figure with nothing wrong on its face.
 	Cluster struct {
 		Name             string `json:"name"`
 		OneArmAtATime    bool   `json:"one_arm_at_a_time"`
 		ArmEstablishedBy string `json:"arm_established_by"`
-		// BuildSteps is the order a cell's cluster is built in. Two of these steps were absent from the
-		// procedure and invisible on the first cluster, where something had already done them -- so they are
-		// registered rather than remembered, and their presence is checked.
+		// BuildSteps is the order a cell's cluster is built in.
+		// Two of these steps were absent from the procedure and invisible on the first cluster, where
+		// something had already done them -- so they are registered rather than remembered, and their
+		// presence is checked.
 		BuildSteps []string `json:"build_steps"`
 	} `json:"cluster"`
 	InvalidatesACell       []string `json:"invalidates_a_cell"`
 	DoesNotInvalidateACell []string `json:"does_not_invalidate_a_cell"`
 	// QualificationEvidenceExcluded are the hand-run checks disclosed as evidence that the instrument
-	// discriminates. They are declared so the file may carry them; no figure of theirs enters a comparison.
+	// discriminates.
+	// They are declared so the file may carry them; no figure of theirs enters a comparison.
 	QualificationEvidenceExcluded []string `json:"qualification_evidence_excluded_from_comparison"`
 }
 
@@ -121,9 +126,10 @@ type ProtocolSubmission struct {
 
 // LoadProtocol reads and validates the protocol file at path.
 //
-// UnmarshalStrict rather than Unmarshal, deliberately. A misspelled key under the lenient form is silently
-// dropped and the field keeps its zero value, so `submisions:` would produce a protocol with no submissions and
-// a refusal that blamed the wrong thing. A protocol whose typos are ignored is not a protocol.
+// UnmarshalStrict rather than Unmarshal, deliberately.
+// A misspelled key under the lenient form is silently dropped and the field keeps its zero value, so
+// `submisions:` would produce a protocol with no submissions and a refusal that blamed the wrong thing.
+// A protocol whose typos are ignored is not a protocol.
 func LoadProtocol(path string) (Protocol, error) {
 	var p Protocol
 	data, err := os.ReadFile(path)
@@ -142,19 +148,21 @@ func LoadProtocol(path string) (Protocol, error) {
 
 // Validate recomputes the registration page's derived quantities from this file.
 //
-// Each check below is a sentence the page asserts in prose. The page says six cells; this says
-// cells == arms x repetitions. The page says at most twelve attempts; this says
-// max_attempts_total == cells x (1 + replacements). Written out this way because a page and a file are two
-// statements of one fact, and the only thing that makes the pair safe is that one of them is computed.
+// Each check below is a sentence the page asserts in prose.
+// The page says six cells; this says cells == arms x repetitions.
+// The page says at most twelve attempts; this says max_attempts_total == cells x (1 + replacements).
+// Written out this way because a page and a file are two statements of one fact, and the only thing that
+// makes the pair safe is that one of them is computed.
 func (p Protocol) Validate() error {
 	if p.Version != 1 {
 		return fmt.Errorf("protocol version %d is not 1; a version this binary does not know may mean "+
 			"anything and must not be guessed at", p.Version)
 	}
-	// In this order, and the order is load-bearing. Several refusals are reachable from one broken file -- a
-	// protocol that both drops a required invalidation reason and duplicates another, say -- and which one a
-	// reader is told about is decided here. The refusal tests are written against these positions, so moving a
-	// group changes which message a broken protocol produces.
+	// In this order, and the order is load-bearing.
+	// Several refusals are reachable from one broken file -- a protocol that both drops a required
+	// invalidation reason and duplicates another, say -- and which one a reader is told about is decided here.
+	// The refusal tests are written against these positions, so moving a group changes which message a broken
+	// protocol produces.
 	for _, check := range []func() error{
 		p.validateArms,
 		p.validateLayoutAndImages,
@@ -340,13 +348,15 @@ func (p Protocol) validateBarriersAndRules() error {
 			p.Matrix.ReportingThreshold)
 	}
 
-	// The invalidation rules, both lists. The second list is the load-bearing one: a protocol that invalidated a
-	// tie or an identical outcome would discard exactly the cells that report a null result.
+	// The invalidation rules, both lists.
+	// The second list is the load-bearing one: a protocol that invalidated a tie or an identical outcome would
+	// discard exactly the cells that report a null result.
 	for _, want := range []string{"unobserved_disposition", "ledger_membership_mismatch",
 		"scheduler_restart_during_the_cell",
-		// The two isolation rules. The sibling fragmentation study counts headroom across every namespace and
-		// reads its context from an environment variable, so a cell sharing a cluster with it would have its
-		// demand counted into that study's vector and vice versa -- and neither run would say so.
+		// The two isolation rules.
+		// The sibling fragmentation study counts headroom across every namespace and reads its context from
+		// an environment variable, so a cell sharing a cluster with it would have its demand counted into
+		// that study's vector and vice versa -- and neither run would say so.
 		"a_submission_of_this_campaign_outside_its_own_cluster",
 		"the_sibling_studys_fixture_installed_on_the_cells_cluster"} {
 		if !slices.Contains(p.InvalidatesACell, want) {
@@ -472,13 +482,15 @@ func (p Protocol) Layout() NodeLayout { return NodeLayout(p.NodeLayout.Workers) 
 
 // CheckMembership refuses a census whose demand ledger is not exactly the protocol's first k submissions.
 //
-// This is the check that closes the hole `Census.Settled` leaves open. Settled is a boolean the run operator
-// sets, not a barrier that was observed, and the reservation balance cannot catch a submission omitted from the
-// ledger entirely -- a ledger missing a row balances perfectly well. So membership is judged against this file,
-// which is frozen independently of the run, identity by identity and in order.
+// This is the check that closes the hole `Census.Settled` leaves open.
+// Settled is a boolean the run operator sets, not a barrier that was observed, and the reservation balance
+// cannot catch a submission omitted from the ledger entirely -- a ledger missing a row balances perfectly well.
+// So membership is judged against this file, which is frozen independently of the run, identity by identity and
+// in order.
 //
-// Requests are compared too. A ledger that carries the right names with the wrong requests would satisfy a
-// membership check that only looked at names, and the requests are what the stranding figure is computed from.
+// Requests are compared too.
+// A ledger that carries the right names with the wrong requests would satisfy a membership check that only
+// looked at names, and the requests are what the stranding figure is computed from.
 func (p Protocol) CheckMembership(step int, c Census) error {
 	if step < 1 || step > len(p.Submissions) {
 		return fmt.Errorf("step %d is outside the registered sequence of %d submissions; a census at an "+

@@ -62,8 +62,8 @@ func TestRequestIDsJoinTheClientRowToTheEngine(t *testing.T) {
 }
 
 // TestRecordTimingStampsEveryOutcomeAndNothingOtherwise pins the pilot's two replay stamps: the origin on every
-// row, and the return on every outcome, a refusal and a transport failure included, while a run that does not
-// ask for them writes rows without either key.
+// row, and the return on every outcome, a refusal and a transport failure included, while a run that does not ask
+// for them writes rows without either key.
 // Mutation that turns it red: stamp ReturnedUnixNanos only when EndUnixNanos is set, or drop RecordTiming's gate.
 func TestRecordTimingStampsEveryOutcomeAndNothingOtherwise(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

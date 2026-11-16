@@ -130,7 +130,8 @@ func TestFixedSpacingClientGone(t *testing.T) {
 }
 
 // A head of the line already past its hold is dropped at release, takes no slot, and the next waiter goes in its place
-// (v26 review, A14). Mutation that turns it red: admit the head without checking its hold.
+// (v26 review, A14).
+// Mutation that turns it red: admit the head without checking its hold.
 func TestFixedSpacingDropsAHeadPastItsHold(t *testing.T) {
 	f := newFixedSpacingAdmitter(10*time.Millisecond, time.Second)
 	key := serialBackend().URL.String()

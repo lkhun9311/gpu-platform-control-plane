@@ -25,13 +25,15 @@ import (
 // ObservedNode is one node's advertised GPU capacity as the API server reports it.
 //
 // Read back from the cluster rather than taken from the manifest, which the registration requires in those
-// words. A DaemonSet that never became ready, an image that would not pull, a label that did not reach the
-// kubelet and a plugin whose registration the kubelet refused all leave the manifest saying one thing and the
-// node saying another -- and only the node's word decides where the scheduler can place.
+// words.
+// A DaemonSet that never became ready, an image that would not pull, a label that did not reach the kubelet
+// and a plugin whose registration the kubelet refused all leave the manifest saying one thing and the node
+// saying another -- and only the node's word decides where the scheduler can place.
 type ObservedNode struct {
 	Name string
 	// Labelled is the device count the node's own label claims, and Present says whether the label exists at
-	// all. A node with no label is a different fact from one labelled zero.
+	// all.
+	// A node with no label is a different fact from one labelled zero.
 	Labelled int
 	Present  bool
 	// Allocatable is the nvidia.com/gpu quantity the node advertises.
@@ -68,9 +70,9 @@ func VerifyLayout(want NodeLayout, got []ObservedNode) error {
 			strings.Join(unlabelled, ", "), NodeLabelKey)
 	}
 
-	// The multiset of labels must equal the multiset the layout asked for. Comparing counts per value rather
-	// than node-by-node, because which worker got which label is kind's to decide and does not matter; how
-	// many workers of each size exist is the whole independent variable.
+	// The multiset of labels must equal the multiset the layout asked for.
+	// Comparing counts per value rather than node-by-node, because which worker got which label is kind's to
+	// decide and does not matter; how many workers of each size exist is the whole independent variable.
 	wantPer := map[int]int{}
 	for _, n := range want {
 		wantPer[n]++
@@ -93,7 +95,8 @@ func VerifyLayout(want NodeLayout, got []ObservedNode) error {
 	}
 
 	// And the reading the registration actually demanded: the label is what the manifest promised, allocatable
-	// is what the kubelet grants. They disagree whenever the plugin did not come up.
+	// is what the kubelet grants.
+	// They disagree whenever the plugin did not come up.
 	var wrong []string
 	for _, ns := range labelled {
 		for _, n := range ns {
@@ -116,9 +119,9 @@ func VerifyLayout(want NodeLayout, got []ObservedNode) error {
 //
 // It is what separates fragmentation from aggregate shortage, which the original registration conflated: with
 // free counts [1,1] a request for 3 is blocked because the cluster does not have three devices at all, and
-// counting that as stranding would report a shortage as a placement problem. The amendment requires a witness
-// q with max(f_i) < q <= sum(f_i), and this returns the smallest one -- the weakest demand that still
-// demonstrates the phenomenon.
+// counting that as stranding would report a shortage as a placement problem.
+// The amendment requires a witness q with max(f_i) < q <= sum(f_i), and this returns the smallest one -- the
+// weakest demand that still demonstrates the phenomenon.
 //
 // Zero and false mean no such request exists, which is a legitimate state: a cluster whose free capacity all
 // sits on one node cannot strand, however much of it there is.

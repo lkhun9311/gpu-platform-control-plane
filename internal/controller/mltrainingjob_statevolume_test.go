@@ -32,23 +32,27 @@ import (
 //
 // The termination canary fingerprints the template BuildJob renders for templateProbeJob, and that probe
 // declares no state volume on purpose: the canary SCHEDULES its probe as a real Pod, and a probe naming a
-// claim nobody created would sit Pending forever. Keeping it out is what left every canary taken before this
-// field valid, and the price is that the mount path is covered by no reading the canary takes. The
-// pre-registration therefore made a controller-path test a requirement of this work rather than an option.
+// claim nobody created would sit Pending forever.
+// Keeping it out is what left every canary taken before this field valid, and the price is that the mount
+// path is covered by no reading the canary takes.
+// The pre-registration therefore made a controller-path test a requirement of this work rather than an
+// option.
 //
 // These specs are not a second copy of the BuildJob unit tests beside them, and the difference is the
-// apiserver. Those call the renderer directly, so they would pass unchanged if the generated CRD schema
-// REJECTED the field, or if the reconciler built its Job from something other than BuildJob. Here the create
-// proves the schema admits what the Go type declares, and the Get proves the value survived the round trip
-// into the Job the controller actually created.
+// apiserver.
+// Those call the renderer directly, so they would pass unchanged if the generated CRD schema REJECTED the
+// field, or if the reconciler built its Job from something other than BuildJob.
+// Here the create proves the schema admits what the Go type declares, and the Get proves the value survived
+// the round trip into the Job the controller actually created.
 var _ = Describe("MLTrainingJob state volume", func() {
 	const ns = "default"
 
 	// jobFor creates an MLTrainingJob and drives reconciles until the owned Job exists, then returns it.
 	//
-	// The claim it names is never created. Nothing in this path requires it to exist: the Job object is
-	// stored regardless, and only a kubelet scheduling the Pod would care -- which is the same reason the
-	// missing claim surfaces as a Pending Pod in a real cluster rather than as a rejected Job.
+	// The claim it names is never created.
+	// Nothing in this path requires it to exist: the Job object is stored regardless, and only a kubelet
+	// scheduling the Pod would care -- which is the same reason the missing claim surfaces as a Pending
+	// Pod in a real cluster rather than as a rejected Job.
 	jobFor := func(sv *platformv1.StateVolume) *batchv1.Job {
 		GinkgoHelper()
 		key := types.NamespacedName{Name: "statevol-" + rand.String(5), Namespace: ns}
@@ -86,8 +90,8 @@ var _ = Describe("MLTrainingJob state volume", func() {
 				"report the resume as having worked")
 		Expect(pod.Volumes[0].PersistentVolumeClaim.ClaimName).To(Equal("resume-state"))
 
-		// The mount has to land in the trainer, not merely somewhere in the Pod. A volume attached to a Pod
-		// whose workload container cannot see it is storage nothing reads.
+		// The mount has to land in the trainer, not merely somewhere in the Pod.
+		// A volume attached to a Pod whose workload container cannot see it is storage nothing reads.
 		Expect(pod.Containers[0].Name).To(Equal("trainer"))
 		Expect(pod.Containers[0].VolumeMounts).To(HaveLen(1))
 		Expect(pod.Containers[0].VolumeMounts[0].Name).To(Equal(pod.Volumes[0].Name))

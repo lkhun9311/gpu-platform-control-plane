@@ -25,9 +25,9 @@ import (
 // manifest.
 //
 // A DaemonSet that never became ready, an image that would not pull, a label that did not reach the kubelet and
-// a registration the kubelet refused all leave the manifest saying one thing and the node saying another. Only
-// the node's word decides where the scheduler can place, so a label-only check would qualify a cluster with no
-// capacity at all.
+// a registration the kubelet refused all leave the manifest saying one thing and the node saying another.
+// Only the node's word decides where the scheduler can place, so a label-only check would qualify a cluster
+// with no capacity at all.
 //
 // Mutation that turns this red: compare labels to labels and drop the allocatable comparison.
 func TestACapacityTheClusterDoesNotAdvertiseIsRefused(t *testing.T) {
@@ -125,8 +125,9 @@ func TestAnEmptyCensusIsNotAClusterWithNoCapacity(t *testing.T) {
 // conflated.
 //
 // With free counts [1,1] a request for 3 is blocked because the cluster does not have three devices at all;
-// counting that as stranding reports a shortage as a placement problem. The witness is the smallest q with
-// max(f_i) < q <= sum(f_i) -- the weakest demand that still demonstrates the phenomenon.
+// counting that as stranding reports a shortage as a placement problem.
+// The witness is the smallest q with max(f_i) < q <= sum(f_i) -- the weakest demand that still demonstrates
+// the phenomenon.
 //
 // Mutation that turns this red: return maxFree, or drop the q > total guard.
 func TestTheWitnessRequestSeparatesFragmentationFromShortage(t *testing.T) {
@@ -162,10 +163,11 @@ func TestTheWitnessRequestSeparatesFragmentationFromShortage(t *testing.T) {
 					}
 					total += f
 				}
-				// Spelled as the negation of each half rather than as !(a && b). The amendment states the
-				// property as max(f_i) < q <= sum(f_i) and the first draft mirrored that text exactly, which
-				// staticcheck rejects; the condition below is the same predicate, and the sentence it checks
-				// stays readable in the failure message rather than in the expression.
+				// Spelled as the negation of each half rather than as !(a && b).
+				// The amendment states the property as max(f_i) < q <= sum(f_i) and the first draft mirrored
+				// that text exactly, which staticcheck rejects; the condition below is the same predicate,
+				// and the sentence it checks stays readable in the failure message rather than in the
+				// expression.
 				if maxFree >= got || got > total {
 					t.Errorf("q=%d violates max(f_i)=%d < q <= sum(f_i)=%d", got, maxFree, total)
 				}

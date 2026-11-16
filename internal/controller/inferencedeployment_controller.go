@@ -155,19 +155,21 @@ func servingPort(infd *platformv1.InferenceDeployment) int32 {
 }
 
 // servingQueue is the LocalQueue this namespace's serving Pods are charged against, or "" when no policy
-// governs it. The second return is the names of every training policy that claimed the namespace, so a
-// caller can tell "one answer" from "more than one answer" without re-listing.
+// governs it.
+// The second return is the names of every training policy that claimed the namespace, so a caller can
+// tell "one answer" from "more than one answer" without re-listing.
 //
 // A miss is not an error: a namespace with no GPUQuotaPolicy is one this platform makes no quota claim about,
 // and refusing to reconcile serving there would make the policy a prerequisite for running at all.
 //
-// More than one IS an error, and it used to be silent. This returned the first match from a List, whose
-// order the API server does not promise, and nothing forbids two policies naming the same targetNamespace --
-// the admission webhook's own quota-mode check collects them as a list and is written for exactly that case
-// (internal/webhook/v1/quota_mode.go). The value chosen here becomes the queue label on the serving
-// Deployment, so picking arbitrarily charges one tenant's serving to whichever policy the API server happened
-// to return first, and the same cluster could answer differently on the next reconcile. A quantity this
-// repository cannot establish is not one it should publish: the caller refuses instead.
+// More than one IS an error, and it used to be silent.
+// This returned the first match from a List, whose order the API server does not promise, and nothing forbids
+// two policies naming the same targetNamespace -- the admission webhook's own quota-mode check collects them
+// as a list and is written for exactly that case (internal/webhook/v1/quota_mode.go).
+// The value chosen here becomes the queue label on the serving Deployment, so picking arbitrarily charges one
+// tenant's serving to whichever policy the API server happened to return first, and the same cluster could
+// answer differently on the next reconcile.
+// A quantity this repository cannot establish is not one it should publish: the caller refuses instead.
 //
 // The names are sorted so a refusal message names the same policies in the same order every time.
 func (r *InferenceDeploymentReconciler) servingQueue(ctx context.Context, ns string) (string, []string, error) {
@@ -189,9 +191,11 @@ func (r *InferenceDeploymentReconciler) servingQueue(ctx context.Context, ns str
 	//
 	// This returned "" for an ambiguous namespace as well, which read as defence in depth and was not: the
 	// caller refuses between calling this and using the value, so the queue returned here is unreachable
-	// whenever there is more than one claimant. Mutating that early return changed no test, because there
-	// was nothing for a test to observe -- and a guard no test can reach is the kind this repository keeps
-	// finding after it has quietly stopped guarding anything. One refusal, in the place that can act on it.
+	// whenever there is more than one claimant.
+	// Mutating that early return changed no test, because there was nothing for a test to observe -- and a
+	// guard no test can reach is the kind this repository keeps finding after it has quietly stopped
+	// guarding anything.
+	// One refusal, in the place that can act on it.
 	return queue, claimants, nil
 }
 
@@ -215,7 +219,8 @@ func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.Infere
 	//
 	// It is derived from the namespace's GPUQuotaPolicy rather than taken from the InferenceDeployment spec,
 	// which is the point: a tenant naming its own queue could name another tenant's and be charged against
-	// somebody else's budget. Serving does not get to choose which budget it spends.
+	// somebody else's budget.
+	// Serving does not get to choose which budget it spends.
 	//
 	// Empty when no policy governs this namespace, in which case nothing is charged and nothing claims to be.
 	if queue != "" {
@@ -405,8 +410,8 @@ func (r *InferenceDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		// The queue label this controller writes comes from a GPUQuotaPolicy, so a policy change is a change
-		// to the Deployment — and nothing here was listening for one. For and the two Owns watches fire on the
-		// serving objects alone.
+		// to the Deployment — and nothing here was listening for one.
+		// For and the two Owns watches fire on the serving objects alone.
 		Watches(&platformv1.GPUQuotaPolicy{}, handler.EnqueueRequestsFromMapFunc(r.mapPolicyToInferenceDeployments)).
 		Named("inferencedeployment").
 		Complete(r)
@@ -415,10 +420,11 @@ func (r *InferenceDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error
 // mapPolicyToInferenceDeployments enqueues every InferenceDeployment whose queue label this policy decides.
 //
 // servingQueue reads the namespace's policies on every reconcile, but until this watch existed nothing
-// re-reconciled when one of them changed. Creating a policy after the serving workload, or turning
-// trainingQuota off, left the Deployment carrying a queue label the policy no longer justifies — or missing
-// one it now grants — until an unrelated event happened to requeue it. The reconciler was correct and simply
-// never ran.
+// re-reconciled when one of them changed.
+// Creating a policy after the serving workload, or turning trainingQuota off, left the Deployment carrying a
+// queue label the policy no longer justifies — or missing one it now grants — until an unrelated event
+// happened to requeue it.
+// The reconciler was correct and simply never ran.
 //
 // The namespace is the policy's TARGET rather than the policy's own: a GPUQuotaPolicy governs
 // spec.targetNamespace and may live somewhere else entirely.

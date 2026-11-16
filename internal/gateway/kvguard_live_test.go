@@ -34,13 +34,15 @@ import (
 // The guard against a real engine, rather than against text this repository wrote.
 //
 // Everything else in this file's package tests the guard on fixtures: a handler that returns a chosen
-// exposition, a clock that advances on command. Those check the logic and cannot check the premise -- that a
-// real vLLM publishes what the parser reads, often enough and shaped the way the state machine assumes.
+// exposition, a clock that advances on command.
+// Those check the logic and cannot check the premise -- that a real vLLM publishes what the parser reads,
+// often enough and shaped the way the state machine assumes.
 // This test registers a real backend, drives real traffic into it, and waits for the guard to engage on
 // numbers nobody here chose.
 //
 // It is skipped unless GPUAAS_LIVE_VLLM_URL points at a running server, so an ordinary `go test ./...`
-// is unaffected. Run it with, for example:
+// is unaffected.
+// Run it with, for example:
 //
 //	docker run -d --name vllmcpu --shm-size=2g -p 18000:8000 \
 //	  vllm/vllm-openai-cpu:v0.27.1-x86_64 Qwen/Qwen2.5-0.5B-Instruct \
@@ -49,10 +51,12 @@ import (
 //
 // The engagement here comes through the WAITING arm of the engage condition rather than the cache-usage
 // arm, and that is a property of the host rather than of the guard: a CPU server saturates its scheduler
-// long before a KV cache sized for a GPU fills. The state machine takes either signal by design
-// (cacheUsage > engageUsage OR waiting > waitingThresh), so what is exercised end to end is the same in
-// both cases -- scrape, parse, threshold, two-consecutive-sample debounce, tier split, release. Only the
-// magnitudes differ, and the paid GPU run is where the cache-usage arm gets its own live evidence.
+// long before a KV cache sized for a GPU fills.
+// The state machine takes either signal by design (cacheUsage > engageUsage OR waiting > waitingThresh),
+// so what is exercised end to end is the same in both cases -- scrape, parse, threshold,
+// two-consecutive-sample debounce, tier split, release.
+// Only the magnitudes differ, and the paid GPU run is where the cache-usage arm gets its own live
+// evidence.
 func liveVLLM(t *testing.T) string {
 	t.Helper()
 	base := os.Getenv("GPUAAS_LIVE_VLLM_URL")
@@ -145,11 +149,13 @@ func TestLiveEngineDrivesTheGuardThroughEngageAndRelease(t *testing.T) {
 	admitter, stop := NewKVAwareAdmitter(KVAwareConfig{
 		EngageUsage:  0.85,
 		ReleaseUsage: 0.75,
-		// The engine's own defaults decide what is reachable here. A CPU server queues before its cache
-		// fills, so waiting is the arm this host can actually cross; 8 is the value cmd/gateway ships.
+		// The engine's own defaults decide what is reachable here.
+		// A CPU server queues before its cache fills, so waiting is the arm this host can actually
+		// cross; 8 is the value cmd/gateway ships.
 		WaitingThresh: 8,
 		// Shortened from the shipped 30s so the release half of the state machine is exercised inside a
-		// test's patience. The threshold values above are NOT shortened, because they are what is under test.
+		// test's patience.
+		// The threshold values above are NOT shortened, because they are what is under test.
 		ReleaseSustain: 3 * time.Second,
 		ScrapeInterval: 500 * time.Millisecond,
 		MaxStaleness:   2 * time.Second,
@@ -167,13 +173,15 @@ func TestLiveEngineDrivesTheGuardThroughEngageAndRelease(t *testing.T) {
 	// backend it just routed to, on every routed request, and registration doubles as the "still in use"
 	// stamp the idle janitor reads.
 	//
-	// Registering once and then only polling looks equivalent and is not. IdleTimeout defaults to ten scrape
-	// intervals, so a backend that is never re-registered has its scraper stopped -- here, five seconds in.
+	// Registering once and then only polling looks equivalent and is not.
+	// IdleTimeout defaults to ten scrape intervals, so a backend that is never re-registered has its scraper
+	// stopped -- here, five seconds in.
 	// The first version of this test did exactly that, and the symptom was not an error but silence: after
 	// four good scrapes there was no snapshot at all, Admit took its unregistered-backend bypass, and the
 	// guard admitted everything for the remaining eighty-five seconds while the engine sat visibly
-	// overloaded. A guard that fails open is the right choice, and it is also the reason a wiring mistake
-	// upstream of it produces a passing-looking run rather than a complaint.
+	// overloaded.
+	// A guard that fails open is the right choice, and it is also the reason a wiring mistake upstream of it
+	// produces a passing-looking run rather than a complaint.
 	decide := func(meta RequestMeta, tenant, tier string) (bool, string) {
 		registrar.RegisterBackend(ref)
 		return admitter.Admit(context.Background(), meta, ref, tenant, tier)
@@ -208,7 +216,8 @@ func TestLiveEngineDrivesTheGuardThroughEngageAndRelease(t *testing.T) {
 	}
 
 	// While engaged the split is the whole point of the arm: premium passes, and a standard request under
-	// the length threshold passes too. A guard that rejected everything would be load shedding.
+	// the length threshold passes too.
+	// A guard that rejected everything would be load shedding.
 	if admit, reason := decide(longPremium, "premium-1", tierPremium); !admit {
 		t.Fatalf("premium was rejected while engaged (%q); the guard is shedding rather than protecting", reason)
 	}

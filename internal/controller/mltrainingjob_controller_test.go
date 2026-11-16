@@ -299,8 +299,9 @@ var _ = Describe("MLTrainingJob Controller", func() {
 			Expect(admitted.Status.LastTransitionTime).NotTo(BeNil())
 
 			By("giving the Job a ready pod, as Kueue's unsuspend followed by a node accepting it would lead to")
-			// Active alone is not that state. It counts pending Pods too, so setting only Active here
-			// asserted Running for a Pod no node had taken -- the shape finding 6 measured in the wild.
+			// Active alone is not that state.
+			// It counts pending Pods too, so setting only Active here asserted Running for a Pod no
+			// node had taken -- the shape finding 6 measured in the wild.
 			job.Status.Active = 1
 			job.Status.Ready = new(int32(1))
 			Expect(k8sClient.Status().Update(ctx, job)).To(Succeed())
@@ -374,9 +375,9 @@ var _ = Describe("MLTrainingJob Controller", func() {
 // Duplicate Workloads must resolve to the SAME one every time.
 //
 // Kueue keeps one Workload per Job UID, so more than one is an upstream invariant violation — but the
-// reconciler still has to make progress, and "the first the cache returned" is not a rule. List order can
-// differ between reconciles, so the phase written to status could oscillate between two Workloads with
-// nothing having changed.
+// reconciler still has to make progress, and "the first the cache returned" is not a rule.
+// List order can differ between reconciles, so the phase written to status could oscillate between two
+// Workloads with nothing having changed.
 //
 // Mutation that turns this red: take the first match instead of the oldest.
 func TestOlderWorkloadIsADeterministicOrder(t *testing.T) {
@@ -406,15 +407,16 @@ func TestOlderWorkloadIsADeterministicOrder(t *testing.T) {
 // A Pod that asks for a device must say which driver libraries it needs, because it cannot say so later.
 //
 // nvidia-container-toolkit bind-mounts the host's driver libraries and decides WHICH at container creation,
-// from NVIDIA_DRIVER_CAPABILITIES. Nothing inside the container can influence that: by the time a process
-// runs, the mounts are made. Leaving it unset takes the toolkit's default, which was historically "utility"
-// -- nvidia-smi and libnvidia-ml, and not libcuda.so.1, which is the one a CUDA program loads.
+// from NVIDIA_DRIVER_CAPABILITIES.
+// Nothing inside the container can influence that: by the time a process runs, the mounts are made.
+// Leaving it unset takes the toolkit's default, which was historically "utility" -- nvidia-smi and
+// libnvidia-ml, and not libcuda.so.1, which is the one a CUDA program loads.
 //
 // The failure is silent: a device is allocated, the Pod starts, loading libcuda raises, the workload falls
 // back to its CPU loop, and the run completes with plausible numbers and no device evidence -- exactly what
-// a cluster with no cards produces. That is the outcome the alpine-to-glibc image move was made to prevent,
-// and the move fixed the linkage half while leaving this half to a default that varies by AMI and toolkit
-// version.
+// a cluster with no cards produces.
+// That is the outcome the alpine-to-glibc image move was made to prevent, and the move fixed the linkage
+// half while leaving this half to a default that varies by AMI and toolkit version.
 //
 // Mutations that turn this red: drop the Env, set only "utility", or set it for a Pod requesting no device.
 func TestAGPURequestingPodDeclaresTheDriverLibrariesItNeeds(t *testing.T) {
@@ -451,14 +453,15 @@ func TestAGPURequestingPodDeclaresTheDriverLibrariesItNeeds(t *testing.T) {
 // A job that asks for no state volume renders exactly what it rendered before the field existed.
 //
 // This is the assertion that keeps every termination canary taken before the field valid -- for the jobs that
-// ask for nothing, which is what this test drives. "Unchanged" here means nil rather than an empty slice,
-// because an empty []corev1.Volume marshals to `"volumes":[]` and would move the hash while looking like
-// nothing.
+// ask for nothing, which is what this test drives.
+// "Unchanged" here means nil rather than an empty slice, because an empty []corev1.Volume marshals to
+// `"volumes":[]` and would move the hash while looking like nothing.
 //
-// It used to say the canary's own template job "sets no state volume". That stopped being true when the
-// sentinel was added to templateProbeJob: the canary's fingerprint DOES cover a rendered mount now. The
-// property this test pins is the conditional itself -- a job whose spec asks for no volume gets none -- and
-// that is what keeps a hash taken before the field from moving.
+// It used to say the canary's own template job "sets no state volume".
+// That stopped being true when the sentinel was added to templateProbeJob: the canary's fingerprint DOES
+// cover a rendered mount now.
+// The property this test pins is the conditional itself -- a job whose spec asks for no volume gets none --
+// and that is what keeps a hash taken before the field from moving.
 //
 // Mutations that turn this red: attach the volume unconditionally; or initialise Volumes to an empty slice.
 func TestAJobAsksForNoVolumeUnlessItsSpecAsksForOne(t *testing.T) {
@@ -542,8 +545,9 @@ func TestAStateVolumeAtDevShmIsNotMountedTwice(t *testing.T) {
 // The mount the resume arm depends on, asserted where no canary can reach.
 //
 // The claim is referenced and never created, so the only thing standing between a mis-rendered mount and a
-// paid run is this test and the envtest beside it. Both halves are checked: a volume naming the claim, and a
-// mount putting it at the requested path in the container the workload actually runs in.
+// paid run is this test and the envtest beside it.
+// Both halves are checked: a volume naming the claim, and a mount putting it at the requested path in the
+// container the workload actually runs in.
 //
 // Mutations that turn this red: mount an emptyDir instead of the claim, which would give a resuming workload
 // a volume that dies with its Pod and report the resume as having worked; name the volume after the claim,

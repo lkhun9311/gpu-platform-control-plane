@@ -132,8 +132,8 @@ var _ = Describe("GPUQuotaPolicy Controller", func() {
 			Expect(got.Labels).To(HaveKeyWithValue("istio-injection", "enabled"))
 		})
 
-		// Turning enforcement OFF is the operation that re-opens a bypass, so deletion must not do it. A
-		// policy deleted by mistake, a finalizer race or a stale cache would each otherwise unguard a
+		// Turning enforcement OFF is the operation that re-opens a bypass, so deletion must not do it.
+		// A policy deleted by mistake, a finalizer race or a stale cache would each otherwise unguard a
 		// namespace that still holds running tenants.
 		It("leaves the namespace guarded after the policy is deleted", func() {
 			reconcileUntilSteady()

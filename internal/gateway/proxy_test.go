@@ -141,12 +141,12 @@ func expectJSONError(rr *httptest.ResponseRecorder, wantCode string) {
 //
 // Reorder it (rate limiting ahead of auth, say) and an unauthenticated request can drain someone else's bucket.
 //
-// Collapse the codes and a caller can no longer tell what to retry from what to fix.
-// newTransport had no coverage at all, and was built from a zero http.Transport: no DialContext, no
-// TLSHandshakeTimeout, no Proxy. ResponseHeaderTimeout cannot stand in for any of them, because it starts
-// only once a connection exists — so nothing bounded the time spent REACHING a blackholed backend, and the
-// gateway would hold the request for the OS-level TCP timeout while this file's own rationale claimed to be
-// bounding it in seconds.
+// Collapse the codes and a caller can no longer tell what to retry from what to fix. newTransport had no
+// coverage at all, and was built from a zero http.Transport: no DialContext, no TLSHandshakeTimeout, no
+// Proxy.
+// ResponseHeaderTimeout cannot stand in for any of them, because it starts only once a connection exists —
+// so nothing bounded the time spent REACHING a blackholed backend, and the gateway would hold the request
+// for the OS-level TCP timeout while this file's own rationale claimed to be bounding it in seconds.
 //
 // Mutations that turn these red: build the Transport from &http.Transport{...} again, and DialContext is
 // nil; or drop the explicit MaxIdleConns assignment, and Clone's inherited cap of 100 reintroduces exactly
@@ -166,10 +166,10 @@ var _ = Describe("the shared outbound transport", func() {
 		// Finite, and high enough that it cannot bind in any measured topology.
 		//
 		// This asserted 0 — unlimited — on the reasoning that a total cap makes one backend's pool depend on
-		// how busy the others are, which is the coupling this gateway exists to detect. That reasoning holds
-		// and rested on an unenforced premise: "the number of backends is bounded by the configured
-		// InferenceDeployments" is not a bound, since users create them and churn leaves dead hosts holding
-		// sockets for the full idle timeout.
+		// how busy the others are, which is the coupling this gateway exists to detect.
+		// That reasoning holds and rested on an unenforced premise: "the number of backends is bounded by
+		// the configured InferenceDeployments" is not a bound, since users create them and churn leaves dead
+		// hosts holding sockets for the full idle timeout.
 		//
 		// Both properties are kept by sizing the cap past any topology this is measured in: eight backends can
 		// each hold a full per-host pool before eviction begins, and the largest measured case is one model
@@ -188,8 +188,9 @@ var _ = Describe("the shared outbound transport", func() {
 	})
 
 	// The engine closes an idle connection after its keep-alive, and a request the gateway sends on a connection
-	// the engine is closing fails with no retry. Holding connections for less time than the engine does is what
-	// keeps that from happening. Mutation that turns this red: restore IdleConnTimeout to 90 s.
+	// the engine is closing fails with no retry.
+	// Holding connections for less time than the engine does is what keeps that from happening.
+	// Mutation that turns this red: restore IdleConnTimeout to 90 s.
 	It("lets go of an idle connection before the engine would", func() {
 		t := newTransport(30 * time.Second)
 		Expect(t.IdleConnTimeout).To(BeNumerically(">", 0), "zero means no idle limit at all")
@@ -337,10 +338,11 @@ var _ = Describe("chat completions pipeline", func() {
 
 	// The caller's API key must not travel to the backend.
 	//
-	// resolveTenant has already spent it by this point, and nothing upstream authenticates. Forwarding it gave
-	// any backend -- one that logs request headers, or one that is compromised -- a credential it could replay
-	// against this gateway as that tenant. A security review found it by reading newReverseProxy and noting
-	// that Go's ReverseProxy copies headers verbatim.
+	// resolveTenant has already spent it by this point, and nothing upstream authenticates.
+	// Forwarding it gave any backend -- one that logs request headers, or one that is compromised -- a
+	// credential it could replay against this gateway as that tenant.
+	// A security review found it by reading newReverseProxy and noting that Go's ReverseProxy copies headers
+	// verbatim.
 	//
 	// Its own spec rather than an extra assertion on the happy path, so a failure names this mechanism.
 	It("does not forward the caller's Authorization header upstream", func() {
@@ -857,11 +859,12 @@ var _ = Describe("readRequestMeta", func() {
 	// The benchmark request profile, which is OFF for every spec above and for every non-benchmark caller.
 	//
 	// The experiment is registered over a text-only request shape, and the gateway accepted anything: tools, a
-	// top-level system, unknown fields. None of it is counted by the input estimate, so a caller could offer a
-	// megabyte of tool definitions and be admitted at near-zero cost -- and the run would report an
-	// admitted-work fraction computed over a population it never saw. Refusing is what the repository's rule
-	// for measurement code asks for; pricing the extra bytes was rejected on review because it would move
-	// eligibility, the bucket and the reported weights at once.
+	// top-level system, unknown fields.
+	// None of it is counted by the input estimate, so a caller could offer a megabyte of tool definitions and
+	// be admitted at near-zero cost -- and the run would report an admitted-work fraction computed over a
+	// population it never saw.
+	// Refusing is what the repository's rule for measurement code asks for; pricing the extra bytes was
+	// rejected on review because it would move eligibility, the bucket and the reported weights at once.
 	DescribeTable("refuses a body outside the profile",
 		func(body string) {
 			r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
@@ -1000,10 +1003,12 @@ var _ = Describe("readRequestMeta", func() {
 
 	// A trailing second document is NOT a profile violation, and finding that out is what this spec records.
 	//
-	// I expected the profile's strict decoder to catch it. It would -- json.Decoder.Decode returns nil for the
-	// first object and More() reports the second -- but the estimator's own json.Unmarshal runs first and
-	// refuses trailing content outright, so the request never reaches the profile check. That refusal is a 400
-	// bad_request, which is the right answer: the body is malformed, not merely out of shape.
+	// I expected the profile's strict decoder to catch it.
+	// It would -- json.Decoder.Decode returns nil for the first object and More() reports the second -- but
+	// the estimator's own json.Unmarshal runs first and refuses trailing content outright, so the request
+	// never reaches the profile check.
+	// That refusal is a 400 bad_request, which is the right answer: the body is malformed, not merely out of
+	// shape.
 	It("refuses a trailing second JSON document before the profile is consulted", func() {
 		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}{"model":"x"}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
@@ -1075,10 +1080,11 @@ var _ = Describe("readRequestMeta", func() {
 		_, _, err := readRequestMeta(r, false)
 		Expect(err).To(HaveOccurred())
 
-		// The type matters as much as the error. Every readRequestMeta failure used to reach the client as 400,
-		// which tells a caller their JSON is malformed when the JSON was fine and only the size was wrong; they
-		// would look for a syntax bug that is not there. MaxBytesReader reports the case distinguishably for
-		// exactly this reason.
+		// The type matters as much as the error.
+		// Every readRequestMeta failure used to reach the client as 400, which tells a caller their JSON is
+		// malformed when the JSON was fine and only the size was wrong; they would look for a syntax bug that
+		// is not there.
+		// MaxBytesReader reports the case distinguishably for exactly this reason.
 		//
 		// Mutation that turns this red: map every readRequestMeta error to 400 again.
 		var tooLarge *http.MaxBytesError
@@ -1143,11 +1149,13 @@ var _ client.Object = &platformv1.InferenceDeployment{}
 // A dead backend must not become a dead request while another backend serves the same model.
 //
 // backendsFor used to log a second deployment as an operator problem and discard it, so a model with a spare
-// still failed whenever the one chosen backend was down. The spare is now the fallback, and these specs pin
-// the two conditions that make retrying safe rather than merely useful.
+// still failed whenever the one chosen backend was down.
+// The spare is now the fallback, and these specs pin the two conditions that make retrying safe rather than
+// merely useful.
 var _ = Describe("backend fallback", func() {
-	// A body the second attempt can replay. This is what r.GetBody was installed for one stage earlier, and
-	// without it there is no second attempt to make.
+	// A body the second attempt can replay.
+	// This is what r.GetBody was installed for one stage earlier, and without it there is no second attempt
+	// to make.
 	post := func(url string) *http.Request {
 		r, err := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"model":"m","messages":[]}`))
 		Expect(err).NotTo(HaveOccurred())
@@ -1182,11 +1190,12 @@ var _ = Describe("backend fallback", func() {
 		Expect(rec.Code).To(Equal(http.StatusOK), "the client was told about an attempt that another backend served")
 		Expect(rec.Body.String()).To(ContainSubstring("[DONE]"))
 
-		// The failed attempt's headers must not survive into the winning response. ErrorHandler sets
-		// Content-Type: application/json before it writes, and ReverseProxy copies the upstream's headers in
-		// with Add rather than Set — so a shared header map hands the client two Content-Type values with
-		// application/json first, and anything that branches on it to decide whether to parse SSE mis-handles
-		// a valid stream. Body and status alone do not catch this; only the header does.
+		// The failed attempt's headers must not survive into the winning response.
+		// ErrorHandler sets Content-Type: application/json before it writes, and ReverseProxy copies the
+		// upstream's headers in with Add rather than Set — so a shared header map hands the client two
+		// Content-Type values with application/json first, and anything that branches on it to decide whether
+		// to parse SSE mis-handles a valid stream.
+		// Body and status alone do not catch this; only the header does.
 		//
 		// Mutation that turns this red: delete attemptWriter.Header, so every attempt shares the real map.
 		ct := rec.Result().Header.Values("Content-Type")
@@ -1229,7 +1238,8 @@ var _ = Describe("backend fallback", func() {
 // RoundTrip returns context.Canceled, which is not a net.Error, so ErrorHandler maps it to 502 and the loop
 // would walk every remaining candidate — each cloning the same already-cancelled context and failing at once.
 // One disconnect then produced N upstream errors and N-1 fallbacks, poisoning the ratio the fallback counter
-// exists to provide. The harness cancels every request outstanding past its timeout, so this is routine.
+// exists to provide.
+// The harness cancels every request outstanding past its timeout, so this is routine.
 //
 // Mutation that turns this red: delete the r.Context().Err() guard from tryBackends.
 // dialFailingTransport fails every round trip as a refused dial, the one failure the retry loop may replay.
@@ -1308,8 +1318,9 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 		Expect(hits).To(Equal(0), "the spare was tried after the client had already gone")
 	})
 
-	// The control. Without it, always returning false would satisfy the spec above and the counter would stop
-	// recording the fallbacks that do happen.
+	// The control.
+	// Without it, always returning false would satisfy the spec above and the counter would stop recording
+	// the fallbacks that do happen.
 	//
 	// Mutation that turns this red: return false unconditionally.
 	It("reports that it advanced when a spare really served the request", func() {
@@ -1338,10 +1349,11 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 
 	// A request nobody served must reach the client, and the recorder, as the failure it was.
 	//
-	// This needs a NON-final attempt to fail and the retry to be refused. That attempt's error was suppressed in
-	// expectation of a next one, and until 2026-10-29 the loop then ended with nothing written: this spec pinned
-	// the recorder unanswered at its seeded 200, and net/http sent the client an empty 200 while the handler
-	// published the failure code (codex audit, 2026-10-28). The held error is now released.
+	// This needs a NON-final attempt to fail and the retry to be refused.
+	// That attempt's error was suppressed in expectation of a next one, and until 2026-10-29 the loop then ended
+	// with nothing written: this spec pinned the recorder unanswered at its seeded 200, and net/http sent the
+	// client an empty 200 while the handler published the failure code (codex audit, 2026-10-28).
+	// The held error is now released.
 	//
 	// The cancelled slow backend fails after its connection was made, so this ends at the not-replayable guard.
 	//
@@ -1420,9 +1432,9 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 	// A backend answering 503 is not a proxy failure and is no longer reported as one.
 	//
 	// This spec used to assert the opposite, because a non-final 503 was converted into a synthetic error so
-	// the loop could retry on it. With that conversion gone the 503 is simply the response: ErrorHandler never
-	// runs, so nothing is counted as a failed ATTEMPT, and the status reaches the client and
-	// requests_total{code="503"} where it belongs.
+	// the loop could retry on it.
+	// With that conversion gone the 503 is simply the response: ErrorHandler never runs, so nothing is counted
+	// as a failed ATTEMPT, and the status reaches the client and requests_total{code="503"} where it belongs.
 	//
 	// Mutation that turns this red: convert a retryable upstream status into an error again.
 	It("does not count a backend's own 503 as a failed attempt", func() {
@@ -1484,8 +1496,8 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 	// A caller must not be able to read the cluster's topology out of a failed request.
 	//
 	// The whole existing suite passed while the raw transport error was being written to the client, which
-	// means nothing asserted what the BODY says — only what the status code is. That gap is why the leak
-	// survived: every spec was watching the half that was right.
+	// means nothing asserted what the BODY says — only what the status code is.
+	// That gap is why the leak survived: every spec was watching the half that was right.
 	//
 	// Mutation that turns this red: pass err.Error() to writeJSONError instead of publicUpstreamMessage.
 	It("tells the client nothing about where the backend lives", func() {
@@ -1555,14 +1567,15 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 		return u, &hits
 	}
 
-	// This spec asserted the opposite until a review pointed out what a status actually proves. A 503 says the
-	// request ARRIVED; it does not say the backend declined to work on it. A model server can accept a
-	// completion, spend GPU seconds on it and fail on the way out, and replaying it there bills the tenant
-	// twice and can emit a second set of tokens, with no counter anywhere recording that it happened.
+	// This spec asserted the opposite until a review pointed out what a status actually proves.
+	// A 503 says the request ARRIVED; it does not say the backend declined to work on it.
+	// A model server can accept a completion, spend GPU seconds on it and fail on the way out, and replaying
+	// it there bills the tenant twice and can emit a second set of tokens, with no counter anywhere recording
+	// that it happened.
 	//
-	// So the head's own answer goes to the client and the spare stays untried. What is given up — falling
-	// through a 503 that really did refuse at the door — needs the backends to state an idempotency contract,
-	// not the gateway to assume one.
+	// So the head's own answer goes to the client and the spare stays untried.
+	// What is given up — falling through a 503 that really did refuse at the door — needs the backends to
+	// state an idempotency contract, not the gateway to assume one.
 	//
 	// Mutation that turns this red: replay on a retryable status again, by ORing retryableStatus into the
 	// att.replayable gate.
@@ -1612,8 +1625,9 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 	//
 	// A backend that ACCEPTS the connection, reads the request and then dies mid-flight produces a transport
 	// error, so ErrorHandler fires and the attempt is marked failed — the same state a refused connection
-	// leaves behind. The difference is that this backend received the request and may have spent GPU seconds
-	// on it before dying, so replaying it charges the tenant twice for one completion.
+	// leaves behind.
+	// The difference is that this backend received the request and may have spent GPU seconds on it before
+	// dying, so replaying it charges the tenant twice for one completion.
 	//
 	// Mutation that turns this red: make neverReachedBackend return true for anything other than a dial
 	// failure, which is what "the client saw nothing, so nothing happened" amounts to.

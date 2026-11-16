@@ -27,9 +27,10 @@ import (
 // Every test here is a statement about ABSENCE or about a refusal, which is the class this repository keeps
 // finding unguarded.
 //
-// A store that opens, migrates and reports rows is easy to test and proves little. What has to hold is that
-// an unread ledger is never reported as an empty one, that a replay cannot duplicate, that a version number
-// which does not describe the database is refused, and that the schema rejects values the API cannot produce.
+// A store that opens, migrates and reports rows is easy to test and proves little.
+// What has to hold is that an unread ledger is never reported as an empty one, that a replay cannot
+// duplicate, that a version number which does not describe the database is refused, and that the schema
+// rejects values the API cannot produce.
 
 func TestOpenCreatesAndMigrates(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.db")
@@ -131,8 +132,9 @@ func TestOpenForReadRefusesANewerSchema(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	// 77 rather than a small offset, and the expected strings are built from the values rather than written
-	// as literals. The first version of this test planted version 8 and searched for "7", and passed because
-	// the temporary pathname quoted in the refusal happened to contain a 7 -- an assertion that could not
+	// as literals.
+	// The first version of this test planted version 8 and searched for "7", and passed because the
+	// temporary pathname quoted in the refusal happened to contain a 7 -- an assertion that could not
 	// discriminate, in a test whose whole subject is discrimination.
 	future := schemaVersion + 76
 	if _, err := w.db.Exec(`INSERT INTO schema_migrations (version, applied_at_unix_nanos) VALUES (?, 1)`, future); err != nil {
@@ -217,8 +219,9 @@ func TestAnEmptyMigrationTableIsRefused(t *testing.T) {
 }
 
 // The composite key is the observation's POSITION, so the same position twice is a duplicate and the same
-// (second, state) at two positions is not. The second half is the defect that changed this schema: the
-// controller truncates elapsed time to whole seconds, so Ready@0 -> Degraded@0 -> Ready@0 is a legal trail.
+// (second, state) at two positions is not.
+// The second half is the defect that changed this schema: the controller truncates elapsed time to whole
+// seconds, so Ready@0 -> Degraded@0 -> Ready@0 is a legal trail.
 func TestTheKeyIsThePositionNotTheSecondAndState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.db")
 	s, err := Open(path)
@@ -251,8 +254,8 @@ func TestTheKeyIsThePositionNotTheSecondAndState(t *testing.T) {
 	}
 }
 
-// STRICT constrains storage classes only, which is less than it sounds like. These are the CHECK constraints,
-// and each value below is one the API cannot produce.
+// STRICT constrains storage classes only, which is less than it sounds like.
+// These are the CHECK constraints, and each value below is one the API cannot produce.
 func TestTheSchemaRefusesValuesTheApiCannotProduce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.db")
 	s, err := Open(path)
@@ -285,10 +288,11 @@ func TestTheSchemaRefusesValuesTheApiCannotProduce(t *testing.T) {
 		"InferenceDeployment", "served", "", "NotAPhase", 1, 99); err == nil {
 		t.Error("the schema accepted a phase the API cannot produce")
 	}
-	// A verdict is set ONLY in phase Complete, and Complete is the phase that has one. These two cases used to
-	// be one assertion claiming Complete-with-no-verdict was legitimate, which pinned the opposite of the
-	// API's contract at api/v1/workloadrun_types.go:196. Every projector fixture in this package was building
-	// that impossible state, and the constraint is what exposed it.
+	// A verdict is set ONLY in phase Complete, and Complete is the phase that has one.
+	// These two cases used to be one assertion claiming Complete-with-no-verdict was legitimate, which pinned
+	// the opposite of the API's contract at api/v1/workloadrun_types.go:196.
+	// Every projector fixture in this package was building that impossible state, and the constraint is what
+	// exposed it.
 	if _, err := s.db.Exec(insRun, "uid-2", "default", "r2", "ServingPodKilled",
 		"InferenceDeployment", "served", "", "Complete", 1, 99); err == nil {
 		t.Error("the schema accepted phase Complete with no verdict, which the API cannot produce")
@@ -319,9 +323,9 @@ func TestTheSchemaRefusesValuesTheApiCannotProduce(t *testing.T) {
 // STRICT and the CHECK constraints are separate mechanisms, so they get separate tests.
 //
 // They were one test, and that hid a misreading: dropping every CHECK reddened four of its six cases, and I
-// read the two that stayed quiet as "not guarded" when they were simply reported in a different order. A
-// diagnostic showed all four value cases are rejected by a named CHECK and the type case by STRICT. One test
-// per mechanism means the failure list says which mechanism failed.
+// read the two that stayed quiet as "not guarded" when they were simply reported in a different order.
+// A diagnostic showed all four value cases are rejected by a named CHECK and the type case by STRICT.
+// One test per mechanism means the failure list says which mechanism failed.
 func TestStrictRefusesAWrongStorageClass(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.db")
 	s, err := Open(path)

@@ -98,9 +98,10 @@ const attemptLabel = "platform.lkhun9311.github.io/attempt"
 
 // Start runs a treatment's container and returns its start record; readiness is the caller's next step.
 //
-// Each attempt labels its container with a fresh token. If docker run fails, the daemon may still have created the
-// container, which would keep the GPU and the port; cleanup removes it only if it carries this attempt's token, so a
-// name conflict with a container already running is reported and left alone.
+// Each attempt labels its container with a fresh token.
+// If docker run fails, the daemon may still have created the container, which would keep the GPU and the port;
+// cleanup removes it only if it carries this attempt's token, so a name conflict with a container already running is
+// reported and left alone.
 func (e *DockerEngine) Start(ctx context.Context, d VersionStudyDesign, treatment, visit string) (EngineStart, error) {
 	args, err := e.RunArgs(d, treatment, visit)
 	if err != nil {

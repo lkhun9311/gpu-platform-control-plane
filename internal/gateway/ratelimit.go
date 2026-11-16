@@ -108,7 +108,8 @@ func newBucketRegistry() *bucketRegistry {
 }
 
 // configured reports whether the registry was ever installed, so a caller can tell an unfinished Server from
-// a tenant that is genuinely over budget. Nil-safe by design: that is the only case it exists to answer.
+// a tenant that is genuinely over budget.
+// Nil-safe by design: that is the only case it exists to answer.
 func (b *bucketRegistry) configured() bool { return b != nil }
 
 // Allow reports whether tenant may issue a request now, consuming one token if so.
@@ -129,12 +130,13 @@ func (b *bucketRegistry) Allow(tenant string, rl *platformv1.GPUQuotaRateLimit) 
 //   - on a policy change, refresh via SetLimit/SetBurst instead of rebuilding, which preserves accumulated tokens
 func (b *bucketRegistry) Reserve(tenant string, rl *platformv1.GPUQuotaRateLimit) (bool, time.Duration) {
 	// A nil REGISTRY is an assembly fault, not a runtime state: main always calls InitRateLimiter, and a
-	// Server without it is one nobody finished building. It is refused rather than allowed because a limiter
-	// that cannot function must not answer "within budget" — that would serve unlimited traffic under a
-	// configuration that says otherwise, and nothing anywhere would say so.
+	// Server without it is one nobody finished building.
+	// It is refused rather than allowed because a limiter that cannot function must not answer "within
+	// budget" — that would serve unlimited traffic under a configuration that says otherwise, and nothing
+	// anywhere would say so.
 	//
-	// The comment on InitRateLimiter claimed the gateway guarded this case. It did not: with a non-nil policy
-	// the next line dereferenced b and the request panicked.
+	// The comment on InitRateLimiter claimed the gateway guarded this case.
+	// It did not: with a non-nil policy the next line dereferenced b and the request panicked.
 	if b == nil {
 		return false, 0
 	}

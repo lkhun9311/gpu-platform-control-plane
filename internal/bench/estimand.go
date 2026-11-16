@@ -12,8 +12,9 @@ import (
 //
 // They are named rather than inlined because the amendment borrowed each from somewhere else in the
 // repository and said where: the resample count from the depth cmd/benchharness/power.go already drives
-// BootstrapCI at, and the seed from the one hack/m5c-matrix.sh passes to gen-trace for every cell. A later
-// change to either source is supposed to be visible as a change here too, which an inlined literal hides.
+// BootstrapCI at, and the seed from the one hack/m5c-matrix.sh passes to gen-trace for every cell.
+// A later change to either source is supposed to be visible as a change here too, which an inlined literal
+// hides.
 const (
 	// RegisteredBootstrapResamples is the frozen resample count for the ratio interval.
 	RegisteredBootstrapResamples = 10000
@@ -26,9 +27,9 @@ const (
 //
 // Valid and InvalidReason describe the POINT ESTIMATE only, and RatioCI carries its own validity, because
 // the two are different facts and the registration separates them: the seventh amendment publishes B, C and
-// R for the 2026-10-01 run while deliberately publishing no interval. One flag covering both would make a
-// run with a computable ratio and an unusable interval indistinguishable from a run with neither, which is
-// the shape of defect this package keeps finding.
+// R for the 2026-10-01 run while deliberately publishing no interval.
+// One flag covering both would make a run with a computable ratio and an unusable interval
+// indistinguishable from a run with neither, which is the shape of defect this package keeps finding.
 type RegisteredEstimand struct {
 	// BaselineP99Ms is median(b_i) rounded half-up to integer milliseconds -- status.result.baselineP99Ms.
 	BaselineP99Ms int64
@@ -39,18 +40,23 @@ type RegisteredEstimand struct {
 	// Ratio is ColocatedP99Ms / BaselineP99Ms computed from those ROUNDED integers.
 	//
 	// The amendment chose the rounded divisor over the extra significant figures so that a reader dividing
-	// the two published integers gets the published ratio. On the 2026-10-01 run the difference is visible in
-	// the third significant figure: 3998/174 is 22.977 while the unrounded medians give 22.9686.
+	// the two published integers gets the published ratio.
+	// On the 2026-10-01 run the difference is visible in the third significant figure: 3998/174 is 22.977
+	// while the unrounded medians give 22.9686.
 	Ratio float64
 
 	// RatioCI is the paired repetition bootstrap interval on Ratio.
 	//
-	// ⚠️ Computed but NOT published. The amendment fixes the resample count, the seed, the median convention
-	// and the percentile convention, and it does not say whether each of the 10000 replicates is rounded to
-	// integer milliseconds the way the published fields are. At 174 ms a 1 ms quantisation is 0.6 percent, so
-	// the choice moves the bounds and can place Ratio outside them. This field is computed from UNROUNDED
-	// medians; until a dated amendment settles that, nothing may publish it. The seventh amendment already
-	// decided this run publishes no interval, so nothing is blocked by leaving it unsettled.
+	// ⚠️ Computed but NOT published.
+	// The amendment fixes the resample count, the seed, the median convention and the percentile convention,
+	// and it does not say whether each of the 10000 replicates is rounded to integer milliseconds the way the
+	// published fields are.
+	// At 174 ms a 1 ms quantisation is 0.6 percent, so the choice moves the bounds and can place Ratio
+	// outside them.
+	// This field is computed from UNROUNDED medians; until a dated amendment settles that, nothing may
+	// publish it.
+	// The seventh amendment already decided this run publishes no interval, so nothing is blocked by leaving
+	// it unsettled.
 	RatioCI CI
 
 	// Valid says whether B, C and R could be computed at all.
@@ -63,18 +69,21 @@ type RegisteredEstimand struct {
 // ComputeRegisteredEstimand computes the registered estimand from each arm's per-repetition victim TTFT p99s.
 //
 // It takes the two slices rather than the two ArmSummary values so that it stays usable by a caller that has
-// per-repetition tails and nothing else. The censoring refusal the registration needs therefore lives in
-// RegisteredEstimandFor, which has the summaries to read it from -- a caller holding only the numbers cannot
-// know whether they are p99s or lower bounds, and this function must not pretend it can.
+// per-repetition tails and nothing else.
+// The censoring refusal the registration needs therefore lives in RegisteredEstimandFor, which has the
+// summaries to read it from -- a caller holding only the numbers cannot know whether they are p99s or lower
+// bounds, and this function must not pretend it can.
 //
 // baseline is b_i (the contender absent) and colocated is c_i (the contender present), indexed so that
-// position i is the same repetition in both. The caller owns that alignment: the schedule records the
-// repetition identity (hack/m5c-matrix.sh builds cells as arm|arm|rep|rate|weight|0), so the pairing is read
-// from the run rather than inferred from two slices happening to have equal length.
+// position i is the same repetition in both.
+// The caller owns that alignment: the schedule records the repetition identity (hack/m5c-matrix.sh builds
+// cells as arm|arm|rep|rate|weight|0), so the pairing is read from the run rather than inferred from two
+// slices happening to have equal length.
 //
-// Unequal lengths are refused rather than truncated or zipped. A median over five repetitions and a median
-// over four is a ratio of two different repetition sets, which is not the registered R, and this package has
-// already been bitten once by a truncated run quietly satisfying a gate instead of tripping it.
+// Unequal lengths are refused rather than truncated or zipped.
+// A median over five repetitions and a median over four is a ratio of two different repetition sets, which
+// is not the registered R, and this package has already been bitten once by a truncated run quietly
+// satisfying a gate instead of tripping it.
 func ComputeRegisteredEstimand(baseline, colocated []float64) RegisteredEstimand {
 	switch {
 	case len(baseline) == 0 || len(colocated) == 0:
@@ -107,10 +116,11 @@ func ComputeRegisteredEstimand(baseline, colocated []float64) RegisteredEstimand
 // PairedRatioCI is the registered interval: resample complete (b_i, c_i) blocks with replacement, recompute
 // both medians and their ratio, and take the alpha/2 and 1-alpha/2 percentiles of the resulting ratios.
 //
-// The pairing is the whole point. Drawing an index once and reading BOTH arms at it keeps a repetition's two
-// tails together, which is what makes the interval bound the ratio rather than the quotient of two
-// independently resampled arms -- those are different quantities whenever the repetitions are correlated,
-// and in this study they are: one trace replayed five times.
+// The pairing is the whole point.
+// Drawing an index once and reading BOTH arms at it keeps a repetition's two tails together, which is what
+// makes the interval bound the ratio rather than the quotient of two independently resampled arms -- those
+// are different quantities whenever the repetitions are correlated, and in this study they are: one trace
+// replayed five times.
 //
 // Percentiles use the same nearest-rank helper as the per-repetition p99s inside the interval, so one rule
 // decides every quantile in the number.
@@ -174,7 +184,8 @@ func PairedRatioCI(baseline, colocated []float64, iterations int, seed int64, al
 // specifies for baselineP99Ms and colocatedP99Ms.
 //
 // math.Round is half-away-from-zero, and that is the same thing as half-up here because a TTFT p99 cannot be
-// negative. The distinction is recorded rather than assumed away: if this ever receives a signed quantity,
+// negative.
+// The distinction is recorded rather than assumed away: if this ever receives a signed quantity,
 // half-away-from-zero is NOT the registered rule and the caller is in the wrong function.
 func roundToMs(ms float64) int64 {
 	if ms < 0 {
@@ -186,19 +197,20 @@ func roundToMs(ms float64) int64 {
 // RegisteredEstimandFor is ComputeRegisteredEstimand with the refusals that need the whole summary.
 //
 // A censored tail is a LOWER BOUND, not a p99: the design spec says to report it as at-least-the-timeout and
-// never to drop it. The median of a set of lower bounds is not the median of the quantity, so B and C would
-// be understatements wearing a measurement's name and R would be the ratio of two of them. This package
-// already refuses to divide by a censored R1 in reading 4 for the same reason, and the registered estimand
-// has to carry the same refusal or the two paths disagree about the same evidence.
+// never to drop it.
+// The median of a set of lower bounds is not the median of the quantity, so B and C would be understatements
+// wearing a measurement's name and R would be the ratio of two of them.
+// This package already refuses to divide by a censored R1 in reading 4 for the same reason, and the
+// registered estimand has to carry the same refusal or the two paths disagree about the same evidence.
 //
 // censored() is the predicate rather than ArmSummary.Censored alone, because a run can pool clean while one
 // repetition was censored -- and the per-repetition medians are exactly where that repetition's lower bound
 // would land.
 func RegisteredEstimandFor(baseline, colocated ArmSummary) RegisteredEstimand {
 	// Censoring is checked for BOTH arms before either arm's sample floors, because a censored tail makes
-	// every statistic of that arm a lower bound -- including the per-repetition counts the floors read. A
-	// thin-repetition message for an arm whose tail is censored would send a reader to check block sizes that
-	// are not the problem, which is the same mistake CI.InvalidReason was given its own field to stop.
+	// every statistic of that arm a lower bound -- including the per-repetition counts the floors read.
+	// A thin-repetition message for an arm whose tail is censored would send a reader to check block sizes
+	// that are not the problem, which is the same mistake CI.InvalidReason was given its own field to stop.
 	for _, a := range [2]ArmSummary{baseline, colocated} {
 		if censored(a) {
 			return RegisteredEstimand{InvalidReason: fmt.Sprintf(
@@ -216,9 +228,10 @@ func RegisteredEstimandFor(baseline, colocated ArmSummary) RegisteredEstimand {
 		//
 		// B and C are medians over the per-repetition p99s, so a single thin repetition contributes an order
 		// statistic that is its own maximum rather than a percentile -- and with five repetitions it can be the
-		// median itself. EvaluateChecks already refuses on this exact condition at report.go, reading
-		// `RepetitionCount > 0 && MinRepetitionTail < MinTailSamples`, and leaving it out here let the estimand
-		// accept evidence the sibling path rejects.
+		// median itself.
+		// EvaluateChecks already refuses on this exact condition at report.go, reading `RepetitionCount > 0 &&
+		// MinRepetitionTail < MinTailSamples`, and leaving it out here let the estimand accept evidence the
+		// sibling path rejects.
 		if a.RepetitionCount > 0 && a.MinRepetitionTail < MinTailSamples {
 			return RegisteredEstimand{InvalidReason: fmt.Sprintf(
 				"%s has a repetition with %d premium completions, below the %d a nearest-rank p99 needs; pooling its %d rows hides that one repetition's p99 is a maximum, and the median of the repetitions is built from it",
@@ -231,9 +244,9 @@ func RegisteredEstimandFor(baseline, colocated ArmSummary) RegisteredEstimand {
 // FormatRegisteredEstimand renders B, C and R for the report, or the reason there is none.
 //
 // It picks the two arms by name INSIDE this function rather than in FormatReport, so the report's own
-// complexity does not grow for a block that is about one study's two arms. An empty string means this
-// evidence is not the sharing matrix at all -- the M5-b gateway arms have no R1/shared pair -- and the report
-// prints nothing rather than a refusal about a study it is not reporting.
+// complexity does not grow for a block that is about one study's two arms.
+// An empty string means this evidence is not the sharing matrix at all -- the M5-b gateway arms have no
+// R1/shared pair -- and the report prints nothing rather than a refusal about a study it is not reporting.
 func FormatRegisteredEstimand(summaries []ArmSummary) string {
 	var r1, shared ArmSummary
 	var haveR1, haveShared bool
@@ -265,8 +278,8 @@ func FormatRegisteredEstimand(summaries []ArmSummary) string {
 // adopted explicitly rather than inherited.
 //
 // They are the values the existing implementation already used (cmd/benchharness/main.go passed 2000 and 1
-// to BootstrapCI), written down here so that changing them is a visible edit to a named constant. M5-c's
-// 10000 resamples and seed 11 belong to a different study and are deliberately NOT shared: the two
+// to BootstrapCI), written down here so that changing them is a visible edit to a named constant.
+// M5-c's 10000 resamples and seed 11 belong to a different study and are deliberately NOT shared: the two
 // registrations fix their own settings, and one inheriting the other's would make a study's numbers depend
 // on an amendment it never cited.
 const (
@@ -278,19 +291,22 @@ const (
 // repetition BLOCKS, pool each replicate's rows, and recompute the ratio of pooled nearest-rank p99s.
 //
 // The quantity is the one the gate's point estimate already used -- the ratio of each arm's pooled premium
-// TTFT p99 -- so the point and the interval finally describe the same thing. Before this, the point was the
-// ratio of pooled p99s (report.go) while the interval bootstrapped the MEAN of per-repetition ratios
-// (BootstrapCI), and the gate read both as though they were one estimand.
+// TTFT p99 -- so the point and the interval finally describe the same thing.
+// Before this, the point was the ratio of pooled p99s (report.go) while the interval bootstrapped the MEAN
+// of per-repetition ratios (BootstrapCI), and the gate read both as though they were one estimand.
 //
-// baseline[i] and colocated[i] must be the SAME repetition. The caller owns that, and in this repository it
-// is established by joining on the repetition identity the runner recorded rather than by argument order.
+// baseline[i] and colocated[i] must be the SAME repetition.
+// The caller owns that, and in this repository it is established by joining on the repetition identity the
+// runner recorded rather than by argument order.
 //
 // Each replicate draws one block index and takes BOTH arms at it, which is what keeps a repetition's two
-// tails together. Requests are never drawn individually: the registration's `:99` forbids a naive bootstrap
-// over pooled requests, and a block draw that carries whole repetitions does not do that.
+// tails together.
+// Requests are never drawn individually: the registration's `:99` forbids a naive bootstrap over pooled
+// requests, and a block draw that carries whole repetitions does not do that.
 //
-// A drawn block contributes its rows as many times as it was drawn. That is the definition of resampling
-// with replacement at the block level, and it is why the replicate's p99 can differ from the original.
+// A drawn block contributes its rows as many times as it was drawn.
+// That is the definition of resampling with replacement at the block level, and it is why the
+// replicate's p99 can differ from the original.
 func PairedBlockRatioCI(arm string, baseline, colocated [][]RawRow, iterations int, seed int64, alpha float64) CI {
 	n := len(baseline)
 	if n == 0 || n != len(colocated) {
@@ -300,7 +316,8 @@ func PairedBlockRatioCI(arm string, baseline, colocated [][]RawRow, iterations i
 	}
 	if n == 1 {
 		// One block cannot bound its own variance: every resample is that block, so the interval would be
-		// a point wearing an interval's name. BootstrapCI and PairedRatioCI refuse the same way.
+		// a point wearing an interval's name.
+		// BootstrapCI and PairedRatioCI refuse the same way.
 		return CI{InvalidReason: "one repetition per arm cannot bound its own variance, so there is no interval"}
 	}
 	if err := validateBootstrapSettings(iterations, alpha); err != nil {
@@ -323,8 +340,9 @@ func PairedBlockRatioCI(arm string, baseline, colocated [][]RawRow, iterations i
 		b := Summarize(arm, rb).TTFTMsP99
 		c := Summarize(arm, rc).TTFTMsP99
 		if b <= 0 {
-			// A replicate with no premium completions in the baseline has no ratio. It is NOT skipped:
-			// dropping it and reporting the rest as a valid interval is what the amendment forbids.
+			// A replicate with no premium completions in the baseline has no ratio.
+			// It is NOT skipped: dropping it and reporting the rest as a valid interval is what the
+			// amendment forbids.
 			return CI{InvalidReason: "a resampled baseline block carries no premium completion, so its p99 is zero and the ratio is undefined; the interval is refused rather than computed over the replicates that happened to work"}
 		}
 		if c <= 0 {

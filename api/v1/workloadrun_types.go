@@ -25,29 +25,34 @@ import (
 // cannot be stood behind.
 //
 // The scenarios already existed as shell scripts with markdown pages beside them, and that is the problem
-// this type solves. A page is written by hand after the fact: it drifts from what happened, nothing
-// notices, and this repository has already had to retract claims that drifted that way. The trail here is
-// assembled by a controller from what it observed, and when it could not observe, it says so instead of
-// summarising.
+// this type solves.
+// A page is written by hand after the fact: it drifts from what happened, nothing notices, and this
+// repository has already had to retract claims that drifted that way.
+// The trail here is assembled by a controller from what it observed, and when it could not observe, it
+// says so instead of summarising.
 //
-// The discipline is queuelab's. A verdict is only emitted when the observation covers the window it claims
-// to cover; a gap in the middle produces Refused rather than a pass computed from the parts that were
-// watched. "The controller restarted and the target recovered while it was down" and "the target recovered"
-// are different facts, and only one of them is evidence.
+// The discipline is queuelab's.
+// A verdict is only emitted when the observation covers the window it claims to cover; a gap in the middle
+// produces Refused rather than a pass computed from the parts that were watched.
+// "The controller restarted and the target recovered while it was down" and "the target recovered" are
+// different facts, and only one of them is evidence.
 
 // WorkloadRunScenario names one injected failure.
 //
 // A closed set, because a free-form string would let a run describe an injection nobody can reproduce, and
 // the evidence would then be about an event with no definition.
 // The set is the scenarios this recorder can actually record, which is narrower than the set of scenarios
-// this repository injects. A WorkloadRun watches ONE target's reported phase and judges a recovery in it, so
-// a scenario whose observable is something else does not belong here however interesting it is.
+// this repository injects.
+// A WorkloadRun watches ONE target's reported phase and judges a recovery in it, so a scenario whose
+// observable is something else does not belong here however interesting it is.
 //
 // BackendFallback (hack/chaos-fr002b-backend-fallback.sh) is the one that was removed, and it is worth
-// recording why rather than leaving a gap. Its observable is the gateway's backend_fallbacks_total moving,
-// not a target recovering: a backend there is a whole InferenceDeployment rather than a Pod, and the
-// scenario removes the head one so a second absorbs the traffic. Nothing about that shows up as one target
-// returning to health, which is the only thing this recorder judges.
+// recording why rather than leaving a gap.
+// Its observable is the gateway's backend_fallbacks_total moving, not a target recovering: a backend there
+// is a whole InferenceDeployment rather than a Pod, and the scenario removes the head one so a second
+// absorbs the traffic.
+// Nothing about that shows up as one target returning to health, which is the only thing this recorder
+// judges.
 //
 // A second reason used to be given here and is no longer true, which is why it is corrected rather than
 // quietly dropped: it said a run watching a scaled-to-zero backend would see Ready for the whole window and
@@ -69,8 +74,9 @@ const (
 	//
 	// The machine whose disruption nobody minds turned out to be a throwaway kind cluster with a worker; the
 	// script already built its own cluster and only ever gave it one node, and stopping the control plane's
-	// kubelet takes the apiserver with it. Recorded on 2026-09-06: Ready at 0s, Quarantine at 46s, Ready
-	// again at 48s, verdict Recovered, every phase published by the operator rather than by the script.
+	// kubelet takes the apiserver with it.
+	// Recorded on 2026-09-06: Ready at 0s, Quarantine at 46s, Ready again at 48s, verdict Recovered, every
+	// phase published by the operator rather than by the script.
 	ScenarioDegradedNode WorkloadRunScenario = "DegradedNode"
 )
 
@@ -149,9 +155,9 @@ const (
 	WorkloadRunComplete WorkloadRunPhase = "Complete"
 	// WorkloadRunRefused means no verdict can be stood behind, and the reason says which part is missing.
 	//
-	// It is a terminal state and NOT a failure of the target. Conflating the two is what makes an evidence
-	// trail worthless: "the platform did not recover" and "nobody was watching" have to be distinguishable
-	// from the record alone.
+	// It is a terminal state and NOT a failure of the target.
+	// Conflating the two is what makes an evidence trail worthless: "the platform did not recover" and
+	// "nobody was watching" have to be distinguishable from the record alone.
 	WorkloadRunRefused WorkloadRunPhase = "Refused"
 )
 

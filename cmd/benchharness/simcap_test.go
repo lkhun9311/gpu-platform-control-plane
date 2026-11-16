@@ -55,9 +55,9 @@ func writeSimTrace(t *testing.T, dir string, n int, withExact bool) string {
 	return path
 }
 
-// A -target check is a claim about the REGISTERED criterion, which is defined over exact tokens. A trace that
-// carries none cannot answer it, and answering anyway on the estimate is how a bucket gets frozen against a
-// number nobody measured.
+// A -target check is a claim about the REGISTERED criterion, which is defined over exact tokens.
+// A trace that carries none cannot answer it, and answering anyway on the estimate is how a bucket gets
+// frozen against a number nobody measured.
 func TestSimCapRefusesATargetCheckOnATraceWithNoExactTokens(t *testing.T) {
 	dir := t.TempDir()
 	trace := writeSimTrace(t, dir, 20, false)
@@ -103,9 +103,9 @@ func TestSimCapComparesTheTargetInExactTokensWhenTheTraceCarriesThem(t *testing.
 
 // And the comparison must be made on the exact fraction rather than the estimated one.
 //
-// Mutation that turns this red: score the target against `fraction` instead of `exactFraction`. Both are 1.0
-// when everything is admitted, so the case above cannot tell them apart -- this one refuses half the traffic,
-// where the two fractions differ because the estimate and the measurement scale differently.
+// Mutation that turns this red: score the target against `fraction` instead of `exactFraction`.
+// Both are 1.0 when everything is admitted, so the case above cannot tell them apart -- this one refuses half
+// the traffic, where the two fractions differ because the estimate and the measurement scale differently.
 func TestSimCapScoresTheTargetOnTheExactFractionNotTheEstimate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mixed.jsonl")
@@ -114,8 +114,9 @@ func TestSimCapScoresTheTargetOnTheExactFractionNotTheEstimate(t *testing.T) {
 		t.Fatalf("create trace: %v", err)
 	}
 	enc := json.NewEncoder(f)
-	// Two rows arriving together. The first is long, the second short-but-eligible, and their exact counts
-	// are deliberately NOT proportional to their estimates: 10,000 est / 7,695 exact against 5,000 / 1,000.
+	// Two rows arriving together.
+	// The first is long, the second short-but-eligible, and their exact counts are deliberately NOT
+	// proportional to their estimates: 10,000 est / 7,695 exact against 5,000 / 1,000.
 	// A bucket that admits only the first therefore admits 0.667 of the estimated work and 0.885 of the exact.
 	rows := []bench.TraceRow{
 		{Index: 0, OffsetMs: 0, Tenant: "standard-noisy", PromptLenChars: 40_000, MaxOutputTokens: 8, ExactInputTokens: 7695},

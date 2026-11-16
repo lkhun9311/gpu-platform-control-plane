@@ -12,13 +12,14 @@ import (
 
 // TestTheCommittedSampleCannotBeExecuted loads the sample this repository ships and asserts it is refused.
 //
-// This is the finding, not a placeholder. `config/samples/platform_v1_gpusharingbenchmark.yaml` is the
-// protocol the design spec registered, and this harness cannot execute it -- so the CR must not be created
-// until an adapter exists, because `spec` is immutable once created and registering it would freeze an
-// unexecutable protocol forever.
+// This is the finding, not a placeholder.
+// `config/samples/platform_v1_gpusharingbenchmark.yaml` is the protocol the design spec registered, and
+// this harness cannot execute it -- so the CR must not be created until an adapter exists, because `spec`
+// is immutable once created and registering it would freeze an unexecutable protocol forever.
 //
-// The sample is loaded from disk rather than restated here. A copy of the spec in this file would let the two
-// drift, and the whole point is to judge the thing that ships.
+// The sample is loaded from disk rather than restated here.
+// A copy of the spec in this file would let the two drift, and the whole point is to judge the thing that
+// ships.
 func TestTheCommittedSampleCannotBeExecuted(t *testing.T) {
 	blob, err := os.ReadFile("../../config/samples/platform_v1_gpusharingbenchmark.yaml")
 	if err != nil {
@@ -37,7 +38,8 @@ func TestTheCommittedSampleCannotBeExecuted(t *testing.T) {
 	// Each refusal is asserted by the substring that names ITS OWN cause, never by counting them.
 	//
 	// A count would pass if two refusals merged or if one was replaced by a different one, and this file
-	// exists to say which capabilities are missing. The substrings are the parts an operator would act on.
+	// exists to say which capabilities are missing.
+	// The substrings are the parts an operator would act on.
 	wantEach := []string{
 		"baseline.tenant is",
 		"contender.tenant is",
@@ -53,9 +55,10 @@ func TestTheCommittedSampleCannotBeExecuted(t *testing.T) {
 		}
 	}
 	// The output caps left this list on 2026-10-01, and their absence is asserted rather than simply
-	// removed. A shorter list and a switched-off compiler read the same way otherwise: the sample declares
-	// 128 and 256, the generator now takes both as flags, so a refusal naming them would mean the plan had
-	// stopped carrying what it can carry.
+	// removed.
+	// A shorter list and a switched-off compiler read the same way otherwise: the sample declares 128 and
+	// 256, the generator now takes both as flags, so a refusal naming them would mean the plan had stopped
+	// carrying what it can carry.
 	for _, gone := range []string{"baseline.outputTokens is", "contender.outputTokens is"} {
 		if strings.Contains(msg, gone) {
 			t.Errorf("the refusal still mentions %q; the generator takes the cap as a flag now, so a declared "+
@@ -67,8 +70,8 @@ func TestTheCommittedSampleCannotBeExecuted(t *testing.T) {
 	// everything and the test above would pass for the wrong reason.
 	for _, unwanted := range []string{
 		// The sample's 256 and 8192 token prompts are RESOLVED, measured against the served tokenizer at
-		// 1174 and 42579 characters, so they are no longer among its refusals. They were until 2026-09-30,
-		// and this pair of lines is where that change is visible.
+		// 1174 and 42579 characters, so they are no longer among its refusals.
+		// They were until 2026-09-30, and this pair of lines is where that change is visible.
 		"baseline.inputTokens is",
 		"contender.inputTokens is",
 		"load.mode is",      // openLoop, which Replay implements
@@ -87,8 +90,9 @@ func TestTheCommittedSampleCannotBeExecuted(t *testing.T) {
 // TestAPlanCompilesOnceEveryUnsupportedValueIsRemoved proves the compiler can say yes.
 //
 // A checker that refuses every input is indistinguishable from one that does not work, and this repository
-// has shipped that shape before. So the same spec is rebuilt with each unsupported value replaced by the one
-// the harness can actually execute, and the compile must succeed and produce the arms the mode declares.
+// has shipped that shape before.
+// So the same spec is rebuilt with each unsupported value replaced by the one the harness can actually
+// execute, and the compile must succeed and produce the arms the mode declares.
 func TestAPlanCompilesOnceEveryUnsupportedValueIsRemoved(t *testing.T) {
 	spec := executableSpec()
 	p, err := CompilePlan(spec)
@@ -110,7 +114,8 @@ func TestAPlanCompilesOnceEveryUnsupportedValueIsRemoved(t *testing.T) {
 // TestEachUnsupportedValueIsRefusedOnItsOwn changes one field at a time away from the executable spec.
 //
 // Asserting on the sample alone cannot tell a refusal that fires from one that is merely present in a message
-// full of others. One field per case, and the case names the substring it expects.
+// full of others.
+// One field per case, and the case names the substring it expects.
 func TestEachUnsupportedValueIsRefusedOnItsOwn(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -148,8 +153,8 @@ func TestEachUnsupportedValueIsRefusedOnItsOwn(t *testing.T) {
 			s.SharingMode = "mig"
 		}, "sharingMode is"},
 		// 3000 rather than a power of two: 256 through 8192 are all in the measured table now and compile, so
-		// using one here would assert a refusal that no longer exists. What is still refused is a count nobody
-		// has swept.
+		// using one here would assert a refusal that no longer exists.
+		// What is still refused is a count nobody has swept.
 		{"an input length nobody has swept", func(s *platformv1.GpuSharingBenchmarkSpec) {
 			s.Baseline.InputTokens = 3000
 		}, "baseline.inputTokens is"},
@@ -173,10 +178,10 @@ func TestEachUnsupportedValueIsRefusedOnItsOwn(t *testing.T) {
 // and it is DELIBERATELY NOT A VALID API OBJECT.
 //
 // inputTokens is ZERO here, and that is not a placeholder: CompilePlan refuses ANY token-denominated input
-// length, because the character-to-token conversion is not invertible. Zero is the only value that does not
-// assert a token count the served tokenizer would disagree with, and it means "the plan carries no token
-// length" rather than "a prompt of no tokens". An adapter that closes this gap has to change both this
-// function and the refusal it satisfies.
+// length, because the character-to-token conversion is not invertible.
+// Zero is the only value that does not assert a token count the served tokenizer would disagree with, and
+// it means "the plan carries no token length" rather than "a prompt of no tokens".
+// An adapter that closes this gap has to change both this function and the refusal it satisfies.
 func executableSpec() platformv1.GpuSharingBenchmarkSpec {
 	return platformv1.GpuSharingBenchmarkSpec{
 		GPUClass:    "a10g",
@@ -202,10 +207,11 @@ func executableSpec() platformv1.GpuSharingBenchmarkSpec {
 // TestAnAPIValidSpecCompilesAndCarriesTheResolvedLengths replaces a test that asserted a gap now closed.
 //
 // It used to say "the input length is the only remaining gap" and assert that an API-valid spec was refused
-// for nothing else. That was true until the resolution table landed; asserting it now would pin the absence
-// of a capability that exists. What is worth pinning instead is the other half of the same claim: the plan
-// carries the MEASURED character lengths, so a caller has the value the generator needs and never a
-// computed one.
+// for nothing else.
+// That was true until the resolution table landed; asserting it now would pin the absence of a capability
+// that exists.
+// What is worth pinning instead is the other half of the same claim: the plan carries the MEASURED
+// character lengths, so a caller has the value the generator needs and never a computed one.
 //
 // The numbers are the measurement, not a convention. 256 tokens resolved to 1174 characters and 8192 to
 // 42579, each the smallest of several lengths that give the declared count, swept inside the serving image.
@@ -229,9 +235,10 @@ func TestAnAPIValidSpecCompilesAndCarriesTheResolvedLengths(t *testing.T) {
 	// The output caps are CARRIED from 2026-10-01, and the values here are deliberately NOT 64 and 16.
 	//
 	// The executable sample declares exactly the generator's old literals, so compiling it proves nothing
-	// about whether the plan carries the CR's value or re-states a constant. Asserting against 64/16 would
-	// pass just as well with the field deleted -- which a mutation showed: removing both assignments from
-	// CompilePlan left every test in this package green, because nothing read them.
+	// about whether the plan carries the CR's value or re-states a constant.
+	// Asserting against 64/16 would pass just as well with the field deleted -- which a mutation showed:
+	// removing both assignments from CompilePlan left every test in this package green, because nothing
+	// read them.
 	caps := apiValidSpec()
 	caps.Baseline.OutputTokens = 96
 	caps.Contender.OutputTokens = 24

@@ -16,12 +16,13 @@ import (
 //	  {{- range $k, $v := $metric.Attributes -}},{{ $k }}="{{ $v }}"{{- end -}}} value
 //
 // It is RENDERED, not captured: nv-hostengine in that image exposes no fake-GPU mode, so no exposition
-// could be produced without a card. That is better than documentation and weaker than a scrape, and the
-// name says so -- it used to be called renderedScrape, which it never was.
+// could be produced without a card.
+// That is better than documentation and weaker than a scrape, and the name says so -- it used to be
+// called renderedScrape, which it never was.
 //
-// pci_bus_id was missing until this audit. Harmless, because labels split on commas outside quotes and the
-// key ends at the first '=' -- but a fixture that does not match the shape it stands in for cannot be
-// evidence about that shape.
+// pci_bus_id was missing until this audit.
+// Harmless, because labels split on commas outside quotes and the key ends at the first '=' -- but a
+// fixture that does not match the shape it stands in for cannot be evidence about that shape.
 const renderedScrape = `# HELP DCGM_FI_DEV_GPU_UTIL GPU utilization (in %).
 # TYPE DCGM_FI_DEV_GPU_UTIL gauge
 DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-aaaa",pci_bus_id="00000000:00:1E.0",device="nvidia0",modelName="NVIDIA A10G",Hostname="w1",container="trainer",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 97
@@ -76,8 +77,9 @@ func TestParseDCGMTakesUtilisationAndAttributesIt(t *testing.T) {
 	}
 }
 
-// A card nobody is using carries no Pod labels every scrape. That is not an attribution failure and must not
-// be counted as one, or every observation would look partial.
+// A card nobody is using carries no Pod labels every scrape.
+// That is not an attribution failure and must not be counted as one, or every observation would look
+// partial.
 func TestAnIdleCardIsNotAnAttributionFailure(t *testing.T) {
 	_, unattributed, _, _, err := ParseDCGMUtilisation(
 		[]byte(`DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-cccc",Hostname="w1"} 0`+"\n"), 1, resolver)
@@ -101,9 +103,10 @@ func TestAPodTheCollectorNeverSawIsCounted(t *testing.T) {
 	if unattributed != 1 {
 		t.Fatalf("unattributed = %d, want 1", unattributed)
 	}
-	// It is KEPT rather than dropped, carrying no UID and the name the exporter used. It can credit work to
-	// nobody, and it is what the exclusivity clause needs: a device carrying two Pods' labels has utilisation
-	// belonging to neither, and a parser that discarded the second label would hide exactly that.
+	// It is KEPT rather than dropped, carrying no UID and the name the exporter used.
+	// It can credit work to nobody, and it is what the exclusivity clause needs: a device carrying two Pods'
+	// labels has utilisation belonging to neither, and a parser that discarded the second label would hide
+	// exactly that.
 	if len(got) != 1 {
 		t.Fatalf("an unresolvable sample was dropped; the exclusivity check would be blind to it: %+v", got)
 	}
@@ -124,8 +127,8 @@ func TestASampleWithoutADeviceUUIDIsAnError(t *testing.T) {
 	}
 }
 
-// Anything the parser cannot read is an error. A dependency that silently accepted malformed lines would
-// turn a broken observer into a quiet one.
+// Anything the parser cannot read is an error.
+// A dependency that silently accepted malformed lines would turn a broken observer into a quiet one.
 func TestMalformedScrapesAreRefusedRatherThanSkipped(t *testing.T) {
 	for name, line := range map[string]string{
 		"no label set":    `DCGM_FI_DEV_GPU_UTIL 97`,
@@ -139,8 +142,9 @@ func TestMalformedScrapesAreRefusedRatherThanSkipped(t *testing.T) {
 	}
 }
 
-// The observer labels by name; something else has to say which object that name referred to. Without a
-// resolver there is nothing to attribute to, and inventing an identity is the one thing this must not do.
+// The observer labels by name; something else has to say which object that name referred to.
+// Without a resolver there is nothing to attribute to, and inventing an identity is the one thing this
+// must not do.
 func TestParsingWithoutAResolverIsRefused(t *testing.T) {
 	_, _, _, _, err := ParseDCGMUtilisation([]byte(renderedScrape), 1, nil)
 	if err == nil {
@@ -155,14 +159,15 @@ func TestParsingWithoutAResolverIsRefused(t *testing.T) {
 // whether one bad line ends a run's observation.
 //
 // DCGM renders unsupported or transiently unavailable field values as "N/A" -- around driver initialisation,
-// a GPU reset, an XID event. Treating that as a fatal parse error ends the scrape loop, truncates the
-// observation at that instant, and the run then fails COVERAGE twenty seconds later with a message about an
-// interval that was never watched. The actual cause reaches nobody: it is one line on stderr and it is not
-// in the record.
+// a GPU reset, an XID event.
+// Treating that as a fatal parse error ends the scrape loop, truncates the observation at that instant, and
+// the run then fails COVERAGE twenty seconds later with a message about an interval that was never watched.
+// The actual cause reaches nobody: it is one line on stderr and it is not in the record.
 //
-// A value that is ABSENT is a different thing and stays fatal. A line carrying a label set and nothing after
-// it is not a sample whose value went unavailable; it is not a sample, and skipping it would let an
-// exposition format that stopped carrying values be read as a card nobody was using.
+// A value that is ABSENT is a different thing and stays fatal.
+// A line carrying a label set and nothing after it is not a sample whose value went unavailable; it is not a
+// sample, and skipping it would let an exposition format that stopped carrying values be read as a card
+// nobody was using.
 //
 // Mutation that turns this red: make the non-integer case fatal again, or make the empty case skip.
 func TestATransientlyUnreadableValueSkipsItsRowRatherThanTheScrape(t *testing.T) {
@@ -191,11 +196,12 @@ DCGM_FI_DEV_GPU_UTIL{UUID="G1",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 97
 
 // An exporter whose values this build cannot read must not read as a card nobody used.
 //
-// The skip is deliberate and stays broad: one odd line should not truncate an interval. What it must not be
-// is silent. It was -- the caller discarded the parser's signal and nothing carried it -- so an exporter
-// emitting floats, or values with a trailing Prometheus timestamp, produced an observation with no samples
-// and the gate refused with "no sample for Pod X ... a reservation". That sends an operator to the workload
-// for a fault in the value format.
+// The skip is deliberate and stays broad: one odd line should not truncate an interval.
+// What it must not be is silent.
+// It was -- the caller discarded the parser's signal and nothing carried it -- so an exporter emitting
+// floats, or values with a trailing Prometheus timestamp, produced an observation with no samples and the
+// gate refused with "no sample for Pod X ... a reservation".
+// That sends an operator to the workload for a fault in the value format.
 //
 // Mutation that turns this red: drop the counter, or stop the refusal from naming it.
 func TestAnExporterThisBuildCannotReadIsNotAnIdleCard(t *testing.T) {

@@ -62,10 +62,10 @@ func TestARecordRoundTripsThroughItsFile(t *testing.T) {
 
 // A key this build does not know must be refused, and the direction is what makes it matter.
 //
-// The zero value of `invalidated_because` is the empty string, which Valid() reads as "this cell stands". Under
-// a lenient decoder a mistyped key is dropped and the field keeps that zero value -- so a single transposed
-// letter would promote a discarded attempt into the comparison, silently, in the one direction that adds a
-// figure nothing supports.
+// The zero value of `invalidated_because` is the empty string, which Valid() reads as "this cell stands".
+// Under a lenient decoder a mistyped key is dropped and the field keeps that zero value -- so a single
+// transposed letter would promote a discarded attempt into the comparison, silently, in the one direction that
+// adds a figure nothing supports.
 //
 // Mutation that turns this red: drop DisallowUnknownFields.
 func TestAKeyThisBuildDoesNotKnowIsRefusedRatherThanDropped(t *testing.T) {
@@ -82,9 +82,9 @@ func TestAKeyThisBuildDoesNotKnowIsRefusedRatherThanDropped(t *testing.T) {
 	// The mistyped key is DERIVED rather than written out, by transposing two letters of the correct one.
 	//
 	// Not fastidiousness: `misspell` fails the build on the wrong spelling as a literal, here and in a comment
-	// where this was first written as an example. A spell-checking gate cannot tell a wrong word used as this
-	// test's input from a wrong word used by mistake, and deriving it keeps the gate sharp instead of silencing
-	// it with a nolint.
+	// where this was first written as an example.
+	// A spell-checking gate cannot tell a wrong word used as this test's input from a wrong word used by
+	// mistake, and deriving it keeps the gate sharp instead of silencing it with a nolint.
 	const correct = "invalidated_because"
 	i := strings.Index(correct, "bec") + 3
 	mistyped := correct[:i] + string(correct[i+1]) + string(correct[i]) + correct[i+2:]
@@ -140,8 +140,8 @@ func TestASecondDocumentInOneFileIsRefused(t *testing.T) {
 // The directory loader reads every attempt, in a stable order, and refuses an empty directory.
 //
 // Order matters because a verdict that names "attempt 3 of 6" has to mean the same thing on every machine;
-// directory order is not specified. Refusing empty matters because reading no attempts as a campaign would
-// report a comparison from nothing.
+// directory order is not specified.
+// Refusing empty matters because reading no attempts as a campaign would report a comparison from nothing.
 //
 // Mutation that turns this red: drop the sort, or the empty-directory refusal.
 func TestEveryAttemptIsReadInAStableOrder(t *testing.T) {

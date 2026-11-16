@@ -121,12 +121,14 @@ func awaitVersions(t *testing.T, s *ownershipSentinel, n int) {
 }
 
 // The whole gate, in the shape the hole actually takes: a third party strips the NoSchedule taint, other
-// work lands, and the taint is back before release. Both endpoint checks — verifyAcquired at the start and
-// decideRelease at the end — see a correct tuple and pass, so nothing before this saw anything at all.
+// work lands, and the taint is back before release.
+// Both endpoint checks — verifyAcquired at the start and decideRelease at the end — see a correct tuple
+// and pass, so nothing before this saw anything at all.
 //
 // Mutation that turns this red: delete the `err := verifyInstalled(obs, s.j)` comparison from
-// ownershipSentinel.observe (or make it return before recording). The window then counts node versions,
-// reports the hold as unbroken, and the run publishes a number measured on a shared machine.
+// ownershipSentinel.observe (or make it return before recording).
+// The window then counts node versions, reports the hold as unbroken, and the run publishes a number
+// measured on a shared machine.
 func TestOwnershipWindowSeesATaintStrippedAndRestored(t *testing.T) {
 	ctx := t.Context()
 
@@ -156,13 +158,14 @@ func TestOwnershipWindowSeesATaintStrippedAndRestored(t *testing.T) {
 	}
 }
 
-// Benign drift must stay benign. The platform's own nodehealth controller taints a not-ready worker while a
-// run holds it, and an unrelated label can be written by anything; neither is this run's marker, and a gate
-// that refused them would invalidate runs for the cluster behaving normally.
+// Benign drift must stay benign.
+// The platform's own nodehealth controller taints a not-ready worker while a run holds it, and an unrelated
+// label can be written by anything; neither is this run's marker, and a gate that refused them would
+// invalidate runs for the cluster behaving normally.
 //
 // Mutation that turns this red: widen the comparison in ownershipSentinel.observe to refuse taints this run
-// did not install, e.g. by following verifyInstalled with
-// `if err == nil && len(obs.AllTaints) != len(obs.Taints) { err = refuse(reasonInstalledDiverged, "…") }`.
+// did not install, e.g. by following verifyInstalled with `if err == nil && len(obs.AllTaints) !=
+// len(obs.Taints) { err = refuse(reasonInstalledDiverged, "…") }`.
 // Every run on a node the operator's own controller touches is then invalid.
 func TestOwnershipWindowIgnoresUnrelatedLabelsAndTaints(t *testing.T) {
 	ctx := t.Context()
@@ -242,17 +245,18 @@ func TestOwnershipWindowSeesTheWorkerDeleted(t *testing.T) {
 // other machines — and another node carries none of this transaction's markers, so folding it in would make
 // every run on a cluster with more than one node invalid.
 //
-// Mutation that turns this red: delete the `n.Name != s.j.Node` guard from ownershipSentinel.consume. The
-// other node's version — which carries none of this transaction's markers — then invalidates every run on a
-// cluster with more than one worker.
+// Mutation that turns this red: delete the `n.Name != s.j.Node` guard from ownershipSentinel.consume.
+// The other node's version — which carries none of this transaction's markers — then invalidates every run
+// on a cluster with more than one worker.
 //
 // The bookmark in the script pins nothing about this package and is here as documentation of why there is no
 // bookmark case in consume: RetryWatcher consumes bookmarks to advance its resume version and never forwards
-// them (client-go v0.36.1, tools/watch/retrywatcher.go), so one cannot reach the consumer at all. An earlier
-// revision of this file guarded against them and claimed the worker-name guard as its backstop; the guard is
-// never reached either, and the review that measured it is why the arm is gone. This test cannot say more
-// than that: running against this client-go, it cannot tell a bookmark swallowed inside RetryWatcher from one
-// forwarded and dropped by the name guard, so it asserts only that feeding one produces no violation.
+// them (client-go v0.36.1, tools/watch/retrywatcher.go), so one cannot reach the consumer at all.
+// An earlier revision of this file guarded against them and claimed the worker-name guard as its backstop;
+// the guard is never reached either, and the review that measured it is why the arm is gone.
+// This test cannot say more than that: running against this client-go, it cannot tell a bookmark swallowed
+// inside RetryWatcher from one forwarded and dropped by the name guard, so it asserts only that feeding one
+// produces no violation.
 func TestOwnershipWindowIgnoresOtherNodesAndBookmarks(t *testing.T) {
 	ctx := t.Context()
 
@@ -285,14 +289,16 @@ func TestOwnershipWindowIgnoresOtherNodesAndBookmarks(t *testing.T) {
 }
 
 // A view that ends before the run closes it stops being evidence at that point: nothing was watching
-// afterwards, so exclusivity for the rest of the window is unobserved rather than established. That is a
-// violation and not a warning, for the same reason the collector refuses a stream that ended on its own.
+// afterwards, so exclusivity for the rest of the window is unobserved rather than established.
+// That is a violation and not a warning, for the same reason the collector refuses a stream that ended
+// on its own.
 //
 // The two endings are separate cases because each pins one arm and NEITHER pins the other, which is a trap
 // worth naming: a forwarded 410 also has both caller flags clear, so deleting the status arm alone leaves it
 // caught by the other one and a test asserting only "some violation, ending reads as lost" would stay green
-// under the mutation its own comment claimed. So the status case asserts the text only statusText produces,
-// and the silent case is one no status arm could ever catch.
+// under the mutation its own comment claimed.
+// So the status case asserts the text only statusText produces, and the silent case is one no status arm
+// could ever catch.
 //
 // Mutations that turn this red, one per case: delete the `case end.LastStatus != nil` arm (the 410 then ends
 // up under the generic wording and the operator is never told a status was seen), or delete the
@@ -318,8 +324,9 @@ func TestOwnershipWindowInvalidatesWhenTheViewEndsOnItsOwn(t *testing.T) {
 				// The 410 arrives on the RECONNECT rather than on the first watch, and that is not decoration:
 				// delivered on the first, the stream establishes and dies in the same instant, and the
 				// establishment select in startOwnershipSentinel can legitimately take either arm — this test
-				// failed exactly that way under -race. Both arms refuse the run, so the ambiguity is safe in
-				// production and merely unusable in a test that wants one of them.
+				// failed exactly that way under -race.
+				// Both arms refuse the run, so the ambiguity is safe in production and merely unusable in a
+				// test that wants one of them.
 				established,
 				func(metav1.ListOptions) (watch.Interface, error) {
 					gone := watch.NewFakeWithChanSize(1, false)
@@ -333,8 +340,9 @@ func TestOwnershipWindowInvalidatesWhenTheViewEndsOnItsOwn(t *testing.T) {
 			wantInEnd: "terminal watch error",
 		},
 		// A wrapped Forbidden terminates permanently while forwarding nothing at all, which is the ending with
-		// no evidence in it — and continuity is just as lost. It arrives on the RECONNECT here, after a watch
-		// that did establish, which is the shape a credential revoked mid-run takes.
+		// no evidence in it — and continuity is just as lost.
+		// It arrives on the RECONNECT here, after a watch that did establish, which is the shape a credential
+		// revoked mid-run takes.
 		"a permanent failure that forwards nothing": {
 			open: []func(metav1.ListOptions) (watch.Interface, error){
 				established,
@@ -395,8 +403,9 @@ func TestOwnershipWindowClosedByTheRunIsNotAViolation(t *testing.T) {
 // the first stretch of it an observation rather than an assumption.
 //
 // Mutation that turns this red: delete the `s.observe(&n, watch.Modified)` opening read in
-// startOwnershipSentinel. NodeVersionsObserved is then 0 on a healthy run, which is a window that compared
-// nothing reporting that nothing deviated.
+// startOwnershipSentinel.
+// NodeVersionsObserved is then 0 on a healthy run, which is a window that compared nothing reporting that
+// nothing deviated.
 func TestOwnershipWindowOpensFromTheBaselineAndReadsTheWorkerOnce(t *testing.T) {
 	ctx := t.Context()
 
@@ -480,12 +489,14 @@ func TestStartOwnershipSentinelRefusesAWorkerItCannotRead(t *testing.T) {
 // A view that never attaches has to refuse the run in its first second, not at the horizon. startWatchStream
 // returns a nil error before its first watch has necessarily succeeded, so without this the run would submit
 // its trace, spend its whole window and then refuse — over an RBAC gap that was knowable before anything was
-// created. This is also the most likely way this gate fails on a real cluster: a Node watch is the only
+// created.
+// This is also the most likely way this gate fails on a real cluster: a Node watch is the only
 // cluster-scoped watch the runner opens, so it is the one a credential is most likely to lack.
 //
 // Mutation that turns this red: delete the `select` on stream.Established()/End() from
-// startOwnershipSentinel. The refusal then arrives at the end of the run instead of before it, as a lost
-// window rather than as an unopened one, and this test's own call returns a healthy sentinel.
+// startOwnershipSentinel.
+// The refusal then arrives at the end of the run instead of before it, as a lost window rather than as
+// an unopened one, and this test's own call returns a healthy sentinel.
 func TestStartOwnershipSentinelRefusesAViewThatNeverAttaches(t *testing.T) {
 	ctx := t.Context()
 
@@ -523,8 +534,9 @@ func TestStartOwnershipSentinelRefusesAViewThatNeverAttaches(t *testing.T) {
 }
 
 // The violation list is capped and the count is not, so a node being fought over cannot bury the record —
-// and cannot lose the fact either. The first violations are the ones kept, because the first is where the
-// claim ended and everything after it happened to a run that was already invalid.
+// and cannot lose the fact either.
+// The first violations are the ones kept, because the first is where the claim ended and everything after
+// it happened to a run that was already invalid.
 //
 // Mutation that turns this red: in recordLocked, append unconditionally (the record then grows without
 // bound) or drop the ViolationsObserved counter (the count then agrees with the truncated list and the
@@ -567,8 +579,9 @@ func releasableWorker(t *testing.T, extra ...corev1.Taint) client.WithWatch {
 // own markers came off, and what was missing is any record of what the Node looked like on either side.
 //
 // Mutation that turns this red: delete the `audit.Before = before` assignment (or the read that fills it) in
-// auditedRelease. The record then carries an "after" with nothing to compare it against, which is the state
-// this gate was written to replace.
+// auditedRelease.
+// The record then carries an "after" with nothing to compare it against, which is the state this gate was
+// written to replace.
 func TestAuditedReleaseRecordsBothSidesOfTheRelease(t *testing.T) {
 	c := releasableWorker(t, operatorTaint())
 
@@ -636,10 +649,11 @@ func TestRestorationAuditNamesAnUnrelatedTaintThatDidNotSurvive(t *testing.T) {
 // this whole gate refuses, applied to the audit itself.
 //
 // Mutation that turns this red: delete BOTH the `if !a.After.Observed` guard and the NodeUID comparison
-// after it from restorationAudit.summarise. Either one alone leaves the other catching this — an unread side
-// has an empty UID, which the journal's never matches — and naming just one would credit a guard with the
-// other's work, which is the trap the ending test above walks into deliberately. Measured, not assumed: with
-// only the Observed guard deleted this test stays green.
+// after it from restorationAudit.summarise.
+// Either one alone leaves the other catching this — an unread side has an empty UID, which the journal's
+// never matches — and naming just one would credit a guard with the other's work, which is the trap the
+// ending test above walks into deliberately.
+// Measured, not assumed: with only the Observed guard deleted this test stays green.
 func TestRestorationAuditWillNotCallAnUnreadNodeRestored(t *testing.T) {
 	inner := releasableWorker(t)
 	var patched bool
@@ -676,9 +690,9 @@ func TestRestorationAuditWillNotCallAnUnreadNodeRestored(t *testing.T) {
 // The audit reads the two sides for itself rather than copying the release's verdict, so a marker that
 // survived has to show up here even though releaseOwned would have refused on its own.
 //
-// Mutation that turns this red: delete the taintGone loop from restorationAudit.summarise. A node still
-// carrying this transaction's NoSchedule taint then reads as fully restored — the one state where the next
-// run acquires a worker that only looks free.
+// Mutation that turns this red: delete the taintGone loop from restorationAudit.summarise.
+// A node still carrying this transaction's NoSchedule taint then reads as fully restored — the one state
+// where the next run acquires a worker that only looks free.
 func TestRestorationAuditWillNotCallASurvivingTaintRemoved(t *testing.T) {
 	inner := releasableWorker(t)
 	c := interceptor.NewClient(inner, interceptor.Funcs{

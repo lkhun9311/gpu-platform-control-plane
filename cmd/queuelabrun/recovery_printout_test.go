@@ -17,8 +17,9 @@ import (
 // The defect they pin is not hypothetical and was not caused by the change that fixes it. printRecoverable
 // rebuilt the termination canary's two Pod names from the journal's id and printed them for every holder of
 // kind canary — but the device preflight acquires the worker under that same kind and creates exactly ONE
-// Pod, named differently. So the tool an operator reaches for when a node is stuck named two Pods that had
-// never existed, and did not name the one that had.
+// Pod, named differently.
+// So the tool an operator reaches for when a node is stuck named two Pods that had never existed, and did
+// not name the one that had.
 
 // canaryHeldNode returns a journal of kind canary and the Node carrying it.
 //
@@ -56,8 +57,8 @@ func probePod(name, canaryID string) *corev1.Pod {
 // THE defect, in the shape that produced it: a stranded device preflight.
 //
 // Its Pod is `dp-<short>`, and the old printout named `tc-<short>-honor` and `tc-<short>-ignore` instead —
-// two Pods that never existed, while the one holding the namespace went unnamed. An operator following that
-// list deletes nothing and concludes the node is stuck for some other reason.
+// two Pods that never existed, while the one holding the namespace went unnamed.
+// An operator following that list deletes nothing and concludes the node is stuck for some other reason.
 //
 // Mutation that turns this red: rebuild the names from canaryProbeSpecs instead of listing by label.
 func TestInspectWorkerNamesTheProbePodThatActuallyExists(t *testing.T) {
@@ -123,7 +124,8 @@ func TestInspectWorkerNamesBothCanaryProbePods(t *testing.T) {
 // An empty result is a different fact from a failed list, and collapsing them is what the repair must not do.
 //
 // Nothing to delete means the journal alone is holding the worker, which points the operator at
-// -release-stale rather than at kubectl. The old code printed two Pod names here unconditionally.
+// -release-stale rather than at kubectl.
+// The old code printed two Pod names here unconditionally.
 //
 // Mutation that turns this red: print the deletion list regardless of how many Pods came back.
 func TestInspectWorkerSaysWhenAProbeLeftNoPods(t *testing.T) {
@@ -147,7 +149,8 @@ func TestInspectWorkerSaysWhenAProbeLeftNoPods(t *testing.T) {
 // A list that failed must say it failed, and must not fall back to the reconstruction it replaced.
 //
 // A guess printed where a reading failed is the exact shape of the defect being repaired: it looks like an
-// answer. The operator gets the label to search by instead, which is true whatever the apiserver did.
+// answer.
+// The operator gets the label to search by instead, which is true whatever the apiserver did.
 //
 // Mutation that turns this red: swallow the List error, or print rebuilt names as a fallback.
 func TestInspectWorkerAdmitsWhenItCouldNotListTheProbePods(t *testing.T) {

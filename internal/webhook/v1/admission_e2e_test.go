@@ -29,9 +29,10 @@ import (
 // This is the test the unit tests cannot be.
 //
 // Everything above calls the validator's methods directly, so it proves the RULES are right and proves
-// nothing about whether an apiserver ever reaches them. The path from a kubectl apply to ValidateCreate runs
-// through the ValidatingWebhookConfiguration's rules, its resource and operation lists, and the handler path
-// the marker declares — and every one of those can be wrong while the Go code is perfect.
+// nothing about whether an apiserver ever reaches them.
+// The path from a kubectl apply to ValidateCreate runs through the ValidatingWebhookConfiguration's rules,
+// its resource and operation lists, and the handler path the marker declares — and every one of those can be
+// wrong while the Go code is perfect.
 //
 // envtest installs config/webhook/manifests.yaml into a real apiserver and rewrites only the clientConfig to
 // dial a local server, so the parts that decide whether the webhook is consulted are the repository's own.
@@ -110,9 +111,10 @@ func startAdmissionEnvWithConfig(t *testing.T) (context.Context, client.Client, 
 	//
 	// The manager's client reads through an informer cache, which answers NotFound for a Job created moments
 	// ago — not an error, so the fail-closed branch never runs and the immutability rules are skipped exactly
-	// when they matter. The timing itself cannot be reproduced here: envtest's cache is never slow enough, and
-	// TestApiserverRefusesAnImageEditOnceTheJobExists passes under either reader. This is what catches a
-	// revert.
+	// when they matter.
+	// The timing itself cannot be reproduced here: envtest's cache is never slow enough, and
+	// TestApiserverRefusesAnImageEditOnceTheJobExists passes under either reader.
+	// This is what catches a revert.
 	if got := newValidator(mgr).Reader; got == client.Reader(mgr.GetClient()) {
 		t.Fatal("the validator reads through the manager's cache, so a Job the informer has not seen yet " +
 			"reads as absent and the baked-field rules are silently skipped")
@@ -132,13 +134,14 @@ func startAdmissionEnvWithConfig(t *testing.T) (context.Context, client.Client, 
 // installs, and refuses to run if the manifest names one this file does not know about.
 //
 // It used to register the MLTrainingJob validator and nothing else, while the manifest beside it declared
-// three webhooks with failurePolicy: Fail. So the apiserver called /validate-batch-v1-job on a manager that
-// did not serve it, got "the server could not find the requested resource", and refused the write -- which
-// is indistinguishable from the refusal a spec is trying to observe, and is why this suite was red.
+// three webhooks with failurePolicy: Fail.
+// So the apiserver called /validate-batch-v1-job on a manager that did not serve it, got "the server could
+// not find the requested resource", and refused the write -- which is indistinguishable from the refusal a
+// spec is trying to observe, and is why this suite was red.
 //
-// Driving registration FROM the manifest rather than beside it is the point. A webhook added to the
-// configuration and not here now stops the suite with a message naming the path, instead of turning every
-// governed write in the test cluster into a 404.
+// Driving registration FROM the manifest rather than beside it is the point.
+// A webhook added to the configuration and not here now stops the suite with a message naming the path,
+// instead of turning every governed write in the test cluster into a 404.
 func registerEveryWebhookTheManifestDeclares(t *testing.T, mgr manager.Manager) {
 	t.Helper()
 
@@ -232,8 +235,8 @@ func mltj(name string, mutate func(*platformv1.MLTrainingJob)) *platformv1.MLTra
 }
 
 func TestApiserverRefusesABlankImage(t *testing.T) {
-	// The controller suite asserts the apiserver ACCEPTS this when no webhook is installed. Here the only
-	// difference is the webhook, so a rejection is attributable to it and to nothing else.
+	// The controller suite asserts the apiserver ACCEPTS this when no webhook is installed.
+	// Here the only difference is the webhook, so a rejection is attributable to it and to nothing else.
 	ctx, c := startAdmissionEnv(t)
 
 	err := c.Create(ctx, mltj("blank-image", func(j *platformv1.MLTrainingJob) { j.Spec.Image = "" }))
@@ -267,8 +270,9 @@ func TestApiserverRefusesAMissingClaimInTheWordsTheRestartGateReads(t *testing.T
 }
 
 func TestApiserverAcceptsARunnableSpec(t *testing.T) {
-	// The control. Without it, a webhook that rejected everything — or a manifest whose rules matched the
-	// wrong resource and errored on every write — would pass the rejection test above.
+	// The control.
+	// Without it, a webhook that rejected everything — or a manifest whose rules matched the wrong
+	// resource and errored on every write — would pass the rejection test above.
 	ctx, c := startAdmissionEnv(t)
 
 	if err := c.Create(ctx, mltj("runnable", nil)); err != nil {
@@ -344,14 +348,15 @@ func minimalPodTemplate() corev1.PodTemplateSpec {
 // the object has to actually be deleting, with a finalizer holding it, and the update has to be the one that
 // lets go.
 //
-// A webhook that refuses this update does not fail loudly. The delete call SUCCEEDS — it only sets a
-// deletion timestamp — and the object then sits in Terminating with no error anywhere until someone notices
-// it never went away.
+// A webhook that refuses this update does not fail loudly.
+// The delete call SUCCEEDS — it only sets a deletion timestamp — and the object then sits in Terminating
+// with no error anywhere until someone notices it never went away.
 func TestApiserverLetsADeletingObjectFinish(t *testing.T) {
 	ctx, c := startAdmissionEnv(t)
 
-	// Created valid, because the webhook is installed and would refuse an empty image outright. What is
-	// simulated is a spec that BECAME unacceptable — the shape a legacy object has after a rule is added.
+	// Created valid, because the webhook is installed and would refuse an empty image outright.
+	// What is simulated is a spec that BECAME unacceptable — the shape a legacy object has after a rule
+	// is added.
 	obj := mltj("deleting", func(j *platformv1.MLTrainingJob) {
 		j.Finalizers = []string{"platform.lkhun9311.github.io/mltrainingjob"}
 	})

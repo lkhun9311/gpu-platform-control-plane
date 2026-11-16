@@ -13,8 +13,9 @@ import (
 // # WHY THESE THREE
 //
 // The field was added and nothing asserted it: production wrote it in two places, the archive README
-// described it, and no test or gate read it back. A field in that state is one a later refactor removes
-// silently, which is the shape this session hit three times.
+// described it, and no test or gate read it back.
+// A field in that state is one a later refactor removes silently, which is the shape this session hit
+// three times.
 func TestTimeoutScopeIsMarshalledIntoTheManifest(t *testing.T) {
 	m := validatableManifest()
 	m.TimeoutScope = TimeoutScopeWholeRequest
@@ -35,7 +36,8 @@ func TestTimeoutScopeIsMarshalledIntoTheManifest(t *testing.T) {
 // An empty scope marshals away and still loads, because three archives on disk have no scope at all.
 //
 // Requiring the field would make every past manifest unloadable to prove a point about future ones, and
-// "not recorded" must not read as "no scope". Validate is asserted to accept it.
+// "not recorded" must not read as "no scope".
+// Validate is asserted to accept it.
 func TestAManifestWithoutATimeoutScopeStillValidates(t *testing.T) {
 	m := validatableManifest()
 	data, err := yaml.Marshal(&m)
@@ -74,8 +76,9 @@ func validatableManifest() RunManifest {
 
 // Both manifest writers take the scope from the constant, so two literals cannot drift apart.
 //
-// Read as text because the alternative is executing two CLI subcommands from a unit test. The constant's
-// own value is asserted above through the marshalled output, so this pins only that nobody re-typed it.
+// Read as text because the alternative is executing two CLI subcommands from a unit test.
+// The constant's own value is asserted above through the marshalled output, so this pins only that
+// nobody re-typed it.
 func TestBothManifestWritersUseTheScopeConstant(t *testing.T) {
 	if TimeoutScopeWholeRequest != "whole-request-including-stream" {
 		t.Fatalf("the scope constant reads %q; the archive README and the published manifests name the other value", TimeoutScopeWholeRequest)
@@ -85,10 +88,11 @@ func TestBothManifestWritersUseTheScopeConstant(t *testing.T) {
 // Every place that BUILDS a manifest sets the scope, which the marshalling test above cannot see.
 //
 // That test constructs its own RunManifest, so deleting the field from gen-trace's literal left it green:
-// it establishes that the struct CAN carry the scope, never that the binaries DO. I had checked the real
-// output by hand -- ran gen-trace, grepped the YAML, found `timeoutScope: whole-request-including-stream`
-// -- and a hand check is not a gate. This reads the writers as text, the way the shell gates read the
-// matrix's call sites, because executing two CLI subcommands from a unit test would test the CLI.
+// it establishes that the struct CAN carry the scope, never that the binaries DO.
+// I had checked the real output by hand -- ran gen-trace, grepped the YAML, found `timeoutScope:
+// whole-request-including-stream` -- and a hand check is not a gate.
+// This reads the writers as text, the way the shell gates read the matrix's call sites, because executing
+// two CLI subcommands from a unit test would test the CLI.
 //
 // Keyed on `RunManifest{` so a THIRD writer added later is counted too, and fails until it sets the field.
 func TestEveryManifestWriterSetsTheTimeoutScope(t *testing.T) {

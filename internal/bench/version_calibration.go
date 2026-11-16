@@ -10,8 +10,8 @@ import (
 // docs/superpowers/specs/2026-11-15-vllm-version-async-study-design.md ("Load").
 //
 // λ0 is a confirmed stable operating rate of treatment A on this host and workload: the highest rate the ladder found
-// stable, re-run on fresh traces and stable again. It is not called a sustainable capacity, because a finite window
-// cannot establish one (attack item 2).
+// stable, re-run on fresh traces and stable again.
+// It is not called a sustainable capacity, because a finite window cannot establish one (attack item 2).
 
 // CalibrationRule is the registered ladder and its stability criteria.
 type CalibrationRule struct {
@@ -258,9 +258,10 @@ func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) Ca
 // RunContext runs the ladder like Run, but stops it when ctx ends, the probe receiving ctx for its own steps.
 //
 // Once ctx has ended no further rung is run: each is returned invalid without touching the engine, so the ladder's
-// invalid bound ends it. The result is then unresolved with a reason naming the session, never an engine verdict, so a
-// deadline or an operator stop is not mistaken for a capacity found or missed. A ladder that resolved before ctx ended
-// keeps its result.
+// invalid bound ends it.
+// The result is then unresolved with a reason naming the session, never an engine verdict, so a deadline or an
+// operator stop is not mistaken for a capacity found or missed.
+// A ladder that resolved before ctx ended keeps its result.
 func (c CalibrationRule) RunContext(ctx context.Context, probe func(ctx context.Context, rate float64, ordinal int) RungClass) CalibrationResult {
 	skipped := false
 	res := c.Run(func(rate float64, ordinal int) RungClass {

@@ -27,13 +27,14 @@ import (
 
 // backend_attempts_total exists to answer one question requests_total cannot: was the serving stack asked?
 //
-// The specs below are written as pairs. Each drives a request, then asserts what happened to BOTH counters,
-// because the whole point of the new series is that the two disagree — and a spec that watched only the new
-// one would pass just as well if it were a copy of the old.
+// The specs below are written as pairs.
+// Each drives a request, then asserts what happened to BOTH counters, because the whole point of the new
+// series is that the two disagree — and a spec that watched only the new one would pass just as well if it
+// were a copy of the old.
 //
-// The second pair is the one that earns the counter. A 429 from the admission guard carries the resolved
-// model name (server.go:488), exactly as an attempted request does, so in requests_total it is indistinguishable
-// from a backend that answered 429 itself.
+// The second pair is the one that earns the counter.
+// A 429 from the admission guard carries the resolved model name (server.go:488), exactly as an attempted
+// request does, so in requests_total it is indistinguishable from a backend that answered 429 itself.
 
 func attemptsFor(tenant, model string) float64 {
 	return testutil.ToFloat64(backendAttempts.WithLabelValues(tenant, model))
@@ -78,8 +79,9 @@ var _ = Describe("backend_attempts_total", func() {
 	})
 
 	It("does not rise when the caller is unauthenticated", func() {
-		// Ends at step 2, the earliest exit there is. Asserted because the empty-label cell is where a future
-		// version reaching for a tenant name would show up, and this counter must not be the place it does.
+		// Ends at step 2, the earliest exit there is.
+		// Asserted because the empty-label cell is where a future version reaching for a tenant name would
+		// show up, and this counter must not be the place it does.
 		s := newProxyServer("", 60)
 		before := attemptsFor("", "")
 

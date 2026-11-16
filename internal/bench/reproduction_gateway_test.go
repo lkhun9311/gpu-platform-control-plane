@@ -28,7 +28,8 @@ func withImages(f ReproductionFacts, images map[string]string) ReproductionFacts
 }
 
 // The case the registration exists for: one binary on one base, built twice, gives two image IDs, and the
-// plan -- which runs before the image is built -- has none. Both must pass when the content facts agree.
+// plan -- which runs before the image is built -- has none.
+// Both must pass when the content facts agree.
 //
 // Mutation that turns this red: keep the gateway's image ID in the comparison when both sides have the facts.
 func TestReproductionByContentIgnoresTheRebuiltImageID(t *testing.T) {

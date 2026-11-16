@@ -15,8 +15,8 @@ import (
 // probePodFrom strips the device request from every container, deliberately and for a good reason of its own.
 // The preflight goes through that same function and puts one back, so a version of this that forgot the
 // second half would produce a Pod identical to a canary probe: it would schedule anywhere, run the workload
-// on the CPU, report dev=no-libcuda, and be indistinguishable from a genuine device fault. The operator would
-// then cancel a GPU session over a bug in the checker.
+// on the CPU, report dev=no-libcuda, and be indistinguishable from a genuine device fault.
+// The operator would then cancel a GPU session over a bug in the checker.
 //
 // Mutations that turn this red, both run: delete the limit assignment, and put the limit on every container
 // rather than the trainer.
@@ -51,7 +51,8 @@ func TestThePreflightPodAsksForExactlyOneDeviceOnTheTrainer(t *testing.T) {
 	}
 
 	// The placement a canary probe gets is inherited rather than re-derived, so the preflight qualifies the
-	// node it names. A preflight that landed elsewhere would report on somebody else's hardware.
+	// node it names.
+	// A preflight that landed elsewhere would report on somebody else's hardware.
 	if pod.Spec.NodeName != "platform-worker" {
 		t.Fatalf("the preflight pod is not pinned to its worker: %q", pod.Spec.NodeName)
 	}
@@ -74,8 +75,8 @@ func TestThePreflightPodAsksForExactlyOneDeviceOnTheTrainer(t *testing.T) {
 //
 // A preflight that said "the device did not work" would leave an operator with a rented GPU node and eight
 // candidate causes. no-libcuda is a base image or a runtime that never injected the driver; no-device is a
-// card that was not passed through; ptx-load-failed is a kernel this driver would not compile. Those are
-// three different afternoons.
+// card that was not passed through; ptx-load-failed is a kernel this driver would not compile.
+// Those are three different afternoons.
 //
 // Mutation that turns this red: drop the token from the message, or report the fallback as a pass.
 func TestThePreflightVerdictNamesWhichDriverCallRefused(t *testing.T) {
@@ -171,10 +172,10 @@ func TestTheDevicePreflightIsAnOperatorModeLikeTheOthers(t *testing.T) {
 
 // Warmth is read from the DIGEST, not from the whole image reference.
 //
-// The kubelet reports what it pulled. For a digest-pinned image that is "docker.io/library/python@sha256:..."
-// -- repository plus digest, without the tag this build's constant carries -- so comparing the references
-// whole reports every warm node as cold. The first execution of this check did exactly that on a node the
-// image had been sitting on for an hour.
+// The kubelet reports what it pulled.
+// For a digest-pinned image that is "docker.io/library/python@sha256:..." -- repository plus digest, without
+// the tag this build's constant carries -- so comparing the references whole reports every warm node as cold.
+// The first execution of this check did exactly that on a node the image had been sitting on for an hour.
 //
 // A cold node is not an error, but it is a fact about the first run's timings: the pull happens inside the
 // observation window, pushes every container stop later, and can push one past the horizon, which flips

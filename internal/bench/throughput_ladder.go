@@ -28,11 +28,12 @@ import (
 //
 // WHY THIS FILE EXISTS
 //
-// The sharing matrix answered whether splitting a card protects the premium tail. It could not answer what
-// the split costs in capacity, and the reason was structural rather than a shortage of evidence: every arm
-// was offered the same fixed trace and every arm finished all of it, so the delivered work was identical by
-// construction and only the elapsed-time denominator moved. No re-reading of that evidence produces a
-// capacity number. A ladder of offered loads does, and this file is its instrument.
+// The sharing matrix answered whether splitting a card protects the premium tail.
+// It could not answer what the split costs in capacity, and the reason was structural rather than a
+// shortage of evidence: every arm was offered the same fixed trace and every arm finished all of it, so the
+// delivered work was identical by construction and only the elapsed-time denominator moved.
+// No re-reading of that evidence produces a capacity number.
+// A ladder of offered loads does, and this file is its instrument.
 //
 // It shares PoPReading with the other two studies for the same reason they share it with each other: three
 // studies printing through one formatter is one place for "fired", "not evaluable" and "detail" to mean the
@@ -41,9 +42,10 @@ import (
 // WHAT MAKES THIS LADDER CHEAP, AND WHY THAT IS SAFE
 //
 // The criterion below is an ABSOLUTE millisecond figure rather than a multiple of a baseline measured in
-// the same session. That is what lets the ladder buy one R1 cell instead of one per rung. It is safe only
-// because the number was fixed before any rung ran -- see ladderTTFTTargetMs -- and it stops being safe the
-// moment someone recomputes it from this ladder's own evidence.
+// the same session.
+// That is what lets the ladder buy one R1 cell instead of one per rung.
+// It is safe only because the number was fixed before any rung ran -- see ladderTTFTTargetMs -- and it
+// stops being safe the moment someone recomputes it from this ladder's own evidence.
 
 const (
 	// ladderTTFTTargetMs is the registered premium latency target, in milliseconds.
@@ -52,35 +54,39 @@ const (
 	// same trace agreed on to within 0.179 ms on an arm whose premium concurrency peaked at 26 against 64
 	// sequence slots -- a baseline nowhere near its own limits.
 	//
-	// Written as an absolute number ON PURPOSE. A threshold recomputed per rung from a baseline measured
-	// beside it would move with whatever that session's card was doing, and a ladder whose target moves is a
-	// ladder that cannot bracket anything. It is also written here, in code, before any rung was bought, so
-	// that it cannot be chosen to sit above or below what the rungs produced.
+	// Written as an absolute number ON PURPOSE.
+	// A threshold recomputed per rung from a baseline measured beside it would move with whatever that
+	// session's card was doing, and a ladder whose target moves is a ladder that cannot bracket anything.
+	// It is also written here, in code, before any rung was bought, so that it cannot be chosen to sit above
+	// or below what the rungs produced.
 	ladderTTFTTargetMs = 139.0
 	// ladderRepeatMargin is how close to the target a rung may land before it has to be repeated.
 	//
 	// Within a tenth of the target, the difference between meeting and breaching is inside the range an
-	// instrument with this much repeat noise could produce twice. The sharing matrix measured that noise:
-	// 1.375 ms on the control and 0.179 ms on R1, across repetitions of the same trace. The rule is
-	// registered rather than applied where it happens to help, which is why it lives in the result as a
-	// demand for a repetition rather than as a verdict.
+	// instrument with this much repeat noise could produce twice.
+	// The sharing matrix measured that noise: 1.375 ms on the control and 0.179 ms on R1, across
+	// repetitions of the same trace.
+	// The rule is registered rather than applied where it happens to help, which is why it lives in the
+	// result as a demand for a repetition rather than as a verdict.
 	ladderRepeatMargin = 0.10
 	// ladderContenderOffers is the contender load every rung holds fixed, in requests per 505-second window.
 	//
-	// Holding the contender in ABSOLUTE terms is the whole design. The trace generator takes a total rate and
-	// per-tenant weights, so raising the premium rate while keeping a weight raises both tenants together --
-	// which is the mistake that made the seventh pilot unscorable, and it changed two things at once while
-	// reporting one.
+	// Holding the contender in ABSOLUTE terms is the whole design.
+	// The trace generator takes a total rate and per-tenant weights, so raising the premium rate while
+	// keeping a weight raises both tenants together -- which is the mistake that made the seventh pilot
+	// unscorable, and it changed two things at once while reporting one.
 	ladderContenderOffers = 139
 	// ladderContenderTolerance is how far a rung's realised contender count may fall from that.
 	//
 	// The generator is stochastic at a fixed seed, and a search over its parameter space found an exact 139
-	// at two rungs and 139 and 141 at the others. The tolerance is recorded here because it was measured
-	// offline before the run rather than discovered in the evidence afterwards.
+	// at two rungs and 139 and 141 at the others.
+	// The tolerance is recorded here because it was measured offline before the run rather than discovered
+	// in the evidence afterwards.
 	ladderContenderTolerance = 2
 	// ladderMinTailSamples is the thinnest premium tail a rung's p99 may rest on.
 	//
-	// A nearest-rank p99 over n observations is the ceil(0.99n)-th. Below this, one slow request moves it.
+	// A nearest-rank p99 over n observations is the ceil(0.99n)-th.
+	// Below this, one slow request moves it.
 	ladderMinTailSamples = 500
 )
 
@@ -119,8 +125,9 @@ type LadderResult struct {
 	// Study is the identifier the evidence carries, so the report names the experiment it actually read.
 	//
 	// It was a literal in the formatter, and the second ladder -- same arms, same criterion, rungs in a
-	// different place -- printed the FIRST ladder's id over its own numbers. A report that names the wrong
-	// experiment is the cheapest possible way to file a result under the wrong question.
+	// different place -- printed the FIRST ladder's id over its own numbers.
+	// A report that names the wrong experiment is the cheapest possible way to file a result under the
+	// wrong question.
 	Study string
 	// Cells are in rung then topology order, which is the order the ladder ran them.
 	Cells []LadderCell
@@ -130,18 +137,19 @@ type LadderResult struct {
 	Answer string
 	// BaselineMissing says no isolated-baseline cell was measured at the highest rung this evidence carries.
 	//
-	// It is NOT a reading, and that is the point. A verdict asked between rungs is provisional and the
-	// baseline is bought last, so demanding one there would stop every ladder at its first rung. A FINAL
-	// report is different: without the baseline, "the split ran out of capacity" and "one engine of this
-	// model on this card ran out of capacity" are the same observation, and the report used to say "no
-	// isolated-baseline cell breached the target" when none had been measured at all.
+	// It is NOT a reading, and that is the point.
+	// A verdict asked between rungs is provisional and the baseline is bought last, so demanding one
+	// there would stop every ladder at its first rung.
+	// A FINAL report is different: without the baseline, "the split ran out of capacity" and "one engine
+	// of this model on this card ran out of capacity" are the same observation, and the report used to
+	// say "no isolated-baseline cell breached the target" when none had been measured at all.
 	BaselineMissing bool
 	BaselineNote    string
 	// RepeatRequired lists the rungs that landed close enough to the target to need a repetition.
 	//
-	// It is not a reading. A rung needing a repetition does not change what the other rungs say, and
-	// folding it into the answer would let one borderline cell suppress a result the rest of the ladder
-	// established.
+	// It is not a reading.
+	// A rung needing a repetition does not change what the other rungs say, and folding it into the
+	// answer would let one borderline cell suppress a result the rest of the ladder established.
 	RepeatRequired []int
 }
 
@@ -171,8 +179,9 @@ func EvaluateThroughputLadder(summaries []ArmSummary) LadderResult {
 		}
 	}
 	// The highest rung that carries a CONTENDED cell is the rung the ladder ended on, and that is where the
-	// baseline belongs. Derived from the evidence rather than from the runner's plan, because this is the
-	// check that catches a plan and an output disagreeing.
+	// baseline belongs.
+	// Derived from the evidence rather than from the runner's plan, because this is the check that catches
+	// a plan and an output disagreeing.
 	top := 0
 	for _, c := range res.Cells {
 		if c.Topology != ArmR1 && c.Rung > top {
@@ -189,8 +198,9 @@ func EvaluateThroughputLadder(summaries []ArmSummary) LadderResult {
 	//
 	// L0 comes first for the reason reading 4 does in the sharing matrix: a cell the evidence cannot score is
 	// not a cell that breached, and letting an unscorable rung count as a breach would locate a limit the run
-	// never found. L4 comes next because it qualifies everything under it -- a baseline that also breached
-	// says the ladder found this model's limit on this card rather than either topology's.
+	// never found.
+	// L4 comes next because it qualifies everything under it -- a baseline that also breached says the ladder
+	// found this model's limit on this card rather than either topology's.
 	for _, r := range []PoPReading{
 		ladderReadingInvalid(res.Cells),
 		ladderReadingBaselineBreached(res.Cells),
@@ -210,9 +220,9 @@ func EvaluateThroughputLadder(summaries []ArmSummary) LadderResult {
 
 // scoreLadderCell applies the criterion to one arm summary.
 //
-// Every refusal here returns Invalid rather than Met=false. The difference is the one this package keeps
-// insisting on: a cell that could not be scored and a cell that breached are different facts, and only the
-// second locates a capacity boundary.
+// Every refusal here returns Invalid rather than Met=false.
+// The difference is the one this package keeps insisting on: a cell that could not be scored and a cell
+// that breached are different facts, and only the second locates a capacity boundary.
 func scoreLadderCell(rung int, topology string, s ArmSummary) LadderCell {
 	c := LadderCell{
 		Rung:        rung,
@@ -228,22 +238,24 @@ func scoreLadderCell(rung int, topology string, s ArmSummary) LadderCell {
 
 	// The order below is the order the questions have to be asked in, and it was wrong twice.
 	//
-	// WORKLOAD INTEGRITY FIRST. A cell that offered a different amount of contention, or that pooled two
-	// replays, is not a measurement of this rung at all -- whatever its p99 says.
+	// WORKLOAD INTEGRITY FIRST.
+	// A cell that offered a different amount of contention, or that pooled two replays, is not a
+	// measurement of this rung at all -- whatever its p99 says.
 	//
 	// THEN CENSORING, because censoring at or above one percent FAILS THE REGISTERED CRITERION and is
-	// therefore a BREACH, not a refusal. It used to be reached after the tail-sample floor, so an arm that
-	// lost a fifth of its premium requests to timeouts -- which is what breaching looks like at a high
-	// offered rate -- came back INVALID for having too few completions left to estimate a p99 from. The
-	// instrument refused to score the clearest failure it can produce.
+	// therefore a BREACH, not a refusal.
+	// It used to be reached after the tail-sample floor, so an arm that lost a fifth of its premium
+	// requests to timeouts -- which is what breaching looks like at a high offered rate -- came back
+	// INVALID for having too few completions left to estimate a p99 from.
+	// The instrument refused to score the clearest failure it can produce.
 	//
 	// THEN the tail floor, which is about whether an UNCENSORED p99 rests on enough observations.
 	switch {
 	case s.RepetitionCount > 1:
 		// The registered combination rule says the runs are NOT pooled: a pooled p99 can read "met" while one
-		// replay breached, and a pooled contender count reads 278 where each replay offered 139. This package
-		// cannot honour that rule by averaging, so it refuses instead, and the rule is executed by reading
-		// each run's own report.
+		// replay breached, and a pooled contender count reads 278 where each replay offered 139.
+		// This package cannot honour that rule by averaging, so it refuses instead, and the rule is executed
+		// by reading each run's own report.
 		c.Invalid = true
 		c.InvalidReason = fmt.Sprintf("this cell pools %d replays into one summary. The ladder's combination rule compares runs side by side and never pools them, because a pooled p99 can read met while one replay breached -- report each run separately",
 			s.RepetitionCount)
@@ -254,8 +266,9 @@ func scoreLadderCell(rung int, topology string, s ArmSummary) LadderCell {
 		c.InvalidReason = fmt.Sprintf("the contender was offered %d requests where every rung holds it at %d +/- %d, so this rung varied two things at once",
 			c.ContenderOffers, ladderContenderOffers, ladderContenderTolerance)
 	case c.Censored:
-		// A BREACH with a reason, not a refusal. Met stays false and NearTarget stays false: a p99 over the
-		// requests that survived is not a number this cell gets to be judged close to the target on.
+		// A BREACH with a reason, not a refusal.
+		// Met stays false and NearTarget stays false: a p99 over the requests that survived is not a number
+		// this cell gets to be judged close to the target on.
 		c.Met = false
 	case s.TTFTMsP99 <= 0:
 		c.Invalid = true
@@ -413,8 +426,9 @@ func ladderReadingSameRung(cells []LadderCell) PoPReading {
 // rungPhrase says where a topology's bracket closed, in words rather than in a rung number.
 //
 // A topology that never met the target has no rung, and printing "rung 0" for it reads as a rung the ladder
-// measured. The second ladder produced exactly that: the whole-card control met at no rung and the reading
-// said it "sustained the target to rung 0", which is a sentence about a cell that does not exist.
+// measured.
+// The second ladder produced exactly that: the whole-card control met at no rung and the reading said it
+// "sustained the target to rung 0", which is a sentence about a cell that does not exist.
 func rungPhrase(rung int, met bool) string {
 	if !met {
 		return "at no rung this ladder offered"
@@ -505,16 +519,18 @@ func censoredNote(censored bool) string {
 //
 // The floors it applies -- the contender's fixed count and its tolerance, and the minimum premium tail --
 // are this file's, and a shell script holding its own copy of them is a second place for a registered
-// number to be edited. The runner generates each planned trace locally, counts what came out, and asks
-// this function; nothing about the thresholds crosses into the shell.
+// number to be edited.
+// The runner generates each planned trace locally, counts what came out, and asks this function; nothing
+// about the thresholds crosses into the shell.
 //
 // # WHY IT EXISTS AT ALL
 //
 // Every one of these refusals already existed and every one of them fired ON THE RENTED CARD: `replay`
 // validates the arm against the study after the engines are up, and the cell floors are applied by the
-// readings after the replay. A mistyped study, a rung the registry does not admit, or a trace whose counts
-// the readings would refuse therefore cost a bring-up each time. The same questions asked before launch
-// cost nothing.
+// readings after the replay.
+// A mistyped study, a rung the registry does not admit, or a trace whose counts the readings would refuse
+// therefore cost a bring-up each time.
+// The same questions asked before launch cost nothing.
 func LadderPlanRefusal(study, arm string, premiumOffers, contenderOffers int) error {
 	s, ok := LookupStudy(study)
 	if !ok {
@@ -553,14 +569,15 @@ func LadderRungComplete(res LadderResult, rung int) bool {
 // LadderShouldContinue is the registered stopping rule, applied to the rung just measured.
 //
 // "Stop at the first rung where BOTH topologies have breached" -- one that still meets the target has not
-// been bracketed, and stopping there would report a bound for an arm the ladder never pushed. It is here
-// rather than in the runner because the threshold it compares against is here: a shell script holding its
-// own copy of 139.0 ms is a second place for the criterion to be edited, and the pre-registration's whole
-// claim is that the criterion was fixed before the rungs ran.
+// been bracketed, and stopping there would report a bound for an arm the ladder never pushed.
+// It is here rather than in the runner because the threshold it compares against is here: a shell script
+// holding its own copy of 139.0 ms is a second place for the criterion to be edited, and the
+// pre-registration's whole claim is that the criterion was fixed before the rungs ran.
 //
-// The rung must be complete. A caller asking about a rung whose cells are not both present gets a refusal
-// to continue rather than a decision, because "this rung has no split cell" and "the split met the target"
-// are different facts and only one of them is a reason to climb.
+// The rung must be complete.
+// A caller asking about a rung whose cells are not both present gets a refusal to continue rather than a
+// decision, because "this rung has no split cell" and "the split met the target" are different facts and
+// only one of them is a reason to climb.
 func LadderShouldContinue(res LadderResult, rung int) (bool, string) {
 	shared, split := findCell(res.Cells, rung, ArmShared), findCell(res.Cells, rung, ArmTimeSlicing)
 	if shared == nil || split == nil {

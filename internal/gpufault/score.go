@@ -207,8 +207,9 @@ func decodeStream[T any](path string) ([]T, error) {
 // A watch that disconnected inside the window leaves a file that parses and is not empty, and whatever happened
 // in the gap is unknown, not absent; so a gap makes the repetition invalid rather than quiet.
 // The end record is required, not only checked when present: a wrapper that died after writing its start left
-// no end, and a quiet control over that watch was valid (codex audit, 2026-10-28). Every archived watch log of
-// both paid runs and the rehearsal carries one start and one end (160 files, 2026-10-29).
+// no end, and a quiet control over that watch was valid (codex audit, 2026-10-28).
+// Every archived watch log of both paid runs and the rehearsal carries one start and one end (160 files,
+// 2026-10-29).
 func watchCoverage(path string, from, to time.Time) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -407,7 +408,8 @@ func ScoreCell(dir string) (CellResult, error) {
 //
 // A quiet control is evidence only if the operator was reading the card: for the benign arm, the reading it
 // recorded must carry the injected value; for no injection, it must have recorded the sentinel the runner
-// injects after the window. Without that, the repetition says nothing and is invalid.
+// injects after the window.
+// Without that, the repetition says nothing and is invalid.
 func scoreControl(res *CellResult, env map[string]string, ev cellEvidence, field string, tInj0, tEnd time.Time,
 	invalid func(string, ...any)) {
 	res.Actions = controlActions(ev)
@@ -510,7 +512,8 @@ func (ft *faultTimes) readNodeHealth(nhs []platformv1.NodeHealth, want string) s
 }
 
 // readWorkload reads the Workload's transitions in stream order: deactivated, evicted, quota released,
-// reactivated, readmitted. Stream order, not timestamps, because whole-second stamps can reorder within a second.
+// reactivated, readmitted.
+// Stream order, not timestamps, because whole-second stamps can reorder within a second.
 func (ft *faultTimes) readWorkload(wls []kueuev1beta1.Workload, want string) {
 	released := false
 	for i := range wls {
@@ -786,8 +789,8 @@ func Judge(cells []CellResult, notRun map[string]bool) Report {
 		// The fake exporter is the apparatus, not DCGM: nothing it scores is a result.
 		rep.Label = "REHEARSAL"
 	}
-	// P5's failure is an unexpected change with its cause unresolved, never by itself proof that injection
-	// reached NVML: the device plugin also marks devices unhealthy on its own NVML errors.
+	// P5's failure is an unexpected change with its cause unresolved, never by itself proof that injection reached
+	// NVML: the device plugin also marks devices unhealthy on its own NVML errors.
 	// "held" needs at least one valid repetition that injected and read allocatable on both sides: with none, nothing
 	// was observed, and run 1, which had no repetition at all, printed "held" until this rule existed.
 	rep.P5 = "NOT-OBSERVED: no valid repetition injected and read allocatable before and after"

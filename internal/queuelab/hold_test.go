@@ -54,8 +54,9 @@ func TestAchievedDoseIsMeasuredRatherThanDeclared(t *testing.T) {
 	}
 }
 
-// A ledger missing either endpoint says nothing rather than zero. Zero would be the strongest claim the
-// interval can make -- an instant release, or a dose delivered the moment the victim was ready.
+// A ledger missing either endpoint says nothing rather than zero.
+// Zero would be the strongest claim the interval can make -- an instant release, or a dose delivered
+// the moment the victim was ready.
 func TestHoldAndDoseRefuseToInventAnInterval(t *testing.T) {
 	onlyAdmit := []LifecycleEvent{held(OwnerRow, EventAdmitted, 24_000_000_000)}
 	if h := DeviceHoldNs(onlyAdmit); h != nil {
@@ -110,9 +111,9 @@ func TestTheDeviceWindowIsTheHold(t *testing.T) {
 	}
 }
 
-// The attempt a device sample is attributed to is the one whose stop ENDS the hold. A re-executed row has
-// several, and the later ones ran after the owner already had its capacity back — evidence about those is
-// evidence about a Pod nobody was waiting for.
+// The attempt a device sample is attributed to is the one whose stop ENDS the hold.
+// A re-executed row has several, and the later ones ran after the owner already had its capacity back —
+// evidence about those is evidence about a Pod nobody was waiting for.
 //
 // Mutation that turns this red: take the latest stop, or the first one folded.
 func TestTheAttributedAttemptIsTheOneThatEndedTheHold(t *testing.T) {
@@ -132,9 +133,10 @@ func TestTheAttributedAttemptIsTheOneThatEndedTheHold(t *testing.T) {
 
 // Both readings of the hold must be built from the SAME pair of events.
 //
-// A re-executed row has several stops. If the arrival figure takes the earliest and the stamp figure takes
-// the latest, their disagreement measures which events were picked rather than how the clocks differ — and
-// the gate built on that disagreement would fire on healthy runs and stay silent on a real clock step.
+// A re-executed row has several stops.
+// If the arrival figure takes the earliest and the stamp figure takes the latest, their disagreement
+// measures which events were picked rather than how the clocks differ — and the gate built on that
+// disagreement would fire on healthy runs and stay silent on a real clock step.
 //
 // Mutation that turns this red: take the latest arrival in firstStamp.
 func TestBothReadingsComeFromTheSameEvents(t *testing.T) {

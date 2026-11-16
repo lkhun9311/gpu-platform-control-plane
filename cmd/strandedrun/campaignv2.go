@@ -180,7 +180,8 @@ func discriminatingIndex(p Protocol) int {
 }
 
 // FisherOneSided is P(X >= a) for X hypergeometric: a of the k successes fell in the first group of n1, out of
-// n1+n2. It is exact, from big-integer binomials, because twelve per arm is small enough that nothing needs
+// n1+n2.
+// It is exact, from big-integer binomials, because twelve per arm is small enough that nothing needs
 // approximating and a rounded tail at the 0.05 line would decide a reading.
 func FisherOneSided(a, n1, b, n2 int) float64 {
 	k := a + b
@@ -271,8 +272,9 @@ func (cond ConditionV2) Judge(records []CellRecord, alpha float64) (ConditionRea
 // CheckCampaignV2 judges each condition's records by the first campaign's rules, then tests and reads each.
 //
 // recordsDir holds one directory per condition, named for it, so a record cannot be counted under a condition
-// whose layout it did not run on. A condition whose campaign check refuses stops the whole verdict, because the
-// registration publishes a comparison only when every registered cell has an attempt that stands.
+// whose layout it did not run on.
+// A condition whose campaign check refuses stops the whole verdict, because the registration publishes a
+// comparison only when every registered cell has an attempt that stands.
 func (c CampaignV2) CheckCampaignV2(recordsDir string) ([]ConditionReading, error) {
 	out := make([]ConditionReading, 0, len(c.Conditions))
 	for _, cond := range c.Conditions {

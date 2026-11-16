@@ -28,10 +28,11 @@ const protocolPath = "../../hack/stranded-protocol.yaml"
 
 // The checked-in protocol must load, and must say what the registration page says it says.
 //
-// This is the page-against-file comparison the pair exists to have. The page states the matrix in prose --
-// "two arms, three repetitions, six cells", "at most twelve attempts", "six submissions and six censuses",
-// "2, 1, 1" -- and until this test existed nothing compared those sentences with the file the tool reads.
-// docs-check resolves backticked names and says nothing about arithmetic.
+// This is the page-against-file comparison the pair exists to have.
+// The page states the matrix in prose -- "two arms, three repetitions, six cells", "at most twelve
+// attempts", "six submissions and six censuses", "2, 1, 1" -- and until this test existed nothing compared
+// those sentences with the file the tool reads. docs-check resolves backticked names and says nothing
+// about arithmetic.
 //
 // Mutation that turns this red: change any of those values in hack/stranded-protocol.yaml.
 func TestTheCheckedInProtocolLoadsAndMatchesWhatThePageSays(t *testing.T) {
@@ -78,9 +79,9 @@ func TestTheCheckedInProtocolLoadsAndMatchesWhatThePageSays(t *testing.T) {
 
 // writeVariant copies the checked-in protocol with one textual substitution and returns its path.
 //
-// The variants are built from the REAL file rather than from a fixture written here. A fixture would be a third
-// copy of the protocol, and the next change to the real file would leave these cases testing something that no
-// longer exists -- while still passing.
+// The variants are built from the REAL file rather than from a fixture written here.
+// A fixture would be a third copy of the protocol, and the next change to the real file would leave these cases
+// testing something that no longer exists -- while still passing.
 func writeVariant(t *testing.T, old, new string) string {
 	t.Helper()
 	b, err := os.ReadFile(protocolPath)
@@ -101,8 +102,9 @@ func writeVariant(t *testing.T, old, new string) string {
 
 // A protocol whose derived quantities contradict each other must be refused, one relation at a time.
 //
-// Each case below is a sentence the page asserts, broken in the file. They are separate subtests because a
-// single case with several contradictions passes as long as ANY one check survives a mutation.
+// Each case below is a sentence the page asserts, broken in the file.
+// They are separate subtests because a single case with several contradictions passes as long as ANY one
+// check survives a mutation.
 //
 // Mutation that turns this red: delete the corresponding relation from Protocol.Validate().
 func TestTheProtocolRefusesWhatItsOwnArithmeticContradicts(t *testing.T) {
@@ -176,18 +178,20 @@ func TestTheProtocolRefusesWhatItsOwnArithmeticContradicts(t *testing.T) {
 			wantIn: "not pinned to a tag",
 		},
 		{
-			// The step that was missing. Without the image on the nodes every plugin pod sits in
-			// ImagePullBackOff, the nodes advertise nothing, and the cell is invalidated for a capacity that
-			// was never going to appear -- an attempt wasted rather than a figure reported.
+			// The step that was missing.
+			// Without the image on the nodes every plugin pod sits in ImagePullBackOff, the nodes advertise
+			// nothing, and the cell is invalidated for a capacity that was never going to appear -- an
+			// attempt wasted rather than a figure reported.
 			name:   "no step puts the plugin image on the nodes",
 			old:    "    - kind load docker-image gpu-simulator:latest --name stranded\n",
 			new:    "",
 			wantIn: "no build step mentions \"kind load docker-image\"",
 		},
 		{
-			// An EMPTY list rather than a removed key. Removing it makes UnmarshalStrict refuse the unknown
-			// key first, so the case would pass on a parse error and never reach the check it was written
-			// for -- a case that breaks two rules is a verdict about whichever runs first.
+			// An EMPTY list rather than a removed key.
+			// Removing it makes UnmarshalStrict refuse the unknown key first, so the case would pass on a
+			// parse error and never reach the check it was written for -- a case that breaks two rules is a
+			// verdict about whichever runs first.
 			name: "build steps registered as an empty list",
 			old: `  build_steps:
     - render-cluster writes kind-config.yaml and device-plugins.yaml
@@ -233,8 +237,9 @@ func TestTheProtocolRefusesWhatItsOwnArithmeticContradicts(t *testing.T) {
 			wantIn: "names no judge",
 		},
 		{
-			// The load-bearing one. A performer listed among its own judges is an attempt ruling on itself,
-			// and the verdict would stop following from the recorded evidence alone.
+			// The load-bearing one.
+			// A performer listed among its own judges is an attempt ruling on itself, and the verdict would
+			// stop following from the recorded evidence alone.
 			name:   "the performer listed as its own judge",
 			old:    "judged_by:\n  - check-cell",
 			new:    "judged_by:\n  - hack/stranded-cell.sh\n  - check-cell",
@@ -289,9 +294,10 @@ func TestTheProtocolRefusesWhatItsOwnArithmeticContradicts(t *testing.T) {
 			wantIn: "one of the three failures",
 		},
 		{
-			// The two isolation rules. The sibling fragmentation study counts headroom across every namespace
-			// and takes its context from an environment variable, so a cell sharing its cluster would have its
-			// demand counted into that study's vector -- and neither run would say so.
+			// The two isolation rules.
+			// The sibling fragmentation study counts headroom across every namespace and takes its context
+			// from an environment variable, so a cell sharing its cluster would have its demand counted into
+			// that study's vector -- and neither run would say so.
 			name:   "a cell no longer invalidated by demand outside its own cluster",
 			old:    "  - a_submission_of_this_campaign_outside_its_own_cluster\n",
 			new:    "",
@@ -358,14 +364,14 @@ func TestTheProtocolRefusesWhatItsOwnArithmeticContradicts(t *testing.T) {
 
 // A file that breaks two rules must be refused by the earlier group, and that order must be pinned.
 //
-// Validate() runs its groups in a declared order and its comment calls that order load-bearing. Nothing was
-// checking it: reversing the five calls left all twenty-five refusal cases green, because each of those cases
-// breaks exactly one rule and one rule produces the same message wherever its group sits. So the comment was
-// asserting an invariant no test could see -- and the invariant is real, since it is why the overlap case adds
-// an entry instead of substituting one.
+// Validate() runs its groups in a declared order and its comment calls that order load-bearing.
+// Nothing was checking it: reversing the five calls left all twenty-five refusal cases green, because each of
+// those cases breaks exactly one rule and one rule produces the same message wherever its group sits.
+// So the comment was asserting an invariant no test could see -- and the invariant is real, since it is why
+// the overlap case adds an entry instead of substituting one.
 //
-// This case breaks a sequence rule and a rules-group rule at once. The sequence group runs first, so the
-// sequence refusal is what a reader must be told about.
+// This case breaks a sequence rule and a rules-group rule at once.
+// The sequence group runs first, so the sequence refusal is what a reader must be told about.
 //
 // Mutation that turns this red: reorder the groups in Validate().
 func TestABrokenProtocolIsRefusedByTheEarlierGroup(t *testing.T) {
@@ -406,9 +412,10 @@ func TestABrokenProtocolIsRefusedByTheEarlierGroup(t *testing.T) {
 
 // A misspelled key must be refused, not ignored.
 //
-// This is why LoadProtocol uses UnmarshalStrict. Under the lenient form `submisions:` is dropped and the field
-// keeps its zero value, so the protocol would arrive with no submissions and the refusal would blame the
-// sequence being empty rather than the typo -- a diagnosis pointing at the wrong file.
+// This is why LoadProtocol uses UnmarshalStrict.
+// Under the lenient form `submisions:` is dropped and the field keeps its zero value, so the protocol would
+// arrive with no submissions and the refusal would blame the sequence being empty rather than the typo -- a
+// diagnosis pointing at the wrong file.
 //
 // Mutation that turns this red: change UnmarshalStrict back to Unmarshal.
 func TestAMisspelledKeyIsRefusedRatherThanSilentlyDropped(t *testing.T) {
@@ -424,9 +431,10 @@ func TestAMisspelledKeyIsRefusedRatherThanSilentlyDropped(t *testing.T) {
 
 // The ledger at step k must be exactly the protocol's first k submissions, by identity, order and request.
 //
-// This is the check that closes the hole Census.Settled leaves open. Settled is a boolean the run operator
-// sets; the reservation balance cannot see a submission omitted from the ledger entirely, because a ledger
-// missing a row balances perfectly well. Membership is therefore judged against the frozen file.
+// This is the check that closes the hole Census.Settled leaves open.
+// Settled is a boolean the run operator sets; the reservation balance cannot see a submission omitted from
+// the ledger entirely, because a ledger missing a row balances perfectly well.
+// Membership is therefore judged against the frozen file.
 //
 // Mutation that turns this red: compare only the count, or only the names.
 func TestTheLedgerMustBeExactlyTheProtocolsFirstKSubmissions(t *testing.T) {

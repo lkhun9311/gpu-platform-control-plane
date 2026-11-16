@@ -21,8 +21,9 @@ const errKindEngineUnavailable = string(DispositionEngineUnavailable)
 // UnavailableRows records every request of a visit whose engine never became ready, without inventing a send.
 //
 // Each row keeps its trace identity and its intended arrival, measured from at, the moment the visit was declared
-// unavailable. It carries no send, transport-write or content time, and its terminal is that same moment, so the
-// reader's clock-order check holds and no latency can be computed from it.
+// unavailable.
+// It carries no send, transport-write or content time, and its terminal is that same moment, so the reader's
+// clock-order check holds and no latency can be computed from it.
 func UnavailableRows(trace []TraceRow, opts ReplayOptions, at time.Time) []RawRow {
 	rows := make([]RawRow, 0, len(trace))
 	zero := int64(0)
@@ -43,8 +44,9 @@ func UnavailableRows(trace []TraceRow, opts ReplayOptions, at time.Time) []RawRo
 // StudyDisposition gives one replayed row the study's disposition, or an error when the row is not an outcome at all.
 //
 // A cancelled or unsent request is the session stopping, never the engine failing, so it is refused rather than
-// charged to a treatment. A completed row that did not do the registered work is refused too: ClassifyRow says a
-// nonconforming row invalidates its cell, and an error is how that reaches the caller.
+// charged to a treatment.
+// A completed row that did not do the registered work is refused too: ClassifyRow says a nonconforming row
+// invalidates its cell, and an error is how that reaches the caller.
 func StudyDisposition(p SamplingPolicy, row RawRow, tr TraceRow) (RowDisposition, error) {
 	switch row.ErrorKind {
 	case errKindCancelled, DispositionUnsent:

@@ -185,8 +185,8 @@ type episodeDesign struct {
 	// Zero adds no episode and so no draw, which is what keeps the warm-ups of sessions 2 and 3 byte-identical.
 	warmupConditioning int
 	// burstSettings and staggerSettings list a design's settings explicitly, in enumeration order.
-	// Nil keeps the package's factorial levels (burstSizes x burstLengths plus the wide burst, and
-	// staggerDecoders x staggerContexts x staggerPrefills), which is what keeps every earlier study's traces byte-identical.
+	// Nil keeps the package's factorial levels (burstSizes x burstLengths plus the wide burst, and staggerDecoders x
+	// staggerContexts x staggerPrefills), which is what keeps every earlier study's traces byte-identical.
 	burstSettings   []burstSetting
 	staggerSettings []staggerSetting
 }

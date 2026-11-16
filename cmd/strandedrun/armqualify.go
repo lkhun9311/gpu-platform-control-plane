@@ -23,8 +23,9 @@ import (
 
 // Observation is a yes/no reading that must have been TAKEN, with no third meaning for "nobody looked".
 //
-// A bool will not do here, and the reason is specific rather than stylistic. The reference arm passes when the
-// profile file is **absent**, so an unsupplied `flag.Bool` -- false -- would read as evidence that it is absent.
+// A bool will not do here, and the reason is specific rather than stylistic.
+// The reference arm passes when the profile file is **absent**, so an unsupplied `flag.Bool` -- false -- would
+// read as evidence that it is absent.
 // The zero value would satisfy the very check it was meant to make, which is the unobserved-disposition failure
 // the demand ledger already guards against, arriving in a new place.
 type Observation string
@@ -49,14 +50,16 @@ func (o Observation) Validate(what string) error {
 	}
 }
 
-// Yes reports whether the reading was taken and was positive. Call only after Validate.
+// Yes reports whether the reading was taken and was positive.
+// Call only after Validate.
 func (o Observation) Yes() bool { return o == ObservationYes }
 
 // ArmEvidence is what a run operator read off a live cluster before a cell runs.
 //
-// Every field is an observation rather than an intention. The evidence is deliberately collected by the
-// operator and judged here, the way check-treatment already works: the tool that decides whether an arm is what
-// it claims does not also hold cluster credentials, so the judgement is reproducible from a recorded reading.
+// Every field is an observation rather than an intention.
+// The evidence is deliberately collected by the operator and judged here, the way check-treatment already
+// works: the tool that decides whether an arm is what it claims does not also hold cluster credentials, so the
+// judgement is reproducible from a recorded reading.
 //
 // All of it is available from the API without a credential beyond read access and without entering the node:
 // the scheduler pod's spec.containers[0].command carries the arguments, spec.volumes carries any mounted
@@ -68,15 +71,18 @@ type ArmEvidence struct {
 	SchedulerArgs []string
 	// SchedulerImage is the image the container is actually running, from its status rather than its spec.
 	SchedulerImage string
-	// Restarts is the scheduler container's restart count. The protocol invalidates a cell for any restart.
+	// Restarts is the scheduler container's restart count.
+	// The protocol invalidates a cell for any restart.
 	Restarts int
 	// ProfileFilePresent says whether a supplied KubeSchedulerConfiguration is mounted into the node.
 	ProfileFilePresent Observation
-	// DemandScheduled says whether submitted demand actually scheduled. Required for the reference arm: without
-	// it, a reference whose scheduler was broken would strand everything and the figure would read as a result.
+	// DemandScheduled says whether submitted demand actually scheduled.
+	// Required for the reference arm: without it, a reference whose scheduler was broken would strand
+	// everything and the figure would read as a result.
 	DemandScheduled Observation
-	// TreatmentApplied is check-treatment's verdict. Required for the treatment arm, meaningless for the
-	// reference, and refused there rather than ignored.
+	// TreatmentApplied is check-treatment's verdict.
+	// Required for the treatment arm, meaningless for the reference, and refused there rather than
+	// ignored.
 	TreatmentApplied Observation
 }
 
@@ -108,10 +114,10 @@ func (p Protocol) ArmByName(name Arm) (ProtocolArm, error) {
 
 // QualifyArm refuses evidence that would not establish the cluster is running the arm it claims.
 //
-// The failure this exists for is a cell recorded as one arm while running the other. It is the silent-treatment
-// failure read from both ends at once: a reference that quietly installed a profile, or a treatment whose
-// profile never took, would both produce figures the campaign would compare as though the arms differed by what
-// the registration says they differ by.
+// The failure this exists for is a cell recorded as one arm while running the other.
+// It is the silent-treatment failure read from both ends at once: a reference that quietly installed a profile,
+// or a treatment whose profile never took, would both produce figures the campaign would compare as though the
+// arms differed by what the registration says they differ by.
 func (p Protocol) QualifyArm(name Arm, e ArmEvidence) error {
 	arm, err := p.ArmByName(name)
 	if err != nil {
@@ -211,7 +217,8 @@ func qualifyTreatment(arm ProtocolArm, e ArmEvidence) error {
 // Compared by flag NAME rather than by substring, because the arguments arrive as `--config=/etc/kubernetes/...`
 // and `--authentication-kubeconfig=...` -- so a substring search for `--kubeconfig` would match the
 // authentication flag, and one for `--config` would be satisfied by any flag whose value happened to contain
-// that text. The name is everything before the first `=`.
+// that text.
+// The name is everything before the first `=`.
 func hasSchedulerArg(args []string, name string) (bool, string) {
 	for _, a := range args {
 		if strings.SplitN(a, "=", 2)[0] == name {

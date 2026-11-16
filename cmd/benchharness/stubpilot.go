@@ -14,11 +14,12 @@ import (
 // exercises the pilot's capture and eligibility rules rather than refusing them or going around them.
 //
 // The stub has no scheduler, so its steps are invented: one prefill step per request and one decode step per output
-// token after the first. Each step is written, under one lock, as a pilot_step_logger.py "sched" record AND as a
-// vLLM iteration line with the matching index, timestamp format and token total, so the alignment check between
-// the two logs has the shape the real engine gives it (design page, "The arm's step log is complete"). What it
-// cannot rehearse is vLLM itself: the request-ID transformation and the real priority field are checked by the
-// CPU rehearsal with the real engine.
+// token after the first.
+// Each step is written, under one lock, as a pilot_step_logger.py "sched" record AND as a vLLM iteration line with
+// the matching index, timestamp format and token total, so the alignment check between the two logs has the shape
+// the real engine gives it (design page, "The arm's step log is complete").
+// What it cannot rehearse is vLLM itself: the request-ID transformation and the real priority field are checked by
+// the CPU rehearsal with the real engine.
 type stubPilotLog struct {
 	mu       sync.Mutex
 	steps    io.Writer
@@ -28,9 +29,9 @@ type stubPilotLog struct {
 	step     int
 	sentinel int64
 	// stopAt, when set, makes the log stop recording at the first request whose ID contains it, while the
-	// "engine" goes on printing iteration lines and the sentinel is still answered for what was recorded. That
-	// is a plugin that stopped recording, which only the fence and the alignment with the engine's own log can
-	// catch; the rehearsal injects it into one cell (design page, "Rehearsals before purchase").
+	// "engine" goes on printing iteration lines and the sentinel is still answered for what was recorded.
+	// That is a plugin that stopped recording, which only the fence and the alignment with the engine's own
+	// log can catch; the rehearsal injects it into one cell (design page, "Rehearsals before purchase").
 	stopAt  string
 	stopped bool
 }

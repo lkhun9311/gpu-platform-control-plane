@@ -25,8 +25,9 @@ import (
 //
 // The amendment corrected the original registration here, so the boundary matters: heterogeneous nodes and more
 // than two workers are NOT prerequisites -- two identical two-GPU nodes each holding one device already block a
-// two-device request with two devices free. What genuinely cannot strand is a single node, or a cluster whose
-// largest node holds everything, because then anything that fits at all fits there.
+// two-device request with two devices free.
+// What genuinely cannot strand is a single node, or a cluster whose largest node holds everything, because then
+// anything that fits at all fits there.
 //
 // Mutation that turns this red: drop the maxNode >= total check, or lower the two-worker floor.
 func TestALayoutThatCannotStrandIsRefused(t *testing.T) {
@@ -71,9 +72,9 @@ func TestALayoutThatCannotStrandIsRefused(t *testing.T) {
 
 // The rendered kind configuration must carry the label the device plugin selects on, per worker.
 //
-// The selector and the count are the same fact read twice, and this is the half the cluster carries. A renderer
-// that emitted workers without labels would produce a cluster where the plugin lands nowhere and every node
-// advertises nothing -- which reads as a cluster with no GPUs rather than as a broken render.
+// The selector and the count are the same fact read twice, and this is the half the cluster carries.
+// A renderer that emitted workers without labels would produce a cluster where the plugin lands nowhere and
+// every node advertises nothing -- which reads as a cluster with no GPUs rather than as a broken render.
 //
 // Mutation that turns this red: stop emitting node-labels.
 func TestTheRenderedClusterLabelsEachWorkerWithItsDeviceCount(t *testing.T) {
@@ -84,9 +85,10 @@ func TestTheRenderedClusterLabelsEachWorkerWithItsDeviceCount(t *testing.T) {
 	}
 	// Every node pins the image, and the file says which Kubernetes it is for a reader who never runs it.
 	//
-	// Left to kind, the version is whatever that binary defaults to. This host carries clusters running 1.31.0
-	// and 1.35.8, so the same rendered file months apart would run different schedulers with different plugin
-	// defaults -- and a difference between RUNS would be indistinguishable from a difference between ARMS.
+	// Left to kind, the version is whatever that binary defaults to.
+	// This host carries clusters running 1.31.0 and 1.35.8, so the same rendered file months apart would run
+	// different schedulers with different plugin defaults -- and a difference between RUNS would be
+	// indistinguishable from a difference between ARMS.
 	if got := strings.Count(out, "image: "+nodeImage); got != 4 {
 		t.Errorf("expected all four nodes to pin %s, found %d:\n%s", nodeImage, got, out)
 	}
@@ -140,9 +142,9 @@ func TestTheClusterRendererRefusesWhatTheValidatorsRefuse(t *testing.T) {
 
 // A node image that leaves the Kubernetes version unrecorded is refused.
 //
-// The amendment requires the scheduler version to be registered. An untagged image is the case that looks fine
-// and is not: `kindest/node` resolves to whatever `latest` is on the host, and this host already carries three
-// untagged node images pulled in different months.
+// The amendment requires the scheduler version to be registered.
+// An untagged image is the case that looks fine and is not: `kindest/node` resolves to whatever `latest` is on
+// the host, and this host already carries three untagged node images pulled in different months.
 //
 // Mutation that turns this red: accept an empty tag, or drop the validateNodeImage call from KindConfigYAML.
 func TestANodeImageThatLeavesTheVersionUnrecordedIsRefused(t *testing.T) {
@@ -176,11 +178,12 @@ func TestANodeImageThatLeavesTheVersionUnrecordedIsRefused(t *testing.T) {
 // Mutation that turns this red: emit a fixed FAKE_GPU_COUNT, or select on a different value than the one set.
 // The rendered manifest creates the namespace it puts everything into.
 //
-// A rendered artifact that cannot be applied to an empty cluster is not a rendered artifact. Measured on the
-// first reference-arm cluster: every object failed with `namespaces "..." not found`, the nodes advertised
-// nothing, and the live capacity loop honestly reported none six times over. The treatment cluster had hidden
-// this for a day, because something else had created that namespace there — so a manifest that assumed it
-// worked by accident, and only a genuinely empty cluster could show the difference.
+// A rendered artifact that cannot be applied to an empty cluster is not a rendered artifact.
+// Measured on the first reference-arm cluster: every object failed with `namespaces "..." not found`, the
+// nodes advertised nothing, and the live capacity loop honestly reported none six times over.
+// The treatment cluster had hidden this for a day, because something else had created that namespace there —
+// so a manifest that assumed it worked by accident, and only a genuinely empty cluster could show the
+// difference.
 //
 // Putting the creation in the shell instead would mean the run applies something the renderer never emitted.
 //
@@ -232,8 +235,9 @@ func TestEachDevicePluginAdvertisesWhatItsSelectorAsksFor(t *testing.T) {
 		t.Errorf("the layout has two distinct counts and %d DaemonSet(s) were rendered:\n%s", got, out)
 	}
 	// Separators are counted against the document count rather than against a literal, so adding a document
-	// cannot be absorbed by editing the number here. Adding the Namespace made this assertion fail with a
-	// hardcoded 1, which is the reminder it exists to give.
+	// cannot be absorbed by editing the number here.
+	// Adding the Namespace made this assertion fail with a hardcoded 1, which is the reminder it exists to
+	// give.
 	docs := strings.Count(out, "kind: DaemonSet") + strings.Count(out, "kind: Namespace")
 	if got := strings.Count(out, "\n---\n"); got != docs-1 {
 		t.Errorf("%d documents need exactly %d separator(s), got %d:\n%s", docs, docs-1, got, out)
@@ -250,9 +254,10 @@ func TestEachDevicePluginAdvertisesWhatItsSelectorAsksFor(t *testing.T) {
 	// The shared config/device-plugin must be left alone: other studies expect its fixed count of one, so these
 	// objects must not collide with its name.
 	//
-	// Anchored on the two-space indent of a `metadata.name`, not on the token. The first version of this
-	// assertion searched for "name: gpu-simulator\n" anywhere in the document and matched the CONTAINER name
-	// eight lines lower, which every correct render also carries -- so it failed against output that was right.
+	// Anchored on the two-space indent of a `metadata.name`, not on the token.
+	// The first version of this assertion searched for "name: gpu-simulator\n" anywhere in the document and
+	// matched the CONTAINER name eight lines lower, which every correct render also carries -- so it failed
+	// against output that was right.
 	// A substring search over YAML reads tokens, not key paths.
 	if strings.Contains(out, "\n  name: gpu-simulator\n") {
 		t.Errorf("a rendered DaemonSet is named gpu-simulator, colliding with the shared object:\n%s", out)
@@ -267,9 +272,9 @@ func TestEachDevicePluginAdvertisesWhatItsSelectorAsksFor(t *testing.T) {
 	// image.
 	//
 	// A :latest tag defaults to Always, so the kubelet re-pulls even after `kind load docker-image` has placed
-	// the layers on the node, and a locally built tag exists in no registry. The first live cluster showed
-	// exactly that: three pods scheduled onto the right workers, every label correct, `crictl images` listing
-	// the image on all three, and every node advertising zero devices.
+	// the layers on the node, and a locally built tag exists in no registry.
+	// The first live cluster showed exactly that: three pods scheduled onto the right workers, every label
+	// correct, `crictl images` listing the image on all three, and every node advertising zero devices.
 	//
 	// Mutation that turns this red: drop the imagePullPolicy line from the template.
 	if got := strings.Count(out, "imagePullPolicy: IfNotPresent"); got != 2 {
@@ -289,8 +294,9 @@ func TestEachDevicePluginAdvertisesWhatItsSelectorAsksFor(t *testing.T) {
 // The reference arm renders a cluster with NO scheduler configuration, and keeps the worker capacity labels.
 //
 // "Untouched" is scoped to the scheduler configuration: the deliberate per-worker capacities and the fake
-// device plugins are the environment both arms share. Dropping the worker patches too would make the reference
-// a different cluster rather than the same cluster with an unconfigured scheduler.
+// device plugins are the environment both arms share.
+// Dropping the worker patches too would make the reference a different cluster rather than the same cluster
+// with an unconfigured scheduler.
 //
 // Mutation that turns this red: emit the extraMounts or the ClusterConfiguration patch for ArmUntouched, or
 // drop the JoinConfiguration patches along with them.

@@ -49,8 +49,8 @@ func TestFIFOVariantsDifferOnlyInQueueingStrategy(t *testing.T) {
 }
 
 func TestOneKnobDiffWorksAcrossDifferentRunIDs(t *testing.T) {
-	// Live arms use different run ids, so their cohort/flavor/queue names all differ. Canonicalizing the run
-	// id must let the mechanism comparison still see a single-knob difference.
+	// Live arms use different run ids, so their cohort/flavor/queue names all differ.
+	// Canonicalizing the run id must let the mechanism comparison still see a single-knob difference.
 	never, err := BuildFixtures(StudyReclaim, "Never", FixtureIdentity{TxID: "tx-1", RunID: "run-a", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)

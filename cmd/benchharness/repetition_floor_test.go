@@ -32,8 +32,9 @@ import (
 // one contender row carrying the arm's admitted work.
 //
 // Holding rows constant matters: the arms share one immutable trace, so `report` refuses outright when their
-// recorded row counts differ. A fixture that shortened a file would exercise that refusal instead of the
-// per-repetition floor it is meant to test.
+// recorded row counts differ.
+// A fixture that shortened a file would exercise that refusal instead of the per-repetition floor it is
+// meant to test.
 func writeRepetition(t *testing.T, dir, name, arm string, n int, ttftBaseMs int64, admitted int, rejected int) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -46,9 +47,10 @@ func writeRepetition(t *testing.T, dir, name, arm string, n int, ttftBaseMs int6
 	// Every repetition gets its own send epoch, because two real replays never start at the same nanosecond.
 	//
 	// This helper used to stamp SendUnixNanos: 1 on every row of every file, so two repetitions of one arm
-	// were byte-identical in the field that identifies a replay. That was harmless until `report` learned
-	// to refuse a replay counted twice -- and then it was these fixtures, not the runner, that looked like
-	// duplicates. The epoch is derived from the file name so it is stable across runs of the suite.
+	// were byte-identical in the field that identifies a replay.
+	// That was harmless until `report` learned to refuse a replay counted twice -- and then it was these
+	// fixtures, not the runner, that looked like duplicates.
+	// The epoch is derived from the file name so it is stable across runs of the suite.
 	var epoch int64 = 1
 	for _, b := range []byte(name) {
 		epoch = epoch*131 + int64(b)
@@ -81,14 +83,14 @@ func writeRepetition(t *testing.T, dir, name, arm string, n int, ttftBaseMs int6
 	// identical across arms — the admission-match check must not be what refuses these runs.
 	//
 	// It carries ExactInputTokens as well as the estimate, because the criterion is registered over the served
-	// tokenizer's own count and a row with only an estimate leaves it with no denominator. These fixtures are
-	// controls asserting that a HEALTHY run is not refused, so an accounting gap here would refuse every one of
-	// them for a reason that has nothing to do with the repetition floor they exist to pin.
+	// tokenizer's own count and a row with only an estimate leaves it with no denominator.
+	// These fixtures are controls asserting that a HEALTHY run is not refused, so an accounting gap here would
+	// refuse every one of them for a reason that has nothing to do with the repetition floor they exist to pin.
 	//
 	// It has to clear the eligible-population threshold to be counted at all: Summarize scores admitted work
-	// over `EstInputTokens >= threshold`, which is 4096 unless the rows carry their own LongThreshold. With
-	// the old value of a few hundred the row was outside the population, the fraction had nothing in it, and
-	// these controls would fail on an empty denominator rather than on the rule they pin.
+	// over `EstInputTokens >= threshold`, which is 4096 unless the rows carry their own LongThreshold.
+	// With the old value of a few hundred the row was outside the population, the fraction had nothing in
+	// it, and these controls would fail on an empty denominator rather than on the rule they pin.
 	c := bench.RawRow{
 		Index: n + rejected, Arm: arm, Tenant: "contender", IsNoisy: true, HTTPStatus: 200,
 		SendUnixNanos: 1, FirstTokenUnixNanos: 2, EndUnixNanos: 3,
@@ -104,18 +106,21 @@ func writeRepetition(t *testing.T, dir, name, arm string, n int, ttftBaseMs int6
 // TestReportRefusesATruncatedRepetitionThroughTheRealCommand covers the wiring, not the rule.
 //
 // internal/bench has specs for the rule itself, and they pass on a hand-built ArmSummary with the repetition
-// fields already set. What they cannot see is whether the command FILLS those fields: Summarize is handed
-// pooled rows and cannot know how they were split, so `report` attaches the repetition shape itself. Deleting
-// that attachment leaves every unit spec green -- which is the same defect class as a Terraform variable no
-// caller ever passed, and it is why this test drives the actual command over actual files.
+// fields already set.
+// What they cannot see is whether the command FILLS those fields: Summarize is handed pooled rows and cannot
+// know how they were split, so `report` attaches the repetition shape itself.
+// Deleting that attachment leaves every unit spec green -- which is the same defect class as a Terraform
+// variable no caller ever passed, and it is why this test drives the actual command over actual files.
 func TestReportRefusesATruncatedRepetitionThroughTheRealCommand(t *testing.T) {
 	dir := t.TempDir()
 
 	// R1 and static-cap are healthy. kv-aware is split into two repetitions, the second cut short at 30
-	// premium completions -- the shape a node going away mid-run produces. Pooled, kv-aware still reports
-	// 530 completions, comfortably above MinTailSamples, which is exactly how the truncation used to hide.
-	// Every arm gets TWO repetitions so the counts match and the incremental CI is computed. Otherwise the
-	// unequal-repetition refusal fires first and this test would pass without the floor existing at all.
+	// premium completions -- the shape a node going away mid-run produces.
+	// Pooled, kv-aware still reports 530 completions, comfortably above MinTailSamples, which is exactly
+	// how the truncation used to hide.
+	// Every arm gets TWO repetitions so the counts match and the incremental CI is computed.
+	// Otherwise the unequal-repetition refusal fires first and this test would pass without the floor
+	// existing at all.
 	raw := []string{
 		writeRepetition(t, dir, "raw-R1-1.jsonl", "R1", 500, 100, 250, 0),
 		writeRepetition(t, dir, "raw-R1-2.jsonl", "R1", 500, 100, 250, 0),
@@ -192,14 +197,16 @@ func TestReportAcceptsEqualHealthyRepetitions(t *testing.T) {
 // TestReportRefusesAnArmRecordedShorterThanTheTraceItShares is the fifth certification hole.
 //
 // The four earlier fixes all guard the SHAPE of a tail that is present — is it censored, is it big enough,
-// does an interval exist. None guards whether the recording FINISHED. An arm cut off partway leaves every row
-// it did write complete: nothing censors, no repetition is thin, the tail clears its floor, and the arm is
-// simply shorter than the trace it claims to have replayed.
+// does an interval exist.
+// None guards whether the recording FINISHED.
+// An arm cut off partway leaves every row it did write complete: nothing censors, no repetition is thin, the
+// tail clears its floor, and the arm is simply shorter than the trace it claims to have replayed.
 //
-// The direction is what makes it the worst of the set. Contention builds over a trace, so the requests that
-// arrive late are the slow ones, and dropping the tail of the RECORDING drops exactly the evidence that would
-// fail the arm. An adversarial review demonstrated a genuine FAIL (C/R1 = 3.434) becoming
-// "all checks passed" (C/R1 = 1.066) by truncating the arm under test to its first 60% of rows.
+// The direction is what makes it the worst of the set.
+// Contention builds over a trace, so the requests that arrive late are the slow ones, and dropping the tail
+// of the RECORDING drops exactly the evidence that would fail the arm.
+// An adversarial review demonstrated a genuine FAIL (C/R1 = 3.434) becoming "all checks passed" (C/R1 =
+// 1.066) by truncating the arm under test to its first 60% of rows.
 func TestReportRefusesAnArmRecordedShorterThanTheTraceItShares(t *testing.T) {
 	dir := t.TempDir()
 
@@ -232,9 +239,9 @@ func TestReportRefusesAnArmRecordedShorterThanTheTraceItShares(t *testing.T) {
 
 // TestReportAcceptsR1BeingShorterThanTheContendedArms is the control that keeps the rule honest.
 //
-// R1 replays the same trace with the contender filtered out, so it legitimately records fewer rows. A rule
-// that simply demanded every arm match would refuse every valid run — and would still have passed the test
-// above, which is why this exists.
+// R1 replays the same trace with the contender filtered out, so it legitimately records fewer rows.
+// A rule that simply demanded every arm match would refuse every valid run — and would still have passed
+// the test above, which is why this exists.
 func TestReportAcceptsR1BeingShorterThanTheContendedArms(t *testing.T) {
 	dir := t.TempDir()
 	// Two repetitions per arm so the incremental interval is real: with one each, the run is refused for a
@@ -261,9 +268,9 @@ func TestReportAcceptsR1BeingShorterThanTheContendedArms(t *testing.T) {
 
 // TestARepetitionCarryingADifferentTraceIsRefused closes a hole in the identity check.
 //
-// refuseIfTracesDisagree exists to prove the contended arms replayed identical traffic. It compared one
-// checksum per arm, and loadArmEvidence wrote that field once per FILE -- so only the last repetition's
-// checksum survived, and a repetition replayed from a different trace was invisible.
+// refuseIfTracesDisagree exists to prove the contended arms replayed identical traffic.
+// It compared one checksum per arm, and loadArmEvidence wrote that field once per FILE -- so only the
+// last repetition's checksum survived, and a repetition replayed from a different trace was invisible.
 //
 // The trigger is a workflow the runner endorses: re-running one botched arm into the same output directory.
 // Driven through the real binary, an arm holding checksums "X" and "T" among all-"T" arms reported cleanly

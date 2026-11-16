@@ -144,7 +144,8 @@ func TestPrefixTracesMatchTheFrozenChecksums(t *testing.T) {
 }
 
 // The trace checksum covers lengths, groups and seeds, not the text: PromptForRow synthesises that at send time, as
-// PromptText always has. So the bytes every request of the frozen traces sends are pinned here as well.
+// PromptText always has.
+// So the bytes every request of the frozen traces sends are pinned here as well.
 // Mutation that turns this red: change a header's wording, the order of the parts, or the corpus.
 func TestPrefixPromptsMatchTheFrozenBytes(t *testing.T) {
 	want := map[string]string{

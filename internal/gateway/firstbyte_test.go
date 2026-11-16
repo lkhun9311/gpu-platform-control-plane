@@ -30,14 +30,16 @@ import (
 // both are latencies in seconds over the same population and getting them confused would look plausible.
 //
 // The first is WHEN: requestDuration is observed after ServeHTTP returns, this one the moment a byte reaches
-// the client. The second is WHETHER: a request that produced no byte has no first-byte latency at all, and
-// filing the elapsed time anyway would enter every cancelled request as a slow success.
+// the client.
+// The second is WHETHER: a request that produced no byte has no first-byte latency at all, and filing the
+// elapsed time anyway would enter every cancelled request as a slow success.
 
 // firstByteSamples reads the histogram's observation count for one label pair.
 //
 // testutil.ToFloat64 cannot do this -- it refuses anything but a single-value metric -- and CollectAndCount
-// returns the number of SERIES, which is 1 both before and after an observation. The sample count is the only
-// reading that answers "was an observation made", so the child is written out and read back directly.
+// returns the number of SERIES, which is 1 both before and after an observation.
+// The sample count is the only reading that answers "was an observation made", so the child is written out
+// and read back directly.
 func firstByteSamples(tenant, model string) uint64 {
 	m := &dto.Metric{}
 	o, err := timeToFirstByte.GetMetricWithLabelValues(tenant, model)
@@ -69,8 +71,9 @@ var _ = Describe("time_to_first_byte_seconds", func() {
 	})
 
 	It("is not observed when the request never reached a backend", func() {
-		// Refused at step 2, so nothing was ever written to the client. This pins the guard in server.go: an
-		// observation here would be an elapsed time that is not a first-byte latency, filed as if it were.
+		// Refused at step 2, so nothing was ever written to the client.
+		// This pins the guard in server.go: an observation here would be an elapsed time that is not a
+		// first-byte latency, filed as if it were.
 		s := newProxyServer("", 60)
 		before := firstByteSamples("", "")
 
@@ -84,10 +87,12 @@ var _ = Describe("time_to_first_byte_seconds", func() {
 	It("is observed when the gateway writes the error itself", func() {
 		// Start and immediately close, so the dial is refused -- the convention proxy_test.go:337 uses.
 		//
-		// This is the spec that corrected the design. The guard in server.go was written believing a failed
-		// request had no first byte; a probe showed the 502 envelope proxy.go's ErrorHandler writes IS one,
-		// and the same holds for a header timeout and an already-cancelled context. So the series covers
-		// errors, deliberately: one that counted only successes would improve as the backend got worse.
+		// This is the spec that corrected the design.
+		// The guard in server.go was written believing a failed request had no first byte; a probe showed
+		// the 502 envelope proxy.go's ErrorHandler writes IS one, and the same holds for a header timeout
+		// and an already-cancelled context.
+		// So the series covers errors, deliberately: one that counted only successes would improve as the
+		// backend got worse.
 		up := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 		addr := up.URL
 		up.Close()
@@ -119,8 +124,8 @@ var _ = Describe("time_to_first_byte_seconds", func() {
 	})
 
 	It("stamps a body write that never called WriteHeader", func() {
-		// A handler may write a body without a status line, which implicitly means 200. That byte reached the
-		// client exactly as a header would have, so it has to stamp too.
+		// A handler may write a body without a status line, which implicitly means 200.
+		// That byte reached the client exactly as a header would have, so it has to stamp too.
 		rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), code: http.StatusOK}
 
 		_, _ = rec.Write([]byte("body first"))

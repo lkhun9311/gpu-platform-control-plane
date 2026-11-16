@@ -88,9 +88,10 @@ var _ = Describe("admission pipeline placement", func() {
 	})
 	AfterEach(func() { up.Close() })
 
-	// The bucket is DRAINED by the first request rather than built at burst 0. Built at 0 the eligible request
-	// is larger than the bucket can ever hold, which is a permanent refusal wearing a transient reason's
-	// clothes — the state this pipeline now answers 413 to, and never the 429 this spec is about.
+	// The bucket is DRAINED by the first request rather than built at burst 0.
+	// Built at 0 the eligible request is larger than the bucket can ever hold, which is a permanent refusal
+	// wearing a transient reason's clothes — the state this pipeline now answers 413 to, and never the 429
+	// this spec is about.
 	It("rejects an eligible standard-long request over budget with a 429 carrying code input_rate_limit", func() {
 		// rate 0, burst 4096: the first eligible request fits exactly and leaves nothing behind.
 		s := newAdmissionServer(up.URL, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(0, 4096, 4096))
@@ -105,8 +106,8 @@ var _ = Describe("admission pipeline placement", func() {
 	})
 
 	// The other "too large", and the one the unit spec in proxy_test cannot reach: it proves the error is
-	// distinguishable, not that the handler distinguishes it. Without this the 413 mapping can be deleted and
-	// every test still passes.
+	// distinguishable, not that the handler distinguishes it.
+	// Without this the 413 mapping can be deleted and every test still passes.
 	//
 	// Mutation that turns this red: map every readRequestMeta error to 400 again.
 	It("answers 413 rather than 400 when the body exceeds the size cap", func() {
@@ -120,8 +121,9 @@ var _ = Describe("admission pipeline placement", func() {
 		// told the gateway broke when it had refused something it can name.
 		Expect(rr.Body.String()).To(ContainSubstring("payload_too_large"))
 		// And this one carries NO admission reason, because admission never ran -- the reason variable does not
-		// exist on this path. That absence is the signal internal/bench now reads to keep a body-limit refusal
-		// out of the admitted-work fraction.
+		// exist on this path.
+		// That absence is the signal internal/bench now reads to keep a body-limit refusal out of the
+		// admitted-work fraction.
 		Expect(rr.Header().Get(HeaderAdmissionReason)).To(BeEmpty(),
 			"a body refused before admission claims an admission reason, which would credit the guard with a decision it never made")
 	})
@@ -154,8 +156,9 @@ var _ = Describe("admission pipeline placement", func() {
 		Expect(string(b)).To(ContainSubstring("request_timeout"))
 	})
 
-	// A request that can never be admitted must not carry the retry hint a 429 does. A client obeying
-	// Retry-After would resend an arithmetically impossible request every five seconds forever.
+	// A request that can never be admitted must not carry the retry hint a 429 does.
+	// A client obeying Retry-After would resend an arithmetically impossible request every five
+	// seconds forever.
 	//
 	// Mutation that turns this red: route reasonInputExceedsBurst through failReason like every other reason.
 	It("answers 413 with no retry hint when the input can never fit the bucket", func() {
@@ -167,9 +170,10 @@ var _ = Describe("admission pipeline placement", func() {
 		Expect(rr.Header().Get("Retry-After")).To(BeEmpty(),
 			"a permanently impossible request was advertised as retryable")
 		// The header is what tells this 413 from the body-size 413, which carries the same status and the same
-		// error code. The gateway has always set it -- the assignment sits above the refusal branch, for any
-		// non-empty reason -- and until now nothing asserted it, so the one signal that separates the two
-		// refusals was unguarded. internal/bench read past it and counted both as work the bucket shed.
+		// error code.
+		// The gateway has always set it -- the assignment sits above the refusal branch, for any non-empty
+		// reason -- and until now nothing asserted it, so the one signal that separates the two refusals was
+		// unguarded. internal/bench read past it and counted both as work the bucket shed.
 		Expect(rr.Header().Get(HeaderAdmissionReason)).To(Equal(reasonInputExceedsBurst),
 			"the admission 413 does not name its reason, so nothing downstream can tell it from a body-limit refusal")
 	})
@@ -320,12 +324,13 @@ var _ = Describe("admission metrics", func() {
 // The evidence a paid run leaves behind should record what the gateway DECIDED, not what a client assumed
 // about it.
 //
-// Two analyses of the 2026-09-03 run had to be reconstructed rather than read. The report scored its
-// eligible population on the token threshold alone, because a raw row carries no tier, while the gateway's
-// rule is tier == standard AND threshold -- they agreed only because the sole premium tenant happened to
-// send 50-token prompts. And the reason 447 requests were refused had to be inferred from the runner's flags
-// and the gateway's defaults, because a refusal recorded its status and nothing else. Both become a lookup
-// once the decision travels on the response.
+// Two analyses of the 2026-09-03 run had to be reconstructed rather than read.
+// The report scored its eligible population on the token threshold alone, because a raw row carries no tier,
+// while the gateway's rule is tier == standard AND threshold -- they agreed only because the sole premium
+// tenant happened to send 50-token prompts.
+// And the reason 447 requests were refused had to be inferred from the runner's flags and the gateway's
+// defaults, because a refusal recorded its status and nothing else.
+// Both become a lookup once the decision travels on the response.
 var _ = Describe("the gateway reporting its own decisions", func() {
 	var up *httptest.Server
 
@@ -353,8 +358,9 @@ var _ = Describe("the gateway reporting its own decisions", func() {
 	})
 
 	It("names why it refused, for both refusals", func() {
-		// 413: larger than the bucket can ever hold. This is the one the paid run hit 1,788 times and the
-		// one whose reason never reached the evidence, because it does not go through failReason.
+		// 413: larger than the bucket can ever hold.
+		// This is the one the paid run hit 1,788 times and the one whose reason never reached the
+		// evidence, because it does not go through failReason.
 		burst := newAdmissionServer(up.URL, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(1000, 8, 4096))
 		rr := httptest.NewRecorder()
 		burst.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
@@ -375,8 +381,9 @@ var _ = Describe("the gateway reporting its own decisions", func() {
 	// An admit's reason is the one the evidence most needed and never had.
 	//
 	// arm C admits for four different reasons, and two of them mean the guard was not working: a backend it
-	// never registered, and telemetry too stale to read. A run spent entirely in that bypass is arm A wearing
-	// arm C's name, and it would report as a clean scientific FAIL.
+	// never registered, and telemetry too stale to read.
+	// A run spent entirely in that bypass is arm A wearing arm C's name, and it would report as a clean
+	// scientific FAIL.
 	It("says why it admitted, not only why it refused", func() {
 		off := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
 		rr := httptest.NewRecorder()
@@ -386,9 +393,9 @@ var _ = Describe("the gateway reporting its own decisions", func() {
 	})
 
 	// The four reasons arm C admits for, and the fact that the two bypasses are distinguishable from the two
-	// healthy admits, are covered as units in kvguard_test.go. Driving them through a Server here would start
-	// a real scraper against a backend that does not exist; the case above is what proves an admit's reason
-	// reaches the response at all.
+	// healthy admits, are covered as units in kvguard_test.go.
+	// Driving them through a Server here would start a real scraper against a backend that does not exist;
+	// the case above is what proves an admit's reason reaches the response at all.
 
 })
 
@@ -402,8 +409,8 @@ var _ = Describe("reporting the pressure a decision was made on", func() {
 	})
 	AfterEach(func() { up.Close() })
 
-	// Backend occupancy is not a caller's business, so it travels only when the operator asks for it. The
-	// benchmark asks; a deployment serving real tenants does not.
+	// Backend occupancy is not a caller's business, so it travels only when the operator asks for it.
+	// The benchmark asks; a deployment serving real tenants does not.
 	It("says nothing unless the gateway was told to report it", func() {
 		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
 		rr := httptest.NewRecorder()
@@ -420,9 +427,10 @@ var _ = Describe("reporting the pressure a decision was made on", func() {
 		Expect(rr.Header().Get(HeaderBackendState)).To(BeEmpty())
 	})
 
-	// The emission itself, not only the formatting. An earlier version of this block checked the two
-	// negative cases and the formatter, so deleting the code that sets the header left every spec green --
-	// a guard that could not fire, in the file whose subject is guards that cannot fire.
+	// The emission itself, not only the formatting.
+	// An earlier version of this block checked the two negative cases and the formatter, so deleting the
+	// code that sets the header left every spec green -- a guard that could not fire, in the file whose
+	// subject is guards that cannot fire.
 	//
 	// The stub observes without scraping, which is what lets a Server exercise the path: a real kv-aware
 	// admitter would start a scraper against a backend that does not exist.

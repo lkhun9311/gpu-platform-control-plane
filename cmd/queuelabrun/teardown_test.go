@@ -129,9 +129,9 @@ func TestEnumerateRefusesAnIncompleteSeed(t *testing.T) {
 	}
 }
 
-// An object carrying a deletionTimestamp has been asked to go away and has not gone away. Treating that as
-// absence is the exact error this whole piece exists to prevent: it asserts deletion was requested, not that
-// it happened.
+// An object carrying a deletionTimestamp has been asked to go away and has not gone away.
+// Treating that as absence is the exact error this whole piece exists to prevent: it asserts deletion was
+// requested, not that it happened.
 func TestTerminatingIsNotAbsent(t *testing.T) {
 	obs := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "u1", Terminating: true}
 	if got := classifyAbsence(obs, "u1"); got != absencePresent {
@@ -150,10 +150,10 @@ func TestAReadErrorIsUnknownNotAbsent(t *testing.T) {
 
 // NotFound on a name proves the name is free, not that this run's object was deleted: the runner derives its
 // namespace from the run id alone and today adopts one it did not create, so a name can be absent because it
-// never existed, because someone else's was deleted, or because ours was deleted and recreated. A found
-// object under a different UID is a name collision this run must refuse to touch, not a routine "present"
-// indistinguishable from our own live object — an executor that cannot tell the two apart from the returned
-// classification alone cannot refuse to delete the one it does not own.
+// never existed, because someone else's was deleted, or because ours was deleted and recreated.
+// A found object under a different UID is a name collision this run must refuse to touch, not a routine
+// "present" indistinguishable from our own live object — an executor that cannot tell the two apart from the
+// returned classification alone cannot refuse to delete the one it does not own.
 func TestAbsenceIsCreditedOnlyAgainstTheRecordedUID(t *testing.T) {
 	mine := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "ours"}
 	if got := classifyAbsence(mine, "ours"); got != absencePresent {
@@ -174,8 +174,9 @@ func TestAbsenceIsCreditedOnlyAgainstTheRecordedUID(t *testing.T) {
 		t.Fatalf("someone else's terminating namespace classified as %v; waiting on it would credit our absence to their deletion", got)
 	}
 	// The seed is written before the first Create; UIDs are recovered later, so an empty wantUID is this
-	// run's ordinary pre-recovery state, not an edge case. Comparing a real UID against "" would make every
-	// one of this run's own live targets classify foreign and invalidate the run on its own objects.
+	// run's ordinary pre-recovery state, not an edge case.
+	// Comparing a real UID against "" would make every one of this run's own live targets classify foreign
+	// and invalidate the run on its own objects.
 	unrecovered := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "u1"}
 	if got := classifyAbsence(unrecovered, ""); got != absenceUnknown {
 		t.Fatalf("a found object with no recorded UID classified as %v; unproven ownership is not a refusal, and not a licence to delete", got)
@@ -250,10 +251,11 @@ func TestResidualCarriesTheClassificationItComputed(t *testing.T) {
 // what the run created, with no other state.
 //
 // Before the journal carried Study, Variant and Namespace, the seed was a local variable handed to an
-// in-process defer. A crash after acquisition therefore left fixtures on the cluster and a marked node, and
-// the only durable record named the transaction without naming a single object it had made — so recovery had
-// nothing to enumerate, and enumerate refuses a seed missing any field rather than guessing at a name that
-// could match an unrelated run's leftovers.
+// in-process defer.
+// A crash after acquisition therefore left fixtures on the cluster and a marked node, and the only durable
+// record named the transaction without naming a single object it had made — so recovery had nothing to
+// enumerate, and enumerate refuses a seed missing any field rather than guessing at a name that could match
+// an unrelated run's leftovers.
 //
 // Mutation that turns this red: drop any of the three fields from the journal decideAcquire builds.
 func TestAJournalAloneRegeneratesTheDeletionSet(t *testing.T) {
@@ -266,7 +268,8 @@ func TestAJournalAloneRegeneratesTheDeletionSet(t *testing.T) {
 		t.Fatalf("decide acquire: %v", err)
 	}
 
-	// Everything below comes from the journal. Nothing reads s again.
+	// Everything below comes from the journal.
+	// Nothing reads s again.
 	recovered, err := enumerate(seedFromJournal(j))
 	if err != nil {
 		t.Fatalf("a journal written by acquisition cannot regenerate its own deletion set: %v", err)
@@ -288,9 +291,9 @@ func TestAJournalAloneRegeneratesTheDeletionSet(t *testing.T) {
 // The canary holds a worker too, and it recovers by a different route: it builds no fixtures, so a journal
 // claiming a study and a variant would be describing objects that do not exist.
 //
-// An earlier version gave it synthetic values purely to satisfy the journal's non-empty checks. The document
-// then looked recoverable and enumerate failed on it every single time — a field that passes a validator
-// without being true, which is the exact failure this record exists to prevent.
+// An earlier version gave it synthetic values purely to satisfy the journal's non-empty checks.
+// The document then looked recoverable and enumerate failed on it every single time — a field that passes a
+// validator without being true, which is the exact failure this record exists to prevent.
 //
 // Mutation that turns this red: let a canary journal carry a study and a variant.
 func TestACanaryJournalCarriesNoFixtureFields(t *testing.T) {

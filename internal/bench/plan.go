@@ -27,24 +27,30 @@ import (
 
 // CompilePlan turns a GpuSharingBenchmark spec into the harness invocation that would measure it, or refuses.
 //
-// WHY THIS EXISTS, and why it runs before a card is rented. `spec` is immutable once created, so registering a
-// CR whose protocol this harness cannot execute freezes an unexecutable registration forever. And a paid run
-// that discovers a mismatch does so after both engines have loaded -- the most expensive place to learn it.
+// WHY THIS EXISTS, and why it runs before a card is rented.
+// `spec` is immutable once created, so registering a CR whose protocol this harness cannot execute freezes an
+// unexecutable registration forever.
+// And a paid run that discovers a mismatch does so after both engines have loaded -- the most expensive place
+// to learn it.
 // An external review of the intended design put it plainly: a receipt cannot repair running the wrong
 // experiment, so unsupported values must fail before registration or rental.
 //
-// WHAT IT IS NOT. This does not check that the numbers are right, that a GPU was present, or that the run
-// happened. It answers one question: can this harness, as it stands, execute this declared protocol. A clean
-// compile is a necessary condition for the evidence to mean what the CR says, never a sufficient one.
+// WHAT IT IS NOT.
+// This does not check that the numbers are right, that a GPU was present, or that the run happened.
+// It answers one question: can this harness, as it stands, execute this declared protocol.
+// A clean compile is a necessary condition for the evidence to mean what the CR says, never a sufficient
+// one.
 //
-// The refusals below are measured against the tree, not assumed. Each carries the reason in its text, because
-// an operator reading "unsupported" without the reason has to go and find what this function already knew.
+// The refusals below are measured against the tree, not assumed.
+// Each carries the reason in its text, because an operator reading "unsupported" without the reason has to go
+// and find what this function already knew.
 func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 	var p Plan
 	var refusals []string
 	refuse := func(format string, args ...any) { refusals = append(refusals, fmt.Sprintf(format, args...)) }
 
-	// Tenants. The generator writes two fixed identities into every trace row.
+	// Tenants.
+	// The generator writes two fixed identities into every trace row.
 	//
 	// The gateway resolves a tenant to a tier through its own policy chain, so a CR naming other identities is
 	// not merely cosmetic: the rows would carry identities the run never sent, and the premium-only tail would
@@ -58,8 +64,9 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 			spec.Contender.Tenant, NoisyTenant)
 	}
 
-	// Model. The gateway resolves the requested name against the InferenceDeployment index and answers
-	// ErrNoRoute when nothing serves it -- after both engines have loaded, which is why this is checked here.
+	// Model.
+	// The gateway resolves the requested name against the InferenceDeployment index and answers ErrNoRoute
+	// when nothing serves it -- after both engines have loaded, which is why this is checked here.
 	for _, w := range []struct {
 		side  string
 		model string
@@ -70,13 +77,15 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 		}
 	}
 
-	// Output length. The generator takes the cap per tenant now, so a declared value is carried rather than
-	// refused -- but it is still a CAP, and a zero would mean "no output", which no study registers.
+	// Output length.
+	// The generator takes the cap per tenant now, so a declared value is carried rather than refused -- but
+	// it is still a CAP, and a zero would mean "no output", which no study registers.
 	//
 	// This refused anything other than 64 and 16 until 2026-10-01, because those were literals in
-	// traceTenants. The refusal was true about the harness and wrong about the CRD: TenantSpec already had the
-	// field, so what was missing was a flag and not a capability. What stays refused is a value the engine
-	// cannot be asked for.
+	// traceTenants.
+	// The refusal was true about the harness and wrong about the CRD: TenantSpec already had the field, so
+	// what was missing was a flag and not a capability.
+	// What stays refused is a value the engine cannot be asked for.
 	for _, w := range []struct {
 		side   string
 		tokens int32
@@ -87,17 +96,20 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 		}
 	}
 
-	// Warmup. There is no warmup phase and no exclusion boundary anywhere in the harness.
+	// Warmup.
+	// There is no warmup phase and no exclusion boundary anywhere in the harness.
 	//
 	// Dropping the first N rows afterwards is not equivalent: the protocol says warmup precedes measurement,
 	// and with open-loop arrivals the requests that overlap the boundary are still in flight when measurement
-	// begins. Zero is representable; any positive value is not.
+	// begins.
+	// Zero is representable; any positive value is not.
 	if spec.WarmupRequests != 0 {
 		refuse("warmupRequests is %d; the harness has no warmup phase and no exclusion boundary, so a positive value cannot be honoured (dropping rows afterwards is not the same protocol)",
 			spec.WarmupRequests)
 	}
 
-	// Sample floor. The harness has its own floor, derived rather than chosen, and it is ten times smaller.
+	// Sample floor.
+	// The harness has its own floor, derived rather than chosen, and it is ten times smaller.
 	if int(spec.MinRequestsPerRun) < MinTailSamples {
 		refuse("minRequestsPerRun is %d, below the harness floor of %d", spec.MinRequestsPerRun, MinTailSamples)
 	}
@@ -119,22 +131,25 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 			spec.Load.Generator, HarnessGenerator)
 	}
 
-	// Input length. The CR declares tokens; the generator takes characters; the table says which is which.
+	// Input length.
+	// The CR declares tokens; the generator takes characters; the table says which is which.
 	//
 	// This refused every positive count until 2026-09-30, on the grounds that there was nothing to resolve
-	// against -- no tokenizer identity was recorded anywhere. There is now: the revision is measured, the
-	// tokenizer files and chat template are hashed, and hack/resolve-input-lengths.sh sweeps candidate
-	// lengths against the served tokenizer inside the serving image itself. So the refusal narrowed from
-	// "any positive count" to "a count nobody has swept".
+	// against -- no tokenizer identity was recorded anywhere.
+	// There is now: the revision is measured, the tokenizer files and chat template are hashed, and
+	// hack/resolve-input-lengths.sh sweeps candidate lengths against the served tokenizer inside the
+	// serving image itself.
+	// So the refusal narrowed from "any positive count" to "a count nobody has swept".
 	//
 	// Zero is the one value that asserts nothing, so it is the one value that needs no resolution: it means
 	// the plan carries no token length, not a prompt of no tokens.
 	//
-	// Any positive count is looked up in the measured table. It is a LOOKUP and never a computation, because
-	// the relationship is not a function of anything this code knows: it depends on the served tokenizer and
-	// its chat template, the token count is not monotone in the character count, and several character
-	// lengths give the same count. A value the table does not carry is refused, and the refusal says which
-	// values it does carry so the answer is "run the resolver for 4096" rather than "something is wrong".
+	// Any positive count is looked up in the measured table.
+	// It is a LOOKUP and never a computation, because the relationship is not a function of anything this
+	// code knows: it depends on the served tokenizer and its chat template, the token count is not monotone
+	// in the character count, and several character lengths give the same count.
+	// A value the table does not carry is refused, and the refusal says which values it does carry so the
+	// answer is "run the resolver for 4096" rather than "something is wrong".
 	var baseChars, contChars int
 	for _, w := range []struct {
 		side   string
@@ -156,14 +171,16 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 		*w.out = r.Chars
 	}
 
-	// Repetitions. Expressible, and the two runners disagree with the CRD about what a confirmatory run is, so
-	// the resolved value is carried in the plan rather than left to a default.
+	// Repetitions.
+	// Expressible, and the two runners disagree with the CRD about what a confirmatory run is, so the resolved
+	// value is carried in the plan rather than left to a default.
 	if spec.Repetitions < 5 {
 		refuse("repetitions is %d; the CRD floor is 5", spec.Repetitions)
 	}
 
-	// Sharing mode to arms. The topologies are deployed by the shell, and two of them change the victim's own
-	// allocation, so the mode decides which contrast the ratio is of.
+	// Sharing mode to arms.
+	// The topologies are deployed by the shell, and two of them change the victim's own allocation, so the
+	// mode decides which contrast the ratio is of.
 	arms, ok := ArmsForSharingMode(spec.SharingMode)
 	if !ok {
 		refuse("sharingMode is %q; the matrix deploys %s and nothing else", spec.SharingMode, strings.Join(KnownSharingModes(), ", "))
@@ -196,18 +213,18 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 
 // Plan is the resolved harness invocation a compiled spec describes.
 //
-// It deliberately holds the rates as the decimal STRINGS the CR carries. The CRD stores them as strings so
-// that "2.0" round-trips exactly, and parsing them here only to print them again would introduce a float
-// whose rendering could differ from the registered value.
+// It deliberately holds the rates as the decimal STRINGS the CR carries.
+// The CRD stores them as strings so that "2.0" round-trips exactly, and parsing them here only to print
+// them again would introduce a float whose rendering could differ from the registered value.
 type Plan struct {
 	Arms        []string
 	Repetitions int
 	// SharingMode is the declared mode, and Model is the name the run will actually request.
 	//
 	// They are separate fields because they were briefly one: the first version of this struct had a single
-	// Model and CompilePlan assigned the sharing mode to it. Nothing would have caught that -- both are
-	// strings, and the plan is printed rather than compared -- so a plan would have named "sharedInstance" as
-	// the model it asked the gateway for.
+	// Model and CompilePlan assigned the sharing mode to it.
+	// Nothing would have caught that -- both are strings, and the plan is printed rather than compared -- so
+	// a plan would have named "sharedInstance" as the model it asked the gateway for.
 	SharingMode   string
 	Model         string
 	PremiumRate   string
@@ -215,9 +232,10 @@ type Plan struct {
 	TimeoutMs     int
 	// BaselinePromptChars and ContenderPromptChars are the RESOLVED prompt lengths, in characters.
 	//
-	// This is the whole point of the plan carrying more than the spec does. The CR declares tokens; the
-	// generator takes characters; the plan holds the character length that was MEASURED to produce the
-	// declared token count against the served tokenizer. Zero means the side declared no token length.
+	// This is the whole point of the plan carrying more than the spec does.
+	// The CR declares tokens; the generator takes characters; the plan holds the character length that
+	// was MEASURED to produce the declared token count against the served tokenizer.
+	// Zero means the side declared no token length.
 	//
 	// An external review put the boundary well: a character length belongs in the plan, not in the CR --
 	// the spec says what the experiment is, and how many characters produce a token count under one
@@ -226,16 +244,19 @@ type Plan struct {
 	ContenderPromptChars int
 	// TokenizerRevision is the revision the resolution was measured against.
 	//
-	// Carried so a run can be compared with it. A plan resolved against one tokenizer describes nothing
-	// about an engine serving another, and the comparison is the only thing that can notice.
+	// Carried so a run can be compared with it.
+	// A plan resolved against one tokenizer describes nothing about an engine serving another, and the
+	// comparison is the only thing that can notice.
 	TokenizerRevision string
 	// BaselineOutputTokens and ContenderOutputTokens are the caps the run will send as max_tokens.
 	//
 	// They are a cap and not a generation length: a response that stops earlier is shorter, and nothing makes
-	// the engine emit the full count. The CR's field comment says so, and this carries the CR's value rather
-	// than a constant because the generator can now be told -- which is the whole change. Before 2026-10-01
-	// the generator hard-coded 64 and 16, so CompilePlan refused any other value; the refusal was correct
-	// about the harness and wrong about the CRD, which had declared a perfectly expressible thing.
+	// the engine emit the full count.
+	// The CR's field comment says so, and this carries the CR's value rather than a constant because the
+	// generator can now be told -- which is the whole change.
+	// Before 2026-10-01 the generator hard-coded 64 and 16, so CompilePlan refused any other value; the
+	// refusal was correct about the harness and wrong about the CRD, which had declared a perfectly
+	// expressible thing.
 	BaselineOutputTokens  int
 	ContenderOutputTokens int
 	// GPUClass and MinRequestsPerRun are carried because the spec declares them and a plan that drops a
@@ -243,8 +264,10 @@ type Plan struct {
 	//
 	// Both were checked-or-ignored and then discarded in the first version: GPUClass was never examined at
 	// all, and MinRequestsPerRun was compared against the harness floor of 100 and then left out, so the
-	// registered floor of 1,000 reached nothing downstream. An external review found both. A compiler that
-	// silently narrows what it was asked to execute makes "zero refusals" mean less than it says.
+	// registered floor of 1,000 reached nothing downstream.
+	// An external review found both.
+	// A compiler that silently narrows what it was asked to execute makes "zero refusals" mean less than
+	// it says.
 	GPUClass          string
 	MinRequestsPerRun int
 }
@@ -252,16 +275,18 @@ type Plan struct {
 // ServedModel is the model the sharing topologies actually serve.
 //
 // config/vllm-shared/engine-a.yaml passes Qwen/Qwen2.5-3B-Instruct and hack/m5c-matrix.sh passes the same
-// name to gen-trace. The generator's own default is llama-3-8b, which matches neither, and a mismatch is not
-// discovered until the gateway answers ErrNoRoute for every request of every arm with both engines loaded.
+// name to gen-trace.
+// The generator's own default is llama-3-8b, which matches neither, and a mismatch is not discovered until
+// the gateway answers ErrNoRoute for every request of every arm with both engines loaded.
 const ServedModel = "Qwen/Qwen2.5-3B-Instruct"
 
 // FixedPremiumMaxOutputTokens and FixedNoisyMaxOutputTokens are the generator's DEFAULT caps per tenant.
 //
 // They stopped being a contract on 2026-10-01: a compiled plan now carries the CR's values and gen-trace
-// takes them as flags. They remain as the defaults a caller who passes neither flag gets, which is what
-// every pre-CR trace in the evidence was generated with -- so deleting them would silently change what an
-// un-flagged regeneration produces.
+// takes them as flags.
+// They remain as the defaults a caller who passes neither flag gets, which is what every pre-CR trace in
+// the evidence was generated with -- so deleting them would silently change what an un-flagged
+// regeneration produces.
 const (
 	FixedPremiumMaxOutputTokens = 64
 	FixedNoisyMaxOutputTokens   = 16
@@ -269,9 +294,9 @@ const (
 
 // HarnessGenerator names the load generator that actually sends the traffic.
 //
-// The CR's samples say genai-perf, which is not installed here and is not what any run has used. A manifest
-// recording a generator that did not produce the traffic identifies the wrong tool, which is worse than
-// recording none.
+// The CR's samples say genai-perf, which is not installed here and is not what any run has used.
+// A manifest recording a generator that did not produce the traffic identifies the wrong tool, which is
+// worse than recording none.
 const HarnessGenerator = "benchharness-replay"
 
 // ArmsForSharingMode maps a declared sharing mode to the arms a run must buy for it, isolated baseline first.
@@ -304,8 +329,9 @@ func KnownSharingModes() []string {
 // The defaults are deliberately absent. hack/m5c-gpu-session.sh supplies RATE=9.85, NOISY_WEIGHT=0.054 and
 // DURATION_MS=420000 when they are omitted, and the sharing study's own pre-registration records that tuple
 // as the seventh pilot's load, the one its reading rejected -- "about as wrong as a run can be while still
-// completing". So a plan that leaves them out is a plan that buys the wrong load, and this prints them as
-// values the caller must supply rather than pretending to know them.
+// completing".
+// So a plan that leaves them out is a plan that buys the wrong load, and this prints them as values the
+// caller must supply rather than pretending to know them.
 func FormatPlan(p Plan) string {
 	var b strings.Builder
 	b.WriteString("ARMS=" + strconv.Quote(strings.Join(p.Arms, " ")) + " \\\n")

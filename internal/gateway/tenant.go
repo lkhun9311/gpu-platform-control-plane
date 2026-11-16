@@ -30,11 +30,11 @@ import (
 // ErrKeyStoreUnavailable reports that the api-keys Secret could not be read, which is a different fact from
 // a key that is not in it.
 //
-// It exists because the two used to collapse into one boolean. A Secret the gateway could not read — RBAC
-// revoked, the object deleted, the apiserver briefly unreachable — answered every request 401, so a caller
-// with a perfectly valid key was told their credential was wrong. That sends an operator to rotate keys
-// while the actual fault is on the cluster, and it does so uniformly for every tenant at once, which is the
-// shape of an outage rather than of an auth failure.
+// It exists because the two used to collapse into one boolean.
+// A Secret the gateway could not read — RBAC revoked, the object deleted, the apiserver briefly unreachable
+// — answered every request 401, so a caller with a perfectly valid key was told their credential was wrong.
+// That sends an operator to rotate keys while the actual fault is on the cluster, and it does so uniformly
+// for every tenant at once, which is the shape of an outage rather than of an auth failure.
 var ErrKeyStoreUnavailable = errors.New("api-keys secret could not be read")
 
 // resolveTenant maps the request's Bearer API key to a tenant via the api-keys Secret.

@@ -91,16 +91,18 @@ func TestDecodeJournalRejectsUnknownFieldAndSchema(t *testing.T) {
 //
 // Before the environment qualification existed this status was absent and nothing noticed, which is exactly
 // the point: a Node object with no allocatable devices and no Ready condition was an adequate stand-in for a
-// GPU worker only as long as nothing in the run ever asked what the machine was. Leaving it that way now
-// would make every run() test refuse at qualification and prove nothing about the paths they were written
-// for, so the double is corrected to match the machine rather than the check weakened to accept the double.
+// GPU worker only as long as nothing in the run ever asked what the machine was.
+// Leaving it that way now would make every run() test refuse at qualification and prove nothing about the
+// paths they were written for, so the double is corrected to match the machine rather than the check
+// weakened to accept the double.
 //
 // The termination canary is the same argument once more, and it is the reason this node now carries a kubelet
-// version, a container runtime and a passing qualification annotation. A worker a canary has never qualified
-// is a worker no run may measure on, so a double without one would send every run() test to the same refusal
-// and none of them would reach the path it was written for. A test that wants an UNQUALIFIED worker asks for
-// one explicitly — `node(nil, map[string]string{canaryAnnotationKey: ""})` — rather than getting it by
-// omission, so the tests about this gate say so in their own bodies.
+// version, a container runtime and a passing qualification annotation.
+// A worker a canary has never qualified is a worker no run may measure on, so a double without one would send
+// every run() test to the same refusal and none of them would reach the path it was written for.
+// A test that wants an UNQUALIFIED worker asks for one explicitly — `node(nil,
+// map[string]string{canaryAnnotationKey: ""})` — rather than getting it by omission, so the tests about this
+// gate say so in their own bodies.
 func node(labels map[string]string, ann map[string]string, taints ...corev1.Taint) *corev1.Node {
 	annotations := map[string]string{canaryAnnotationKey: qualifiedCanaryAnnotation()}
 	maps.Copy(annotations, ann)
@@ -354,10 +356,11 @@ func TestDecideForceRefusesWhenAlreadyQuarantined(t *testing.T) {
 }
 
 // The forced break must preserve everything it removed — which node, when, and exactly what was on it — or
-// the operator loses the evidence of what they broke. Node, NodeUID and ForcedAt are asserted here too
-// (not just PriorJournal/ObservedLabel/ObservedTaints): those three are exactly what tells an operator
-// which machine was broken and at what time if the record is ever read on its own, and dropping any one of
-// the six fields checked below must fail this test, not just the round-trip test elsewhere in this file.
+// the operator loses the evidence of what they broke.
+// Node, NodeUID and ForcedAt are asserted here too (not just PriorJournal/ObservedLabel/ObservedTaints):
+// those three are exactly what tells an operator which machine was broken and at what time if the record
+// is ever read on its own, and dropping any one of the six fields checked below must fail this test, not
+// just the round-trip test elsewhere in this file.
 func TestDecideForceRecordsWhatItRemoves(t *testing.T) {
 	good, err := encodeJournal(testJournal())
 	if err != nil {
@@ -424,8 +427,9 @@ func TestDecideClearRequiresTheExactQuarantineID(t *testing.T) {
 }
 
 // A record this tool cannot read is its own state, not a variant of an unreadable journal: the two send an
-// operator to different places, so decideClear names it as such. The decode error stays reachable through
-// the chain, because "the reason is classifiable" and "the cause is gone" must not be the same trade.
+// operator to different places, so decideClear names it as such.
+// The decode error stays reachable through the chain, because "the reason is classifiable" and "the cause
+// is gone" must not be the same trade.
 func TestDecideClearNamesAnUnreadableQuarantineAndKeepsTheCause(t *testing.T) {
 	n := node(nil, map[string]string{quarantineKey: "{not valid json"})
 
@@ -444,10 +448,11 @@ func TestDecideClearNamesAnUnreadableQuarantineAndKeepsTheCause(t *testing.T) {
 }
 
 // decideForce records the node name AND the node UID; decideClear validated neither, so the id alone decided
-// whether a node could be unblocked. Clearing is the step that makes a node acquirable again, and these two
-// rows are the ways it could have been done to the wrong object: a record copied onto another Node, and a
-// Node deleted and recreated under the same name — a different machine wearing the same label, which is
-// exactly the case verifyInstalled already refuses to release across.
+// whether a node could be unblocked.
+// Clearing is the step that makes a node acquirable again, and these two rows are the ways it could have
+// been done to the wrong object: a record copied onto another Node, and a Node deleted and recreated under
+// the same name — a different machine wearing the same label, which is exactly the case verifyInstalled
+// already refuses to release across.
 func TestDecideClearRequiresTheRecordToNameTheObservedNode(t *testing.T) {
 	rec := func(nodeName, nodeUID string) map[string]string {
 		t.Helper()
@@ -499,8 +504,8 @@ func TestWithOwnershipTaintReplacesStaleValue(t *testing.T) {
 }
 
 // A residue record is quoted at an operator, so it is decoded as strictly as the journal: a document with
-// fields that were silently ignored is not one to print as fact. What differs is the consequence, and that
-// is decideAcquire's business, not this decoder's.
+// fields that were silently ignored is not one to print as fact.
+// What differs is the consequence, and that is decideAcquire's business, not this decoder's.
 func TestDecodeResidueRefusesWhatItDoesNotFullyUnderstand(t *testing.T) {
 	good := `{"schema":1,"txID":"tx-1","runID":"r7","leftAt":"2026-08-13T01:07:29Z",` +
 		`"left":[{"kind":"Namespace","name":"queuelab-r7","absence":"present"}]}`
@@ -536,9 +541,9 @@ func TestObserveSurfacesTheResidueRecord(t *testing.T) {
 		t.Fatalf("decoded record is %+v, want one entry naming queuelab-r7", obs.Residue)
 	}
 
-	// A record that cannot be read must still be OBSERVED as present. Reporting neither the raw text nor an
-	// error would make an unreadable record indistinguishable from no record at all, and the refusal could
-	// then say nothing about it.
+	// A record that cannot be read must still be OBSERVED as present.
+	// Reporting neither the raw text nor an error would make an unreadable record indistinguishable from no
+	// record at all, and the refusal could then say nothing about it.
 	bad := observe(node(nil, map[string]string{residueKey: "{not json"}))
 	if bad.ResidueRaw == "" || bad.ResidueErr == nil {
 		t.Fatalf("an unreadable record observed as raw=%q err=%v; it must be visible as present-but-unreadable",
@@ -580,7 +585,8 @@ func residueRaw(t *testing.T, left ...residueLeft) string {
 }
 
 // The foreign-owner refusal is what an operator sees when a previous run left GPU Pods behind, and today it
-// is indistinguishable from a run that is legitimately still in flight. Those two need opposite responses.
+// is indistinguishable from a run that is legitimately still in flight.
+// Those two need opposite responses.
 func TestAcquireRefusalNamesWhatThePreviousTeardownLeft(t *testing.T) {
 	n := heldByAnother(t, residueRaw(t,
 		residueLeft{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"},
@@ -620,8 +626,9 @@ func TestAcquireRefusalIsUnchangedWithoutAResidueRecord(t *testing.T) {
 	}
 }
 
-// An informational field must not invent a failure mode. This is deliberately unlike the journal, where an
-// unreadable document IS a refusal, because the journal decides ownership and this record decides nothing.
+// An informational field must not invent a failure mode.
+// This is deliberately unlike the journal, where an unreadable document IS a refusal, because the journal
+// decides ownership and this record decides nothing.
 func TestAnUnreadableResidueRecordDoesNotBecomeItsOwnRefusal(t *testing.T) {
 	n := heldByAnother(t, "{not json")
 
@@ -640,10 +647,10 @@ func TestAnUnreadableResidueRecordDoesNotBecomeItsOwnRefusal(t *testing.T) {
 // first and is the one state this tool has no remaining move for.
 //
 // The fixture also carries a journal, on top of the quarantine record, so reasonForeignOwner is a genuinely
-// live alternative here and not merely absent. A fixture with no journal at all would still pass this
-// assertion if the quarantine check were moved anywhere before the success return, since nothing else would
-// ever fire for it either way — that would prove only "quarantine is checked eventually," not "quarantine is
-// checked first."
+// live alternative here and not merely absent.
+// A fixture with no journal at all would still pass this assertion if the quarantine check were moved
+// anywhere before the success return, since nothing else would ever fire for it either way — that would
+// prove only "quarantine is checked eventually," not "quarantine is checked first."
 func TestQuarantineStillWinsOverAResidueNote(t *testing.T) {
 	q, err := encodeQuarantine(quarantine{Schema: quarantineSchema, QuarantineID: "q1", ForcedAt: "t",
 		Node: "platform-worker", NodeUID: "uid-node"})
@@ -661,15 +668,17 @@ func TestQuarantineStillWinsOverAResidueNote(t *testing.T) {
 }
 
 // Every field the note prints came out of a Node annotation, and the note ends by handing the operator a
-// command to run. That is the same argument quotedTaints and inspectWorker's held branch already make about
-// their own decoded fields, and it applies here with more force: this refusal is printed by the RUN path too,
-// so it reaches a terminal without anybody having asked to inspect anything. Unescaped, a crafted kind or
-// record path can erase the line it is on and print what looks like a legitimate queuelabrun command a few
-// characters above a real one.
+// command to run.
+// That is the same argument quotedTaints and inspectWorker's held branch already make about their own decoded
+// fields, and it applies here with more force: this refusal is printed by the RUN path too, so it reaches a
+// terminal without anybody having asked to inspect anything.
+// Unescaped, a crafted kind or record path can erase the line it is on and print what looks like a legitimate
+// queuelabrun command a few characters above a real one.
 //
 // The payload goes in through encodeResidue rather than being hand-written, so it travels the whole way a
 // real one would: JSON-escaped into the annotation, decoded back into raw bytes by decodeResidue, and only
-// then rendered. A hand-written annotation would prove nothing about the render.
+// then rendered.
+// A hand-written annotation would prove nothing about the render.
 //
 // Mutation: change any one of the five %q verbs residueNote uses for its decoded fields — kind, name,
 // absence, leftAt, recordPath — back to %s, and the control bytes reach the terminal.

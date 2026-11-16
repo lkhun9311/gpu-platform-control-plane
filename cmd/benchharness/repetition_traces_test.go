@@ -30,10 +30,11 @@ import (
 //
 // The 2026-10-04 model-first registration found that every archived repetition replayed one trace, seed 11,
 // so five repetitions measured engine noise on one draw of the arrival process and nothing about the draw.
-// Its replacement gives each repetition its own seed. That breaks the old identity -- an arm's repetitions
-// no longer share a checksum -- and it puts a new one in its place: within ONE repetition, the isolated
-// baseline and the contended arm must offer the latency-critical tenant the same schedule, because that
-// pairing is what makes the comparison a paired one.
+// Its replacement gives each repetition its own seed.
+// That breaks the old identity -- an arm's repetitions no longer share a checksum -- and it puts a new one
+// in its place: within ONE repetition, the isolated baseline and the contended arm must offer the
+// latency-critical tenant the same schedule, because that pairing is what makes the comparison a paired
+// one.
 
 // scheduledRows is rowsFor with the premium schedule and the checksum chosen by the caller.
 func scheduledRows(study, arm, checksum string, offsetsMs []int64) []bench.RawRow {
@@ -160,8 +161,9 @@ func TestEveryRepetitionOfAPerRepetitionArmIsChecked(t *testing.T) {
 	study := bench.StudyTailCrossingShortLC
 	dir := t.TempDir()
 	var paths []string
-	// Three repetitions; the third repeats the first's trace. A check that compared only adjacent
-	// repetitions, or only against the first, would see one of the two and miss the other shape.
+	// Three repetitions; the third repeats the first's trace.
+	// A check that compared only adjacent repetitions, or only against the first, would see one
+	// of the two and miss the other shape.
 	sums := []string{"a", "b", "a"}
 	scheds := [][]int64{scheduleSeedA, scheduleSeedB, scheduleSeedA}
 	for i := range sums {

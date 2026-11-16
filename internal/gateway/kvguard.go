@@ -187,9 +187,9 @@ type pressureConfig struct {
 // pressureState is the per-backend KV-cache pressure state machine.
 //
 // It is driven exclusively by observe and resetConsecutive, both called from exactly one
-// goroutine at a time (the backend's own scraper loop), so it needs no lock of its own. It
-// never touches HTTP or a real clock itself; both come from the caller, which is what makes it
-// testable with an injected clock and no goroutines at all.
+// goroutine at a time (the backend's own scraper loop), so it needs no lock of its own.
+// It never touches HTTP or a real clock itself; both come from the caller, which is what makes
+// it testable with an injected clock and no goroutines at all.
 type pressureState struct {
 	cfg pressureConfig
 
@@ -212,9 +212,10 @@ func newPressureState(cfg pressureConfig) *pressureState {
 //
 // Design rationale (design spec Arm C section, "Reset the consecutive-sample timers after
 // staleness"): a stale gap must never count toward the 2-consecutive engage condition or the
-// 30s release-sustain window. The caller invokes this before observe whenever a stale gap
-// preceded the fresh sample about to be recorded, so that sample starts counting from zero
-// rather than continuing whatever was already in flight before the gap.
+// 30s release-sustain window.
+// The caller invokes this before observe whenever a stale gap preceded the fresh sample
+// about to be recorded, so that sample starts counting from zero rather than continuing
+// whatever was already in flight before the gap.
 //
 // engaged is left as-is deliberately: staleness bypasses the guard's decision at the Admit
 // layer (kvAwareAdmitter, via the published snapshot's fresh flag), not by mutating this
@@ -281,9 +282,9 @@ type clockFunc func() time.Time
 //
 // Design rationale (design spec Arm C section, "Request-path never scrapes and never holds a
 // mutex during HTTP"): the request path reads exactly this struct, lock-free via
-// atomic.Pointer, and never touches the scraper's HTTP client or pressureState directly. The
-// struct is never mutated after being stored; a new one is built and swapped in on every scrape
-// attempt instead.
+// atomic.Pointer, and never touches the scraper's HTTP client or pressureState directly.
+// The struct is never mutated after being stored; a new one is built and swapped in on every
+// scrape attempt instead.
 type backendSnapshot struct {
 	engaged    bool
 	cacheUsage float64
@@ -329,7 +330,8 @@ type scraperConfig struct {
 	// idleTimeout is how long a backend may go unrouted before its scraper is stopped and its gauges removed.
 	//
 	// It must be well above scrapeInterval, or a backend serving steady traffic could be evicted between two
-	// requests. Zero selects ten scrape intervals; a set value is used as given.
+	// requests.
+	// Zero selects ten scrape intervals; a set value is used as given.
 	idleTimeout time.Duration
 	clock       clockFunc
 }
@@ -501,10 +503,11 @@ func boolToFloat(v bool) float64 {
 // snapshot for longer than necessary.
 func (b *backendScraper) run() {
 	defer close(b.done)
-	// The scrape inherits the SCRAPER's lifetime rather than context.Background(). With Background, Stop
-	// closed b.stop and then blocked on <-b.done while a scrape already in flight ran to its full HTTP
-	// timeout: shutting the gateway down, or evicting one idle backend, waited on a request whose answer
-	// nobody would read. Cancelling here ends that request at the moment the decision to stop is made.
+	// The scrape inherits the SCRAPER's lifetime rather than context.Background().
+	// With Background, Stop closed b.stop and then blocked on <-b.done while a scrape already in flight
+	// ran to its full HTTP timeout: shutting the gateway down, or evicting one idle backend, waited on a
+	// request whose answer nobody would read.
+	// Cancelling here ends that request at the moment the decision to stop is made.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
@@ -542,11 +545,11 @@ type scraperManager struct {
 	scrapers map[string]*backendScraper
 	// lastRouted is when each key was last handed to Register, which happens on every routed request.
 	//
-	// It is the eviction clock. Register is the only signal this component gets that a backend still exists:
-	// there is no watch here, and adding one would put an informer and its RBAC into a process that otherwise
-	// only reads on demand. A backend that has stopped receiving traffic has either gone away or has nothing
-	// to be under pressure about, and both cases want the same thing — its scraper stopped and its gauges
-	// removed.
+	// It is the eviction clock.
+	// Register is the only signal this component gets that a backend still exists: there is no watch here,
+	// and adding one would put an informer and its RBAC into a process that otherwise only reads on demand.
+	// A backend that has stopped receiving traffic has either gone away or has nothing to be under pressure
+	// about, and both cases want the same thing — its scraper stopped and its gauges removed.
 	lastRouted map[string]time.Time
 	// janitorStop ends the eviction loop; janitorDone is closed when it has.
 	janitorStop chan struct{}
@@ -569,11 +572,12 @@ func newScraperManager(cfg scraperConfig) *scraperManager {
 	// A zero idleTimeout would evict every backend on the first sweep, including ones being routed to right
 	// now, so an unset value is defaulted rather than taken literally.
 	//
-	// An explicitly set value is used as given. Clamping it to a floor was the first attempt and it was wrong
-	// in a way the specs caught immediately: it silently overrode what the caller asked for, so a manager
-	// configured with a 30-minute timeout quietly ran with a ten-hour one and nothing said so. A value too
-	// close to scrapeInterval is a configuration error, and the place to reject one is where the flag is
-	// parsed, not here where the correction would be invisible.
+	// An explicitly set value is used as given.
+	// Clamping it to a floor was the first attempt and it was wrong in a way the specs caught immediately: it
+	// silently overrode what the caller asked for, so a manager configured with a 30-minute timeout quietly
+	// ran with a ten-hour one and nothing said so.
+	// A value too close to scrapeInterval is a configuration error, and the place to reject one is where the
+	// flag is parsed, not here where the correction would be invisible.
 	if cfg.idleTimeout <= 0 {
 		cfg.idleTimeout = 10 * cfg.scrapeInterval
 	}
@@ -594,9 +598,9 @@ func newScraperManager(cfg scraperConfig) *scraperManager {
 // evictIdle stops scrapers for backends nothing has routed to in idleTimeout, and removes their gauges.
 //
 // Without it Unregister had no production caller at all: every backend ever routed to kept a goroutine, an
-// HTTP client, a scrape every scrapeInterval, and a live gauge until the process exited. A model renamed or
-// deleted left admission_guard_engaged=1 on a machine that no longer exists, which is worse than losing the
-// series — it is a reading of something that is not there.
+// HTTP client, a scrape every scrapeInterval, and a live gauge until the process exited.
+// A model renamed or deleted left admission_guard_engaged=1 on a machine that no longer exists, which is
+// worse than losing the series — it is a reading of something that is not there.
 //
 // The cost of evicting a quiet-but-alive backend is bounded and already documented behaviour: the next
 // request re-registers it, and the guard fails open while telemetry is stale, which is what it does for any
@@ -617,16 +621,18 @@ func (m *scraperManager) evictIdle() {
 	}
 }
 
-// sweep unregisters every key idle past the timeout. Split from evictIdle so a test can drive one pass.
+// sweep unregisters every key idle past the timeout.
+// Split from evictIdle so a test can drive one pass.
 func (m *scraperManager) sweep() {
 	cutoff := m.cfg.clock().Add(-m.cfg.idleTimeout)
 	// The decision, the map removal, the stop and the gauge deletion all happen under ONE lock.
 	//
-	// The first version read the stale set, released the lock, and then called Unregister for each entry. A
-	// request arriving in that gap called Register, which stamps lastRouted and returns early because the
+	// The first version read the stale set, released the lock, and then called Unregister for each entry.
+	// A request arriving in that gap called Register, which stamps lastRouted and returns early because the
 	// scraper still exists — and Unregister then stopped that scraper and deleted the gauges of a backend
-	// actively serving traffic. The guard fails open with no snapshot, so it went blind exactly as traffic
-	// resumed, which is the opposite of what eviction is for.
+	// actively serving traffic.
+	// The guard fails open with no snapshot, so it went blind exactly as traffic resumed, which is the
+	// opposite of what eviction is for.
 	//
 	// Holding the lock across Stop is affordable only because the scrape now runs on the scraper's own
 	// context: Stop cancels an in-flight request rather than waiting out its timeout, so Register — which is
@@ -670,8 +676,9 @@ func deleteBackendGauges(ref BackendRef) {
 func (m *scraperManager) Register(backend *BackendRef) {
 	key := backendKey(backend)
 	m.mu.Lock()
-	// A stopped manager starts nothing. The check is here rather than at the call site because Register runs
-	// on the request path and the request path does not know the process is shutting down.
+	// A stopped manager starts nothing.
+	// The check is here rather than at the call site because Register runs on the request path and the
+	// request path does not know the process is shutting down.
 	if m.stopped {
 		m.mu.Unlock()
 		return
@@ -822,8 +829,8 @@ func (a *kvAwareAdmitter) RegisterBackend(backend *BackendRef) {
 }
 
 // AdmitIsStateless declares what the type comment above already promises: Admit below reads a published
-// snapshot and returns, touching nothing. It is what lets admitCandidates evaluate every routing candidate
-// for one request.
+// snapshot and returns, touching nothing.
+// It is what lets admitCandidates evaluate every routing candidate for one request.
 func (a *kvAwareAdmitter) AdmitIsStateless() {}
 
 // Admit implements the Arm C decision (design spec v1 Mechanism / v2 Arm C sections):
@@ -887,7 +894,8 @@ func (a *kvAwareAdmitter) Observed(backend *BackendRef) (BackendState, bool) {
 // defaults these flags to are sensible test/dev starting points only, not tuned numbers.
 type KVAwareConfig struct {
 	// EngageUsage and WaitingThresh are the ENGAGE thresholds; ReleaseUsage and ReleaseSustain
-	// are the RELEASE thresholds. See pressureConfig for the exact condition each one gates.
+	// are the RELEASE thresholds.
+	// See pressureConfig for the exact condition each one gates.
 	EngageUsage    float64
 	ReleaseUsage   float64
 	WaitingThresh  int
@@ -900,7 +908,8 @@ type KVAwareConfig struct {
 	// HTTPTimeout bounds a single scrape's HTTP round trip.
 	HTTPTimeout time.Duration
 	// IdleTimeout is how long a backend may go unrouted before its scraper is stopped and its live
-	// gauges are deleted. Zero selects ten scrape intervals, which is the floor either way.
+	// gauges are deleted.
+	// Zero selects ten scrape intervals, which is the floor either way.
 	IdleTimeout time.Duration
 	// LongThreshold is the minimum EstInputTokens a standard-tier request needs before an
 	// engaged backend rejects it; shared in spirit with static-cap's longThreshold, since both

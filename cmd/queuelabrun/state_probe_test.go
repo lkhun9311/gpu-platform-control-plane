@@ -57,9 +57,10 @@ func TestTheStateProbePodMountsTheClaimARunWouldMount(t *testing.T) {
 
 	// And the command writes INSIDE that mount, or the probe would exercise the container filesystem and
 	// report success for a volume it never touched.
-	// The trainer BY NAME, as the builder finds it. Reading Containers[0] would check the wrong container's
-	// command the day the operator's template grows a sidecar in front of the trainer -- which is the same
-	// index-versus-name trap probeTrainerContainer's own comment describes.
+	// The trainer BY NAME, as the builder finds it.
+	// Reading Containers[0] would check the wrong container's command the day the operator's template grows
+	// a sidecar in front of the trainer -- which is the same index-versus-name trap probeTrainerContainer's
+	// own comment describes.
 	var cmd []string
 	for i := range pod.Spec.Containers {
 		if pod.Spec.Containers[i].Name == probeTrainerContainer {
@@ -78,8 +79,8 @@ func TestTheStateProbePodMountsTheClaimARunWouldMount(t *testing.T) {
 // Placement must be by SELECTOR, never by spec.NodeName, and this is registered rather than preferred.
 //
 // spec.NodeName removes the scheduler, and WaitForFirstConsumer binding is a scheduler decision — so a probe
-// that pinned the node would report success on a binding mode no run will ever use. Both frozen pages that
-// owed this probe name that constraint in those words.
+// that pinned the node would report success on a binding mode no run will ever use.
+// Both frozen pages that owed this probe name that constraint in those words.
 //
 // Mutations that turn this red: set spec.NodeName; drop the node selector; drop the toleration, which leaves
 // the Pod unschedulable on the very worker the transaction just tainted.
@@ -139,8 +140,9 @@ func TestTheStateProbePodHoldsNoDevice(t *testing.T) {
 //
 // printRecoverable no longer rebuilds probe Pod names from the journal — it LISTS them by this label — so a
 // probe whose Pods lack it is invisible to the tool an operator reaches for when the worker will not come
-// back. The finalizer matters for a different reason: it is what keeps the writer's terminal status readable
-// after its container stops, which is the reading the handoff depends on.
+// back.
+// The finalizer matters for a different reason: it is what keeps the writer's terminal status readable after
+// its container stops, which is the reading the handoff depends on.
 //
 // Mutation that turns this red: drop either overlay from stateProbePod.
 func TestTheStateProbePodIsFindableWhenItIsStranded(t *testing.T) {
@@ -159,9 +161,10 @@ func TestTheStateProbePodIsFindableWhenItIsStranded(t *testing.T) {
 	// And NO finalizer, which is the opposite of what the canary's probes carry.
 	//
 	// The canary needs one because it deletes its probe in order to measure the response, so the object has
-	// to outlive that delete. Nothing deletes this probe's Pods before their terminal status is read, so a
-	// finalizer here buys nothing and leaves an object that cannot go away until something releases it. A
-	// first version copied it across with the canary's reason written on it, which was a false invariant.
+	// to outlive that delete.
+	// Nothing deletes this probe's Pods before their terminal status is read, so a finalizer here buys
+	// nothing and leaves an object that cannot go away until something releases it.
+	// A first version copied it across with the canary's reason written on it, which was a false invariant.
 	//
 	// Mutation that turns this red: put canaryFinalizer back on the probe's Pods.
 	for _, f := range pod.Finalizers {
@@ -176,8 +179,8 @@ func TestTheStateProbePodIsFindableWhenItIsStranded(t *testing.T) {
 // The two halves must be told apart by their payload, not merely by their names.
 //
 // A reader that only checked whether the file existed would be satisfied by a previous probe's residue on a
-// reused volume — a pass produced by the very thing the probe is meant to detect. The payload carries the
-// invocation id for that reason, and the reader compares it exactly.
+// reused volume — a pass produced by the very thing the probe is meant to detect.
+// The payload carries the invocation id for that reason, and the reader compares it exactly.
 //
 // Mutation that turns this red: have the reader test for existence rather than equality.
 func TestTheStateProbeReaderDemandsThisInvocationsPayload(t *testing.T) {

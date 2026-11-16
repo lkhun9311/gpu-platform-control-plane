@@ -52,10 +52,10 @@ func enginePriorityForTier(tier string) int {
 // bindEnginePriority rewrites the request body so its "priority" is the tier's, whatever the caller sent.
 //
 // A caller-supplied priority is overwritten rather than refused: the tier is a property of the tenant's
-// contract, and a field the caller can set would let any tenant schedule itself as premium. The body is
-// replaced together with GetBody and ContentLength, because a retry on another backend rewinds through
-// GetBody and the transport sends ContentLength; leaving either on the old bytes would forward the old
-// priority or a truncated body.
+// contract, and a field the caller can set would let any tenant schedule itself as premium.
+// The body is replaced together with GetBody and ContentLength, because a retry on another backend
+// rewinds through GetBody and the transport sends ContentLength; leaving either on the old bytes would
+// forward the old priority or a truncated body.
 func bindEnginePriority(r *http.Request, tier string) (int, error) {
 	p := enginePriorityForTier(tier)
 	return p, rewritePriority(r, func(fields map[string]json.RawMessage) {
@@ -67,8 +67,9 @@ func bindEnginePriority(r *http.Request, tier string) (int, error) {
 //
 // Not binding is a judgement that some reachable engine may not schedule by priority, not permission for the
 // caller to choose: the head can still be a rendered engine, and a standard tenant's -100 there runs ahead of
-// premium's 0. Removed rather than replaced, because an absent priority is what a first-come engine accepts and
-// what a priority engine schedules as 0.
+// premium's 0.
+// Removed rather than replaced, because an absent priority is what a first-come engine accepts and what a
+// priority engine schedules as 0.
 // A request that can reach only engines the controller did not render keeps its field, as it did before binding
 // existed: the gateway does not know how those engines schedule.
 func stripEnginePriority(r *http.Request) error {

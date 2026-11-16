@@ -25,9 +25,9 @@ import (
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
-// Reading has one job beyond returning rows: it must never let an absence read as a fact. A run nobody
-// projected is a distinct error, an empty ledger is a legitimate empty answer, and an offset with no origin
-// gets no wall clock rather than a plausible wrong one.
+// Reading has one job beyond returning rows: it must never let an absence read as a fact.
+// A run nobody projected is a distinct error, an empty ledger is a legitimate empty answer, and an offset
+// with no origin gets no wall clock rather than a plausible wrong one.
 
 func TestGettingARunNobodyProjectedIsAnError(t *testing.T) {
 	s := openTemp(t)
@@ -55,12 +55,13 @@ func TestListingAnEmptyLedgerIsAnEmptyAnswerNotAnError(t *testing.T) {
 	}
 }
 
-// Kubernetes reuses names. Delete a WorkloadRun and recreate it and the ledger holds two rows, correctly
-// distinguished by UID -- and a lookup by namespace/name then has two answers.
+// Kubernetes reuses names.
+// Delete a WorkloadRun and recreate it and the ledger holds two rows, correctly distinguished by UID --
+// and a lookup by namespace/name then has two answers.
 //
 // A cold review reproduced the original behaviour: no ordering and no ambiguity check, so the query returned
-// whichever row came first, which was the older `Recovered` in preference to the current `NotRecovered`. An
-// evidence store that answers the wrong run is worse than one that refuses.
+// whichever row came first, which was the older `Recovered` in preference to the current `NotRecovered`.
+// An evidence store that answers the wrong run is worse than one that refuses.
 func TestARepeatedNameIsRefusedRatherThanGuessed(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
@@ -150,7 +151,8 @@ func TestReadingBackWhatWasProjected(t *testing.T) {
 }
 
 // A run with no startedAt has no origin, so its entries get no wall clock rather than one measured from the
-// epoch. It also has no trail at all, which is why the absent verdict and start are what there is to check.
+// epoch.
+// It also has no trail at all, which is why the absent verdict and start are what there is to check.
 func TestARunWithNoStartHasNoWallClockAndNoAnswer(t *testing.T) {
 	s := openTemp(t)
 	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{

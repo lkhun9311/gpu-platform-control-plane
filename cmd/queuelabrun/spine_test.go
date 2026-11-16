@@ -28,16 +28,19 @@ import (
 // The CLI's arm list is the SECOND closed set, and it has to hold every arm the protocol defines.
 //
 // This test listed three arms and was named for them, while the protocol had five: D-full and D-quarter were
-// parseable and unguarded for as long as they existed, and the resume pair joined them. A constant added to
-// the protocol and not to parseArm is an arm that exists and cannot be requested; one added to parseArm and
-// not to the protocol is an arm the CLI accepts and PolicyVariant refuses at a later, stranger point.
+// parseable and unguarded for as long as they existed, and the resume pair joined them.
+// A constant added to the protocol and not to parseArm is an arm that exists and cannot be requested; one
+// added to parseArm and not to the protocol is an arm the CLI accepts and PolicyVariant refuses at a later,
+// stranger point.
 //
 // So the list is derived from the protocol rather than retyped here, which is what stops the two drifting
-// again. Mutations that turn this red: add an arm to internal/queuelab and not to parseArm; or drop a case
-// from parseArm's switch.
+// again.
+// Mutations that turn this red: add an arm to internal/queuelab and not to parseArm; or drop a case from
+// parseArm's switch.
 func TestParseArmAcceptsEveryArmTheProtocolDefines(t *testing.T) {
-	// Every arm the protocol defines. PolicyVariant is the protocol's own closed set -- it refuses anything
-	// it does not know -- so an arm missing from this slice fails the sweep below rather than being skipped.
+	// Every arm the protocol defines.
+	// PolicyVariant is the protocol's own closed set -- it refuses anything it does not know -- so an arm
+	// missing from this slice fails the sweep below rather than being skipped.
 	arms := []queuelab.Arm{
 		queuelab.ArmAHonor, queuelab.ArmAIgnore, queuelab.ArmNRef,
 		queuelab.ArmDFull, queuelab.ArmDQuarter,
@@ -56,9 +59,9 @@ func TestParseArmAcceptsEveryArmTheProtocolDefines(t *testing.T) {
 		}
 	}
 
-	// The other direction: parseArm must not accept something the protocol would then refuse. Checked by
-	// asking the protocol about whatever parseArm returns, for a spelling close enough to be a plausible
-	// typo of a real arm.
+	// The other direction: parseArm must not accept something the protocol would then refuse.
+	// Checked by asking the protocol about whatever parseArm returns, for a spelling close enough to be
+	// a plausible typo of a real arm.
 	for _, bad := range []string{
 		"", "Any", "reclaim", "fifo", "a-honor", "A-Honor",
 		// Near-misses of arms that DO exist, which is the shape a typed flag actually takes.
@@ -108,12 +111,13 @@ func TestProtocolConstantsMatchTheDesignOfRecord(t *testing.T) {
 // unimplementedGates()' entries — went with the functions they tested, and what they were protecting did not
 // go with them.
 //
-// They existed to stop a list of missing work from decaying: from going empty, from naming something already
-// built, from being quietly widened back after somebody narrowed it. That list is now recordUnchecked(workloadProvenance{}), it
-// is persisted into every record rather than printed once, and the successor to all four is
-// TestTheRecordsUncheckedListNamesTheResidualAndNothingWider in record_test.go, which applies the same three
-// pressures to it. Deleting these without a successor would have left the surviving list guarded only by
-// tests that check it names the canary, which an entry narrowed to a single vague word would satisfy.
+// They existed to stop a list of missing work from decaying: from going empty, from naming something already built, from being
+// quietly widened back after somebody narrowed it.
+// That list is now recordUnchecked(workloadProvenance{}), it is persisted into every record rather than printed once, and the
+// successor to all four is TestTheRecordsUncheckedListNamesTheResidualAndNothingWider in record_test.go, which applies the same
+// three pressures to it.
+// Deleting these without a successor would have left the surviving list guarded only by tests that check it names the canary,
+// which an entry narrowed to a single vague word would satisfy.
 //
 // Nothing replaces the refusal itself, because there is nothing left to refuse: what a run may claim is
 // decided after the fact by deriveValidity, from fields the run wrote.
@@ -152,12 +156,12 @@ func TestHorizonSecCoversTheProtocolsFixedWindow(t *testing.T) {
 }
 
 // decideOperatorMode is the pure layer dispatchOperatorMode hoists all validation into, precisely so a
-// malformed invocation is refused before it needs a kubeconfig. This table is the regression test for the
-// swapped-flag failure mode a review of the previous positional-parameter version found: every refusal this
-// layer is responsible for — combining a mode with -arm, more than one mode at once, and both halves of
-// each two-flag requirement (-release-stale needs -txid AND -confirm-owner-dead; -force-release needs
-// -node-uid AND -accept-divergence; -clear-quarantine needs -quarantine-id AND -confirm-owner-dead) — is
-// exercised here without touching a cluster.
+// malformed invocation is refused before it needs a kubeconfig.
+// This table is the regression test for the swapped-flag failure mode a review of the previous
+// positional-parameter version found: every refusal this layer is responsible for — combining a mode with
+// -arm, more than one mode at once, and both halves of each two-flag requirement (-release-stale needs
+// -txid AND -confirm-owner-dead; -force-release needs -node-uid AND -accept-divergence; -clear-quarantine
+// needs -quarantine-id AND -confirm-owner-dead) — is exercised here without touching a cluster.
 func TestDecideOperatorMode(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -192,7 +196,8 @@ func TestDecideOperatorMode(t *testing.T) {
 		{
 			// -arm was refused and every other run-only flag was silently ignored, so an invocation that
 			// named a run id, an output path or a horizon looked configured to its author while doing none of
-			// it. The refusal has to name the flags, or the operator cannot tell which part was the mistake.
+			// it.
+			// The refusal has to name the flags, or the operator cannot tell which part was the mistake.
 			name:       "a mode combined with run-only flags refuses",
 			args:       operatorModeArgs{Inspect: true, RunOnlyFlags: []string{"-out", "-runid"}},
 			wantErr:    true,
@@ -262,21 +267,22 @@ func TestDecideOperatorMode(t *testing.T) {
 			wantMode: modeClearQuarantine,
 		},
 		{
-			// The canary needs nothing but the node. It is deliberately NOT behind an attestation like the three
-			// destructive modes: those require one because nothing this tool can observe tells the operator
-			// whether the previous process is dead, and this mode asks nobody to judge anything — it takes the
-			// worker through the ordinary transaction, which refuses a node somebody else holds.
+			// The canary needs nothing but the node.
+			// It is deliberately NOT behind an attestation like the three destructive modes: those require one
+			// because nothing this tool can observe tells the operator whether the previous process is dead, and
+			// this mode asks nobody to judge anything — it takes the worker through the ordinary transaction,
+			// which refuses a node somebody else holds.
 			//
-			// Mutation that turns this row red: leave TerminationCanary out of decideOperatorMode's switch. It
-			// falls through to the ClearQuarantine default and refuses for a missing -quarantine-id, which is a
-			// flag this mode has nothing to do with.
+			// Mutation that turns this row red: leave TerminationCanary out of decideOperatorMode's switch.
+			// It falls through to the ClearQuarantine default and refuses for a missing -quarantine-id, which
+			// is a flag this mode has nothing to do with.
 			name:     "termination-canary alone dispatches",
 			args:     operatorModeArgs{TerminationCanary: true},
 			wantMode: modeTerminationCanary,
 		},
 		{
-			// Mutation that turns this row red: leave TerminationCanary out of the count above the switch. Two
-			// modes are then requested and only one is seen, so the canary silently runs the inspection.
+			// Mutation that turns this row red: leave TerminationCanary out of the count above the switch.
+			// Two modes are then requested and only one is seen, so the canary silently runs the inspection.
 			name:       "termination-canary alongside another mode refuses",
 			args:       operatorModeArgs{TerminationCanary: true, Inspect: true},
 			wantErr:    true,
@@ -307,16 +313,17 @@ func TestDecideOperatorMode(t *testing.T) {
 			wantMode: modeStateProbe,
 		},
 		{
-			// Mutation that turns this row red: leave StateProbe out of the count above the switch. Two modes
-			// are then requested and only one is seen, so the probe silently runs the inspection.
+			// Mutation that turns this row red: leave StateProbe out of the count above the switch.
+			// Two modes are then requested and only one is seen, so the probe silently runs the inspection.
 			name:       "state-probe alongside another mode refuses",
 			args:       operatorModeArgs{StateProbe: true, StateClass: "fast-ssd", Inspect: true},
 			wantErr:    true,
 			wantErrHas: "only one of",
 		},
 		{
-			// -state-class belongs to this mode and to a run, and to nothing else. A recovery mode that
-			// accepted it would look configured to its author while creating no claim at all.
+			// -state-class belongs to this mode and to a run, and to nothing else.
+			// A recovery mode that accepted it would look configured to its author while creating no
+			// claim at all.
 			//
 			// Mutation that turns this row red: delete the `!a.StateProbe && a.StateClass != ""` refusal.
 			name:       "a class named beside a mode that creates no claim refuses",
@@ -394,7 +401,8 @@ func TestSuppliedRunOnlyFlagsReportsWhatWasTyped(t *testing.T) {
 	}
 
 	// -state-class configures the claim a checkpointing arm's victim mounts, and no recovery mode creates
-	// one. Left out of runOnlyFlagNames it would be accepted in silence, and the operator would believe the
+	// one.
+	// Left out of runOnlyFlagNames it would be accepted in silence, and the operator would believe the
 	// storage had been named on an invocation that never reached the code which reads it.
 	//
 	// Mutation that turns this red: remove "state-class" from runOnlyFlagNames.

@@ -94,7 +94,8 @@ func TestValidateCreateRejectsWhatTheSchemaAdmits(t *testing.T) {
 }
 
 func TestValidateCreateAcceptsARunnableSpec(t *testing.T) {
-	// The control. Without it, a validator that rejected everything would pass every rejection spec above.
+	// The control.
+	// Without it, a validator that rejected everything would pass every rejection spec above.
 	v := validatorWith(t)
 	if _, err := v.ValidateCreate(context.Background(), job(nil)); err != nil {
 		t.Fatalf("rejected a spec with an image and a queue: %v", err)
@@ -103,7 +104,8 @@ func TestValidateCreateAcceptsARunnableSpec(t *testing.T) {
 
 func TestValidateUpdateAllowsBakedEditsBeforeTheJobExists(t *testing.T) {
 	// Before the Job is created there is nothing the reconciler cannot still apply, so the immutability rule
-	// must not fire. This is the control that separates "refuses edits it cannot apply" from "refuses edits".
+	// must not fire.
+	// This is the control that separates "refuses edits it cannot apply" from "refuses edits".
 	//
 	// Mutation that turns this red: drop the ownedJobExists check and always append bakedFieldEdits.
 	v := validatorWith(t)
@@ -115,7 +117,8 @@ func TestValidateUpdateAllowsBakedEditsBeforeTheJobExists(t *testing.T) {
 
 func TestValidateUpdateRefusesBakedEditsOnceTheJobExists(t *testing.T) {
 	// Each of these is silently ignored today: the write is stored, the next reconcile reports success, and
-	// the running Job keeps the old value. Rejecting is what makes the divergence visible.
+	// the running Job keeps the old value.
+	// Rejecting is what makes the divergence visible.
 	//
 	// Mutation that turns this red: remove any one field's comparison from bakedFieldEdits.
 	rows := []struct {
@@ -129,15 +132,18 @@ func TestValidateUpdateRefusesBakedEditsOnceTheJobExists(t *testing.T) {
 		{"command", func(m *platformv1.MLTrainingJob) { m.Spec.Command = []string{"python", "train.py"} }, "spec.command"},
 		// Queue is not in the pod template, so it fails differently from the four above: the reconciler DOES
 		// re-apply it, on every pass, and Kueue's own webhook then refuses the change on a Job it has already
-		// admitted. The edit is stored and the controller loops on it forever, which reads as a controller bug
-		// rather than as the rejected edit it is.
+		// admitted.
+		// The edit is stored and the controller loops on it forever, which reads as a controller bug rather
+		// than as the rejected edit it is.
 		{"queue", func(m *platformv1.MLTrainingJob) { m.Spec.Queue = "team-b" }, "spec.queue"},
-		// Completions is immutable on a batch/v1 Job; parallelism is not. Confirmed against a real apiserver
-		// in envtest, which accepts a parallelism change and answers "field is immutable" for completions.
+		// Completions is immutable on a batch/v1 Job; parallelism is not.
+		// Confirmed against a real apiserver in envtest, which accepts a parallelism change and answers
+		// "field is immutable" for completions.
 		{"completions", func(m *platformv1.MLTrainingJob) { m.Spec.Completions = 4 }, "spec.completions"},
 		// The state volume is built into the pod template like the first four, so attaching one to a job whose
-		// Job already exists is stored and then ignored. It is the field a resuming workload depends on, which
-		// makes the silent version of this failure a run that restores nothing and reports success.
+		// Job already exists is stored and then ignored.
+		// It is the field a resuming workload depends on, which makes the silent version of this failure a run
+		// that restores nothing and reports success.
 		{"stateVolume", func(m *platformv1.MLTrainingJob) {
 			m.Spec.StateVolume = &platformv1.StateVolume{ClaimName: "resume-state", MountPath: "/state"}
 		}, "spec.stateVolume"},
@@ -158,9 +164,9 @@ func TestValidateUpdateRefusesBakedEditsOnceTheJobExists(t *testing.T) {
 
 func TestValidateUpdateAllowsFieldsTheReconcilerStillSyncs(t *testing.T) {
 	// Parallelism is written on EVERY reconcile and the apiserver accepts the change, so refusing it would
-	// block something the controller honours. Completions is written on every reconcile too and the apiserver
-	// does NOT accept it — the reconciler makes no distinction and this spec used to repeat that mistake by
-	// asserting both were allowed.
+	// block something the controller honours.
+	// Completions is written on every reconcile too and the apiserver does NOT accept it — the reconciler
+	// makes no distinction and this spec used to repeat that mistake by asserting both were allowed.
 	//
 	// Mutation that turns this red: add Parallelism to bakedFieldEdits.
 	v := validatorWith(t, ownedJob())
@@ -172,10 +178,11 @@ func TestValidateUpdateAllowsFieldsTheReconcilerStillSyncs(t *testing.T) {
 
 // Re-submitting the same state volume is not an edit, and must not be refused as one.
 //
-// The rule compares the volume by VALUE. Compared by pointer it would fire on every update that carried a
-// freshly decoded spec -- which is every update, since the apiserver hands the validator a new object each
-// time -- and the field would become unwritable rather than immutable-after-create. That failure is
-// invisible to the table above, because every row there changes something.
+// The rule compares the volume by VALUE.
+// Compared by pointer it would fire on every update that carried a freshly decoded spec -- which is every
+// update, since the apiserver hands the validator a new object each time -- and the field would become
+// unwritable rather than immutable-after-create.
+// That failure is invisible to the table above, because every row there changes something.
 //
 // Mutation that turns this red: compare oldSpec.StateVolume != newSpec.StateVolume as pointers.
 func TestValidateUpdateAllowsAStateVolumeResubmittedUnchanged(t *testing.T) {
@@ -227,14 +234,16 @@ func TestValidateUpdateFailsClosedWhenTheJobLookupFails(t *testing.T) {
 // not an error — so the fail-closed path above never runs and the immutability rules are simply skipped.
 //
 // This spec pins the CONSEQUENCE of reading through a lagging cache, which is why the validator is wired with
-// mgr.GetAPIReader() rather than mgr.GetClient(). It is the shape of the bug, held still: an edit that must be
-// refused is admitted, with no error anywhere, in the window right after creation where it does the most harm.
+// mgr.GetAPIReader() rather than mgr.GetClient().
+// It is the shape of the bug, held still: an edit that must be refused is admitted, with no error anywhere, in
+// the window right after creation where it does the most harm.
 //
 // Mutation that turns this red: make the rules apply regardless of whether the Job was found, which would
 // also refuse legitimate pre-creation edits.
 func TestALaggingReadSilentlySkipsTheImmutabilityRules(t *testing.T) {
-	// The Job exists on the cluster; this reader has not seen it. No error is produced, which is the whole
-	// problem — there is nothing for the fail-closed branch to catch.
+	// The Job exists on the cluster; this reader has not seen it.
+	// No error is produced, which is the whole problem — there is nothing for the fail-closed branch to
+	// catch.
 	v := &MLTrainingJobValidator{Reader: coldCache{}}
 
 	_, err := v.ValidateUpdate(context.Background(), job(nil), job(func(m *platformv1.MLTrainingJob) {
@@ -245,8 +254,8 @@ func TestALaggingReadSilentlySkipsTheImmutabilityRules(t *testing.T) {
 			"under it; the spec exists to record that, not to assert the opposite: %v", err)
 	}
 
-	// And with a reader that can see it, the same edit is refused. The two together say the outcome turns
-	// entirely on whether the read was current.
+	// And with a reader that can see it, the same edit is refused.
+	// The two together say the outcome turns entirely on whether the read was current.
 	warm := validatorWith(t, ownedJob())
 	if _, err := warm.ValidateUpdate(context.Background(), job(nil), job(func(m *platformv1.MLTrainingJob) {
 		m.Spec.Image = "trainer:v2"
@@ -265,8 +274,9 @@ func (coldCache) Get(_ context.Context, key client.ObjectKey, _ client.Object, _
 }
 
 func TestValidateDeleteAllowsEveryDelete(t *testing.T) {
-	// Teardown belongs to the finalizer. A webhook able to refuse a delete could strand an object no one can
-	// remove, which is a worse failure than anything it would prevent.
+	// Teardown belongs to the finalizer.
+	// A webhook able to refuse a delete could strand an object no one can remove, which is a worse failure
+	// than anything it would prevent.
 	v := validatorWith(t, ownedJob())
 	if _, err := v.ValidateDelete(context.Background(), job(nil)); err != nil {
 		t.Fatalf("refused a delete: %v", err)
@@ -275,11 +285,11 @@ func TestValidateDeleteAllowsEveryDelete(t *testing.T) {
 
 // An object being deleted must be able to finish being deleted, whatever its spec says.
 //
-// This validator refuses to intercept DELETE precisely so it cannot strand an object. That guard was in the
-// wrong place: the finalizer comes off with an ordinary UPDATE, so a spec this validator calls unrunnable —
-// an empty image on something created before the webhook existed — could never complete the update that ends
-// its deletion. The object would sit in Terminating with no way out, held there by a rule about what a Job
-// would run.
+// This validator refuses to intercept DELETE precisely so it cannot strand an object.
+// That guard was in the wrong place: the finalizer comes off with an ordinary UPDATE, so a spec this
+// validator calls unrunnable — an empty image on something created before the webhook existed — could never
+// complete the update that ends its deletion.
+// The object would sit in Terminating with no way out, held there by a rule about what a Job would run.
 //
 // Mutation that turns this red: drop the DeletionTimestamp early return from ValidateUpdate.
 func TestValidateUpdateNeverBlocksDeletion(t *testing.T) {

@@ -49,9 +49,10 @@ func scraperOver(t *testing.T, clock *fakeClock, bodies ...string) (*DeviceScrap
 // covered the interval it is asked about.
 func TestObserveRecordsWhatItActuallyCovered(t *testing.T) {
 	// The clock starts well after zero, because a run's collector has already been going when the observer
-	// attaches. An observation that stamped StartedNs at zero would claim to have covered from the beginning
-	// of the run, and EstablishesDeviceWork's coverage check -- obs.StartedNs > fromNs -- would then never
-	// fire for an observer that attached late.
+	// attaches.
+	// An observation that stamped StartedNs at zero would claim to have covered from the beginning of the
+	// run, and EstablishesDeviceWork's coverage check -- obs.StartedNs > fromNs -- would then never fire for
+	// an observer that attached late.
 	clock := &fakeClock{now: int64(30 * time.Second), step: int64(100 * time.Millisecond)}
 	s, ctx, cancel := scraperOver(t, clock, renderedScrape, renderedScrape, renderedScrape)
 	defer cancel()
@@ -99,9 +100,10 @@ func TestARepeatedlyFailingExporterEndsTheObservation(t *testing.T) {
 		Resolve: resolver, Elapsed: clock.elapsed,
 		Fetch: func(context.Context) ([]byte, error) { return nil, errors.New("connection refused") },
 	}
-	// Bounded, so a regression that removes the failure limit FAILS here instead of wedging the suite. Observe
-	// blocks until its context ends or the limit trips -- that is correct for a loop meant to run for a whole
-	// run -- and a test that passes an unbounded context is asserting on a loop it has not given an exit.
+	// Bounded, so a regression that removes the failure limit FAILS here instead of wedging the suite.
+	// Observe blocks until its context ends or the limit trips -- that is correct for a loop meant to run for
+	// a whole run -- and a test that passes an unbounded context is asserting on a loop it has not given an
+	// exit.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	obs, _, err := s.Observe(ctx)
