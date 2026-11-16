@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
 )
@@ -179,14 +181,51 @@ func calibrateFake(t *testing.T, dir string) {
 	st, _ := bench.LookupStudy(bench.StudyVersionAsync)
 	runner := &bench.RungRunner{}
 	probe := func(_ context.Context, rate float64, ordinal int) bench.RungClass {
-		cls := bench.RungStable
-		if rate > 2 {
-			cls = bench.RungUnstable
-		}
-		runner.OnRung(ordinal, nil, bench.RungObservation{OfferedRate: rate}, cls, nil)
+		rows, o, cls := fakeRung(t, *st.Version, rate, ordinal, 2)
+		runner.OnRung(ordinal, rows, o, cls, nil)
 		return cls
 	}
 	if _, err := runVersionCalibration(context.Background(), dir, st.Version.Calibration, runner, probe); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// fakeRung is what RungRunner.Probe records for one rung of an engine stable up to capacity: the rung's own trace,
+// replayed with every request conforming, and the observation and class its rows give.
+//
+// The stable engine ends each request 100 ms after its intended arrival.
+// The unstable one ends it at twice its intended arrival, so its backlog grows through the window.
+func fakeRung(t *testing.T, d bench.VersionStudyDesign, rate float64, ordinal int, capacity float64) ([]bench.RawRow, bench.RungObservation, bench.RungClass) {
+	t.Helper()
+	trace, err := d.CalibrationTrace(ordinal, rate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reported := true
+	rows := make([]bench.RawRow, 0, len(trace))
+	for _, tr := range trace {
+		in := tr.OffsetMs * int64(time.Millisecond)
+		end := in + 100*int64(time.Millisecond)
+		if rate > capacity {
+			end = 2*in + 100*int64(time.Millisecond)
+		}
+		rows = append(rows, bench.RawRow{
+			Index: tr.Index, Arm: fmt.Sprintf("calibration-%d", ordinal), Tenant: tr.Tenant, IsNoisy: tr.IsNoisy,
+			RequestID: bench.RequestIDFor(fmt.Sprintf("cal%d", ordinal), tr.Index), ScheduledOffsetMs: tr.OffsetMs,
+			PromptLenChars: tr.PromptLenChars, ExactInputTokens: tr.ExactInputTokens,
+			Disposition: bench.DispositionCompleted, HTTPStatus: 200, StreamTerminated: true,
+			EngineUsageReported: &reported, EngineInputTokens: tr.ExactInputTokens, EngineOutputTokens: tr.MaxOutputTokens,
+			FinishReason: "length", OutputTokens: 2,
+			Clock: &bench.RequestClock{IntendedNanos: &in, SendNanos: &in, TerminalNanos: &end},
+		})
+	}
+	o, err := bench.ObserveRung(rows, rate, d.Calibration, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cls := d.Calibration.ClassifyRung(o)
+	if want := map[bool]bench.RungClass{true: bench.RungStable, false: bench.RungUnstable}[rate <= capacity]; cls != want {
+		t.Fatalf("rung %d at %v req/s classifies %s, want %s from an engine stable up to %v", ordinal, rate, cls, want, capacity)
+	}
+	return rows, o, cls
 }

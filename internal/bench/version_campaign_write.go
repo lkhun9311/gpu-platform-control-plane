@@ -34,7 +34,7 @@ type CampaignInputs struct {
 // The returned bundle and sha are LoadCampaignBundle's, so what a session pairs its cells with is what the checker accepted.
 func WriteCampaignBundle(dir, study string, in CampaignInputs) (*CampaignBundle, string, error) {
 	st, ok := LookupStudy(study)
-	if !ok || st.Version == nil {
+	if !ok || st.Version == nil || st.Sampling == nil {
 		return nil, "", fmt.Errorf("study %q is not a version study", study)
 	}
 	d := st.Version
@@ -54,7 +54,7 @@ func WriteCampaignBundle(dir, study string, in CampaignInputs) (*CampaignBundle,
 	if !(in.OtherChargesUSDPerHour >= 0) || math.IsInf(in.OtherChargesUSDPerHour, 0) {
 		return nil, "", fmt.Errorf("otherChargesUSDPerHour %v is not a non-negative rate", in.OtherChargesUSDPerHour)
 	}
-	art, artSum, err := readCalibration(filepath.Join(dir, in.CalibrationArtifact), d.Calibration)
+	art, artSum, err := readCalibration(filepath.Join(dir, in.CalibrationArtifact), *d, *st.Sampling)
 	if err != nil {
 		return nil, "", err
 	}
@@ -137,7 +137,7 @@ func WriteCampaignBundle(dir, study string, in CampaignInputs) (*CampaignBundle,
 
 // readCalibration reads a resolved calibration artifact and its sha256 from one read of its bytes, and checks the
 // ladder evidence beside it produced it.
-func readCalibration(path string, rule CalibrationRule) (CalibrationArtifact, string, error) {
+func readCalibration(path string, d VersionStudyDesign, sampling SamplingPolicy) (CalibrationArtifact, string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return CalibrationArtifact{}, "", fmt.Errorf("calibration artifact: %w", err)
@@ -149,7 +149,7 @@ func readCalibration(path string, rule CalibrationRule) (CalibrationArtifact, st
 	if !art.Resolved {
 		return CalibrationArtifact{}, "", fmt.Errorf("calibration was unresolved (%s); the session stops without a λ0", art.Reason)
 	}
-	if err := rule.VerifyCalibrationEvidence(filepath.Dir(path), art); err != nil {
+	if err := d.VerifyCalibrationEvidence(filepath.Dir(path), sampling, art); err != nil {
 		return CalibrationArtifact{}, "", fmt.Errorf("calibration artifact: %w", err)
 	}
 	return art, Checksum(data), nil

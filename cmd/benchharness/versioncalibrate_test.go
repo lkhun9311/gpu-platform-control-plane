@@ -24,11 +24,8 @@ func TestRunVersionCalibrationWritesTheArtifactVersionBundleReads(t *testing.T) 
 	// too.
 	runner := &bench.RungRunner{}
 	probe := func(_ context.Context, rate float64, ordinal int) bench.RungClass {
-		cls := bench.RungStable
-		if rate > 2 {
-			cls = bench.RungUnstable
-		}
-		runner.OnRung(ordinal, nil, bench.RungObservation{OfferedRate: rate}, cls, nil)
+		rows, o, cls := fakeRung(t, *st.Version, rate, ordinal, 2)
+		runner.OnRung(ordinal, rows, o, cls, nil)
 		return cls
 	}
 	res, err := runVersionCalibration(context.Background(), dir, rule, runner, probe)

@@ -1,9 +1,6 @@
 package bench
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -48,24 +45,7 @@ func TestOnlyTheRehearsalRefusesAPaidRun(t *testing.T) {
 func TestRehearsalBundleFitsAStubCampaign(t *testing.T) {
 	dir := t.TempDir()
 	rule := versionAsyncRehearsalDesign().Calibration
-	write := func(name string, data []byte) {
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(CalibrationLockFile, []byte("2026-11-20T00:00:00Z\n"))
-	res := rule.Run(func(rate float64, ordinal int) RungClass {
-		cls := RungStable
-		if rate > 1.2 {
-			cls = RungUnstable
-		}
-		rec, _ := json.Marshal(CalibrationRungRecord{Ordinal: ordinal, Class: cls, Observation: RungObservation{OfferedRate: rate}})
-		write(CalibrationRungFile(ordinal), rec)
-		write(CalibrationRungRowsFile(ordinal), nil)
-		return cls
-	})
-	art, _ := json.Marshal(CalibrationArtifact{Resolved: res.Resolved, StableRateRequestsPerSec: res.Rate, Reason: res.Reason, Rungs: res.Rungs})
-	write(CalibrationArtifactFile, art)
+	res := ladderEvidenceFor(t, dir, versionAsyncRehearsalDesign(), 1.2, nil)
 	b, _, err := WriteCampaignBundle(dir, StudyVersionAsyncRehearsal, CampaignInputs{
 		CampaignID: "rehearsal-test", CalibrationArtifact: CalibrationArtifactFile,
 		PriceUSDPerHour: 1, PriceSource: "rehearsal, not a read price", PriceReadAt: "2026-11-20T00:00:00Z",
@@ -74,7 +54,7 @@ func TestRehearsalBundleFitsAStubCampaign(t *testing.T) {
 		t.Fatal(err)
 	}
 	if b.WindowSeconds != 60 {
-		t.Fatalf("window %d s at λ0 %v, want the rehearsal's 60 s minimum", b.WindowSeconds, res.Rate)
+		t.Fatalf("window %d s at λ0 %v, want the rehearsal's 60 s minimum", b.WindowSeconds, res.StableRateRequestsPerSec)
 	}
 	ladder := len(res.Rungs) * (rule.WarmupSeconds + rule.WindowSeconds + rule.DrainSeconds)
 	if ladder > 20*60 {
