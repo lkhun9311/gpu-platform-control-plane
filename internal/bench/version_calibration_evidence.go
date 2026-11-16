@@ -109,9 +109,9 @@ func (d VersionStudyDesign) verifyRungRows(dir string, sampling SamplingPolicy, 
 	}
 	// Probe sends nothing when the engine never reported an empty queue or the trace could not be made, and records why.
 	// Such a rung is accepted on its stated reason, because no row can show that an engine was busy.
-	// It cannot raise λ0 by itself: the ladder runs the same rate again, and that retry is checked from its own rows.
-	// What it cannot rule out is a measured rung whose rows were deleted and replaced by such a reason, which no file in
-	// this directory could tell apart.
+	// An honest drain failure does not decide λ0: the ladder runs the same rate again, and that retry is checked from its own rows.
+	// A measured rung whose rows were deleted and replaced by such a reason would get the same retry, which could come out
+	// stable where the measured rung did not, and no file in this directory tells the two apart.
 	if len(rows) == 0 && rec.Error != "" {
 		if rec.Class != RungInvalid || rec.Observation != (RungObservation{OfferedRate: r.Rate}) {
 			return fmt.Errorf("none were sent (%s), yet the record says %s with %+v", rec.Error, rec.Class, rec.Observation)
@@ -162,7 +162,9 @@ func (d VersionStudyDesign) verifyRungRows(dir string, sampling SamplingPolicy, 
 // rungRowTimeline refuses a row whose timeline Replay could not have written for a resolved ladder.
 //
 // ObserveRung places every request by its intended arrival and its terminal, and the reader's clock-order check covers
-// neither the intended arrival nor the replay a row came from.
+// neither the intended arrival, the usage trailer, the [DONE] marker nor the replay a row came from.
+// A row whose events contradict each other is refused, because a nonconforming or impossible row is what turns a
+// measured verdict into an invalid rung.
 func rungRowTimeline(row, first RawRow) error {
 	switch row.Disposition {
 	case DispositionUnsent, errKindCancelled:
@@ -176,9 +178,18 @@ func rungRowTimeline(row, first RawRow) error {
 		return fmt.Errorf("row %d's intended arrival is not its trace offset %d ms", row.Index, row.ScheduledOffsetMs)
 	case c.OriginUnixNanos != first.Clock.OriginUnixNanos:
 		return fmt.Errorf("row %d is timed from another replay than row %d", row.Index, first.Index)
-	case c.SendNanos != nil && *c.SendNanos < due, c.TerminalNanos == nil || *c.TerminalNanos < due:
-		// Replay dispatches a request only once its intended arrival has passed, so nothing it records happens earlier.
-		return fmt.Errorf("row %d is sent or ends before its intended arrival", row.Index)
+	case c.SendNanos == nil || c.TerminalNanos == nil:
+		// Every row but an unsent one was dispatched, and Replay stamps the dispatch and the return of each.
+		return fmt.Errorf("row %d carries no send or no terminal time", row.Index)
+	case *c.SendNanos < due:
+		// Replay dispatches a request only once its intended arrival has passed.
+		return fmt.Errorf("row %d is sent before its intended arrival", row.Index)
+	}
+	// The terminal is taken when the sender returns, after every event of the response.
+	for _, at := range []*int64{c.TransportWriteNanos, c.FirstContentNanos, c.LastContentNanos, c.UsageNanos, c.DoneNanos, c.EndNanos} {
+		if at != nil && (*at < *c.SendNanos || *at > *c.TerminalNanos) {
+			return fmt.Errorf("row %d records an event outside its send and terminal times", row.Index)
+		}
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -210,6 +211,19 @@ func TestCalibrationEvidenceRefusesRowsThatDoNotGiveTheRecord(t *testing.T) {
 			}
 			writeRungEvidence(t, dir, observed(t, rec, rows), rows)
 		}, "before its intended arrival"},
+		"a completed request with no send": {nil, func(t *testing.T, dir string, _ *CalibrationArtifact) {
+			rec, rows := readRungEvidence(t, dir, 1)
+			rows[0].Clock.SendNanos = nil
+			writeRungEvidence(t, dir, rec, rows)
+		}, "no send"},
+		"a [DONE] after the request ended": {nil, func(t *testing.T, dir string, _ *CalibrationArtifact) {
+			rec, rows := readRungEvidence(t, dir, 1)
+			for i := range rows {
+				done := *rows[i].Clock.TerminalNanos + int64(time.Second)
+				rows[i].Clock.DoneNanos = &done
+			}
+			writeRungEvidence(t, dir, rec, rows)
+		}, "outside its send and terminal"},
 		"rows of two replays": {nil, func(t *testing.T, dir string, _ *CalibrationArtifact) {
 			rec, rows := readRungEvidence(t, dir, 1)
 			rows[len(rows)-1].Clock.OriginUnixNanos++
@@ -259,5 +273,51 @@ func TestWriteCampaignBundleRefusesAHandWrittenCalibration(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, CampaignBundleFile)); !os.IsNotExist(err) {
 		t.Fatalf("a bundle was written from a hand-written calibration: %v", err)
+	}
+}
+
+// TestCalibrationEvidenceAcceptsWhatProbeWrites: the check reproduces RungRunner.Probe, so the rows and record Probe
+// itself writes against a real HTTP engine must pass it, or a genuine ladder would stop a paid session.
+//
+// The rung runs under the shortened design, whose own rule and traces the check then uses.
+func TestCalibrationEvidenceAcceptsWhatProbeWrites(t *testing.T) {
+	for name, c := range map[string]struct {
+		delay time.Duration
+		rate  float64
+		busy  bool
+		want  RungClass
+	}{
+		"a stable rung":             {10 * time.Millisecond, 5, false, RungStable},
+		"an unstable rung":          {2500 * time.Millisecond, 20, false, RungUnstable},
+		"a rung that never drained": {10 * time.Millisecond, 5, true, RungInvalid},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			d := fastDesign()
+			srv, _ := stubEngine(t, c.delay, c.busy)
+			dir := t.TempDir()
+			var rec CalibrationRungRecord
+			r := &RungRunner{
+				Design:    d,
+				Sender:    NewHTTPSender(srv.URL, "m", nil, 30*time.Second, SenderConn{MaxIdleConnsPerHost: 64, DrainForReuse: true}),
+				Sampling:  *versionStudySampling(),
+				Queue:     HTTPEngineQueue(srv.Client(), srv.URL+"/metrics"),
+				PollEvery: 50 * time.Millisecond,
+				OnRung: func(ordinal int, rows []RawRow, o RungObservation, cls RungClass, err error) {
+					rec = CalibrationRungRecord{Ordinal: ordinal, Class: cls, Observation: o}
+					if err != nil {
+						rec.Error = err.Error()
+					}
+					writeRungEvidence(t, dir, rec, rows)
+				},
+			}
+			cls := r.Probe(context.Background(), c.rate, 1)
+			if cls != c.want {
+				t.Fatalf("class %s, want %s (record %+v)", cls, c.want, rec)
+			}
+			if err := d.verifyRungRows(dir, *versionStudySampling(), CalibrationRung{Ordinal: 1, Rate: c.rate, Class: cls}, rec); err != nil {
+				t.Fatalf("Probe's own evidence was refused: %v", err)
+			}
+		})
 	}
 }
