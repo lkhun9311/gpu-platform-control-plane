@@ -583,9 +583,10 @@ for pid in os.listdir("/proc"):
     try:
         cmd = open("/proc/%s/cmdline" % pid, "rb").read().replace(b"\0", b" ").decode(errors="replace").strip()
         env = dict(kv.split("=", 1) for kv in open("/proc/%s/environ" % pid, "rb").read().decode(errors="replace").split("\0") if "=" in kv)
-    except OSError:
+        ppid = int(open("/proc/%s/stat" % pid).read().rsplit(")", 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
         continue
-    procs.append({"pid": int(pid), "cmd": cmd[:160], "env": env.get("` + SRPFSweepEnableEnv + `"), "pycachePrefix": env.get("PYTHONPYCACHEPREFIX"), "syncCheck": env.get("` + srpfSyncCheckEnv + `")})
+    procs.append({"pid": int(pid), "ppid": ppid, "cmd": cmd[:160], "envCount": len(env), "env": env.get("` + SRPFSweepEnableEnv + `"), "pycachePrefix": env.get("PYTHONPYCACHEPREFIX"), "syncCheck": env.get("` + srpfSyncCheckEnv + `")})
 import vllm.v1.core.sched.scheduler as s
 data = open(s.__file__, "rb").read()
 print(json.dumps({"file": s.__file__, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
@@ -611,7 +612,10 @@ type srpfProbe struct {
 
 // srpfProbeProc is one other process in the container and what it inherited.
 type srpfProbeProc struct {
-	PID           int     `json:"pid"`
+	PID  int `json:"pid"`
+	PPID int `json:"ppid"`
+	// EnvCount is how many variables /proc showed; zero means the environment could not be read, not that it is empty.
+	EnvCount      int     `json:"envCount"`
 	Cmd           string  `json:"cmd"`
 	Env           *string `json:"env"`
 	PycachePrefix *string `json:"pycachePrefix"`
@@ -659,8 +663,20 @@ func srpfProbeRefusal(a SRPFArm, path string, serving bool, out []byte) error {
 	case len(p.Procs) == 0:
 		return errors.New("the probe found no server process in the container")
 	}
+	byPID := make(map[int]srpfProbeProc, len(p.Procs))
+	for _, pr := range p.Procs {
+		byPID[pr.PID] = pr
+	}
 	for _, pr := range p.Procs {
 		who := fmt.Sprintf("process %d (%s)", pr.PID, pr.Cmd)
+		// vLLM renames its engine core with setproctitle, which overwrites the memory /proc reads the environment from.
+		// Such a process inherited its environment from its parent, so its nearest readable ancestor is checked instead.
+		if pr.EnvCount == 0 {
+			if _, ok := readableAncestor(byPID, pr); !ok {
+				return fmt.Errorf("%s shows no environment and no ancestor whose environment can be read", who)
+			}
+			continue
+		}
 		if err := envRefusal(who, pr.Env, pr.PycachePrefix); err != nil {
 			return err
 		}
@@ -669,6 +685,22 @@ func srpfProbeRefusal(a SRPFArm, path string, serving bool, out []byte) error {
 		}
 	}
 	return nil
+}
+
+// readableAncestor walks a process's parents to the nearest one whose environment /proc could read.
+// Every such process is checked in its own right, so finding one is enough.
+func readableAncestor(byPID map[int]srpfProbeProc, pr srpfProbeProc) (srpfProbeProc, bool) {
+	for range len(byPID) {
+		parent, ok := byPID[pr.PPID]
+		if !ok {
+			return srpfProbeProc{}, false
+		}
+		if parent.EnvCount > 0 {
+			return parent, true
+		}
+		pr = parent
+	}
+	return srpfProbeProc{}, false
 }
 
 // show prints an optional string, "unset" when absent.

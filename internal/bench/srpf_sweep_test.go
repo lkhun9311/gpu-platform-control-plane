@@ -162,7 +162,7 @@ func srpfProbeJSON(env *string, pycSize int64) string {
 	p := srpfProbe{
 		File: srpfFakePath, SHA256: SRPFSweepPRSchedulerSHA256, Size: 170000, SRPFKey: true,
 		Env: env, PycachePrefix: new(srpfSweepPycachePrefix), PycFlags: new(int64(0)), PycSourceSize: new(pycSize),
-		Procs: []srpfProbeProc{{PID: 1, Cmd: "vllm serve", Env: env, PycachePrefix: new(srpfSweepPycachePrefix)}},
+		Procs: []srpfProbeProc{{PID: 1, EnvCount: 12, Cmd: "vllm serve", Env: env, PycachePrefix: new(srpfSweepPycachePrefix)}},
 	}
 	b, _ := json.Marshal(p)
 	return "WARNING noise\n" + string(b) + "\n"
@@ -201,8 +201,12 @@ func TestSRPFProbeRefusal(t *testing.T) {
 		{"the server compiled another source", srpf, mutate(func(p *srpfProbe) { p.PycSourceSize = new(int64(160000)) }), true, "compiled a scheduler of 160000 bytes"},
 		{"no server bytecode", srpf, mutate(func(p *srpfProbe) { p.PycSourceSize, p.PycFlags = nil, nil }), true, "no server process wrote bytecode"},
 		{"a process without the variable", srpf, mutate(func(p *srpfProbe) {
-			p.Procs = append(p.Procs, srpfProbeProc{PID: 7, Cmd: "EngineCore", PycachePrefix: new(srpfSweepPycachePrefix)})
+			p.Procs = append(p.Procs, srpfProbeProc{PID: 7, PPID: 1, EnvCount: 12, Cmd: "EngineCore", PycachePrefix: new(srpfSweepPycachePrefix)})
 		}), true, "process 7"},
+		// An unreadable environment is excused only through a readable, checked ancestor.
+		{"an unreadable process with no readable ancestor", srpf, mutate(func(p *srpfProbe) {
+			p.Procs = append(p.Procs, srpfProbeProc{PID: 8, PPID: 99, Cmd: "VLLM::EngineCore"})
+		}), true, "no ancestor"},
 		{"no prefix", srpf, mutate(func(p *srpfProbe) { p.PycachePrefix = nil }), true, "PYTHONPYCACHEPREFIX"},
 		{"a server with the CI image's sync check", srpf, mutate(func(p *srpfProbe) { p.Procs[0].SyncCheck = new("error") }), true, "VLLM_GPU_SYNC_CHECK=error"},
 		{"no server process", srpf, mutate(func(p *srpfProbe) { p.Procs = nil }), true, "no server process"},
@@ -212,6 +216,13 @@ func TestSRPFProbeRefusal(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: refusal %v, want one naming %q", c.name, err, c.want)
 		}
+	}
+	// vLLM's engine core renames itself with setproctitle, which leaves /proc showing no environment, as on 2026-11-16.
+	renamed := mutate(func(p *srpfProbe) {
+		p.Procs = append(p.Procs, srpfProbeProc{PID: 97, PPID: 1, Cmd: "VLLM::EngineCore"})
+	})
+	if err := srpfProbeRefusal(srpf, path, true, renamed); err != nil {
+		t.Errorf("an engine core renamed under a checked server was refused: %v", err)
 	}
 	// Before any server ran, the image check has no bytecode or process to read.
 	if err := srpfProbeRefusal(SRPFArm{Name: "image"}, path, false, mutate(func(p *srpfProbe) {
