@@ -22,6 +22,12 @@ type fakePreflight struct {
 	blockReplay bool
 	writeErr    error
 	current     string
+	// onStop, onIdentity and onRows run inside those steps, so a test can stop the session at that moment.
+	onStop     func()
+	onIdentity func()
+	onRows     func(treatment string)
+	// rows are the rows each treatment's preflight recorded.
+	rows map[string][]RawRow
 }
 
 func newFakePreflight() *fakePreflight { return &fakePreflight{fakeInstance: &fakeInstance{}} }
@@ -29,6 +35,14 @@ func newFakePreflight() *fakePreflight { return &fakePreflight{fakeInstance: &fa
 func (f *fakePreflight) Start(ctx context.Context, d VersionStudyDesign, treatment, visit string) (EngineStart, error) {
 	f.current = treatment
 	return f.fakeInstance.Start(ctx, d, treatment, visit)
+}
+
+func (f *fakePreflight) Stop(ctx context.Context, s EngineStart) error {
+	err := f.fakeInstance.Stop(ctx, s)
+	if f.onStop != nil {
+		f.onStop()
+	}
+	return err
 }
 
 func (f *fakePreflight) ready(ctx context.Context) error {
@@ -80,11 +94,21 @@ func (f *fakePreflight) replay(ctx context.Context, treatment string, trace []Tr
 
 func (f *fakePreflight) WriteIdentity(treatment string, _ RuntimeIdentity) error {
 	f.log = append(f.log, "identity "+treatment)
+	if f.onIdentity != nil {
+		f.onIdentity()
+	}
 	return nil
 }
 
-func (f *fakePreflight) WriteRows(treatment string, _ []RawRow) error {
+func (f *fakePreflight) WriteRows(treatment string, rows []RawRow) error {
 	f.log = append(f.log, "rows "+treatment)
+	if f.rows == nil {
+		f.rows = map[string][]RawRow{}
+	}
+	f.rows[treatment] = rows
+	if f.onRows != nil {
+		f.onRows(treatment)
+	}
 	return f.writeErr
 }
 
@@ -177,6 +201,9 @@ func TestPreflightStops(t *testing.T) {
 			strings.Join(res.Passed, "") != "AB" || !strings.HasSuffix(got, "rows C|stop preflight-C") {
 			t.Fatalf("result %+v err %v calls %s", res, err, got)
 		}
+		if kept := f.rows[TreatmentC]; len(kept) != 30 || kept[7].HTTPStatus != 500 {
+			t.Fatalf("kept %d rows, row 7 %+v", len(kept), kept[min(7, len(kept)-1)])
+		}
 	})
 	t.Run("a start that left nothing behind stops the session, and nothing is stopped", func(t *testing.T) {
 		f := newFakePreflight()
@@ -257,6 +284,53 @@ func TestPreflightStops(t *testing.T) {
 		res, err := p.Run(ctx)
 		if err != nil || !strings.Contains(res.Stop, "the session stopped during the preflight requests: stopped by signal") {
 			t.Fatalf("result %+v err %v", res, err)
+		}
+	})
+	t.Run("a session stopped between treatments is named as such, and the next engine never starts", func(t *testing.T) {
+		f := newFakePreflight()
+		ctx, cancel := context.WithCancelCause(context.Background())
+		f.onStop = func() { cancel(errors.New("stopped by signal: terminated")) }
+		res, err := f.preflight().Run(ctx)
+		got := strings.Join(f.log, "|")
+		if err != nil || !strings.Contains(res.Stop, "the session stopped before the preflight of treatment B: stopped by signal") ||
+			got != passed("A") || strings.Join(res.Passed, "") != "A" {
+			t.Fatalf("result %+v err %v calls %s", res, err, got)
+		}
+	})
+	t.Run("a bound that came first keeps its name when the session stops after it", func(t *testing.T) {
+		f := newFakePreflight()
+		f.blockReplay = true
+		ctx, cancel := context.WithCancelCause(context.Background())
+		f.onRows = func(string) { cancel(errors.New("stopped by signal: terminated")) }
+		p := f.preflight()
+		p.Design.Bounds.PreflightSecondsPerTreatment = 1
+		res, err := p.Run(ctx)
+		if err != nil || !strings.Contains(res.Stop, "preflight bound passed during the preflight requests") {
+			t.Fatalf("result %+v err %v", res, err)
+		}
+	})
+	t.Run("a slow evidence write is not reported as requests the bound cut", func(t *testing.T) {
+		f := newFakePreflight()
+		f.onRows = func(tr string) {
+			if tr == TreatmentA {
+				time.Sleep(1200 * time.Millisecond)
+			}
+		}
+		p := f.preflight()
+		p.Design.Bounds.PreflightSecondsPerTreatment = 1
+		res, err := p.Run(context.Background())
+		if err != nil || res.Stop != "" || strings.Join(res.Passed, "") != "ABC" {
+			t.Fatalf("result %+v err %v", res, err)
+		}
+	})
+	t.Run("a removal that never answers ends as an unconfirmed cleanup instead of holding the session", func(t *testing.T) {
+		defer func(d time.Duration) { engineStopTimeout = d }(engineStopTimeout)
+		engineStopTimeout = 50 * time.Millisecond
+		f := newFakePreflight()
+		f.hangStop = true
+		res, err := f.preflight().Run(context.Background())
+		if !errors.Is(err, ErrEngineCleanup) || len(res.Passed) != 0 || strings.Contains(strings.Join(f.log, "|"), "preflight-B") {
+			t.Fatalf("result %+v err %v calls %v", res, err, f.log)
 		}
 	})
 }

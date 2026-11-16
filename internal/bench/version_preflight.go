@@ -89,6 +89,11 @@ func (p Preflight) Run(ctx context.Context) (PreflightResult, error) {
 		return res, err
 	}
 	for _, t := range versionStudyTreatments {
+		// A session stopped between treatments would make the next start fail on its context, which reads as the engine's failure.
+		if ctx.Err() != nil {
+			res.Stop = fmt.Sprintf("the session stopped before the preflight of treatment %s: %v", t, context.Cause(ctx))
+			return res, nil
+		}
 		stop, err := p.treatment(ctx, t, trace)
 		if err != nil {
 			// A stop reason found before the error is kept, so a failed cleanup does not hide why the preflight ended.
@@ -109,14 +114,16 @@ func (p Preflight) Run(ctx context.Context) (PreflightResult, error) {
 // treatment runs one treatment's preflight inside its registered bound, counted from before the engine's start.
 func (p Preflight) treatment(ctx context.Context, t string, trace []TraceRow) (stop string, err error) {
 	bound := time.Duration(p.Design.Bounds.PreflightSecondsPerTreatment) * time.Second
-	tctx, cancel := context.WithTimeoutCause(ctx, bound, fmt.Errorf("the %v preflight bound passed", bound))
+	boundPassed := fmt.Errorf("the %v preflight bound passed", bound)
+	tctx, cancel := context.WithTimeoutCause(ctx, bound, boundPassed)
 	defer cancel()
-	// cut names why the treatment's context ended, the session's own stop before the bound, so neither is charged to the engine.
+	// cut names what ended the treatment's context, the bound or the session's own stop, so neither is charged to the engine.
+	// The context keeps the cause that came first, so a session stop arriving after the bound does not rename it.
 	cut := func(during string) string {
-		if ctx.Err() != nil {
-			return fmt.Sprintf("the session stopped during %s: %v", during, context.Cause(ctx))
+		if cause := context.Cause(tctx); !errors.Is(cause, boundPassed) {
+			return fmt.Sprintf("the session stopped during %s: %v", during, cause)
 		}
-		return fmt.Sprintf("%v during %s", context.Cause(tctx), during)
+		return fmt.Sprintf("%v during %s", boundPassed, during)
 	}
 	s, running, ready, err := startReady(tctx, p.Engine, p.Design, t, "preflight-"+t, p.Ready)
 	if err != nil {
@@ -148,11 +155,13 @@ func (p Preflight) treatment(ctx context.Context, t string, trace []TraceRow) (s
 		return fmt.Sprintf("identity: %v", err), nil
 	}
 	rows := p.Replay(tctx, t, trace)
+	// Read before the rows are written, so a slow write is not reported as requests the bound cut.
+	cutRequests := tctx.Err() != nil
 	if err := p.IO.WriteRows(t, rows); err != nil {
 		return "", fmt.Errorf("recording the preflight rows: %w", err)
 	}
 	// A request the session cut off is not the engine's failure, so the cut is reported before the rows are judged.
-	if tctx.Err() != nil {
+	if cutRequests {
 		return cut("the preflight requests"), nil
 	}
 	if err := RequireAllSuccess(p.Sampling, trace, rows); err != nil {
@@ -178,9 +187,15 @@ func startReady(ctx context.Context, e VisitEngine, d VersionStudyDesign, treatm
 	return s, true, ready(rctx) == nil && rctx.Err() == nil, nil
 }
 
+// engineStopTimeout bounds one engine's removal, so a hung removal ends as an unconfirmed cleanup instead of holding the session past its deadline.
+// It is twice the allowance for removing a failed start, since a stop also runs two docker commands; a test shortens it.
+var engineStopTimeout = 2 * dockerCleanupTimeout
+
 // stopEngine removes an engine even after ctx ended, because an engine left running would share the GPU with the next.
 func stopEngine(ctx context.Context, e VisitEngine, s EngineStart) error {
-	if err := e.Stop(context.WithoutCancel(ctx), s); err != nil {
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), engineStopTimeout)
+	defer cancel()
+	if err := e.Stop(sctx, s); err != nil {
 		return fmt.Errorf("stopping engine %s: %w", s.Name, err)
 	}
 	return nil

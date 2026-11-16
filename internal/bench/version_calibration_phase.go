@@ -39,6 +39,11 @@ type CalibrationPhaseResult struct {
 // An engine that does not start, misses readiness or is refused by the registration stops the session before any rung, with no calibration recorded.
 // A failed evidence write, an unreadable runtime or an engine that cannot be confirmed removed is an error.
 func (c CalibrationPhase) Run(ctx context.Context) (res CalibrationPhaseResult, err error) {
+	// A session already stopped would make A's start fail on its context, which reads as the engine's failure.
+	if ctx.Err() != nil {
+		res.Stop = fmt.Sprintf("the session stopped before calibration: %v", context.Cause(ctx))
+		return res, nil
+	}
 	bound := time.Duration(c.Design.Calibration.MaxSeconds()) * time.Second
 	pctx, cancel := context.WithTimeoutCause(ctx, bound, fmt.Errorf("calibration reached its %v bound", bound))
 	defer cancel()
@@ -74,6 +79,11 @@ func (c CalibrationPhase) Run(ctx context.Context) (res CalibrationPhaseResult, 
 	// Preflight checked an earlier engine of A; this one is a new process and is checked on its own.
 	if err := c.Check(TreatmentA, rt); err != nil {
 		res.Stop = fmt.Sprintf("calibration: identity: %v", err)
+		return res, nil
+	}
+	// A ladder handed an ended context runs no rung, yet its recorder would reserve the directory and write rungs that never ran.
+	if pctx.Err() != nil {
+		res.Stop = fmt.Sprintf("calibration stopped before the first rung: %v", context.Cause(pctx))
 		return res, nil
 	}
 	res.Calibration, err = c.Calibrate(pctx)

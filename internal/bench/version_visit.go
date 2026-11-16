@@ -98,10 +98,7 @@ func (v Visits) stop(ctx context.Context, e visitEngine) error {
 	if !e.running {
 		return nil
 	}
-	if err := v.Engine.Stop(context.WithoutCancel(ctx), e.start); err != nil {
-		return fmt.Errorf("stopping engine %s: %w", e.start.Name, err)
-	}
-	return nil
+	return stopEngine(ctx, v.Engine, e.start)
 }
 
 // Run is a VisitRunner: a fresh engine, its readiness bound, both loads in order with drained starts, a restart after any

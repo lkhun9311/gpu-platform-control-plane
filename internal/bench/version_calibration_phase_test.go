@@ -124,4 +124,24 @@ func TestCalibrationPhaseStops(t *testing.T) {
 			t.Fatalf("result %+v err %v calls %s", res, err, got)
 		}
 	})
+	t.Run("a session stopped before the first rung writes no calibration", func(t *testing.T) {
+		f := newFakePreflight()
+		ctx, cancel := context.WithCancelCause(context.Background())
+		f.onIdentity = func() { cancel(errors.New("stopped by signal: terminated")) }
+		res, err := f.calibrationPhase().Run(ctx)
+		got := strings.Join(f.log, "|")
+		if err != nil || !strings.Contains(res.Stop, "before the first rung: stopped by signal") || strings.Contains(got, "ladder") ||
+			!strings.HasSuffix(got, "stop calibration-A") {
+			t.Fatalf("result %+v err %v calls %s", res, err, got)
+		}
+	})
+	t.Run("a session already stopped starts no engine of A", func(t *testing.T) {
+		f := newFakePreflight()
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cancel(errors.New("stopped by signal: terminated"))
+		res, err := f.calibrationPhase().Run(ctx)
+		if err != nil || !strings.Contains(res.Stop, "the session stopped before calibration: stopped by signal") || len(f.log) != 0 {
+			t.Fatalf("result %+v err %v calls %v", res, err, f.log)
+		}
+	})
 }
