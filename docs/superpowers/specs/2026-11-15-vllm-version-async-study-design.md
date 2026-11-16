@@ -290,6 +290,21 @@ Every phase has a ceiling the runner enforces (`PhaseBounds`):
 | block (`BlockBoundSeconds`): per treatment two starts and two cells | 3 × (2 × 600 + 2 × (60 + W + 120)) s; 6,480 s at W = 300 |
 | teardown | 600 s |
 
+Clarified 2026-11-16, before any run (#607), where the table left the phases' contents open:
+- **The 30 preflight requests** are one fixed set, the same for every treatment (`PreflightTrace`).
+  - Each of the six input × output classes is sent five times, cycling in registration order.
+  - Arrivals are 1 s apart, so they span 29 s. Nothing is drawn at random, so no block's or rung's requests are previewed.
+  - They carry the registered sampling and timeout, and every one must succeed (`RequireAllSuccess`): an HTTP error or a timeout is an outcome in a cell, but a failure here.
+  - They are separate from the readiness priming requests.
+- **Preflight** runs A, B, C in that order, each on a fresh engine stopped before the next starts (`Preflight`).
+  - The 900 s bound counts from before the engine's start, with readiness's own 600 s inside it.
+  - The runtime is checked against the registration alone (`CheckRuntime`), since no bundle exists yet.
+  - Any failure ends the session before calibration. A bound or a session stop that cuts the requests is reported as that, not as the engine failing.
+- **Calibration starts A again** (`CalibrationPhase`), with its own readiness and identity check, because preflight's engines are all stopped by then.
+  - The calibration bound above counts from before that start. The budget registers no other time for it, so a slow start leaves the ladder less time rather than adding to the session.
+  - A ladder cut by the bound ends unresolved, and the ladder's own recording writes that artifact.
+  - An A that misses readiness or fails identity stops the session before any rung, and no calibration artifact exists.
+
 - **Before every block**, `MayStartBlock` requires that spending so far plus **every valid block still needed** at its bound, teardown and the $2 reserve fit under $20. Checking only one more block is not enough.
 - **Before block 1**, once W is known, the same check with all six blocks.
 - **Absolute teardown deadline:** `TeardownDeadlineSeconds` after launch, whatever phase is running. That is (cap − reserve) ÷ session rate − the teardown bound, which covers setup and calibration too. The session's watchdog must be shown to enforce it before a paid run (release gate).

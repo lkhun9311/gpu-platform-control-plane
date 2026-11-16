@@ -24,6 +24,8 @@ type fakeInstance struct {
 	written  map[string][]RawRow
 	startErr func(start int) error
 	stopErr  error
+	// hangStop makes a stop wait until its context ends, as a docker daemon that never answers does.
+	hangStop bool
 }
 
 func (f *fakeInstance) Start(_ context.Context, _ VersionStudyDesign, treatment, visit string) (EngineStart, error) {
@@ -37,8 +39,12 @@ func (f *fakeInstance) Start(_ context.Context, _ VersionStudyDesign, treatment,
 	return EngineStart{Treatment: treatment, Name: visit, StartedAt: time.Now()}, nil
 }
 
-func (f *fakeInstance) Stop(_ context.Context, s EngineStart) error {
+func (f *fakeInstance) Stop(ctx context.Context, s EngineStart) error {
 	f.log = append(f.log, "stop "+s.Name)
+	if f.hangStop {
+		<-ctx.Done()
+		return fmt.Errorf("%w: %w", ErrEngineCleanup, ctx.Err())
+	}
 	return f.stopErr
 }
 
@@ -217,6 +223,14 @@ func TestVisitOutcomes(t *testing.T) {
 		f := &fakeInstance{stopErr: fmt.Errorf("%w: container still present", ErrEngineCleanup)}
 		if _, err := runVisit(t, f); !errors.Is(err, ErrEngineCleanup) {
 			t.Fatalf("err %v, want the stop failure", err)
+		}
+	})
+	t.Run("a removal that never answers ends as an unconfirmed cleanup instead of holding the session", func(t *testing.T) {
+		defer func(d time.Duration) { engineStopTimeout = d }(engineStopTimeout)
+		engineStopTimeout = 50 * time.Millisecond
+		f := &fakeInstance{hangStop: true}
+		if _, err := runVisit(t, f); !errors.Is(err, ErrEngineCleanup) {
+			t.Fatalf("err %v, want the unconfirmed removal", err)
 		}
 	})
 	t.Run("an engine that cannot be stopped for a drain restart is never joined by another", func(t *testing.T) {
