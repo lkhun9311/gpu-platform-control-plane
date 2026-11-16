@@ -246,6 +246,9 @@ HEAD
   echo "cat > /tmp/bringup.sh <<'BRINGUP'"
   cat "$OUT/bringup.sh"
   echo "sleep 5"
+  # The spliced steps do not stop on a failed command, so the bring-up is judged by its outcome before anything is paid for.
+  echo 'systemctl is-active --quiet docker || { echo "BRINGUP FAILED: docker is not running"; exit 1; }'
+  echo 'docker info --format "{{json .Runtimes}}" | grep -q nvidia || { echo "BRINGUP FAILED: docker has no nvidia runtime"; exit 1; }'
   echo "BRINGUP"
   cat <<'TAIL'
 bringup_left=$(( P1 - $(date +%s) ))

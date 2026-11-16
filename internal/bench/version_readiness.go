@@ -321,12 +321,29 @@ func (r *ReadinessRun) downloadModel(ctx context.Context, image string) (StepRec
 	defer cancel()
 	script := fmt.Sprintf("from huggingface_hub import snapshot_download; print(snapshot_download(repo_id=%q, revision=%q))",
 		r.Design.Model, r.Design.ModelRevision)
+	name := r.Engine.NamePrefix + "-model-download"
 	return r.timed(StepRecord{Step: "model-download", Image: image}, func() error {
-		_, err := r.Engine.Run(mctx, "docker", "run", "--rm",
+		_, err := r.Engine.Run(mctx, "docker", "run", "--rm", "--name="+name,
 			"--volume="+r.Engine.HFCache+":/root/.cache/huggingface",
 			"--entrypoint=python3", image, "-c", script)
-		return err
+		if err != nil {
+			// The deadline kills the docker CLI, not the container the daemon runs, which would go on downloading.
+			return errors.Join(err, r.removeContainer(name))
+		}
+		return nil
 	})
+}
+
+// removeContainer force-removes a container by name on its own context, since the step's context may be what expired.
+//
+// A container that never existed, or that --rm already removed, is gone, which is what is wanted.
+func (r *ReadinessRun) removeContainer(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), dockerCleanupTimeout)
+	defer cancel()
+	if _, err := r.Engine.Run(ctx, "docker", "rm", "--force", name); err != nil && !dockerNotFound(err) {
+		return fmt.Errorf("docker rm %s after a failed step: %w", name, err)
+	}
+	return nil
 }
 
 // timed runs step and records its wall span; a failed step keeps its span and its error.

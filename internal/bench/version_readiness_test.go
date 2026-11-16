@@ -33,6 +33,9 @@ type readinessFake struct {
 	tokenizeBodies [][]byte
 	// onStart chooses the behaviour of start number n, counted from 1 over the whole run.
 	onStart func(n int, f *readinessFake)
+	// downloadErr fails the model download as a deadline would, leaving its container behind until it is removed.
+	downloadErr error
+	removed     []string
 }
 
 func (f *readinessFake) run(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -45,6 +48,10 @@ func (f *readinessFake) run(_ context.Context, name string, args ...string) ([]b
 	case args[0] == "pull":
 		return []byte("pulled\n"), nil
 	case args[0] == "run" && args[1] == "--rm":
+		if f.downloadErr != nil {
+			f.running[strings.TrimPrefix(args[2], "--name=")] = true
+			return nil, f.downloadErr
+		}
 		return []byte("/root/.cache/huggingface/hub/snapshot\n"), nil
 	case args[0] == "run":
 		f.starts++
@@ -63,6 +70,7 @@ func (f *readinessFake) run(_ context.Context, name string, args ...string) ([]b
 		return nil, errors.New("Error: No such object: " + id)
 	case args[0] == "rm":
 		delete(f.running, args[len(args)-1])
+		f.removed = append(f.removed, args[len(args)-1])
 		return nil, nil
 	}
 	return nil, fmt.Errorf("unexpected docker %v", args)
@@ -407,6 +415,18 @@ func TestReadinessAWriteFailureEndsTheRunAndStillRemovesTheContainer(t *testing.
 	}
 	if _, err := os.Stat(filepath.Join(r.Out, "summary.json")); !os.IsNotExist(err) {
 		t.Fatalf("a summary was written after a lost record: %v", err)
+	}
+}
+
+// TestReadinessRemovesAModelDownloadItsDeadlineCut: the deadline kills the docker CLI, and the container must not go on downloading.
+func TestReadinessRemovesAModelDownloadItsDeadlineCut(t *testing.T) {
+	f := &readinessFake{downloadErr: context.DeadlineExceeded}
+	r := readinessRun(t, f, 5)
+	if _, err := r.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "model-download") {
+		t.Fatalf("err %v, want the failed download", err)
+	}
+	if len(f.running) != 0 || len(f.removed) != 1 || f.removed[0] != "readiness-model-download" || f.starts != 0 {
+		t.Fatalf("running %v, removed %v after %d start(s); want the download container removed and no engine started", f.running, f.removed, f.starts)
 	}
 }
 

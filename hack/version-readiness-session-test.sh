@@ -137,6 +137,17 @@ else
   echo "ok   the schedule ($schedule) ends the harness at the sum of its bounds"
 fi
 
+# The spliced bring-up does not stop on a failed command, so its last lines must judge the outcome: a GPU runtime that
+# failed to configure would otherwise let the paid pulls and starts run.
+bringup_tail=$(awk '/echo "cat > \/tmp\/bringup.sh/{on=1} on{print} /echo "BRINGUP"/{exit}' "$ROOT/hack/version-readiness-session.sh")
+if ! grep -q 'systemctl is-active --quiet docker || { .*exit 1; }' <<<"$bringup_tail" ||
+  ! grep -q 'grep -q nvidia || { .*exit 1; }' <<<"$bringup_tail"; then
+  echo "FAIL the bring-up script does not end by refusing a stopped docker or one without the nvidia runtime" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the bring-up exits non-zero unless docker runs with the nvidia runtime"
+fi
+
 if [[ $failures -ne 0 ]]; then
   echo "$failures check(s) did not behave as registered" >&2
   exit 1
