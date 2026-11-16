@@ -278,8 +278,10 @@ if [ "$bringup_rc" = 0 ]; then
   mkdir -p /src/vr-run/readiness
   # A Spot reclaim gives two minutes and the 2026-11-16 run 3 lost everything, so each start's record leaves the
   # instance within PARTIAL_SYNC_S of being written, not only in the final archive.
+  # One archive overwritten in place needs only the role's s3:PutObject; a sync would also need s3:ListBucket.
   ( while :; do
-      aws s3 sync --only-show-errors /src/vr-run/readiness "s3://$BUCKET/$PREFIX/partial/readiness" >>/var/log/verready-sync.log 2>&1
+      tar -czf /tmp/partial.tgz -C /src/vr-run readiness >>/var/log/verready-sync.log 2>&1 &&
+        aws s3 cp --only-show-errors /tmp/partial.tgz "s3://$BUCKET/$PREFIX/partial.tgz" >>/var/log/verready-sync.log 2>&1
       sleep PARTIAL_SYNC_S_PLACEHOLDER
     done ) &
   sync_pid=$!
@@ -412,8 +414,10 @@ done
 EVIDENCE=returned
 if [ ! -s "$OUT/vr-run/readiness/summary.json" ]; then
   # Without the final archive, the per-start copies are what a reclaim or a crash left; they are reported as partial.
-  aws s3 sync --only-show-errors "s3://$BUCKET/$RUN_ID/partial/readiness" "$OUT/vr-run-partial/readiness" 2>>"$OUT/download-errors.txt" ||
-    echo "the partial evidence did not download" >>"$OUT/download-errors.txt"
+  mkdir -p "$OUT/vr-run-partial"
+  { aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/partial.tgz" "$OUT/partial.tgz" &&
+    tar -xzf "$OUT/partial.tgz" -C "$OUT/vr-run-partial"; } 2>>"$OUT/download-errors.txt" ||
+    echo "the partial evidence did not download or unpack" >>"$OUT/download-errors.txt"
   if compgen -G "$OUT/vr-run-partial/readiness/start-*.json" >/dev/null; then
     EVIDENCE=partial
   else

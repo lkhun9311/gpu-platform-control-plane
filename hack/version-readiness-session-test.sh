@@ -140,11 +140,13 @@ fi
 # A Spot reclaim lost all of run 3, so the records must leave the instance while the harness runs, and the caller must
 # collect them when the final archive never arrives.
 script="$ROOT/hack/version-readiness-session.sh"
-if ! grep -q 'aws s3 sync --only-show-errors /src/vr-run/readiness "s3://\$BUCKET/\$PREFIX/partial/readiness"' "$script" ||
-  ! grep -q 'sleep PARTIAL_SYNC_S_PLACEHOLDER' "$script" ||
-  ! grep -q 's|PARTIAL_SYNC_S_PLACEHOLDER|\$PARTIAL_SYNC_S|' "$script" ||
-  ! grep -q 'aws s3 sync --only-show-errors "s3://\$BUCKET/\$RUN_ID/partial/readiness" "\$OUT/vr-run-partial/readiness"' "$script" ||
-  ! grep -q '^PARTIAL_SYNC_S=30$' "$script"; then
+# The instance role has no s3:ListBucket, so the copy must be a plain put of one object, never aws s3 sync.
+if grep -q 'aws s3 sync' "$script" ||
+  ! grep -qF 'aws s3 cp --only-show-errors /tmp/partial.tgz "s3://$BUCKET/$PREFIX/partial.tgz"' "$script" ||
+  ! grep -qF 'sleep PARTIAL_SYNC_S_PLACEHOLDER' "$script" ||
+  ! grep -qF 's|PARTIAL_SYNC_S_PLACEHOLDER|$PARTIAL_SYNC_S|' "$script" ||
+  ! grep -qF 'aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/partial.tgz" "$OUT/partial.tgz"' "$script" ||
+  ! grep -qx 'PARTIAL_SYNC_S=30' "$script"; then
   echo "FAIL the readiness records are not copied off the instance during the run, or not collected after a reclaim" >&2
   failures=$((failures + 1))
 else
