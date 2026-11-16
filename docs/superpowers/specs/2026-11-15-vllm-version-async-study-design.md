@@ -304,6 +304,19 @@ The registered protocol is not executable at this head (attack item 1). Before a
   - `CheckVersionCampaign`, the exact bootstrap and the verdict.
 
   A two-block rehearsal must expect "incomplete pilot"; showing a verdict needs six blocks.
+
+  The rehearsal runs as its own registered study, `vllm-version-async-rehearsal` (#638), so that its manifests can never be pooled with this one's.
+  Its design is this design except for durations:
+  - warm-up 20 s;
+  - window 60–300 s;
+  - population floor 100;
+  - calibration rungs of 10 + 30 + 30 s;
+  - shorter phase bounds.
+
+  At that floor, an engine stable up to 1.2 req/s is measured over a 60 s window.
+  Under the floor of 1,000 the window would be 240 s.
+  The design carries a `Rehearsal` marker, and `PaidRunRefusal` refuses a paid run on it.
+  The purchase gate (#616) must call `PaidRunRefusal`.
 - **The sender:** done in code, still to be shown in the rehearsal.
   - When a study registers a policy, the replay puts it on every request (`HTTPSender.SetSampling`, from `RequestFields`). A study without one sends the body it always sent.
   - Every row records, on the monotonic clock, the intended arrival (`RequestClock.IntendedNanos`), the transport write, first and last content, and the usage trailer and `[DONE]`. `RequestClock.FromIntended` gives a latency from intended arrival, or reports it absent.

@@ -440,6 +440,9 @@ const (
 	//
 	// Its arms are a treatment and an offered load, so a row says both which engine and which fraction of capacity it saw.
 	StudyVersionAsync = "vllm-version-async-2026-11-15"
+	// StudyVersionAsyncRehearsal is StudyVersionAsync with shortened durations, for rehearsing a campaign against the
+	// stub engine; its design refuses a paid run (#638).
+	StudyVersionAsyncRehearsal = "vllm-version-async-rehearsal"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -1139,6 +1142,20 @@ var studies = map[string]Study{
 		FrozenExactTokens:      versionStudyExactTokens(),
 		Sampling:               versionStudySampling(),
 		Version:                new(versionAsyncDesign()),
+	},
+	StudyVersionAsyncRehearsal: {
+		ID:                     StudyVersionAsyncRehearsal,
+		Arms:                   versionStudyArms(),
+		OutputCount:            OutputCountEngineTokens,
+		ManifestSchema:         ManifestSchemaV3,
+		MinRepetitions:         versionStudyPlannedBlocks,
+		PublishesInterval:      true,
+		TracesVaryByRepetition: true,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		FrozenExactTokens:      versionStudyExactTokens(),
+		Sampling:               versionStudySampling(),
+		Version:                new(versionAsyncRehearsalDesign()),
 	},
 }
 

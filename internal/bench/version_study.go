@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -199,6 +200,40 @@ type VersionStudyDesign struct {
 	// BudgetUSD is the session cap and ReserveUSD what is held back beyond the bounded phases.
 	BudgetUSD  float64
 	ReserveUSD float64
+	// Rehearsal marks a design that rehearses the session against the stub engine with shortened durations; it is
+	// never run on paid hardware (PaidRunRefusal).
+	Rehearsal bool
+}
+
+// PaidRunRefusal is the reason a design may not be run on paid hardware, or nil.
+func (d VersionStudyDesign) PaidRunRefusal() error {
+	if d.Rehearsal {
+		return errors.New("a rehearsal design runs against the stub engine only; its durations are not the registered study's")
+	}
+	return nil
+}
+
+// versionAsyncRehearsalDesign is the registered design with durations short enough to rehearse a whole campaign
+// against the stub engine in minutes (#638). Everything that decides validity or the verdict is the registered
+// design's; only how long each phase runs, and the population floor that follows from it, differ.
+func versionAsyncRehearsalDesign() VersionStudyDesign {
+	d := versionAsyncDesign()
+	d.Rehearsal = true
+	d.WarmupSeconds = 20
+	d.MinMeasureSeconds = 60
+	d.MaxMeasureSeconds = 300
+	d.MinOfferedPopulation = 100
+	d.Calibration.WarmupSeconds = 10
+	d.Calibration.WindowSeconds = 30
+	d.Calibration.DrainSeconds = 30
+	d.Bounds = PhaseBounds{
+		SetupSeconds:                 300,
+		ReadinessSeconds:             60,
+		DrainSeconds:                 30,
+		PreflightSecondsPerTreatment: 120,
+		TeardownSeconds:              60,
+	}
+	return d
 }
 
 // versionAsyncDesign returns a fresh copy of the registered design, so a caller cannot edit the registry through it.
