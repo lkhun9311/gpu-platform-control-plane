@@ -147,6 +147,8 @@ type PhaseBounds struct {
 	PreflightSecondsPerTreatment int
 	// TeardownSeconds is held back at the end of the deadline for teardown to finish.
 	TeardownSeconds int
+	// CalibrationOverheadSeconds covers the calibration phase's identity check and the stop of A's engine.
+	CalibrationOverheadSeconds int
 }
 
 // VersionStudyDesign is the part of the version study's registration a program can enforce.
@@ -234,6 +236,7 @@ func versionAsyncRehearsalDesign() VersionStudyDesign {
 		DrainSeconds:                 30,
 		PreflightSecondsPerTreatment: 120,
 		TeardownSeconds:              60,
+		CalibrationOverheadSeconds:   60,
 	}
 	return d
 }
@@ -269,7 +272,9 @@ func versionAsyncDesign() VersionStudyDesign {
 		MaxReplacementBlocks: 2,
 		WarmupSeconds:        60,
 		MinMeasureSeconds:    300,
-		MaxMeasureSeconds:    1800,
+		// Amendment 2026-11-16, before any run: the window is capped at the minimum, so the worst case fits the budget
+		// at a known W; a lambda0 whose traces cannot reach the population floor in 300 s stops the session.
+		MaxMeasureSeconds:    300,
 		MinOfferedPopulation: 1000,
 		TimeoutMs:            60000,
 		DispatchLagP99Ms:     10,
@@ -288,17 +293,21 @@ func versionAsyncDesign() VersionStudyDesign {
 		Calibration: CalibrationRule{
 			StartRate: 0.5, Growth: 1.5, MaxExpansion: 12,
 			FallbackFactor: 0.5, MaxFallback: 2,
-			TargetRatio: 1.05, MaxRefine: 6,
+			// Four geometric refinements narrow a 2x fallback bracket below 1.05, so a fifth and sixth were never reachable.
+			TargetRatio: 1.05, MaxRefine: 4,
 			Confirmations: 2, MaxStepDowns: 2, MaxInvalidRetries: 2,
 			Tolerance: 0.02, OutstandingSlackMin: 3, MaxFailureFraction: 0.005,
 			WarmupSeconds: 60, WindowSeconds: 180, DrainSeconds: 120,
 		},
+		// Amendment 2026-11-16, before any run, from the measured readiness in hack/version-readiness/2026-11-16-run2
+		// and run6: the slowest start, A on an empty compile cache, was ready at 376.6 s, and warm starts at 104 s or less.
 		Bounds: PhaseBounds{
-			SetupSeconds:                 2700,
-			ReadinessSeconds:             600,
+			SetupSeconds:                 2400,
+			ReadinessSeconds:             450,
 			DrainSeconds:                 120,
-			PreflightSecondsPerTreatment: 900,
+			PreflightSecondsPerTreatment: 600,
 			TeardownSeconds:              600,
+			CalibrationOverheadSeconds:   60,
 		},
 		BudgetUSD:  20,
 		ReserveUSD: 2,
@@ -473,9 +482,15 @@ func (d VersionStudyDesign) MayStartBlock(spentUSD, ratePerHour float64, validSt
 	return spentUSD+need <= d.BudgetUSD
 }
 
+// CalibrationPhaseSeconds bounds the whole calibration phase: A's fresh start to readiness, the ladder, and the stop.
+// The ladder's own MaxSeconds leaves no time for the start, so a slow start would otherwise shorten the ladder.
+func (d VersionStudyDesign) CalibrationPhaseSeconds() int {
+	return d.Bounds.ReadinessSeconds + d.Calibration.MaxSeconds() + d.Bounds.CalibrationOverheadSeconds
+}
+
 // SessionBoundSeconds is the whole session's ceiling: setup, calibration, three preflights, the planned blocks and teardown.
 func (d VersionStudyDesign) SessionBoundSeconds(windowSeconds int) int {
-	return d.Bounds.SetupSeconds + d.Calibration.MaxSeconds() + len(versionStudyTreatments)*d.Bounds.PreflightSecondsPerTreatment +
+	return d.Bounds.SetupSeconds + d.CalibrationPhaseSeconds() + len(versionStudyTreatments)*d.Bounds.PreflightSecondsPerTreatment +
 		d.PlannedBlocks*d.BlockBoundSeconds(windowSeconds) + d.Bounds.TeardownSeconds
 }
 

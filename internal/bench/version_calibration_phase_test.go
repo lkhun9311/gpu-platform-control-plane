@@ -95,6 +95,8 @@ func TestCalibrationPhaseStops(t *testing.T) {
 		f := newFakePreflight()
 		c := f.calibrationPhase()
 		c.Design.Calibration = oneRungRule()
+		// A 1 s readiness bound and no overhead make the phase's bound the one-rung ladder's 1 s plus 1 s for A's start.
+		c.Design.Bounds.ReadinessSeconds, c.Design.Bounds.CalibrationOverheadSeconds = 1, 0
 		var recorded CalibrationResult
 		// The recorder stands for runVersionCalibration: RunContext over the probe, then the artifact from its result.
 		c.Calibrate = func(ctx context.Context) (CalibrationResult, error) {
@@ -108,18 +110,20 @@ func TestCalibrationPhaseStops(t *testing.T) {
 		}
 		began := time.Now()
 		res, got, err := run(t, f, c)
-		if err != nil || res.Calibration.Resolved || !strings.Contains(res.Stop, "calibration reached its 1s bound") ||
+		if err != nil || res.Calibration.Resolved || !strings.Contains(res.Stop, "calibration reached its 2s bound") ||
 			recorded.Reason != res.Stop || !strings.HasSuffix(got, "artifact|stop calibration-A") || time.Since(began) > 5*time.Second {
 			t.Fatalf("result %+v recorded %+v err %v calls %s", res, recorded, err, got)
 		}
 	})
-	t.Run("the bound counts A's start and readiness too", func(t *testing.T) {
+	t.Run("A that is not ready within its bound stops calibration before any rung", func(t *testing.T) {
 		f := newFakePreflight()
 		f.blockReady = true
 		c := f.calibrationPhase()
 		c.Design.Calibration = oneRungRule()
+		// The phase's bound holds A's readiness bound (TestBudgetBounds), so the readiness bound is the one that ends a start that never becomes ready.
+		c.Design.Bounds.ReadinessSeconds, c.Design.Bounds.CalibrationOverheadSeconds = 1, 0
 		res, got, err := run(t, f, c)
-		if err != nil || !strings.Contains(res.Stop, "before A was ready: calibration reached its 1s bound") ||
+		if err != nil || !strings.Contains(res.Stop, "not ready within 1 s") ||
 			got != "start calibration-A|ready A|stop calibration-A" {
 			t.Fatalf("result %+v err %v calls %s", res, err, got)
 		}

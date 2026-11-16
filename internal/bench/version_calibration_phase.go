@@ -44,7 +44,7 @@ func (c CalibrationPhase) Run(ctx context.Context) (res CalibrationPhaseResult, 
 		res.Stop = fmt.Sprintf("the session stopped before calibration: %v", context.Cause(ctx))
 		return res, nil
 	}
-	bound := time.Duration(c.Design.Calibration.MaxSeconds()) * time.Second
+	bound := time.Duration(c.Design.CalibrationPhaseSeconds()) * time.Second
 	pctx, cancel := context.WithTimeoutCause(ctx, bound, fmt.Errorf("calibration reached its %v bound", bound))
 	defer cancel()
 	s, running, ready, err := startReady(pctx, c.Engine, c.Design, TreatmentA, "calibration-"+TreatmentA, c.Ready)
