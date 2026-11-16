@@ -1,0 +1,8 @@
+{
+  "step": "pull",
+  "image": "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+  "startedAt": "2026-11-16T05:55:30.723582558Z",
+  "endedAt": "2026-11-16T06:05:30.760086254Z",
+  "seconds": 600.036503706,
+  "error": "docker pull --quiet vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967: signal: killed: "
+}
