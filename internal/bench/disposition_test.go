@@ -214,7 +214,13 @@ func TestReadRawRowsRefusesSemanticallyInvalidCurrentRows(t *testing.T) {
 	write := *cw.SendNanos - 1
 	cw.TransportWriteNanos = &write
 	earlyWrite[1].Clock = &cw
-	for name, rs := range map[string][]RawRow{"duplicate": dup, "terminal before send": backwards, "disposition contradicts errorKind": mislabelled, "unknown disposition": unknown, "transport write before send": earlyWrite} {
+	// Send reads the write stamp before it returns and the terminal is taken after, so a write after the terminal was never recorded by this harness.
+	pastTerminal := append([]RawRow{}, rows...)
+	cp := *pastTerminal[0].Clock
+	after := *cp.TerminalNanos + 1
+	cp.TransportWriteNanos = &after
+	pastTerminal[0].Clock = &cp
+	for name, rs := range map[string][]RawRow{"duplicate": dup, "terminal before send": backwards, "disposition contradicts errorKind": mislabelled, "unknown disposition": unknown, "transport write before send": earlyWrite, "transport write after terminal": pastTerminal} {
 		if _, err := ReadRawRows(encode(rs)); err == nil {
 			t.Fatalf("%s rows were read as evidence", name)
 		}

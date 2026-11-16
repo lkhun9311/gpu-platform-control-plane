@@ -207,9 +207,10 @@ func validateClockOrder(r RawRow) error {
 		return fmt.Errorf("the clock records a first content frame the row does not")
 	}
 	// The dispatch lag ends at the transport write, so one stamped before the send would shorten it.
-	// Only the send bounds it: the transport stamps it from its own goroutine, which can run after the response reader saw content.
-	if c.TransportWriteNanos != nil && (c.SendNanos == nil || *c.TransportWriteNanos < *c.SendNanos) {
-		return fmt.Errorf("the transport write at %d ns is not after a recorded send", *c.TransportWriteNanos)
+	// It is not ordered against content: the transport stamps it from its own goroutine, which can run after the response reader saw content.
+	// Send reads the stamp before it returns and the terminal is taken after, so the terminal bounds it from above.
+	if w := c.TransportWriteNanos; w != nil && (c.SendNanos == nil || *w < *c.SendNanos || *w > *c.TerminalNanos) {
+		return fmt.Errorf("the transport write at %d ns is not between a recorded send and the terminal", *w)
 	}
 	order := []struct {
 		name string
