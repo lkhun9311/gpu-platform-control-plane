@@ -204,7 +204,10 @@ func (e *DockerEngine) confirmGone(ctx context.Context, ref string) error {
 // dockerNotFound reads Docker's answer for an object that does not exist.
 //
 // A CommandRunner must put the command's standard error into its error, which is where Docker writes this.
+//
+// The case varies by Docker version: 29.9.1 prints "error: no such object" where earlier releases print "No such object",
+// and a case-sensitive match stopped the 2026-11-16 readiness run on a container that was already gone.
 func dockerNotFound(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "No such object") || strings.Contains(msg, "No such container")
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such object") || strings.Contains(msg, "no such container") || strings.Contains(msg, "no such image")
 }

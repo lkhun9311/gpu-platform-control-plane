@@ -197,6 +197,28 @@ func TestDockerStartCleansUpOnlyItsOwnFailedStart(t *testing.T) {
 	}
 }
 
+// TestDockerNotFoundReadsEveryReleasesWording: each Docker release words its not-found answer differently, and a missed
+// one turns a removed container into an unconfirmed one that stops the session.
+func TestDockerNotFoundReadsEveryReleasesWording(t *testing.T) {
+	for _, msg := range []string{
+		"Error: No such object: abc",
+		// Docker 29.9.1, as captured in hack/version-readiness/2026-11-16-run2.
+		"docker inspect --format={{.State.Status}} abc: exit status 1: error: no such object: abc",
+		"Error response from daemon: No such container: abc",
+		"Error response from daemon: No such image: vllm/vllm-openai@sha256:0a51",
+		"error: no such image: vllm/vllm-openai@sha256:0a51",
+	} {
+		if !dockerNotFound(errors.New(msg)) {
+			t.Errorf("%q not read as not found", msg)
+		}
+	}
+	for _, msg := range []string{"Cannot connect to the Docker daemon", "permission denied", "context deadline exceeded"} {
+		if dockerNotFound(errors.New(msg)) {
+			t.Errorf("%q read as not found", msg)
+		}
+	}
+}
+
 // TestDockerStopNeedsDockerToSayTheContainerIsGone: an inspect that fails for another reason is not proof of absence.
 func TestDockerStopNeedsDockerToSayTheContainerIsGone(t *testing.T) {
 	r := &recordingDocker{answer: func(args []string) ([]byte, error) {

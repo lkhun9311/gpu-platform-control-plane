@@ -308,7 +308,7 @@ func emptyOrAbsent(dir string, absentOK bool) error {
 func (r *ReadinessRun) pull(ctx context.Context, image string) (StepRecord, error) {
 	if _, err := r.Engine.Run(ctx, "docker", "image", "inspect", "--format={{.Id}}", image); err == nil {
 		return StepRecord{Step: "pull", Image: image}, fmt.Errorf("image %s is already present, so its pull cannot be timed", image)
-	} else if !strings.Contains(err.Error(), "No such image") {
+	} else if !dockerNotFound(err) {
 		return StepRecord{Step: "pull", Image: image}, fmt.Errorf("cannot tell whether image %s is present: %w", image, err)
 	}
 	pctx, cancel := context.WithTimeout(ctx, ReadinessPullBound)
