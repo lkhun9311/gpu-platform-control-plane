@@ -355,6 +355,15 @@ The registered protocol is not executable at this head (attack item 1). Before a
     - It has only been run against stub engines. A live engine is the rehearsal's job, and its readiness the paid preflight's (#594).
 - **An engine path** that runs v0.32.0 with the registered settings: done. The `experimental-a10g` profile renders release `v0.32.0` on its pinned digest with either async choice (#586 and this change). What remains is showing it in the free rehearsal.
 - **The watchdog** enforces the absolute teardown deadline.
+- **The bounds are measured by a paid readiness preflight (#594)**, and only then amended. This section changes no registered number.
+  - Tooling: `benchharness version-readiness` (`ReadinessRun`), run on one g5.xlarge by `hack/version-readiness-session.sh`. Its refusals are tested offline by `hack/version-readiness-session-test.sh`.
+  - It times each distinct image's `docker pull` and the model download as separate steps, so neither is counted as engine readiness.
+  - It then starts each treatment three times in A, B, C order, each time in a fresh `DockerEngine` container with the registered settings. The first start of A and of B runs on an empty compile cache. C's first start follows B's on the shared per-image cache, and its record says so.
+  - Each start uses this page's readiness rule and 600 s bound: `/health` 200, then one priming request per input × output class, sent by the study's sender with its sampling. A start past the bound is recorded as missed and the run goes on.
+  - The summary gives each treatment's first start, and the warm maximum and median. The warm figures are given only when every warm start was ready.
+  - Every container runs with `VLLM_SERVER_DEV_MODE=1`, which `DockerEngine` sets for all treatments alike. Once ready, each start's `/version`, `/v1/models`, `/server_info?config_format=json`, `/metrics` and `/tokenize` answers are saved raw, with the container's full log, for the runtime identity check still to be written.
+  - The session's hard stop is the sum of those step bounds, 8,130 s from LaunchTime. Its worst case, to the termination deadline at 8,430 s, is about $2.97 at $1.2694/h all in.
+  - The paid run starts only on the owner's explicit approval.
 
 ## What answers what
 
