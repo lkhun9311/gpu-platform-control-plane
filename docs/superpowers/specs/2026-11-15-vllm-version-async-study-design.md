@@ -36,6 +36,31 @@ The two engine-path fields are `EngineSettings.Image` for treatments B and C, an
   - for A, the validated v0.27.1 profile.
 - No argv can hash to the review file, so its hash stays provenance.
 - `CheckRuntime` needs no bundle, so a wrong engine is refused at preflight, before calibration. `CompareRuntime` adds the bundle's frozen image.
+
+**What the engine's own responses prove, and what they do not** (#645, 2026-11-16).
+- `ParseVLLMRuntime` reads a `RuntimeIdentity` from `GET /server_info?config_format=json` and `GET /version`, which `FetchVLLMIdentity` fetches. The key names are those of the 2026-11-16 readiness captures, kept in `internal/bench/testdata/vllm-runtime`.
+- **Proven by the responses:**
+  - the release, from `/version`, which must equal `system_env.vllm_version` and be a plain release number;
+  - the model and tokenizer revisions (`model_config.revision`, `tokenizer_revision`);
+  - every registered setting: `dtype`, `max_model_len`, `max_num_seqs`, `max_num_batched_tokens`, the scheduling `policy`, `async_scheduling`, `gpu_memory_utilization` and `enable_prefix_caching`.
+- How two of them are read:
+  - The engine reports the resolved `torch.float16`, which vLLM produces for both `half` and `float16`, so it is reported as the registered `half`.
+  - The memory fraction comes back as `0.9`, so `EngineSettings.Diff` compares that field by exact decimal value.
+- A key that is missing, null or of another type is an error, never a zero. An engine without dev mode answers 404 and is refused.
+- **Not proven by the responses**, and so left empty and named in `RuntimeIdentity.Unproven`, never filled from the registration:
+  - the image digest, which neither response names;
+  - the chat template, which is a server argument outside the engine configuration, and which no response hashes;
+  - the command line. An unreviewed flag whose effect is outside the mapped settings, such as `--enforce-eager`, is invisible here.
+- **`CheckRuntime` stays the complete check**, and it refuses an identity with any unproven field. Preflight, the in-session `CalibrationPhase` and `CompareRuntime` use it, so none of them accepts this gap.
+- **`CheckObservedRuntime`** compares everything observed with the same rules and returns the unproven fields.
+  - Only those three fields may be unproven, and each only if it is empty.
+  - The release, the revisions and every setting must be observed.
+
+**The standalone `benchharness version-calibrate` checks A's identity before the first rung** (#645).
+- Before #645 it ran the ladder against any URL. B and C serve the same model, so their capacity could have been frozen as A's λ0.
+- It now reads the engine's responses and calls `CheckObservedRuntime` for A. It refuses an unreadable engine or any mismatch, with no rung sent and no file written. The release tells B and C from A, and `async_scheduling` tells C from B.
+- When A passes, the calibration directory holds an identity record (`CalibrationIdentityFile`), written before the first rung. It keeps both raw responses, the identity read from them, and the unproven fields.
+- **So a λ0 from this command is A's release, revisions and settings as the engine reports them. It is not proof of the image, the chat template or the absence of an unreviewed flag.** `version-bundle` does not yet read the identity record (open, #645).
 B and C run `vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34`, the manifest list Docker Hub's `v0.32.0` tag resolved to on 2026-11-15; the image records the build commit the tag names.
 Their reviews are `hack/engine-flag-reviews/vllm-v0.32.0-async-off.json` (B) and `hack/engine-flag-reviews/vllm-v0.32.0-async-on.json` (C); `TestEngineFlagReviewsAreTheCommittedRecords` recomputes both hashes, and the controller's `TestExperimentalV0320RendersItsReviewedRecord` holds the rendering to the same files.
 That is a source review: no flag's effect on v0.32.0 has been measured here.
@@ -63,6 +88,9 @@ No gateway is in the path; a v3 manifest with gateway thresholds, `longThreshold
 - Every treatment sets it the same way, and it changes no inference path.
 - It also exposes the cache-reset and RPC dev routes. The engine port is published on loopback only, and the harness calls none of those routes.
 - The response's key names are taken from the paid readiness preflight's raw captures (#594), not assumed, before the identity check is written against them.
+  - Done for #645: `ParseVLLMRuntime` is tested on those captures.
+  - The identity section above says what the response proves and what it does not.
+  - `DockerEngine.RunArgs` does not yet pass `VLLM_SERVER_DEV_MODE=1`. The paid readiness launcher did, so an engine `DockerEngine` starts would answer 404 and be refused.
 
 ## Comparisons and how one is chosen
 
@@ -353,6 +381,7 @@ The registered protocol is not executable at this head (attack item 1). Before a
     - The rung then replays `CalibrationTrace` at the rung's rate. `ObserveRung` reads arrivals, departures, outstanding work and its trend, failures and unresolved requests off the rows' own monotonic clock.
     - Every rung's rows and record are written as it ends. The artifact is written for an unresolved ladder too.
     - It has only been run against stub engines. A live engine is the rehearsal's job, and its readiness the paid preflight's (#594).
+    - Before the first rung it checks that the engine is A (#645). See the identity section for what that check proves.
 - **An engine path** that runs v0.32.0 with the registered settings: done. The `experimental-a10g` profile renders release `v0.32.0` on its pinned digest with either async choice (#586 and this change). What remains is showing it in the free rehearsal.
 - **The watchdog** enforces the absolute teardown deadline.
 

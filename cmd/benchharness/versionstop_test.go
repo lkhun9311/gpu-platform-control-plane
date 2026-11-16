@@ -31,7 +31,7 @@ func TestCancelledLadderLeavesAnUnresolvedArtifactNamingTheStop(t *testing.T) {
 		}
 		return bench.RungStable
 	}
-	res, err := runVersionCalibration(ctx, dir, rule, runner, probe)
+	res, err := runVersionCalibration(ctx, dir, rule, runner, probe, testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
