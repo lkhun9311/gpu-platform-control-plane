@@ -1,0 +1,70 @@
+++ date +%s
++ VR_START=1794810170
++ BUCKET=verready-gpu-007635145730
++ PREFIX=version-readiness-20261116T062045Z-645362c6
++ HARNESS_SHA=b9d9147b685b82d5c1a83a24643d329cf511324053cefffc5c99f716ad894896
++ COMMIT=d03ea72cbe0003fe1d5ae71b0efe6533867aaf98
++ trap 'upload /var/log/verready.log log.txt; shutdown -h now' EXIT
++ sleep 9930
++ mkdir -p /src/vr-run /opt/vr
++ aws s3 cp --only-show-errors s3://verready-gpu-007635145730/version-readiness-20261116T062045Z-645362c6/benchharness /opt/vr/benchharness
+++ sha256sum /opt/vr/benchharness
+++ cut '-d ' -f1
++ '[' b9d9147b685b82d5c1a83a24643d329cf511324053cefffc5c99f716ad894896 = b9d9147b685b82d5c1a83a24643d329cf511324053cefffc5c99f716ad894896 ']'
++ chmod +x /opt/vr/benchharness
++ L=
+++ date +%s
++ '[' 3 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://verready-gpu-007635145730/version-readiness-20261116T062045Z-645362c6/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-11-16T06:21:14+00:00 +%s
++ L=1794810074
++ break
+++ date +%s
++ NOW=1794810174
++ [[ 1794810074 =~ ^[0-9]+$ ]]
++ '[' 1794810074 -gt 1794810174 ']'
++ '[' 100 -gt 900 ']'
++ P1=1794810674
++ HE=1794819824
++ EV=1794819944
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+++ date +%s
+++ date +%s
++ sleep 9830
++ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
++ aws s3 cp --only-show-errors /tmp/nvidia-smi.csv s3://verready-gpu-007635145730/version-readiness-20261116T062045Z-645362c6/preflight-nvidia-smi.csv
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ wc -l
++ '[' 1 = 1 ']'
++ tail -n +2 /tmp/nvidia-smi.csv
++ grep -q A10G
++ cat
+++ date +%s
++ bringup_left=499
++ bringup_rc=124
++ '[' 499 -gt 0 ']'
++ timeout --kill-after=15 499 bash /tmp/bringup.sh
+time="2026-11-16T06:22:55Z" level=info msg="Loading config from /etc/docker/daemon.json"
+time="2026-11-16T06:22:55Z" level=info msg="Wrote updated config to /etc/docker/daemon.json"
+time="2026-11-16T06:22:55Z" level=info msg="It is recommended that docker daemon be restarted."
++ bringup_rc=0
++ echo 'bring-up exited 0'
+bring-up exited 0
++ echo commit=d03ea72cbe0003fe1d5ae71b0efe6533867aaf98
++ echo launch_time_epoch=1794810074
++ echo bringup_rc=0
++ echo harness_sha256=b9d9147b685b82d5c1a83a24643d329cf511324053cefffc5c99f716ad894896
++ cp /tmp/nvidia-smi.csv /src/vr-run/nvidia-smi.csv
++ '[' 0 = 0 ']'
++ mkdir -p /src/vr-run/readiness
+++ date +%s
+++ date +%s
++ timeout --kill-after=15 9629 /opt/vr/benchharness version-readiness -dir /src/vr-run/readiness -hf-cache /opt/vr/hf -compile-cache /opt/vr/compile
+error: stop A #1: cannot confirm container 4660b3f0d7378b8ea00450b54108a88463a5e5d7e0ff3647fa3f4ee8a7016de3 is gone: docker inspect --format={{.State.Status}} 4660b3f0d7378b8ea00450b54108a88463a5e5d7e0ff3647fa3f4ee8a7016de3: exit status 1: error: no such object: 4660b3f0d7378b8ea00450b54108a88463a5e5d7e0ff3647fa3f4ee8a7016de3
++ harness_rc=1
++ cat /src/vr-run/summary.txt
++ echo harness_rc=1
++ echo 'the readiness harness exited 1'
+the readiness harness exited 1
++ cp /var/log/verready.log /src/vr-run/instance.log
