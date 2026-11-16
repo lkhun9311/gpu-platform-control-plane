@@ -105,7 +105,7 @@ func checkBundleKeys(data []byte) error {
 
 func (b *CampaignBundle) verify(dir string) error {
 	st, ok := LookupStudy(b.Study)
-	if !ok || st.Version == nil {
+	if !ok || st.Version == nil || st.Sampling == nil {
 		return fmt.Errorf("study %q is not a version study", b.Study)
 	}
 	d := st.Version
@@ -137,14 +137,14 @@ func (b *CampaignBundle) verify(dir string) error {
 			return fmt.Errorf("image of treatment %s %q is not the registered %q", t, ref, d.Engines[t].Image)
 		}
 	}
-	if err := b.verifyCalibration(dir, d.Calibration); err != nil {
+	if err := b.verifyCalibration(dir, *d, *st.Sampling); err != nil {
 		return err
 	}
 	return b.verifyTraces(dir, d)
 }
 
 // verifyCalibration recomputes the artifact's hash from its bytes and reads λ0 back from it.
-func (b *CampaignBundle) verifyCalibration(dir string, rule CalibrationRule) error {
+func (b *CampaignBundle) verifyCalibration(dir string, d VersionStudyDesign, sampling SamplingPolicy) error {
 	data, err := os.ReadFile(filepath.Join(dir, b.CalibrationArtifact))
 	if err != nil {
 		return fmt.Errorf("calibration artifact: %w", err)
@@ -162,7 +162,7 @@ func (b *CampaignBundle) verifyCalibration(dir string, rule CalibrationRule) err
 	if art.StableRateRequestsPerSec != b.StableRateRequestsPerSec || !(b.StableRateRequestsPerSec > 0) {
 		return fmt.Errorf("λ0 %v in the bundle is not the artifact's %v", b.StableRateRequestsPerSec, art.StableRateRequestsPerSec)
 	}
-	if err := rule.VerifyCalibrationEvidence(filepath.Dir(filepath.Join(dir, b.CalibrationArtifact)), art); err != nil {
+	if err := d.VerifyCalibrationEvidence(filepath.Dir(filepath.Join(dir, b.CalibrationArtifact)), sampling, art); err != nil {
 		return fmt.Errorf("calibration artifact: %w", err)
 	}
 	return nil
@@ -449,7 +449,7 @@ func (d VersionStudyDesign) analysedBlocks(l AttemptLedger) ([]int, error) {
 // Pairing reads the identity the manifest recorded before execution, never a file name.
 func CheckVersionCampaign(b *CampaignBundle, bundleSHA string, ledger AttemptLedger, cells []RunManifest) ([]int, error) {
 	st, ok := LookupStudy(b.Study)
-	if !ok || st.Version == nil {
+	if !ok || st.Version == nil || st.Sampling == nil {
 		return nil, fmt.Errorf("study %q is not a version study", b.Study)
 	}
 	d := st.Version

@@ -1,17 +1,33 @@
 package bench
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ladderEvidence runs the registered ladder against an engine stable up to capacity, and records its rungs, lock and
 // artifact in dir as version-calibrate does, so the bundle's provenance check reads what a real ladder writes.
 func ladderEvidence(t *testing.T, dir string, capacity float64) CalibrationArtifact {
+	t.Helper()
+	return ladderEvidenceWith(t, dir, capacity, nil)
+}
+
+// ladderEvidenceWith is ladderEvidence with the rungs whose ordinals undrained names failing to start drained, as a
+// busy engine makes them.
+func ladderEvidenceWith(t *testing.T, dir string, capacity float64, undrained map[int]bool) CalibrationArtifact {
+	t.Helper()
+	return ladderEvidenceFor(t, dir, versionAsyncDesign(), capacity, undrained)
+}
+
+// ladderEvidenceFor is ladderEvidenceWith under design d's own ladder and rung traces.
+func ladderEvidenceFor(t *testing.T, dir string, d VersionStudyDesign, capacity float64, undrained map[int]bool) CalibrationArtifact {
 	t.Helper()
 	write := func(name string, data []byte) {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
@@ -19,20 +35,75 @@ func ladderEvidence(t *testing.T, dir string, capacity float64) CalibrationArtif
 		}
 	}
 	write(CalibrationLockFile, []byte("2026-11-20T00:00:00Z\n"))
-	res := versionAsyncDesign().Calibration.Run(func(rate float64, ordinal int) RungClass {
-		cls := RungStable
-		if rate > capacity {
-			cls = RungUnstable
+	res := d.Calibration.Run(func(rate float64, ordinal int) RungClass {
+		// What RungRunner.Probe reports for a rung that never started: no rows, the offered rate and the reason.
+		if undrained[ordinal] {
+			writeRungEvidence(t, dir, CalibrationRungRecord{Ordinal: ordinal, Class: RungInvalid,
+				Observation: RungObservation{OfferedRate: rate}, Error: "the engine did not report an empty queue within the drain bound"}, nil)
+			return RungInvalid
 		}
-		rec, _ := json.Marshal(CalibrationRungRecord{Ordinal: ordinal, Class: cls, Observation: RungObservation{OfferedRate: rate}})
-		write(CalibrationRungFile(ordinal), rec)
-		write(CalibrationRungRowsFile(ordinal), nil)
+		trace, err := d.CalibrationTrace(ordinal, rate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := rungRows(trace, ordinal, rate <= capacity)
+		o, err := ObserveRung(rows, rate, d.Calibration, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cls := d.Calibration.ClassifyRung(o)
+		if want := map[bool]RungClass{true: RungStable, false: RungUnstable}[rate <= capacity]; cls != want {
+			t.Fatalf("rung %d at %v req/s classifies %s, want %s from an engine stable up to %v", ordinal, rate, cls, want, capacity)
+		}
+		writeRungEvidence(t, dir, CalibrationRungRecord{Ordinal: ordinal, Class: cls, Observation: o}, rows)
 		return cls
 	})
 	art := CalibrationArtifact{Resolved: res.Resolved, StableRateRequestsPerSec: res.Rate, Reason: res.Reason, Rungs: res.Rungs}
 	data, _ := json.Marshal(art)
 	write(CalibrationArtifactFile, data)
 	return art
+}
+
+// rungRows is what replaying one rung's trace records from a conforming engine.
+//
+// A stable engine ends every request 100 ms after its intended arrival.
+// An unstable one ends it at twice its intended arrival, so the backlog grows through the window and its last arrivals
+// end after the drain deadline.
+func rungRows(trace []TraceRow, ordinal int, stable bool) []RawRow {
+	rows := make([]RawRow, 0, len(trace))
+	for _, tr := range trace {
+		in := tr.OffsetMs * int64(time.Millisecond)
+		end := in + 100*int64(time.Millisecond)
+		if !stable {
+			end = 2*in + 100*int64(time.Millisecond)
+		}
+		row := conformingRow(tr)
+		row.Arm, row.Tenant, row.IsNoisy = fmt.Sprintf("calibration-%d", ordinal), tr.Tenant, tr.IsNoisy
+		row.ScheduledOffsetMs, row.PromptLenChars, row.ExactInputTokens = tr.OffsetMs, tr.PromptLenChars, tr.ExactInputTokens
+		row.RequestID = RequestIDFor(fmt.Sprintf("cal%d", ordinal), tr.Index)
+		row.Clock = &RequestClock{IntendedNanos: &in, SendNanos: &in, TerminalNanos: &end}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+// writeRungEvidence writes one rung's record and rows as version-calibrate's OnRung does.
+func writeRungEvidence(t *testing.T, dir string, rec CalibrationRungRecord, rows []RawRow) {
+	t.Helper()
+	data, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, CalibrationRungFile(rec.Ordinal)), append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := WriteRawRows(&buf, rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, CalibrationRungRowsFile(rec.Ordinal)), buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // campaignDir is a new directory holding a calibration artifact, and the inputs a session would have read by then.
