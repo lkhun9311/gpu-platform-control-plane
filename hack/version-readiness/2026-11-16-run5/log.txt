@@ -1,0 +1,245 @@
+++ date +%s
++ VR_START=1794827425
++ BUCKET=verready-gpu-007635145730
++ PREFIX=version-readiness-20261116T110818Z-e78b920f
++ HARNESS_SHA=2768b744f27b51e88fcbeb23a5bda983334f24272cb9d1ac14d78e070822668e
++ COMMIT=197e7362872f27923adddf97ccd7652ccc99e34a
++ trap 'upload /var/log/verready.log log.txt; shutdown -h now' EXIT
++ mkdir -p /src/vr-run /opt/vr
++ sleep 9930
++ aws s3 cp --only-show-errors s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/benchharness /opt/vr/benchharness
+++ sha256sum /opt/vr/benchharness
+++ cut '-d ' -f1
++ '[' 2768b744f27b51e88fcbeb23a5bda983334f24272cb9d1ac14d78e070822668e = 2768b744f27b51e88fcbeb23a5bda983334f24272cb9d1ac14d78e070822668e ']'
++ chmod +x /opt/vr/benchharness
++ L=
+++ date +%s
++ '[' 2 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-11-16T11:08:47+00:00 +%s
++ L=1794827327
++ break
+++ date +%s
++ NOW=1794827428
++ [[ 1794827327 =~ ^[0-9]+$ ]]
++ '[' 1794827327 -gt 1794827428 ']'
++ '[' 101 -gt 900 ']'
++ P1=1794827927
++ HE=1794837077
++ EV=1794837197
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+++ date +%s
+++ date +%s
++ sleep 9829
++ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
++ aws s3 cp --only-show-errors /tmp/nvidia-smi.csv s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/preflight-nvidia-smi.csv
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ wc -l
++ '[' 1 = 1 ']'
++ tail -n +2 /tmp/nvidia-smi.csv
++ grep -q A10G
++ cat
+++ date +%s
++ bringup_left=498
++ bringup_rc=124
++ '[' 498 -gt 0 ']'
++ timeout --kill-after=15 498 bash /tmp/bringup.sh
+time="2026-11-16T11:10:29Z" level=info msg="Loading config from /etc/docker/daemon.json"
+time="2026-11-16T11:10:29Z" level=info msg="Wrote updated config to /etc/docker/daemon.json"
+time="2026-11-16T11:10:29Z" level=info msg="It is recommended that docker daemon be restarted."
++ bringup_rc=0
++ echo 'bring-up exited 0'
+bring-up exited 0
++ echo commit=197e7362872f27923adddf97ccd7652ccc99e34a
++ echo launch_time_epoch=1794827327
++ echo bringup_rc=0
++ echo harness_sha256=2768b744f27b51e88fcbeb23a5bda983334f24272cb9d1ac14d78e070822668e
++ cp /tmp/nvidia-smi.csv /src/vr-run/nvidia-smi.csv
++ '[' 0 = 0 ']'
++ mkdir -p /src/vr-run/readiness
++ sync_pid=1854
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
+++ date +%s
+++ date +%s
++ timeout --kill-after=15 9628 /opt/vr/benchharness version-readiness -dir /src/vr-run/readiness -hf-cache /opt/vr/hf -compile-cache /opt/vr/compile
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
++ sleep 30
++ :
++ tar -czf /tmp/partial.tgz -C /src/vr-run readiness
++ aws s3 cp --only-show-errors /tmp/partial.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/partial.tgz
+error: model-download vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967: docker run --rm --name=readiness-model-download-8dd37a2b175f6f3d --volume=/opt/vr/hf:/root/.cache/huggingface --entrypoint=python3 vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967 -c from huggingface_hub import snapshot_download; print(snapshot_download(repo_id="Qwen/Qwen2.5-3B-Instruct", revision="aa8e72537993ba99e69dfaafa59ed015b17504d1")): signal: killed: Fetching 12 files:   0%|          | 0/12 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 12 files:   8%|▊         | 1/12 [00:01<00:13,  1.19s/it]Fetching 12 files:  42%|████▏     | 5/12 [00:01<00:01,  4.67it/s]Fetching 12 files:  83%|████████▎ | 10/12 [00:01<00:00, 10.30it/s]Fetching 12 files:  83%|████████▎ | 10/12 [00:20<00:00, 10.30it/s]Fetching 12 files:  92%|█████████▏| 11/12 [00:33<00:04,  4.80s/it]
++ harness_rc=1
++ kill 1854
++ cp /var/log/verready-sync.log /src/vr-run/sync.log
++ cat /src/vr-run/summary.txt
++ echo harness_rc=1
++ echo 'the readiness harness exited 1'
+the readiness harness exited 1
++ cp /var/log/verready.log /src/vr-run/instance.log
+++ date +%s
++ left=8532
++ '[' 8532 -gt 5 ']'
++ tar -czf /tmp/evidence.tgz -C /src vr-run
++ timeout 8532 aws s3 cp --only-show-errors /tmp/evidence.tgz s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/evidence.tgz
++ upload /var/log/verready.log log.txt
++ aws s3 cp --only-show-errors /var/log/verready.log s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/log.txt
++ echo e78b920f
++ upload /tmp/DONE DONE
++ aws s3 cp --only-show-errors /tmp/DONE s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/DONE
++ upload /var/log/verready.log log.txt
++ aws s3 cp --only-show-errors /var/log/verready.log s3://verready-gpu-007635145730/version-readiness-20261116T110818Z-e78b920f/log.txt

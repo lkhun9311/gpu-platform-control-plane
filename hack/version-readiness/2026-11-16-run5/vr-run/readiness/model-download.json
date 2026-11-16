@@ -1,0 +1,8 @@
+{
+  "step": "model-download",
+  "image": "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+  "startedAt": "2026-11-16T11:26:04.635478367Z",
+  "endedAt": "2026-11-16T11:31:05.370878975Z",
+  "seconds": 300.735400598,
+  "error": "docker run --rm --name=readiness-model-download-8dd37a2b175f6f3d --volume=/opt/vr/hf:/root/.cache/huggingface --entrypoint=python3 vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967 -c from huggingface_hub import snapshot_download; print(snapshot_download(repo_id=\"Qwen/Qwen2.5-3B-Instruct\", revision=\"aa8e72537993ba99e69dfaafa59ed015b17504d1\")): signal: killed: Fetching 12 files:   0%|          | 0/12 [00:00\u003c?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n\rFetching 12 files:   8%|▊         | 1/12 [00:01\u003c00:13,  1.19s/it]\rFetching 12 files:  42%|████▏     | 5/12 [00:01\u003c00:01,  4.67it/s]\rFetching 12 files:  83%|████████▎ | 10/12 [00:01\u003c00:00, 10.30it/s]\rFetching 12 files:  83%|████████▎ | 10/12 [00:20\u003c00:00, 10.30it/s]\rFetching 12 files:  92%|█████████▏| 11/12 [00:33\u003c00:04,  4.80s/it]"
+}
