@@ -1,0 +1,71 @@
+== the engine-readiness preflight for vllm-version-async-2026-11-15, from 73c5fdc6f975fce2ee9714c8317a23b6feb9b0f0, into hack/version-readiness-20261116T065448Z
+== hard stop 9930 s after LaunchTime; worst case 10230 s at $0.9324/h
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $0.90/h in: ap-northeast-2a ap-northeast-2c ap-northeast-2d (ap-northeast-2d	0.606500 ap-northeast-2a	0.606700 ap-northeast-2c	0.619800)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 648 minutes
+== building the harness from 73c5fdc6f975fce2ee9714c8317a23b6feb9b0f0
+== before the purchase: credentials expire in 648 minutes
+== launching g5.xlarge Spot (max $0.90/h compute, $0.9324/h all in), study-deadline 2026-11-16T09:39:40Z -- the instance bills from here
+== launched i-0818846dc8ed2a021 in ap-northeast-2a
+== LaunchTime 2026-11-16T06:55:13+00:00; the sweeper's deadline moved to 2026-11-16T09:40:13Z
+== the wait ended with status 2 (shutting-down)
+== waiting up to 8812s for EC2 to report the instance terminated
+== terminating i-0818846dc8ed2a021
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is shutting-down
+== i-0818846dc8ed2a021 is terminated
+== evidence missing (summary at hack/version-readiness-20261116T065448Z/vr-run/readiness/summary.json); termination confirmed
