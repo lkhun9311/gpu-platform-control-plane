@@ -16,19 +16,19 @@
 # THE CLOCK. Every deadline counts from EC2's LaunchTime, read right after the launch and written to the run's S3
 # prefix for the instance to read. The work is bounded step by step, and the deadlines are their sum:
 #   bring-up (boot, cloud-init, harness download, toolkit)        600 s  -> 600
-#   two image pulls, ReadinessPullBound each           2 x 600 = 1,200 s
+#   two image pulls, ReadinessPullBound each         2 x 1,500 = 3,000 s
 #   model download, ReadinessModelBound                            300 s
 #   nine starts: readiness bound, ReadinessCaptureBound, ReadinessStopBound
 #                                               9 x (600 + 20 + 30) = 5,850 s
-#   so the harness ends by 600 + 1,200 + 300 + 5,850             = 7,950 s
-#   evidence upload                                                120 s  -> 8,070
-# The launch carries the termination sweeper's study-deadline tag at the request plus 8,070 s, rewritten to LaunchTime
-# plus 8,100 s once LaunchTime is known; the instance shuts itself down at 8,130 s; the termination is to be
-# confirmed by 8,430 s, the sweeper's five-minute period after its tag plus 30 s.
+#   so the harness ends by 600 + 3,000 + 300 + 5,850             = 9,750 s
+#   evidence upload                                                120 s  -> 9,870
+# The launch carries the termination sweeper's study-deadline tag at the request plus 9,870 s, rewritten to LaunchTime
+# plus 9,900 s once LaunchTime is known; the instance shuts itself down at 9,930 s; the termination is to be
+# confirmed by 10,230 s, the sweeper's five-minute period after its tag plus 30 s.
 #
-# THE COST. The worst case bills to the termination deadline: 8,430 s = 2.3417 h.
-# At the on-demand $1.237/h, which is also the Spot cap below, that is $2.897 of compute; with the $0.0324/h of 200 GB
-# gp3 and a public IPv4 the other sessions add (hack/gpu-fault-session.sh), $1.2694/h all in, it is $2.973, under $3.
+# THE COST. The worst case bills to the termination deadline: 10,230 s = 2.8417 h.
+# At the $0.90/h Spot cap below that is $2.558 of compute; with the $0.0324/h of 200 GB gp3 and a public IPv4 the other
+# sessions add (hack/gpu-fault-session.sh), $0.9324/h all in, it is $2.650, under $3.
 # The script refuses to run if the constants below stop giving a worst case under $3.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the bounds and the stop are constants, and a caller who
@@ -40,10 +40,11 @@ REGION=ap-northeast-2
 ACCOUNT_WANT=007635145730
 # The study's instance type (spec, "The question").
 INSTANCE_TYPE_FIXED=g5.xlarge
-# The Spot cap is the on-demand price the study recorded on 2026-10-22, so the compute never costs more than on-demand.
-MAX_PRICE_FIXED=1.237
+# The Spot cap is below the $1.237/h on-demand price, so the longer pulls still fit $3; g5.xlarge Spot was $0.61/h in
+# ap-northeast-2 on 2026-11-16, and a zone above the cap is not used.
+MAX_PRICE_FIXED=0.90
 # The cap plus 200 GB gp3 and a public IPv4, the $0.0324/h hack/gpu-fault-session.sh adds to its own cap.
-ALL_IN_RATE=1.2694
+ALL_IN_RATE=0.9324
 COST_CAP_USD=3.00
 STUDY_ID=vllm-version-async-2026-11-15
 STACK=verready-gpu
@@ -51,7 +52,7 @@ PURPOSE=version-readiness
 # The step bounds, each the harness's own constant (internal/bench/version_readiness.go and the design's readiness bound).
 # hack/version-readiness-session-test.sh holds these equal to the Go source, so the stop cannot drift from the work.
 BRINGUP_S=600
-PULL_BOUND_S=600
+PULL_BOUND_S=1500
 PULLS=2
 MODEL_BOUND_S=300
 READINESS_BOUND_S=600

@@ -36,6 +36,8 @@ type readinessFake struct {
 	// downloadErr fails the model download as a deadline would, leaving its container behind until it is removed.
 	downloadErr error
 	removed     []string
+	// pullErr fails the first pull after it printed some layers, as a pull cut by its bound does.
+	pullErr error
 }
 
 func (f *readinessFake) run(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -46,6 +48,9 @@ func (f *readinessFake) run(_ context.Context, name string, args ...string) ([]b
 	case args[0] == "image" && args[1] == "inspect":
 		return nil, errors.New("Error: No such image: " + args[len(args)-1])
 	case args[0] == "pull":
+		if f.pullErr != nil {
+			return []byte("a1b2: Pull complete\nc3d4: Downloading\n"), f.pullErr
+		}
 		return []byte("pulled\n"), nil
 	case args[0] == "run" && args[1] == "--rm":
 		if f.downloadErr != nil {
@@ -415,6 +420,23 @@ func TestReadinessAWriteFailureEndsTheRunAndStillRemovesTheContainer(t *testing.
 	}
 	if _, err := os.Stat(filepath.Join(r.Out, "summary.json")); !os.IsNotExist(err) {
 		t.Fatalf("a summary was written after a lost record: %v", err)
+	}
+}
+
+// TestReadinessKeepsTheOutputOfAPullItsBoundCut: a pull that ran out of time must show how far it got.
+func TestReadinessKeepsTheOutputOfAPullItsBoundCut(t *testing.T) {
+	f := &readinessFake{pullErr: errors.New("signal: killed")}
+	r := readinessRun(t, f, 5)
+	if _, err := r.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "pull") {
+		t.Fatalf("err %v, want the failed pull", err)
+	}
+	data, err := os.ReadFile(filepath.Join(r.Out, "pull-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec StepRecord
+	if err := json.Unmarshal(data, &rec); err != nil || rec.Error == "" || !strings.Contains(rec.Output, "a1b2: Pull complete") {
+		t.Fatalf("pull record %+v err %v, want the error and the layers it reached", rec, err)
 	}
 }
 

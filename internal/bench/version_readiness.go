@@ -27,8 +27,10 @@ import (
 //
 // hack/version-readiness-session.sh sizes the instance's hard stop from these, so changing one changes the session's cost.
 const (
-	// ReadinessPullBound bounds one image pull; a vLLM image is about 10 GB, which Docker Hub serves well inside it.
-	ReadinessPullBound = 600 * time.Second
+	// ReadinessPullBound bounds one image pull.
+	// Each registered image is about 9.1 GB compressed in 33 to 40 layers; on 2026-11-16 A's pull on g5.xlarge was
+	// still running when a 600 s bound killed it, so this allows 6 MB/s with extraction.
+	ReadinessPullBound = 1500 * time.Second
 	// ReadinessModelBound bounds the model download into the persistent cache; the weights are about 6 GB, so it needs 21 MB/s.
 	ReadinessModelBound = 300 * time.Second
 	// ReadinessCaptureBound bounds saving one ready engine's identity endpoints, all of them together.
@@ -58,6 +60,8 @@ type StepRecord struct {
 	// Seconds is EndedAt minus StartedAt on the monotonic clock.
 	Seconds float64 `json:"seconds"`
 	Error   string  `json:"error,omitempty"`
+	// Output is what the step's command printed, kept even when it failed, so a slow pull shows which layers it reached.
+	Output string `json:"output,omitempty"`
 }
 
 // PrimingRecord is one priming request of a start.
@@ -309,10 +313,15 @@ func (r *ReadinessRun) pull(ctx context.Context, image string) (StepRecord, erro
 	}
 	pctx, cancel := context.WithTimeout(ctx, ReadinessPullBound)
 	defer cancel()
-	return r.timed(StepRecord{Step: "pull", Image: image}, func() error {
-		_, err := r.Engine.Run(pctx, "docker", "pull", "--quiet", image)
+	rec := StepRecord{Step: "pull", Image: image}
+	var out []byte
+	rec, err := r.timed(rec, func() error {
+		var err error
+		out, err = r.Engine.Run(pctx, "docker", "pull", image)
 		return err
 	})
+	rec.Output = string(out)
+	return rec, err
 }
 
 // downloadModel fills the persistent model cache with the registered revision, inside image so no tool is installed on the host.
