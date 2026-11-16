@@ -13,7 +13,17 @@ import (
 )
 
 // fixtureStableRate is λ0 in the campaign fixtures; at 0.6 λ0 six blocks offer 6 x 1.2 x 300 = 2,160 measured requests.
-const fixtureStableRate = 2.0
+var fixtureStableRate = fixtureLadderRate()
+
+// fixtureLadderRate is the λ0 the registered ladder resolves against an engine stable up to 2 req/s.
+func fixtureLadderRate() float64 {
+	return versionAsyncDesign().Calibration.Run(func(rate float64, _ int) RungClass {
+		if rate > 2.0 {
+			return RungUnstable
+		}
+		return RungStable
+	}).Rate
+}
 
 // fixtureTrace writes evenly spaced rows cycling through the six length classes, offset by the block so traces differ.
 func fixtureTrace(t *testing.T, path string, block int, load string, windowSeconds int) string {
@@ -49,8 +59,9 @@ func writeBundle(t *testing.T, mutate func(b *CampaignBundle, dir string)) (stri
 	t.Helper()
 	dir := t.TempDir()
 	d := frozenVersionDesignFixture()
-	art, _ := json.Marshal(CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: fixtureStableRate})
-	if err := os.WriteFile(filepath.Join(dir, "calibration.json"), art, 0o600); err != nil {
+	ladderEvidence(t, dir, 2.0)
+	art, err := os.ReadFile(filepath.Join(dir, CalibrationArtifactFile))
+	if err != nil {
 		t.Fatal(err)
 	}
 	b := &CampaignBundle{

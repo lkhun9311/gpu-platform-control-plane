@@ -260,6 +260,7 @@ Engine-caused failures, crashes and missed readiness deadlines are **outcomes**,
 Written after calibration and trace generation, before block 1 (`CampaignBundle`, `LoadCampaignBundle`):
 - campaign ID; model, model revision, tokenizer revision, chat template, each compared with the registration;
 - λ0, and the calibration artifact's path and sha256, recomputed from the artifact's bytes, which must say resolved and the same λ0;
+  - the artifact must also be the ladder's own output (#636). The lock is present, every listed rung has its record and rows with the same ordinal, rate and class, and the registered ladder run again on the recorded classes reaches the same outcome and λ0 (`CalibrationRule.VerifyCalibrationEvidence`);
 - W, recomputed from the traces;
 - the instance price, its source and read time, and other charges per hour;
 - each treatment's digest-pinned image, compared with the registration;

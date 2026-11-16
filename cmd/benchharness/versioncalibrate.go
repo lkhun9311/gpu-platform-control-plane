@@ -16,8 +16,7 @@ import (
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
 )
 
-// calibrationArtifactFile is the artifact version-bundle reads λ0 from, inside the campaign directory.
-const calibrationArtifactFile = "calibration.json"
+const calibrationArtifactFile = bench.CalibrationArtifactFile
 
 // versionCalibrate runs the registered ladder against treatment A's engine and writes the calibration artifact.
 //
@@ -75,14 +74,6 @@ func versionCalibrate(args []string, out io.Writer) error {
 	return err
 }
 
-// rungRecord is one rung's evidence file: its observation, class and any reason it could not measure the engine.
-type rungRecord struct {
-	Ordinal     int                   `json:"ordinal"`
-	Class       bench.RungClass       `json:"class"`
-	Observation bench.RungObservation `json:"observation"`
-	Error       string                `json:"error,omitempty"`
-}
-
 // runVersionCalibration runs the ladder with probe, writes every rung's evidence as it ends, and writes the artifact last.
 //
 // The artifact is written for an unresolved ladder too, because "calibration unresolved, stop" is a registered outcome and must be on record.
@@ -93,13 +84,13 @@ func runVersionCalibration(ctx context.Context, dir string, rule bench.Calibrati
 	}
 	var writeErr error
 	runner.OnRung = func(ordinal int, rows []bench.RawRow, o bench.RungObservation, cls bench.RungClass, err error) {
-		rec := rungRecord{Ordinal: ordinal, Class: cls, Observation: o}
+		rec := bench.CalibrationRungRecord{Ordinal: ordinal, Class: cls, Observation: o}
 		if err != nil {
 			rec.Error = err.Error()
 		}
 		data, mErr := json.MarshalIndent(rec, "", "  ")
 		if mErr == nil {
-			mErr = writeNew(filepath.Join(dir, fmt.Sprintf("calibration-rung-%d.json", ordinal)), append(data, '\n'))
+			mErr = writeNew(filepath.Join(dir, bench.CalibrationRungFile(ordinal)), append(data, '\n'))
 		}
 		var buf bytes.Buffer
 		for _, r := range rows {
@@ -111,7 +102,7 @@ func runVersionCalibration(ctx context.Context, dir string, rule bench.Calibrati
 			buf.Write(append(line, '\n'))
 		}
 		if mErr == nil {
-			mErr = writeNew(filepath.Join(dir, fmt.Sprintf("calibration-rung-%d.jsonl", ordinal)), buf.Bytes())
+			mErr = writeNew(filepath.Join(dir, bench.CalibrationRungRowsFile(ordinal)), buf.Bytes())
 		}
 		writeErr = errors.Join(writeErr, mErr)
 	}
@@ -140,8 +131,7 @@ func writeNew(path string, data []byte) error {
 	return bench.WriteNewFileDurably(path, data)
 }
 
-// calibrationLockFile reserves a campaign directory for one calibration; it stays as the record that the campaign was calibrated.
-const calibrationLockFile = "calibration.lock"
+const calibrationLockFile = bench.CalibrationLockFile
 
 // reserveCalibration refuses a directory that is missing or already holds calibration evidence, then reserves it atomically.
 //

@@ -137,14 +137,14 @@ func (b *CampaignBundle) verify(dir string) error {
 			return fmt.Errorf("image of treatment %s %q is not the registered %q", t, ref, d.Engines[t].Image)
 		}
 	}
-	if err := b.verifyCalibration(dir); err != nil {
+	if err := b.verifyCalibration(dir, d.Calibration); err != nil {
 		return err
 	}
 	return b.verifyTraces(dir, d)
 }
 
 // verifyCalibration recomputes the artifact's hash from its bytes and reads λ0 back from it.
-func (b *CampaignBundle) verifyCalibration(dir string) error {
+func (b *CampaignBundle) verifyCalibration(dir string, rule CalibrationRule) error {
 	data, err := os.ReadFile(filepath.Join(dir, b.CalibrationArtifact))
 	if err != nil {
 		return fmt.Errorf("calibration artifact: %w", err)
@@ -161,6 +161,9 @@ func (b *CampaignBundle) verifyCalibration(dir string) error {
 	}
 	if art.StableRateRequestsPerSec != b.StableRateRequestsPerSec || !(b.StableRateRequestsPerSec > 0) {
 		return fmt.Errorf("λ0 %v in the bundle is not the artifact's %v", b.StableRateRequestsPerSec, art.StableRateRequestsPerSec)
+	}
+	if err := rule.VerifyCalibrationEvidence(filepath.Dir(filepath.Join(dir, b.CalibrationArtifact)), art); err != nil {
+		return fmt.Errorf("calibration artifact: %w", err)
 	}
 	return nil
 }
