@@ -330,7 +330,8 @@ func (r *ReadinessRun) downloadModel(ctx context.Context, image string) (StepRec
 	defer cancel()
 	script := fmt.Sprintf("from huggingface_hub import snapshot_download; print(snapshot_download(repo_id=%q, revision=%q))",
 		r.Design.Model, r.Design.ModelRevision)
-	name := r.Engine.NamePrefix + "-model-download"
+	// A fresh token per attempt, so a failed run can only ever remove the container it created itself.
+	name := r.Engine.NamePrefix + "-model-download-" + r.Engine.token()
 	return r.timed(StepRecord{Step: "model-download", Image: image}, func() error {
 		_, err := r.Engine.Run(mctx, "docker", "run", "--rm", "--name="+name,
 			"--volume="+r.Engine.HFCache+":/root/.cache/huggingface",

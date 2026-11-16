@@ -447,7 +447,7 @@ func TestReadinessRemovesAModelDownloadItsDeadlineCut(t *testing.T) {
 	if _, err := r.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "model-download") {
 		t.Fatalf("err %v, want the failed download", err)
 	}
-	if len(f.running) != 0 || len(f.removed) != 1 || f.removed[0] != "readiness-model-download" || f.starts != 0 {
+	if len(f.running) != 0 || len(f.removed) != 1 || !strings.HasPrefix(f.removed[0], "readiness-model-download-") || f.starts != 0 {
 		t.Fatalf("running %v, removed %v after %d start(s); want the download container removed and no engine started", f.running, f.removed, f.starts)
 	}
 }
