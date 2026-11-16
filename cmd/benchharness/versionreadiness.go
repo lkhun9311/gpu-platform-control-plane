@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,6 +33,13 @@ func versionReadiness(args []string, out io.Writer) error {
 	}
 	if *dir == "" || *hfCache == "" || *compileCache == "" {
 		return errors.New("-dir, -hf-cache and -compile-cache are required")
+	}
+	// Docker reads a bare name as a named volume and refuses a relative bind source, so a relative cache path would be
+	// checked here in one place and mounted from another.
+	for _, p := range []string{*hfCache, *compileCache} {
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf("cache path %q is not absolute", p)
+		}
 	}
 	st, ok := bench.LookupStudy(bench.StudyVersionAsync)
 	if !ok || st.Version == nil || st.Sampling == nil {

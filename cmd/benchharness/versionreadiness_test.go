@@ -25,6 +25,9 @@ func TestVersionReadinessRefusesBeforeDocker(t *testing.T) {
 	}{
 		"no flags":       {nil, "are required"},
 		"a used out dir": {[]string{"-dir", used, "-hf-cache", filepath.Join(root, "hf"), "-compile-cache", filepath.Join(root, "cc")}, "out directory"},
+		// The out dir is fresh, so only the relative path can be refused, and that happens before any docker call.
+		"a relative model cache":   {[]string{"-dir", filepath.Join(root, "fresh1"), "-hf-cache", "hf", "-compile-cache", filepath.Join(root, "cc")}, "not absolute"},
+		"a relative compile cache": {[]string{"-dir", filepath.Join(root, "fresh2"), "-hf-cache", filepath.Join(root, "hf"), "-compile-cache", "cache/cc"}, "not absolute"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := versionReadiness(c.args, io.Discard)
