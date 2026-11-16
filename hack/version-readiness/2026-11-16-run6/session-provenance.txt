@@ -1,0 +1,12 @@
+commit=9bfc9f304e1a4fe5497c06c772f1ebedeb841b18
+study=vllm-version-async-2026-11-15
+ami_id=ami-097edab977037f65f
+ami_name=Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+instance_type=g5.xlarge
+max_spot_price=0.90
+all_in_rate=0.9324
+harness_sha256=62f8af6e9666917411e1da46fc4a89733201028b60378944627069339e0f0b0a
+harness_end_from_launch_s=10350
+stop_from_launch_s=10530
+termination_from_launch_s=10830
+run_id=version-readiness-20261116T113719Z-3c96b21f

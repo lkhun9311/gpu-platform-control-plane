@@ -1,0 +1,131 @@
+{
+  "treatment": "A",
+  "ordinal": 3,
+  "image": "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+  "compileCacheWarmedBy": [
+    "A"
+  ],
+  "containerID": "5bc32c49ffaaaca1815fa84cd73af202a6610b0e7dc4339ce3f89098b77685f3",
+  "runArgs": [
+    "run",
+    "--detach",
+    "--name=readiness-ready-A-3",
+    "--gpus=all",
+    "--shm-size=1g",
+    "--env=VLLM_SERVER_DEV_MODE=1",
+    "--publish=127.0.0.1:8000:8000",
+    "--volume=/opt/vr/hf:/root/.cache/huggingface",
+    "--volume=/opt/vr/compile/0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967:/root/.cache/vllm",
+    "--label=study=readiness",
+    "--label=platform.lkhun9311.github.io/attempt=6d38a0db8429213c",
+    "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+    "Qwen/Qwen2.5-3B-Instruct",
+    "--dtype=half",
+    "--max-model-len=16384",
+    "--max-num-seqs=64",
+    "--gpu-memory-utilization=0.90",
+    "--no-enable-prefix-caching",
+    "--max-num-batched-tokens=512",
+    "--scheduling-policy=priority",
+    "--no-async-scheduling",
+    "--port=8000",
+    "--served-model-name=Qwen/Qwen2.5-3B-Instruct",
+    "--revision=aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "--tokenizer-revision=aa8e72537993ba99e69dfaafa59ed015b17504d1"
+  ],
+  "boundSeconds": 600,
+  "dockerRunAt": "2026-11-16T12:03:18.515048953Z",
+  "containerStartedSeconds": 0.415130682,
+  "healthSeconds": 86.332077114,
+  "priming": [
+    {
+      "inputTokens": 256,
+      "outputTokens": 64,
+      "sentAt": "2026-11-16T12:04:44.847150108Z",
+      "answeredAt": "2026-11-16T12:04:45.940618822Z",
+      "answeredSeconds": 87.425569949,
+      "disposition": "success"
+    },
+    {
+      "inputTokens": 256,
+      "outputTokens": 256,
+      "sentAt": "2026-11-16T12:04:45.940621922Z",
+      "answeredAt": "2026-11-16T12:04:50.072452738Z",
+      "answeredSeconds": 91.557403775,
+      "disposition": "success"
+    },
+    {
+      "inputTokens": 1024,
+      "outputTokens": 64,
+      "sentAt": "2026-11-16T12:04:50.072456408Z",
+      "answeredAt": "2026-11-16T12:04:51.209189068Z",
+      "answeredSeconds": 92.694140195,
+      "disposition": "success"
+    },
+    {
+      "inputTokens": 1024,
+      "outputTokens": 256,
+      "sentAt": "2026-11-16T12:04:51.209194228Z",
+      "answeredAt": "2026-11-16T12:04:55.417424427Z",
+      "answeredSeconds": 96.902375454,
+      "disposition": "success"
+    },
+    {
+      "inputTokens": 2048,
+      "outputTokens": 64,
+      "sentAt": "2026-11-16T12:04:55.417426947Z",
+      "answeredAt": "2026-11-16T12:04:56.694507398Z",
+      "answeredSeconds": 98.179458475,
+      "disposition": "success"
+    },
+    {
+      "inputTokens": 2048,
+      "outputTokens": 256,
+      "sentAt": "2026-11-16T12:04:56.694512398Z",
+      "answeredAt": "2026-11-16T12:05:01.074314987Z",
+      "answeredSeconds": 102.559266014,
+      "disposition": "success"
+    }
+  ],
+  "readySeconds": 102.559266014,
+  "outcome": "ready",
+  "logFile": "start-A-3.engine.log",
+  "capture": [
+    {
+      "name": "version",
+      "method": "GET",
+      "path": "/version",
+      "file": "start-A-3.capture.version",
+      "status": 200
+    },
+    {
+      "name": "models",
+      "method": "GET",
+      "path": "/v1/models",
+      "file": "start-A-3.capture.models",
+      "status": 200
+    },
+    {
+      "name": "server-info",
+      "method": "GET",
+      "path": "/server_info?config_format=json",
+      "file": "start-A-3.capture.server-info",
+      "status": 200
+    },
+    {
+      "name": "metrics",
+      "method": "GET",
+      "path": "/metrics",
+      "file": "start-A-3.capture.metrics",
+      "status": 200
+    },
+    {
+      "name": "tokenize",
+      "method": "POST",
+      "path": "/tokenize",
+      "requestFile": "start-A-3.capture.tokenize.request",
+      "file": "start-A-3.capture.tokenize",
+      "status": 200
+    }
+  ]
+}

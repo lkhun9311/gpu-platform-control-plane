@@ -1,0 +1,1 @@
+Spot instance i-08b21847790ca39cd reclaimed by EC2 at 2026-11-16T08:17:16Z (Server.SpotInstanceTermination), 18 min after LaunchTime, during the image pulls; no start record existed to upload

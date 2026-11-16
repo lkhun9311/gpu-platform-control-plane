@@ -1,0 +1,6 @@
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "version-readiness-20261116T065448Z-0a0564b0/evidence.tgz" does not exist
+not downloaded: evidence.tgz
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "version-readiness-20261116T065448Z-0a0564b0/log.txt" does not exist
+not downloaded: log.txt
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "version-readiness-20261116T065448Z-0a0564b0/DONE" does not exist
+not downloaded: DONE

@@ -1,0 +1,1 @@
+{"add_generation_prompt":true,"add_special_tokens":false,"messages":[{"content":"Identity check: reply with the word ready.","role":"user"}],"model":"Qwen/Qwen2.5-3B-Instruct"}

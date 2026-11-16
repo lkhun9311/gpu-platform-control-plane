@@ -50,6 +50,11 @@ type EngineStart struct {
 //
 // The container gets the GPU, a 1 GiB /dev/shm as the controller gives a Pod (the engine's ring buffer outgrows the
 // default 64 MiB), the shared model cache, its image's own compile cache, and a port published on loopback only.
+//
+// Every treatment runs with DevModeEnv, because in v0.27.1 and v0.32.0 only that mode serves /server_info, the one
+// full dump of the engine's effective config, and runtime identity must be read from the engine itself.
+// Dev mode also opens control endpoints, which is one more reason the port stays on loopback.
+// It is set in every container identically, so it is never a difference between treatments.
 func (e *DockerEngine) RunArgs(d VersionStudyDesign, treatment, visit string) ([]string, error) {
 	s, ok := d.Engines[treatment]
 	if !ok {
@@ -78,12 +83,13 @@ func (e *DockerEngine) RunArgs(d VersionStudyDesign, treatment, visit string) ([
 	command := engineargs.Command(profile, engineargs.Deployment{
 		Model: d.Model, Port: e.Port, ServedName: e.ServedName, Revision: d.ModelRevision,
 	})
-	args := make([]string, 0, 10+len(command))
+	args := make([]string, 0, 11+len(command))
 	args = append(args,
 		"run", "--detach",
 		"--name="+e.NamePrefix+"-"+visit,
 		"--gpus=all",
 		"--shm-size=1g",
+		"--env="+DevModeEnv,
 		fmt.Sprintf("--publish=127.0.0.1:%d:%d", e.Port, e.Port),
 		"--volume="+e.HFCache+":/root/.cache/huggingface",
 		"--volume="+filepath.Join(e.CompileCacheRoot, digest)+":/root/.cache/vllm",
@@ -92,6 +98,9 @@ func (e *DockerEngine) RunArgs(d VersionStudyDesign, treatment, visit string) ([
 	)
 	return append(args, command...), nil
 }
+
+// DevModeEnv is the environment setting under which vLLM serves /server_info.
+const DevModeEnv = "VLLM_SERVER_DEV_MODE=1"
 
 // attemptLabel marks the container one start attempt created, so cleanup removes that container and never another of the same name.
 const attemptLabel = "platform.lkhun9311.github.io/attempt"
@@ -195,7 +204,10 @@ func (e *DockerEngine) confirmGone(ctx context.Context, ref string) error {
 // dockerNotFound reads Docker's answer for an object that does not exist.
 //
 // A CommandRunner must put the command's standard error into its error, which is where Docker writes this.
+//
+// The case varies by Docker version: 29.9.1 prints "error: no such object" where earlier releases print "No such object",
+// and a case-sensitive match stopped the 2026-11-16 readiness run on a container that was already gone.
 func dockerNotFound(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "No such object") || strings.Contains(msg, "No such container")
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such object") || strings.Contains(msg, "no such container") || strings.Contains(msg, "no such image")
 }

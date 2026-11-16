@@ -1,0 +1,6 @@
+pull vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967: 576.2 s
+pull vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34: 282.2 s
+model download: 104.9 s
+A: first 350.2 s (ready, compile cache warmed by []), warm 2 of 2 ready, max 102.6 s, median 99.7 s, missed 0, failed 0
+B: first 124.5 s (ready, compile cache warmed by []), warm 2 of 2 ready, max 67.8 s, median 67.1 s, missed 0, failed 0
+C: first 87.9 s (ready, compile cache warmed by [B]), warm 2 of 2 ready, max 64.1 s, median 63.8 s, missed 0, failed 0

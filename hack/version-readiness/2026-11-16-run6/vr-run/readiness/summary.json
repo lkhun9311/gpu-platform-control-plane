@@ -1,0 +1,70 @@
+{
+  "study": "vllm-version-async-2026-11-15",
+  "boundSeconds": 600,
+  "pulls": [
+    {
+      "step": "pull",
+      "image": "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+      "startedAt": "2026-11-16T11:39:41.123939608Z",
+      "endedAt": "2026-11-16T11:49:17.314784195Z",
+      "seconds": 576.190844587,
+      "output": "docker.io/vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967: Pulling from vllm/vllm-openai\nad1c5b0fecaa: Pulling fs layer\n0e0a2c237a99: Pulling fs layer\n6eec3cf3dc0e: Pulling fs layer\n31e49ca9b3e8: Pulling fs layer\n0f06d63f7039: Pulling fs layer\n526d5438c009: Pulling fs layer\n4e0787240e0b: Pulling fs layer\n3853a3546589: Pulling fs layer\n4537d3812f07: Pulling fs layer\n82abebf60fd2: Pulling fs layer\n7d15c050ce23: Pulling fs layer\n40cfbc8353ce: Pulling fs layer\ncfa3281e361c: Pulling fs layer\n9a54fb40f516: Pulling fs layer\nb3f2dd9b848e: Pulling fs layer\n7ba728a81571: Pulling fs layer\n804b1fac5e76: Pulling fs layer\nf402ba9d482d: Pulling fs layer\nf3a6e7f63c37: Pulling fs layer\ne4e7841dff3e: Pulling fs layer\n4f4fb700ef54: Pulling fs layer\neb8bb19fe669: Pulling fs layer\nce09f4efaa65: Pulling fs layer\na803e8b00f81: Pulling fs layer\n36486df4a062: Pulling fs layer\na803e8b00f81: Pulling fs layer\nf9a1ee0c2b4c: Pulling fs layer\nfbfd9368fc41: Pulling fs layer\n2448df94d6fb: Pulling fs layer\n2cf9fba20a14: Pulling fs layer\n45828be71d0b: Pulling fs layer\n5c348400ca50: Pulling fs layer\n828c1365039a: Pulling fs layer\n2cf9fba20a14: Download complete\nb3f2dd9b848e: Download complete\n526d5438c009: Download complete\n7ba728a81571: Download complete\n3853a3546589: Download complete\n804b1fac5e76: Download complete\n4537d3812f07: Download complete\nf402ba9d482d: Download complete\n82abebf60fd2: Download complete\n0e0a2c237a99: Download complete\n7d15c050ce23: Download complete\ne4e7841dff3e: Download complete\n6eec3cf3dc0e: Download complete\n4f4fb700ef54: Download complete\neb8bb19fe669: Download complete\n31e49ca9b3e8: Download complete\nce09f4efaa65: Download complete\na803e8b00f81: Download complete\n5c348400ca50: Download complete\nf9a1ee0c2b4c: Download complete\nfbfd9368fc41: Download complete\nad1c5b0fecaa: Download complete\n828c1365039a: Download complete\n45828be71d0b: Download complete\n36486df4a062: Download complete\ncfa3281e361c: Download complete\n828c1365039a: Pull complete\n2cf9fba20a14: Pull complete\nf3a6e7f63c37: Download complete\n40cfbc8353ce: Download complete\n0e0a2c237a99: Pull complete\n31e49ca9b3e8: Pull complete\n2448df94d6fb: Download complete\n526d5438c009: Pull complete\n3853a3546589: Pull complete\n82abebf60fd2: Pull complete\n40cfbc8353ce: Pull complete\n9a54fb40f516: Download complete\n4e0787240e0b: Download complete\n9a54fb40f516: Pull complete\n7ba728a81571: Pull complete\nf402ba9d482d: Pull complete\ne4e7841dff3e: Pull complete\neb8bb19fe669: Pull complete\na803e8b00f81: Pull complete\n5c348400ca50: Pull complete\n6eec3cf3dc0e: Pull complete\n0f06d63f7039: Download complete\n0f06d63f7039: Pull complete\n4e0787240e0b: Pull complete\n4537d3812f07: Pull complete\n7d15c050ce23: Pull complete\nb3f2dd9b848e: Pull complete\ncfa3281e361c: Pull complete\n804b1fac5e76: Pull complete\nf3a6e7f63c37: Pull complete\n4f4fb700ef54: Pull complete\nce09f4efaa65: Pull complete\n36486df4a062: Pull complete\nf9a1ee0c2b4c: Pull complete\nfbfd9368fc41: Pull complete\n45828be71d0b: Pull complete\n2448df94d6fb: Pull complete\nad1c5b0fecaa: Pull complete\nDigest: sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\nStatus: Downloaded newer image for vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\ndocker.io/vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\n"
+    },
+    {
+      "step": "pull",
+      "image": "vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34",
+      "startedAt": "2026-11-16T11:49:17.349809899Z",
+      "endedAt": "2026-11-16T11:53:59.509844391Z",
+      "seconds": 282.160034482,
+      "output": "docker.io/vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34: Pulling from vllm/vllm-openai\ncf57d2112d89: Pulling fs layer\n5fad48b60039: Pulling fs layer\n1305811574a1: Pulling fs layer\n9e7501e79e29: Pulling fs layer\nfd32b8d227ce: Pulling fs layer\n90bf9d3fef28: Pulling fs layer\ndb50e5827ce3: Pulling fs layer\n9001835d9936: Pulling fs layer\nb31eb3b4d155: Pulling fs layer\n32c3c049d1af: Pulling fs layer\n8730c2f12625: Pulling fs layer\n70f87b6ed43e: Pulling fs layer\n422f2648ab26: Pulling fs layer\nc567a87f21d2: Pulling fs layer\n0b3b5bd92824: Pulling fs layer\n7a4a48463399: Pulling fs layer\n03074d4c1ed1: Pulling fs layer\n60c68e5ca95a: Pulling fs layer\n5ed8db0f26b2: Pulling fs layer\n106610f4da53: Pulling fs layer\n67ca01e513d3: Pulling fs layer\n98edc64c84ef: Pulling fs layer\n652169e977d9: Pulling fs layer\n1305811574a1: Pulling fs layer\ndf1d41ee6d1d: Pulling fs layer\n4f4fb700ef54: Pulling fs layer\n1cfe818f817c: Pulling fs layer\n93405760a90e: Pulling fs layer\n4dc7ffdaae77: Pulling fs layer\nea70430e6589: Pulling fs layer\n2dde0efda840: Pulling fs layer\n35b5834c4f8d: Pulling fs layer\n49477d45c1b7: Pulling fs layer\na9542acfe7a0: Pulling fs layer\n7b63a7ebd034: Pulling fs layer\n00c1446c18d4: Pulling fs layer\nf449b17513e2: Pulling fs layer\n605fd0e49bb3: Pulling fs layer\n91608382f4fb: Pulling fs layer\n526d5438c009: Pulling fs layer\n4f4fb700ef54: Already exists\n526d5438c009: Already exists\n106610f4da53: Download complete\ncf57d2112d89: Download complete\n1305811574a1: Download complete\ndb50e5827ce3: Download complete\n90bf9d3fef28: Download complete\n9001835d9936: Download complete\nb31eb3b4d155: Download complete\n8730c2f12625: Download complete\n32c3c049d1af: Download complete\ncf57d2112d89: Pull complete\n70f87b6ed43e: Download complete\n422f2648ab26: Download complete\nc567a87f21d2: Download complete\n7a4a48463399: Download complete\n98edc64c84ef: Download complete\nc567a87f21d2: Pull complete\n67ca01e513d3: Download complete\n03074d4c1ed1: Download complete\n652169e977d9: Download complete\n0b3b5bd92824: Download complete\n5fad48b60039: Download complete\n9e7501e79e29: Download complete\ndf1d41ee6d1d: Download complete\nea70430e6589: Download complete\n4dc7ffdaae77: Download complete\n5ed8db0f26b2: Download complete\n2dde0efda840: Download complete\n60c68e5ca95a: Download complete\n0b3b5bd92824: Pull complete\n70f87b6ed43e: Pull complete\n526d5438c009: Pull complete\n7a4a48463399: Pull complete\n03074d4c1ed1: Pull complete\n49477d45c1b7: Download complete\n7b63a7ebd034: Download complete\na9542acfe7a0: Download complete\n00c1446c18d4: Download complete\nf449b17513e2: Download complete\n35b5834c4f8d: Download complete\n91608382f4fb: Download complete\n60c68e5ca95a: Pull complete\nfd32b8d227ce: Download complete\n605fd0e49bb3: Download complete\n93405760a90e: Download complete\nfd32b8d227ce: Pull complete\n422f2648ab26: Pull complete\n106610f4da53: Pull complete\n67ca01e513d3: Pull complete\n98edc64c84ef: Pull complete\n5ed8db0f26b2: Pull complete\n652169e977d9: Pull complete\n1305811574a1: Pull complete\ndf1d41ee6d1d: Pull complete\nb31eb3b4d155: Pull complete\n1cfe818f817c: Download complete\n1cfe818f817c: Pull complete\n93405760a90e: Pull complete\n4dc7ffdaae77: Pull complete\nea70430e6589: Pull complete\n2dde0efda840: Pull complete\n35b5834c4f8d: Pull complete\n32c3c049d1af: Pull complete\ndb50e5827ce3: Pull complete\n9e7501e79e29: Pull complete\n4f4fb700ef54: Pull complete\n49477d45c1b7: Pull complete\na9542acfe7a0: Pull complete\n7b63a7ebd034: Pull complete\n00c1446c18d4: Pull complete\nf449b17513e2: Pull complete\n605fd0e49bb3: Pull complete\n90bf9d3fef28: Pull complete\n91608382f4fb: Pull complete\n9001835d9936: Pull complete\n8730c2f12625: Pull complete\n5fad48b60039: Pull complete\nDigest: sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34\nStatus: Downloaded newer image for vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34\ndocker.io/vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34\n"
+    }
+  ],
+  "modelDownload": {
+    "step": "model-download",
+    "image": "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+    "startedAt": "2026-11-16T11:53:59.524965011Z",
+    "endedAt": "2026-11-16T11:55:44.389200274Z",
+    "seconds": 104.864235253
+  },
+  "treatments": [
+    {
+      "treatment": "A",
+      "firstSeconds": 350.179720393,
+      "firstOutcome": "ready",
+      "firstCompileCacheWarmedBy": [],
+      "warmStarts": 2,
+      "warmReady": 2,
+      "warmMaxSeconds": 102.559266014,
+      "warmMedianSeconds": 99.6584083355,
+      "missed": 0,
+      "failed": 0
+    },
+    {
+      "treatment": "B",
+      "firstSeconds": 124.45701322,
+      "firstOutcome": "ready",
+      "firstCompileCacheWarmedBy": [],
+      "warmStarts": 2,
+      "warmReady": 2,
+      "warmMaxSeconds": 67.761881753,
+      "warmMedianSeconds": 67.114248102,
+      "missed": 0,
+      "failed": 0
+    },
+    {
+      "treatment": "C",
+      "firstSeconds": 87.938512518,
+      "firstOutcome": "ready",
+      "firstCompileCacheWarmedBy": [
+        "B"
+      ],
+      "warmStarts": 2,
+      "warmReady": 2,
+      "warmMaxSeconds": 64.057514924,
+      "warmMedianSeconds": 63.793484606999996,
+      "missed": 0,
+      "failed": 0
+    }
+  ],
+  "allReady": true
+}

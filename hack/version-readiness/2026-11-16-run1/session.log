@@ -1,0 +1,72 @@
+== the engine-readiness preflight for vllm-version-async-2026-11-15, from e2e2401c57509524e376ad7ce333873acaa48e51, into hack/version-readiness-20261116T055238Z
+== hard stop 8130 s after LaunchTime; worst case 8430 s at $1.2694/h
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $1.237/h in: ap-northeast-2a ap-northeast-2c ap-northeast-2d (ap-northeast-2d	0.606500 ap-northeast-2a	0.606700 ap-northeast-2c	0.619800)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 710 minutes
+== building the harness from e2e2401c57509524e376ad7ce333873acaa48e51
+== creating results bucket verready-gpu-007635145730
+== creating instance role verready-gpu
+== waiting for the instance profile to propagate
+== before the purchase: credentials expire in 709 minutes
+== launching g5.xlarge Spot (max $1.237/h compute, $1.2694/h all in), study-deadline 2026-11-16T08:07:57Z -- the instance bills from here
+== launched i-070892cb23ab87096 in ap-northeast-2a
+== LaunchTime 2026-11-16T05:53:30+00:00; the sweeper's deadline moved to 2026-11-16T08:08:30Z
+== the wait ended with status 0 ()
+== waiting up to 7695s for EC2 to report the instance terminated
+== terminating i-070892cb23ab87096
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is shutting-down
+== i-070892cb23ab87096 is terminated
+== evidence missing (summary at hack/version-readiness-20261116T055238Z/vr-run/readiness/summary.json); termination confirmed

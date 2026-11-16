@@ -67,6 +67,17 @@ func TestDockerRunArgsRenderTheReviewedCommand(t *testing.T) {
 	if cache(TreatmentA) == "" || cache(TreatmentB) != cache(TreatmentC) || cache(TreatmentA) == cache(TreatmentB) {
 		t.Fatalf("compile caches A %q B %q C %q, want one per image", cache(TreatmentA), cache(TreatmentB), cache(TreatmentC))
 	}
+	// Dev mode serves /server_info, which identity reads from the engine; every treatment gets it, before the image, and only on loopback.
+	for _, tr := range []string{TreatmentA, TreatmentB, TreatmentC} {
+		a, _ := e.RunArgs(d, tr, "v")
+		img := slices.Index(a, d.Engines[tr].Image)
+		if img < 0 || !slices.Contains(a[:img], "--env=VLLM_SERVER_DEV_MODE=1") || slices.Contains(a[img:], "--env=VLLM_SERVER_DEV_MODE=1") {
+			t.Errorf("treatment %s docker args %v do not set dev mode on the container", tr, a)
+		}
+		if !slices.Contains(a[:img], "--publish=127.0.0.1:8000:8000") {
+			t.Errorf("treatment %s publishes its dev-mode port beyond loopback: %v", tr, a)
+		}
+	}
 }
 
 // TestDockerRunArgsRefuseAnUnpinnedImage: a tag can move, so an engine runs only by digest.
@@ -183,6 +194,28 @@ func TestDockerStartCleansUpOnlyItsOwnFailedStart(t *testing.T) {
 				t.Fatalf("err %v marked as a cleanup failure: %v, want %v", err, errors.Is(err, ErrEngineCleanup), c.cleanup)
 			}
 		})
+	}
+}
+
+// TestDockerNotFoundReadsEveryReleasesWording: each Docker release words its not-found answer differently, and a missed
+// one turns a removed container into an unconfirmed one that stops the session.
+func TestDockerNotFoundReadsEveryReleasesWording(t *testing.T) {
+	for _, msg := range []string{
+		"Error: No such object: abc",
+		// Docker 29.9.1, as captured in hack/version-readiness/2026-11-16-run2.
+		"docker inspect --format={{.State.Status}} abc: exit status 1: error: no such object: abc",
+		"Error response from daemon: No such container: abc",
+		"Error response from daemon: No such image: vllm/vllm-openai@sha256:0a51",
+		"error: no such image: vllm/vllm-openai@sha256:0a51",
+	} {
+		if !dockerNotFound(errors.New(msg)) {
+			t.Errorf("%q not read as not found", msg)
+		}
+	}
+	for _, msg := range []string{"Cannot connect to the Docker daemon", "permission denied", "context deadline exceeded"} {
+		if dockerNotFound(errors.New(msg)) {
+			t.Errorf("%q read as not found", msg)
+		}
 	}
 }
 
