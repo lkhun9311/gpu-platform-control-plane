@@ -292,6 +292,10 @@ type RuntimeIdentity struct {
 	ProfileArgs []string
 	// Settings are the registered settings as read back from the running engine.
 	Settings EngineSettings
+	// Unproven names the identity fields the reader could not observe, which it left empty (UnprovenImage, UnprovenChatTemplate, UnprovenProfileArgs).
+	//
+	// CheckRuntime refuses an identity with any; only CheckObservedRuntime accepts them, and returns them so the caller records the gap.
+	Unproven []string
 }
 
 // CompareRuntime refuses an engine that is not the one the bundle and the registration name.

@@ -25,3 +25,20 @@ distinction worth a whole prefill on a loaded server, and the one number Arm C i
 The CPU build is not the GPU build. Framing, field names and chunk structure are the server's and
 carry over; timings are this host's and do not. Recapture on the paid GPU run before quoting any
 duration from a fixture.
+
+## vllm-runtime/
+
+`vllm-runtime/<T>.server-info.json` and `vllm-runtime/<T>.version.json` are the bodies of
+`GET /server_info?config_format=json` and `GET /version`, copied byte for byte from the paid version
+readiness preflight of 2026-11-16 (run 6, #594): `start-<T>-1.capture.server-info` and
+`start-<T>-1.capture.version`, the first start of each treatment on one g5.xlarge (A10G).
+
+| T | image | vLLM | async scheduling |
+|---|---|---|---|
+| A | `vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967` | 0.27.1 | off |
+| B | `vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34` | 0.32.0 | off |
+| C | the same image as B | 0.32.0 | on |
+
+Each engine ran with `VLLM_SERVER_DEV_MODE=1`, the registered profile and
+`Qwen/Qwen2.5-3B-Instruct` at revision `aa8e72537993ba99e69dfaafa59ed015b17504d1`. The bodies are
+not trimmed: the reader is tested against what the engine wrote, unknown keys included.
