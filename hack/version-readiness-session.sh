@@ -13,8 +13,10 @@
 # It is modelled on hack/gpu-fault-session.sh and shares what that runner shares: the EC2 lifecycle from
 # hack/lib/spot-run.sh, and the NVIDIA container toolkit set-up spliced from hack/m5c-gpu-session.sh between two anchors.
 #
-# THE CLOCK. Every deadline counts from EC2's LaunchTime, read right after the launch and written to the run's S3
-# prefix for the instance to read. The work is bounded step by step, and the deadlines are their sum:
+# THE CLOCK.
+# Every deadline counts from EC2's LaunchTime, read right after the launch and written to the run's S3 prefix for the
+# instance to read.
+# The work is bounded step by step, and the deadlines are their sum:
 #   bring-up (boot, cloud-init, harness download, toolkit)        600 s  -> 600
 #   two image pulls, ReadinessPullBound each         2 x 1,500 = 3,000 s
 #   model download, ReadinessModelBound                            300 s
@@ -26,7 +28,8 @@
 # plus 9,900 s once LaunchTime is known; the instance shuts itself down at 9,930 s; the termination is to be
 # confirmed by 10,230 s, the sweeper's five-minute period after its tag plus 30 s.
 #
-# THE COST. The worst case bills to the termination deadline: 10,230 s = 2.8417 h.
+# THE COST.
+# The worst case bills to the termination deadline: 10,230 s = 2.8417 h.
 # At the $0.90/h Spot cap below that is $2.558 of compute; with the $0.0324/h of 200 GB gp3 and a public IPv4 the other
 # sessions add (hack/gpu-fault-session.sh), $0.9324/h all in, it is $2.650, under $3.
 # The script refuses to run if the constants below stop giving a worst case under $3.

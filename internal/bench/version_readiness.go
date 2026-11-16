@@ -372,7 +372,8 @@ func (r *ReadinessRun) timed(rec StepRecord, step func() error) (StepRecord, err
 // start runs one engine start to its outcome, then reads its log and removes its container.
 //
 // The returned error is only for what makes later starts unsafe to measure: a container that could not be started
-// cleanly or removed. The engine not becoming ready is the start's outcome, not an error.
+// cleanly or removed.
+// The engine not becoming ready is the start's outcome, not an error.
 func (r *ReadinessRun) start(ctx context.Context, treatment string, ordinal int, warmedBy []string) (ReadinessStart, error) {
 	if warmedBy == nil {
 		warmedBy = []string{}
