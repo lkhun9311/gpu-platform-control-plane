@@ -67,6 +67,8 @@ TAG_FROM_LAUNCH_S=$(( EVIDENCE_S + 30 ))
 STOP_FROM_LAUNCH_S=$(( EVIDENCE_S + 60 ))
 TERMINATION_S=$(( TAG_FROM_LAUNCH_S + 330 ))
 LAUNCHTIME_WAIT_S=180
+# How often the instance copies the readiness records to S3 while the harness runs.
+PARTIAL_SYNC_S=30
 # The DONE wait polls every WAIT_INTERVAL_S and every poll sleeps that long, so this many attempts outlast the stop and
 # the wall-clock deadline, not the count, ends the wait.
 WAIT_INTERVAL_S=20
@@ -274,10 +276,19 @@ cp /tmp/nvidia-smi.csv /src/vr-run/nvidia-smi.csv
 { docker version; docker info; nvidia-ctk --version; } > /src/vr-run/versions.txt 2>&1
 if [ "$bringup_rc" = 0 ]; then
   mkdir -p /src/vr-run/readiness
+  # A Spot reclaim gives two minutes and the 2026-11-16 run 3 lost everything, so each start's record leaves the
+  # instance within PARTIAL_SYNC_S of being written, not only in the final archive.
+  ( while :; do
+      aws s3 sync --only-show-errors /src/vr-run/readiness "s3://$BUCKET/$PREFIX/partial/readiness" >>/var/log/verready-sync.log 2>&1
+      sleep PARTIAL_SYNC_S_PLACEHOLDER
+    done ) &
+  sync_pid=$!
   # The harness's own bounds sum to HE; this timeout only stops a harness that overran them from eating the upload.
   timeout --kill-after=15 $(( HE - $(date +%s) > 5 ? HE - $(date +%s) : 5 )) /opt/vr/benchharness version-readiness \
     -dir /src/vr-run/readiness -hf-cache /opt/vr/hf -compile-cache /opt/vr/compile > /src/vr-run/summary.txt
   harness_rc=$?
+  kill "$sync_pid" 2>>/var/log/verready-sync.log
+  cp /var/log/verready-sync.log /src/vr-run/sync.log
   cat /src/vr-run/summary.txt
   echo "harness_rc=$harness_rc" >> /src/vr-run/instance-provenance.txt
   echo "the readiness harness exited $harness_rc"
@@ -295,7 +306,7 @@ TAIL
 sed -e "s|BUCKET_PLACEHOLDER|$BUCKET|" -e "s|RUN_ID_PLACEHOLDER|$RUN_ID|" -e "s|HARNESS_SHA_PLACEHOLDER|$HARNESS_SHA|" \
   -e "s|COMMIT_PLACEHOLDER|$COMMIT|" -e "s|RUN_NONCE_PLACEHOLDER|$RUN_NONCE|" \
   -e "s|LAUNCHTIME_WAIT_S_PLACEHOLDER|$LAUNCHTIME_WAIT_S|" -e "s|STOP_FROM_LAUNCH_S_PLACEHOLDER|$STOP_FROM_LAUNCH_S|g" \
-  -e "s|BRINGUP_S_PLACEHOLDER|$BRINGUP_S|" -e "s|HARNESS_END_S_PLACEHOLDER|$HARNESS_END_S|" \
+  -e "s|BRINGUP_S_PLACEHOLDER|$BRINGUP_S|" -e "s|HARNESS_END_S_PLACEHOLDER|$HARNESS_END_S|" -e "s|PARTIAL_SYNC_S_PLACEHOLDER|$PARTIAL_SYNC_S|" \
   -e "s|EVIDENCE_S_PLACEHOLDER|$EVIDENCE_S|" "$UD.template" >"$UD" || fail "could not render the user-data"
 rm -f "$UD.template"
 ! grep -q '_PLACEHOLDER' "$UD" || fail "the user-data still holds a placeholder: $(grep -o '[A-Z_]*_PLACEHOLDER' "$UD" | sort -u | paste -sd' ')"
@@ -399,7 +410,16 @@ for k in evidence.tgz log.txt preflight-nvidia-smi.csv DONE; do
 done
 [ ! -s "$OUT/evidence.tgz" ] || tar -xzf "$OUT/evidence.tgz" -C "$OUT" || echo "the evidence archive did not unpack" >>"$OUT/download-errors.txt"
 EVIDENCE=returned
-[ -s "$OUT/vr-run/readiness/summary.json" ] || EVIDENCE=missing
+if [ ! -s "$OUT/vr-run/readiness/summary.json" ]; then
+  # Without the final archive, the per-start copies are what a reclaim or a crash left; they are reported as partial.
+  aws s3 sync --only-show-errors "s3://$BUCKET/$RUN_ID/partial/readiness" "$OUT/vr-run-partial/readiness" 2>>"$OUT/download-errors.txt" ||
+    echo "the partial evidence did not download" >>"$OUT/download-errors.txt"
+  if compgen -G "$OUT/vr-run-partial/readiness/start-*.json" >/dev/null; then
+    EVIDENCE=partial
+  else
+    EVIDENCE=missing
+  fi
+fi
 {
   echo "evidence=$EVIDENCE"
   echo "termination=$TERMINATION"

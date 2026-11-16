@@ -137,6 +137,20 @@ else
   echo "ok   the schedule ($schedule) ends the harness at the sum of its bounds"
 fi
 
+# A Spot reclaim lost all of run 3, so the records must leave the instance while the harness runs, and the caller must
+# collect them when the final archive never arrives.
+script="$ROOT/hack/version-readiness-session.sh"
+if ! grep -q 'aws s3 sync --only-show-errors /src/vr-run/readiness "s3://\$BUCKET/\$PREFIX/partial/readiness"' "$script" ||
+  ! grep -q 'sleep PARTIAL_SYNC_S_PLACEHOLDER' "$script" ||
+  ! grep -q 's|PARTIAL_SYNC_S_PLACEHOLDER|\$PARTIAL_SYNC_S|' "$script" ||
+  ! grep -q 'aws s3 sync --only-show-errors "s3://\$BUCKET/\$RUN_ID/partial/readiness" "\$OUT/vr-run-partial/readiness"' "$script" ||
+  ! grep -q '^PARTIAL_SYNC_S=30$' "$script"; then
+  echo "FAIL the readiness records are not copied off the instance during the run, or not collected after a reclaim" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   each start's records leave the instance every 30 s and a reclaimed run's partial evidence is collected"
+fi
+
 # The DONE wait must outlast the stop; a fixed attempt count ended it at about 8,000 s once the pulls were lengthened.
 wait_call=$(grep -n 'spot_wait_for_marker_until "\$REGION"' "$ROOT/hack/version-readiness-session.sh")
 if ! grep -qx 'WAIT_ATTEMPTS=$(( STOP_FROM_LAUNCH_S / WAIT_INTERVAL_S + 2 ))' "$ROOT/hack/version-readiness-session.sh" ||
