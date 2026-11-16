@@ -27,10 +27,10 @@
 #   bring-up (boot, cloud-init, downloads, toolkit)                       600 s -> 600
 #   image pull, SRPFSweepPullBound                                       1,500 s
 #   image identity, SRPFSweepImageIdentityBound                            180 s
-#   model download, SRPFSweepModelBound                                    300 s
-#   six arms, each ready 600 + identity 90 + capture 20 + warm-up 60 + idle 2 x 30 + metrics 2 x 10 + replay 480 +
-#   stop 30 = 1,360 s                                           6 x 1,360 = 8,160 s
-#   so the harness ends by 600 + 1,500 + 180 + 300 + 8,160              = 10,740 s
+#   model download, SRPFSweepModelBound                                    900 s
+#   six arms, each ready 500 + identity 90 + capture 20 + warm-up 60 + idle 2 x 30 + metrics 2 x 10 + replay 480 +
+#   stop 30 = 1,260 s                                           6 x 1,260 = 7,560 s
+#   so the harness ends by 600 + 1,500 + 180 + 900 + 7,560              = 10,740 s
 #   evidence upload                                                        120 s -> 10,860
 # The launch carries the termination sweeper's study-deadline tag at the request plus 10,860 s, rewritten to LaunchTime
 # plus 10,890 s once LaunchTime is known; the instance shuts itself down at 10,920 s; the termination is to be
@@ -71,8 +71,8 @@ MANIFEST_FILE=manifest-off-3.yaml
 BRINGUP_S=600
 PULL_BOUND_S=1500
 IMAGE_IDENTITY_S=180
-MODEL_BOUND_S=300
-READY_BOUND_S=600
+MODEL_BOUND_S=900
+READY_BOUND_S=500
 ARM_IDENTITY_S=90
 CAPTURE_BOUND_S=20
 WARMUP_S=60

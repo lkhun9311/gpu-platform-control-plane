@@ -45,8 +45,8 @@ func TestSRPFSweepBoundsAreTheBoundsItsStepsApply(t *testing.T) {
 	if srpfSweepArmCount != len(SRPFSweepArms()) {
 		t.Errorf("srpfSweepArmCount is %d and there are %d arms", srpfSweepArmCount, len(SRPFSweepArms()))
 	}
-	if SRPFSweepArmBound != 1360*time.Second || SRPFSweepBound != 10140*time.Second {
-		t.Errorf("the arm bound is %s and the sweep bound %s; the session's stop was sized for 1360 s and 10140 s", SRPFSweepArmBound, SRPFSweepBound)
+	if SRPFSweepArmBound != 1260*time.Second || SRPFSweepBound != 10140*time.Second {
+		t.Errorf("the arm bound is %s and the sweep bound %s; the session's stop was sized for 1260 s and 10140 s", SRPFSweepArmBound, SRPFSweepBound)
 	}
 }
 

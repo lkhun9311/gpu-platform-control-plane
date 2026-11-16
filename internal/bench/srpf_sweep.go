@@ -75,12 +75,13 @@ const (
 	SRPFSweepPullBound = 1500 * time.Second
 	// SRPFSweepImageIdentityBound bounds the three identity containers run before the model download.
 	SRPFSweepImageIdentityBound = 180 * time.Second
-	// SRPFSweepModelBound bounds the model download, which took 105 s on 2026-11-16.
+	// SRPFSweepModelBound bounds the model download, which took 105 s on 2026-11-16 and ran past 300 s once.
 	// The download is the readiness preflight's, which applies ReadinessModelBound; a test holds the two equal.
-	SRPFSweepModelBound = 300 * time.Second
+	SRPFSweepModelBound = 900 * time.Second
 	// SRPFSweepReadyBound bounds one engine's start to /health 200, from before docker run.
-	// A cold v0.27.1 start was ready at 377 s on 2026-11-16, and each arm starts on an empty compile cache.
-	SRPFSweepReadyBound = 600 * time.Second
+	// Each arm starts on an empty compile cache, so every start is cold.
+	// On 2026-11-16 a cold v0.32.0 start was ready at 124 s and a cold v0.27.1 start at 350-377 s.
+	SRPFSweepReadyBound = 500 * time.Second
 	// SRPFSweepArmIdentityBound bounds checking the running engine's arguments and the code it imports.
 	SRPFSweepArmIdentityBound = 90 * time.Second
 	// SRPFSweepCaptureBound bounds saving the ready engine's identity endpoints.
