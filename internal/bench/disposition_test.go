@@ -219,6 +219,19 @@ func TestReadRawRowsRefusesSemanticallyInvalidCurrentRows(t *testing.T) {
 			t.Fatalf("%s rows were read as evidence", name)
 		}
 	}
+	// The transport stamps its write from its own goroutine, which can run after the response reader saw content, so only send bounds it.
+	lateWrite := append([]RawRow{}, rows...)
+	cl := *lateWrite[1].Clock
+	first, late := *cl.SendNanos+1, *cl.TerminalNanos
+	if late <= first {
+		t.Fatalf("terminal %d is not after first content %d, so a late write proves nothing", late, first)
+	}
+	cl.FirstContentNanos, cl.TransportWriteNanos = &first, &late
+	lateWrite[1].Clock = &cl
+	lateWrite[1].FirstTokenUnixNanos = lateWrite[1].SendUnixNanos + 1
+	if _, err := ReadRawRows(encode(lateWrite)); err != nil {
+		t.Fatalf("a transport write stamped after the response began was refused: %v", err)
+	}
 	historical := []RawRow{completedRow(0, 5, 10), completedRow(0, 6, 10)}
 	if _, err := ReadRawRows(encode(historical)); err != nil {
 		t.Fatalf("historical rows without a disposition were refused: %v", err)
