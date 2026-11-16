@@ -247,6 +247,18 @@ else
   echo "ok   the session's default output directory is ignored"
 fi
 
+# Run 3 on 2026-11-16 ran past the pull bound pulling anonymously, so the instance logs in to ECR Public before the
+# sweep, and the role's policy, which spot_ensure_profile never updates on an existing role, is written every time.
+s="$ROOT/hack/vllm-58420-session.sh"
+if ! grep -qF 'aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws' "$s" ||
+  ! grep -qF 'ecr-public:GetAuthorizationToken' "$s" || ! grep -qF 'sts:GetServiceBearerToken' "$s" ||
+  ! grep -qF 'aws iam put-role-policy --role-name "$STACK" --policy-name write-results --policy-document "$ROLE_POLICY"' "$s"; then
+  echo "FAIL the instance does not log in to ECR Public with a role allowed to, written on every run" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the instance logs in to ECR Public before the pull, and the role's policy is rewritten each run"
+fi
+
 if [[ $failures -ne 0 ]]; then
   echo "$failures check(s) did not behave as registered" >&2
   exit 1

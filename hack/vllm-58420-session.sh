@@ -324,6 +324,9 @@ cp /tmp/nvidia-smi.csv /src/sr-run/nvidia-smi.csv
 { nvidia-smi; nvidia-smi -q; } > /src/sr-run/nvidia-smi.txt 2>&1
 { docker version; docker info; nvidia-ctk --version; } > /src/sr-run/versions.txt 2>&1
 if [ "$bringup_rc" = 0 ]; then
+  # An authenticated pull gets ECR Public's higher limits; a failed login is recorded and the pull goes on anonymously.
+  { aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws; } \
+    > /src/sr-run/ecr-login.txt 2>&1 || echo "ECR Public login failed; the pull runs anonymously" >> /src/sr-run/ecr-login.txt
   mkdir -p /src/sr-run/sweep
   # A Spot reclaim gives two minutes, so each arm's records leave the instance within PARTIAL_SYNC_S of being written.
   # One archive overwritten in place needs only the role's s3:PutObject; a sync would also need s3:ListBucket.
@@ -374,9 +377,13 @@ bash -n "$UD" || fail "the user-data does not parse"
 
 # ---------------------------------------------------------------- the purchase
 spot_ensure_bucket "$BUCKET" "$REGION" 30 || fail "could not prepare the results bucket $BUCKET"
-spot_ensure_profile "$STACK" \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"}]}" \
-  20 || fail "could not prepare the instance profile $STACK"
+# ECR Public limits anonymous pulls, and run 3 on 2026-11-16 ran past the 1,500 s pull bound anonymously, so the role
+# may also log in to ECR Public; signing in to ECR Public needs both actions.
+ROLE_POLICY="{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"},{\"Effect\":\"Allow\",\"Action\":[\"ecr-public:GetAuthorizationToken\",\"sts:GetServiceBearerToken\"],\"Resource\":\"*\"}]}"
+spot_ensure_profile "$STACK" "$ROLE_POLICY" 20 || fail "could not prepare the instance profile $STACK"
+# spot_ensure_profile leaves an existing role's policy as it was, so the current one is written every time.
+aws iam put-role-policy --role-name "$STACK" --policy-name write-results --policy-document "$ROLE_POLICY" ||
+  fail "could not update the instance role's policy"
 for f in "$OUT/benchharness" "$OUT/scheduler.py" "$DIAG_DIR/$TRACE_FILE" "$DIAG_DIR/$MANIFEST_FILE"; do
   aws s3 cp --only-show-errors "$f" "s3://$BUCKET/$RUN_ID/$(basename "$f")" || fail "upload $(basename "$f")"
 done
