@@ -20,7 +20,8 @@ type VisitOutcome struct {
 // VisitRunner runs one treatment's visit in a block: a fresh engine, its readiness bound, both loads in the given
 // order with drained starts and any drain restart, then the engine's stop.
 //
-// An error is a recorder failure (rule 5): the visit's evidence is not whole, so the block is invalid.
+// An error is a recorder failure (rule 5): the visit's evidence is not whole, and the campaign stops, as it does on a
+// failed journal write, because a recorder that lost a write once is not trusted with the replacements either.
 type VisitRunner func(ctx context.Context, block int, treatment string, loads []string) (VisitOutcome, error)
 
 // BlockLedger records each attempt's start before its first cell and its end when it ends; AttemptJournal is one.
@@ -58,7 +59,8 @@ type BlocksResult struct {
 // after every planned block has ended, as AnalysisSet requires.
 // When dispatch lag invalidates two blocks of one treatment the campaign stops: replacing blocks a treatment keeps
 // invalidating would keep drawing until the client happens to keep up.
-// A cancelled context (the teardown deadline or an interruption) records the open block as stopped and runs nothing after.
+// A cancelled context (the teardown deadline or an interruption) or a recorder failure records the open block as stopped
+// and runs nothing after.
 func RunBlocks(ctx context.Context, s SessionBlocks) (BlocksResult, error) {
 	d := s.Design
 	var res BlocksResult
@@ -125,13 +127,13 @@ func (s SessionBlocks) runBlock(ctx context.Context, block int) (AttemptStatus, 
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return AttemptStopped, fmt.Sprintf("cut short in treatment %s: %v", t, ctxErr), nil
 		}
-		switch {
-		case err != nil:
-			reasons = append(reasons, fmt.Errorf("treatment %s: recorder failure: %w", t, err))
-		case out.Invalid != "":
+		if err != nil {
+			return AttemptStopped, fmt.Sprintf("recorder failure in treatment %s: %v", t, err), nil
+		}
+		if out.Invalid != "" {
 			reasons = append(reasons, fmt.Errorf("treatment %s: %s", t, out.Invalid))
 		}
-		if err == nil && out.LagInvalid {
+		if out.LagInvalid {
 			lagged = append(lagged, t)
 		}
 	}

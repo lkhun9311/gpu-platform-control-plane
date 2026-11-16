@@ -224,6 +224,7 @@ These rules decide validity without looking at endpoint values. They apply with 
 3. **Protocol fault:** a nonconforming completed stream, or a request not dispatched without a recorded engine-unavailable visit.
 4. **Identity:** a manifest that `LoadManifest` refuses is never run. A running engine that `CampaignBundle.CompareRuntime` refuses (version, image digest, model revision, tokenizer, chat template, reviewed effective arguments, any registered setting) invalidates its visit's cells.
 5. **Recorder failure:** any write or durability error, or backlog overflow.
+   - Clarified 2026-11-16, before any run (#607): a recorder failure closes its block as **stopped** and ends the campaign as an incomplete pilot. The block is not replaced. This is how a failed journal write was already handled (#612). A recorder that has lost a write is not trusted to record the replacements either.
 6. **External cause:** decided by an automatic predicate (amendment 2026-11-15, owner).
    - A block is invalid for an external cause only if, within its time range, AWS reported one of these for the instance:
      - an EC2 scheduled event, such as instance retirement or a system reboot;

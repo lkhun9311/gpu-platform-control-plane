@@ -85,7 +85,7 @@ func TestRunBlocksReplacesInvalidBlocksAfterThePlannedOnes(t *testing.T) {
 		case block == 2 && treatment == TreatmentA:
 			return VisitOutcome{Invalid: "protocol fault"}, nil
 		case block == 4 && treatment == TreatmentC:
-			return VisitOutcome{}, errors.New("rows file: no space left on device")
+			return VisitOutcome{Invalid: "incomplete accounting"}, nil
 		}
 		return VisitOutcome{}, nil
 	}, nil)
@@ -99,7 +99,7 @@ func TestRunBlocksReplacesInvalidBlocksAfterThePlannedOnes(t *testing.T) {
 	if !reflect.DeepEqual(got, map[int]int{1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 2, 8: 4}) {
 		t.Fatalf("attempts %+v, want 7 replacing 2 and 8 replacing 4", l.Attempts)
 	}
-	if !strings.Contains(l.Attempts[3].Reason, "recorder failure") || len(visits) != 24 {
+	if !strings.Contains(l.Attempts[3].Reason, "incomplete accounting") || len(visits) != 24 {
 		t.Fatalf("block 4 reason %q after %d visits; an invalid visit still runs the block's other visits", l.Attempts[3].Reason, len(visits))
 	}
 	if set, err := versionAsyncDesign().AnalysisSet(l); err != nil || !reflect.DeepEqual(set, []int{1, 3, 5, 6, 7, 8}) {
@@ -144,6 +144,19 @@ func TestRunBlocksStopRules(t *testing.T) {
 		}, nil)
 		if res.Valid != 6 || res.Stop != "" {
 			t.Fatalf("result %+v, want both lagged blocks replaced", res)
+		}
+	})
+	t.Run("a recorder failure stops the campaign", func(t *testing.T) {
+		stopAt := ArmOrder(20261115, 2)[0]
+		res, l, visits := blocksRun(t, 0, func(block int, treatment string) (VisitOutcome, error) {
+			if block == 2 && treatment == stopAt {
+				return VisitOutcome{}, errors.New("rows file: no space left on device")
+			}
+			return VisitOutcome{}, nil
+		}, nil)
+		last := l.Attempts[len(l.Attempts)-1]
+		if len(l.Attempts) != 2 || last.Status != AttemptStopped || !strings.Contains(last.Reason, "recorder failure") || len(visits) != 4 {
+			t.Fatalf("result %+v, attempts %+v after %d visits, want block 2 stopped at its first visit", res, l.Attempts, len(visits))
 		}
 	})
 	t.Run("the budget refuses before block 1", func(t *testing.T) {
