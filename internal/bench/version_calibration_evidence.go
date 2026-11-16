@@ -34,9 +34,10 @@ type CalibrationRungRecord struct {
 
 // VerifyCalibrationEvidence checks that art is what this ladder produces from the rungs recorded in dir (#636).
 //
-// A resolved flag and a hash say nothing about where λ0 came from: a hand-written artifact passed both. So the lock
-// must be there, every rung the artifact lists must have its record and rows with the same ordinal, rate and class,
-// and running the registered ladder again on those recorded classes must reach the same outcome and the same λ0.
+// A resolved flag and a hash say nothing about where λ0 came from: a hand-written artifact passed both.
+// So the lock must be there, every rung the artifact lists must have its record and rows with the same ordinal,
+// rate and class, and running the registered ladder again on those recorded classes must reach the same outcome and
+// the same λ0.
 func (c CalibrationRule) VerifyCalibrationEvidence(dir string, art CalibrationArtifact) error {
 	if _, err := os.Stat(filepath.Join(dir, CalibrationLockFile)); err != nil {
 		return fmt.Errorf("no calibration ran in %s: %w", dir, err)

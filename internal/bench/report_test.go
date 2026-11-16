@@ -56,8 +56,9 @@ var _ = Describe("Summarize", func() {
 		}
 		// One rejection and one timeout.
 		//
-		// Only the rejection is offered work. A timeout produced no response, so nothing says whether the
-		// guard admitted it or refused it, and the offered total is 8000 rather than 16000 for that reason.
+		// Only the rejection is offered work.
+		// A timeout produced no response, so nothing says whether the guard admitted it or refused it, and
+		// the offered total is 8000 rather than 16000 for that reason.
 		rows = append(rows, RawRow{Index: 101, SendUnixNanos: 1, HTTPStatus: 429, EstInputTokens: 8000})
 		rows = append(rows, RawRow{Index: 102, SendUnixNanos: 1, ErrorKind: "timeout", EstInputTokens: 8000})
 
@@ -71,10 +72,11 @@ var _ = Describe("Summarize", func() {
 		Expect(s.TailSampleSize).To(Equal(100))
 		// Admitted-work over the eligible (>=4096-token) population.
 		//
-		// The rejection is offered and not admitted. The timeout is neither: no response arrived, so nothing
-		// says what the guard decided about it, and it is counted as a lost verdict instead. It used to be
-		// scored as admitted for the sole reason that it was not a 429, which is how an arm that transmitted
-		// nothing could report a perfect admission match.
+		// The rejection is offered and not admitted.
+		// The timeout is neither: no response arrived, so nothing says what the guard decided about it, and
+		// it is counted as a lost verdict instead.
+		// It used to be scored as admitted for the sole reason that it was not a 429, which is how an arm
+		// that transmitted nothing could report a perfect admission match.
 		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
 		Expect(s.AdmittedInputTokens).To(BeZero())
 		Expect(s.AdmissionLost).To(Equal(1))
@@ -112,11 +114,13 @@ var _ = Describe("BootstrapCI", func() {
 
 var _ = Describe("EvaluateChecks", func() {
 	// The criterion is registered in EXACT tokens, and the calculation read the estimates for as long as both
-	// were present. These five cases are what tell the two apart: a test that only checks "the run is invalid"
-	// passes as soon as a validity guard exists, whether or not the division changed.
+	// were present.
+	// These five cases are what tell the two apart: a test that only checks "the run is invalid" passes as
+	// soon as a validity guard exists, whether or not the division changed.
 	It("fails the admission match when the exact fractions differ, even though the estimates agree", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		// Estimates: both 0.50, a perfect match. Exact: 0.30 against 0.60, a 50 percent gap.
+		// Estimates: both 0.50, a perfect match.
+		// Exact: 0.30 against 0.60, a 50 percent gap.
 		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
 			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 300}
 		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
@@ -185,7 +189,8 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("does not require eligible exact work from R1, which is premium-only by design", func() {
 		// R1 carries no eligible standard-long population at all, and that is its normal state rather than a
-		// gap in its evidence. A guard that demanded a denominator from it would invalidate every run.
+		// gap in its evidence.
+		// A guard that demanded a denominator from it would invalidate every run.
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
 		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
 			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500}
@@ -213,9 +218,9 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("disqualifies a run whose tail is thin enough that its p99 is just the slowest request", func() {
 		// 99 is the largest count at which nearest-rank p99 still lands on the maximum: index
-		// ceil(0.99*99)-1 = 98 of 0..98. Every check below would otherwise pass on it -- the numbers are the
-		// ones from the passing case above -- so the disqualification has to come from the sample size
-		// alone, which is the whole point.
+		// ceil(0.99*99)-1 = 98 of 0..98.
+		// Every check below would otherwise pass on it -- the numbers are the ones from the passing case
+		// above -- so the disqualification has to come from the sample size alone, which is the whole point.
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
 		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
 		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 99}
@@ -281,8 +286,8 @@ var _ = Describe("EvaluateChecks", func() {
 
 var _ = Describe("the two ways a truncated arm used to certify itself", func() {
 	// Both were demonstrated by an adversarial review that fed the real harness an arm cut short at 120
-	// premium completions with 380 transport failures and one repetition against static-cap's two. It printed
-	// "VERDICT: all checks passed; the guard protects".
+	// premium completions with 380 transport failures and one repetition against static-cap's two.
+	// It printed "VERDICT: all checks passed; the guard protects".
 	//
 	// That is the failure mode of a node going away mid-run, and it is not specific to Spot: an evicted engine
 	// Pod, an OOM kill or a network blip produce the same rows.
@@ -310,8 +315,9 @@ var _ = Describe("the two ways a truncated arm used to certify itself", func() {
 
 	It("does not censor a tail that only shed load through admission", func() {
 		// The mirror image, and the reason the rule cannot simply count every non-completion: a 429 is the
-		// guard doing its job. If rejections censored the tail, the arm that protects best would disqualify
-		// itself for protecting.
+		// guard doing its job.
+		// If rejections censored the tail, the arm that protects best would disqualify itself for
+		// protecting.
 		rows := make([]RawRow, 0, 500)
 		for i := range 120 {
 			rows = append(rows, RawRow{
@@ -330,9 +336,9 @@ var _ = Describe("the two ways a truncated arm used to certify itself", func() {
 	})
 
 	It("refuses the incremental check when no confidence interval was computed", func() {
-		// Unequal repetition counts make the caller skip the bootstrap, leaving the zero CI. Its Hi is 0.0,
-		// so the gate `Hi < 1.0` was satisfied by the ABSENCE of an interval -- truncation disarmed the
-		// strictest check in the design instead of tripping it.
+		// Unequal repetition counts make the caller skip the bootstrap, leaving the zero CI.
+		// Its Hi is 0.0, so the gate `Hi < 1.0` was satisfied by the ABSENCE of an interval -- truncation
+		// disarmed the strictest check in the design instead of tripping it.
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
 		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
 		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 500}
@@ -426,8 +432,9 @@ var _ = Describe("a request shed with 413", func() {
 	// AdmissionReason is what makes this an ADMISSION 413 rather than a body-limit one.
 	//
 	// The two share a status and an error code, and the gateway tells them apart by naming the admission one in
-	// X-Admission-Reason. A fixture without it describes the other refusal -- the one decided before the guard
-	// ran -- so these specs would have been pinning the wrong outcome.
+	// X-Admission-Reason.
+	// A fixture without it describes the other refusal -- the one decided before the guard ran -- so these
+	// specs would have been pinning the wrong outcome.
 	shed := func(index int, tenant string, noisy bool) RawRow {
 		return RawRow{
 			Index:           index,
@@ -451,7 +458,8 @@ var _ = Describe("a request shed with 413", func() {
 
 	It("is not counted as admitted work", func() {
 		// Every one of these was refused, so an admission-match check reading this arm must see none of their
-		// tokens admitted. Counting them made a cap that admitted nothing look like a cap that admitted all.
+		// tokens admitted.
+		// Counting them made a cap that admitted nothing look like a cap that admitted all.
 		rows := []RawRow{shed(1, "noisy", true), shed(2, "noisy", true)}
 		s := Summarize("static-cap", rows)
 		Expect(s.OfferedInputTokens).To(Equal(int64(16000)))
@@ -460,8 +468,9 @@ var _ = Describe("a request shed with 413", func() {
 
 	It("does not censor the premium tail, because shedding is the treatment", func() {
 		// This is the distinction the 429 path already drew and this one did not: a rejection is the guard
-		// working, while a transport error is a measurement that got away. Ten refusals against 100 premium
-		// completions is far past the 1% censoring trigger, so a wrong answer here is visible.
+		// working, while a transport error is a measurement that got away.
+		// Ten refusals against 100 premium completions is far past the 1% censoring trigger, so a wrong
+		// answer here is visible.
 		var rows []RawRow
 		for i := 1; i <= 100; i++ {
 			r := completedRow(i, float64(i), 100)
@@ -486,9 +495,10 @@ var _ = Describe("a request shed with 413", func() {
 	// A 422 is the gateway refusing the request's SHAPE, before the guard is consulted.
 	//
 	// Rejected is the quantity that moves: counting a profile violation as shedding credits the bucket with a
-	// decision it never made. Offered and Admitted do not move either way, because a pre-admission refusal is
-	// outside the eligible population entirely -- asserting them here would prove nothing, which is the mistake
-	// the body-limit spec below was written with the first two times.
+	// decision it never made.
+	// Offered and Admitted do not move either way, because a pre-admission refusal is outside the eligible
+	// population entirely -- asserting them here would prove nothing, which is the mistake the body-limit spec
+	// below was written with the first two times.
 	It("does not treat a 422 profile refusal as work the guard shed", func() {
 		violation := shed(2, "noisy", true)
 		violation.HTTPStatus = 422
@@ -499,10 +509,12 @@ var _ = Describe("a request shed with 413", func() {
 		s := Summarize("static-cap", rows)
 		// Offered and Admitted are the quantities that move, and only observation settled which: with the 422
 		// classified as pre-admission the row is outside the eligible population, so both read 8000 (the
-		// completed row alone). Treat it as a guard decision instead and both become 16000 -- the refusal
-		// enters the denominator AND the numerator, because shedByAdmission does not recognise 422 either, so
-		// it would be scored as work the guard ADMITTED. Rejected stays 0 under both, which is why asserting it
-		// proved nothing here even though it was the discriminating field one spec below.
+		// completed row alone).
+		// Treat it as a guard decision instead and both become 16000 -- the refusal enters the denominator AND
+		// the numerator, because shedByAdmission does not recognise 422 either, so it would be scored as work
+		// the guard ADMITTED.
+		// Rejected stays 0 under both, which is why asserting it proved nothing here even though it was the
+		// discriminating field one spec below.
 		Expect(s.OfferedInputTokens).To(Equal(int64(8000)),
 			"a body refused for its shape entered the offered-work denominator, which the guard never saw")
 		Expect(s.AdmittedInputTokens).To(Equal(int64(8000)),
@@ -523,8 +535,9 @@ var _ = Describe("a request shed with 413", func() {
 
 	// The OTHER 413: a body over the gateway's size cap, refused before admission ran.
 	//
-	// It carries no admission reason, because the guard never saw it. Counting it as shedding credits the
-	// bucket with a decision it did not make, and the admitted-work fraction is the number that changes.
+	// It carries no admission reason, because the guard never saw it.
+	// Counting it as shedding credits the bucket with a decision it did not make, and the admitted-work
+	// fraction is the number that changes.
 	It("does not treat a body-limit 413 as work the guard shed", func() {
 		oversized := shed(2, "noisy", true)
 		oversized.AdmissionReason = ""
@@ -532,10 +545,11 @@ var _ = Describe("a request shed with 413", func() {
 		rows[0].Tenant, rows[0].IsNoisy, rows[0].LongThreshold = "noisy", true, 4000
 		rows[0].AdmissionReason = "within_budget"
 		s := Summarize("static-cap", rows)
-		// Rejected is the quantity that moves. Offered and Admitted do NOT: a pre-admission refusal leaves the
-		// eligible population altogether, so it is absent from both terms under either classification -- which
-		// is why asserting them proves nothing here, and why the first version of this spec survived a mutation
-		// that deleted the check it exists for.
+		// Rejected is the quantity that moves.
+		// Offered and Admitted do NOT: a pre-admission refusal leaves the eligible population altogether, so it
+		// is absent from both terms under either classification -- which is why asserting them proves nothing
+		// here, and why the first version of this spec survived a mutation that deleted the check it exists
+		// for.
 		Expect(s.Rejected).To(BeZero(),
 			"a body over the size cap was counted as a rejection by the guard, which never saw it")
 		// And it is in neither term of the fraction, which the completed row's presence makes readable.
@@ -546,8 +560,9 @@ var _ = Describe("a request shed with 413", func() {
 	// The same distinction one level down, in the threshold-probe tally.
 	//
 	// That tally reads its own predicate, so it can disagree with the fraction above while both look right in
-	// isolation. A probe refused on body size did not test the threshold any more than a 403 did: it must land
-	// in Unevaluated, not in Rejected, or the section reports a boundary the guard was never asked about.
+	// isolation.
+	// A probe refused on body size did not test the threshold any more than a 403 did: it must land in
+	// Unevaluated, not in Rejected, or the section reports a boundary the guard was never asked about.
 	It("counts a body-limit 413 against a probe as unevaluated, not rejected", func() {
 		oversized := shed(1, ProbeOverTenant, false)
 		oversized.AdmissionReason = ""
@@ -563,10 +578,11 @@ var _ = Describe("a request shed with 413", func() {
 
 var _ = Describe("a threshold probe the gateway never evaluated", func() {
 	// The probe tenants exist to prove the eligibility threshold discriminates between 4095 and 4096 estimated
-	// tokens. A 403 means the gateway refused the tenant before admission ever ran, so the threshold did not
-	// get to speak and the section has no evidence in it -- but it printed "rejected=0", which reads as the
-	// threshold having considered the probe and let it through. A paid run shipped 92 such rows per arm and the
-	// report presented them as a result.
+	// tokens.
+	// A 403 means the gateway refused the tenant before admission ever ran, so the threshold did not get to
+	// speak and the section has no evidence in it -- but it printed "rejected=0", which reads as the threshold
+	// having considered the probe and let it through.
+	// A paid run shipped 92 such rows per arm and the report presented them as a result.
 	probe := func(status int) ArmSummary {
 		return Summarize("off", []RawRow{{
 			Index:          1,
@@ -600,17 +616,21 @@ var _ = Describe("a threshold probe the gateway never evaluated", func() {
 //
 // The price-of-protection pilot produced exactly this page: three lines of `0.000 FAIL` under
 // "Pre-registered checks", then "VERDICT: not all checks passed", for a study whose criteria the binary had
-// never evaluated. The caller was doing the right thing -- it passed an empty Checks and warned on stderr --
-// and an empty Checks is indistinguishable from a run that failed everything. Hence the pointer.
+// never evaluated.
+// The caller was doing the right thing -- it passed an empty Checks and warned on stderr -- and an empty
+// Checks is indistinguishable from a run that failed everything.
+// Hence the pointer.
 //
 // Mutation that turns this red: make FormatReport treat a nil checks as Checks{} and render it.
 // Summarize and EvaluateChecks are exercised together here, because separately neither can show this.
 //
 // Every EvaluateChecks spec in this file hands over a summary built by hand, and every Summarize spec stops at
-// the totals. So a row that is ELIGIBLE but carries no exact measurement -- which is what `completedRow`
-// produces, and what a replay against an engine that reports no prompt tokens produces -- travels the whole
-// path without any spec reading the verdict at the end of it. The gap is not hypothetical: the benchharness
-// controls failed on exactly this shape the moment the criterion started reading exact tokens.
+// the totals.
+// So a row that is ELIGIBLE but carries no exact measurement -- which is what `completedRow` produces, and
+// what a replay against an engine that reports no prompt tokens produces -- travels the whole path without any
+// spec reading the verdict at the end of it.
+// The gap is not hypothetical: the benchharness controls failed on exactly this shape the moment the criterion
+// started reading exact tokens.
 var _ = Describe("an eligible population with no exact measurement", func() {
 	eligible := func(arm string, status int) ArmSummary {
 		r := completedRow(1, 10, 8000)
@@ -652,7 +672,8 @@ var _ = Describe("an eligible population with no exact measurement", func() {
 
 var _ = Describe("a report whose admission criterion could not be evaluated", func() {
 	// The old line printed a number unconditionally, so an unevaluable criterion and a criterion that measured
-	// zero produced the same "0.000 FAIL". They are different findings and only one of them is a measurement.
+	// zero produced the same "0.000 FAIL".
+	// They are different findings and only one of them is a measurement.
 	It("says NOT EVALUABLE and attaches no pass or fail verdict to the number", func() {
 		out := FormatReport([]ArmSummary{{Arm: "kv-aware", TailSampleSize: 500}},
 			&Checks{AdmissionNotEvaluable: true, EstimateWeightedDelta: 1.0}, 0.05)
@@ -694,10 +715,12 @@ var _ = Describe("a report with no criteria to evaluate", func() {
 
 var _ = Describe("admitted work when a request never reached admission", func() {
 	// The 413 fix put neverEvaluated into the probe tally and not into the admitted-work block directly above
-	// it, which is the same defect the fix was for, committed inside the fix. A 403 is not 429 and not 413, so
-	// shedByAdmission says false and the row was counted as work the guard admitted. In the paid run the
-	// probes estimate at 4,096 tokens against a 4,096 threshold, so all 180 of them per arm landed in the
-	// eligible population -- and static-cap, which admitted nothing at all, scored 737,280 admitted tokens.
+	// it, which is the same defect the fix was for, committed inside the fix.
+	// A 403 is not 429 and not 413, so shedByAdmission says false and the row was counted as work the guard
+	// admitted.
+	// In the paid run the probes estimate at 4,096 tokens against a 4,096 threshold, so all 180 of them per
+	// arm landed in the eligible population -- and static-cap, which admitted nothing at all, scored 737,280
+	// admitted tokens.
 	//
 	// A request the gateway turned away on credentials is not admitted work and not offered work either: it
 	// is outside the population the guard was measured on, because the guard never saw it.
@@ -714,11 +737,11 @@ var _ = Describe("admitted work when a request never reached admission", func() 
 })
 
 var _ = Describe("the eligible population when the evidence records a tier", func() {
-	// The gateway's rule is tier == standard AND input over the threshold. Summarize read only the threshold,
-	// because a raw row had no tier to read, and the two agreed only because the paid run's sole premium
-	// tenant sent 50-token prompts against a 4,096 threshold. A premium tenant with a long prompt would have
-	// put premium tokens into both terms of the admission-match fraction, which is a comparison of how much
-	// STANDARD work each arm let through.
+	// The gateway's rule is tier == standard AND input over the threshold.
+	// Summarize read only the threshold, because a raw row had no tier to read, and the two agreed only
+	// because the paid run's sole premium tenant sent 50-token prompts against a 4,096 threshold.
+	// A premium tenant with a long prompt would have put premium tokens into both terms of the
+	// admission-match fraction, which is a comparison of how much STANDARD work each arm let through.
 	//
 	// Evidence written before the gateway reported its tier carries none, and must keep scoring the way it
 	// did -- otherwise fixing this would silently rewrite the numbers of every run already on disk.
@@ -743,14 +766,16 @@ var _ = Describe("the eligible population when the evidence records a tier", fun
 var _ = Describe("an eligible request that never got an admission verdict", func() {
 	// A request the gateway never answered says nothing about what the guard admitted, and Summarize counted
 	// it as admitted work anyway: anything that was not 429, 413, 401 or 403 landed in both terms of the
-	// fraction. Driven through the real report binary, an arm whose noisy traffic died in transport -- a third
-	// of the arm gone -- printed "admission match |B-C|/C = 0.000 PASS".
+	// fraction.
+	// Driven through the real report binary, an arm whose noisy traffic died in transport -- a third of the
+	// arm gone -- printed "admission match |B-C|/C = 0.000 PASS".
 	//
-	// That is not a hypothetical failure mode. A port-forward dying mid-replay is the most frequent failure
-	// this project has observed, twice in one run, and the script checks the forward only BEFORE each replay.
+	// That is not a hypothetical failure mode.
+	// A port-forward dying mid-replay is the most frequent failure this project has observed, twice in one
+	// run, and the script checks the forward only BEFORE each replay.
 	//
-	// The rule is the one the tail already uses: a lost observation is neither a success nor a refusal. It
-	// leaves both terms and is counted, and past a threshold it disqualifies the comparison instead of
+	// The rule is the one the tail already uses: a lost observation is neither a success nor a refusal.
+	// It leaves both terms and is counted, and past a threshold it disqualifies the comparison instead of
 	// quietly shrinking it.
 	dead := func(i int) RawRow {
 		return RawRow{Index: i, SendUnixNanos: 1, Tenant: "standard-noisy", IsNoisy: true,
@@ -798,17 +823,20 @@ var _ = Describe("an eligible request that never got an admission verdict", func
 
 var _ = Describe("the incremental check when the repetition ratios scatter", func() {
 	// ⚠️ The 10.2%-at-CV-0.20 figure was measured against BootstrapCI, which bootstraps the MEAN of the
-	// per-repetition ratios. The 2026-10-01 amendment to the M5-b registration replaced the incremental
-	// interval with a paired BLOCK bootstrap of the pooled p99 ratio, and no coverage has been measured for
-	// that estimator at any scatter. So this bound is retained as a provisional refusal and NOT as a
-	// validity boundary for the interval the gate now reads -- an earlier version of this comment presented
-	// the old measurement as the reason for the current refusal, which is the claim the amendment withdrew.
+	// per-repetition ratios.
+	// The 2026-10-01 amendment to the M5-b registration replaced the incremental interval with a paired
+	// BLOCK bootstrap of the pooled p99 ratio, and no coverage has been measured for that estimator at any
+	// scatter.
+	// So this bound is retained as a provisional refusal and NOT as a validity boundary for the interval
+	// the gate now reads -- an earlier version of this comment presented the old measurement as the reason
+	// for the current refusal, which is the claim the amendment withdrew.
 	//
 	// What survives is narrow and still worth having: with everything else fixed, the runs that pass with
 	// this rule are a subset of those that pass without it, so it cannot raise the rate of a false PASS on
-	// one fixed experiment. The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the
-	// isolation-like ones, so it is not expected to bind; it exists because the failure mode is a gate that
-	// passes when it should not.
+	// one fixed experiment.
+	// The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the isolation-like ones, so
+	// it is not expected to bind; it exists because the failure mode is a gate that passes when it should
+	// not.
 	It("is refused when the ratios are too scattered for the interval to mean anything", func() {
 		Expect(RatioScatterTooHigh([]float64{0.9, 0.9, 0.9, 0.9})).To(BeFalse())
 		Expect(RatioScatterTooHigh([]float64{0.6, 0.9, 1.2, 1.5})).To(BeTrue())
@@ -822,10 +850,10 @@ var _ = Describe("the incremental check when the repetition ratios scatter", fun
 })
 
 var _ = Describe("the admitted-work fraction over exact tokens", func() {
-	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens. Every run so
-	// far computed it over ceil(chars/4), which this project's own calibration records as 36% low on a
-	// 200-character prompt and 30% high on a 40,000-character one (10,000 estimated against 7,695 measured). The pre-registered criterion has therefore
-	// never been evaluated -- a proxy for it has.
+	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens.
+	// Every run so far computed it over ceil(chars/4), which this project's own calibration records as 36% low on a 200-character prompt and 30% high
+	// on a 40,000-character one (10,000 estimated against 7,695 measured).
+	// The pre-registered criterion has therefore never been evaluated -- a proxy for it has.
 	//
 	// Falling back to the estimate is exactly how that happened, so a report with no exact counts refuses the
 	// check instead of quietly answering a different question.
@@ -845,7 +873,8 @@ var _ = Describe("the admitted-work fraction over exact tokens", func() {
 	}
 
 	It("scores offered and admitted work in exact tokens, including the refused", func() {
-		// 10,000 estimated is 7,695 exact. One admitted, one refused.
+		// 10,000 estimated is 7,695 exact.
+		// One admitted, one refused.
 		s := Summarize("static-cap", []RawRow{row(1, 10000, 7695, 7695, 200), row(2, 10000, 7695, 0, 429)})
 		Expect(s.OfferedExactTokens).To(Equal(int64(15390)))
 		Expect(s.AdmittedExactTokens).To(Equal(int64(7695)))
@@ -866,8 +895,9 @@ var _ = Describe("the admitted-work fraction over exact tokens", func() {
 	})
 
 	It("refuses when the engine's own count contradicts the trace's", func() {
-		// The trace is stamped once per prompt length; the engine reports on every admitted request. A
-		// disagreement means the trace was stamped against a different tokenizer, or a different prompt ran.
+		// The trace is stamped once per prompt length; the engine reports on every admitted request.
+		// A disagreement means the trace was stamped against a different tokenizer, or a different prompt
+		// ran.
 		s := Summarize("static-cap", []RawRow{row(1, 10000, 7695, 6000, 200)})
 		Expect(s.ExactTokensContradicted).To(Equal(1))
 	})
@@ -876,9 +906,9 @@ var _ = Describe("the admitted-work fraction over exact tokens", func() {
 var _ = Describe("what protection costs", func() {
 	// The report answered one question -- did the premium tail survive -- and every check was a TTFT ratio.
 	// Re-reading the paid run's raw rows showed what that misses: static-cap held the tail at the isolated
-	// arm's latency AND at the isolated arm's throughput, 46.3 output tokens per second against 46.4. It did
-	// not make the engine efficient; it threw the long tenant's work away. The unprotected arm was 24 percent
-	// faster in aggregate.
+	// arm's latency AND at the isolated arm's throughput, 46.3 output tokens per second against 46.4.
+	// It did not make the engine efficient; it threw the long tenant's work away.
+	// The unprotected arm was 24 percent faster in aggregate.
 	//
 	// A protection result without that number is half an answer, and the raw rows have carried it all along.
 	row := func(i int, tenant string, noisy bool, outTokens int, ttftMs, e2eMs float64) RawRow {
@@ -921,9 +951,10 @@ var _ = Describe("what protection costs", func() {
 	// The row that carries tokens AND a failing status is the one that matters here.
 	//
 	// A shed request carries zero tokens, so asserting on it proves nothing -- the tally is unchanged whether
-	// the status is checked or not. A stream that emitted tokens and then timed out is the real case: the
-	// engine did produce that work, but the client never received a usable answer, and counting it would
-	// credit an arm for output that was thrown away.
+	// the status is checked or not.
+	// A stream that emitted tokens and then timed out is the real case: the engine did produce that work, but
+	// the client never received a usable answer, and counting it would credit an arm for output that was
+	// thrown away.
 	It("counts no tokens for a request that produced some and then failed", func() {
 		s := Summarize("off", []RawRow{
 			row(1, "premium-1", false, 10, 10, 20),
@@ -940,10 +971,11 @@ var _ = Describe("what protection costs", func() {
 
 // The offered-load line must name EVERY tenant, including one the isolated arm does not have.
 //
-// Mutation that turns this red: make formatOfferedLoad stop at the first arm carrying the map. R1 sorts
-// first and has no contender, so the line printed the premium length alone while the contender's 10,645
-// estimated tokens -- half the prefill work on the card -- were missing from a line whose whole job is to
-// say what load was offered. Measured against two real paid runs before this test existed.
+// Mutation that turns this red: make formatOfferedLoad stop at the first arm carrying the map.
+// R1 sorts first and has no contender, so the line printed the premium length alone while the contender's
+// 10,645 estimated tokens -- half the prefill work on the card -- were missing from a line whose whole
+// job is to say what load was offered.
+// Measured against two real paid runs before this test existed.
 func TestTheOfferedLoadLineNamesEveryTenant(t *testing.T) {
 	r1 := ArmSummary{
 		Arm: ArmR1, TailSampleSize: 500,
@@ -996,8 +1028,9 @@ func TestArmsThatDisagreeOnPromptLengthAreShownDisagreeing(t *testing.T) {
 //
 // The design spec's third 2026-09-30 amendment fixes the reported object as a ratio of median
 // per-repetition p99s and says the report "must publish every per-repetition p99 so a reader can see the
-// sample it came from". The values were filled and read only by a range check, so nothing printed them:
-// a reader saw one tail per arm and could not tell five tight repetitions from five scattered ones.
+// sample it came from".
+// The values were filled and read only by a range check, so nothing printed them: a reader saw one tail
+// per arm and could not tell five tight repetitions from five scattered ones.
 //
 // Mutation that turns this red: delete the per-repetition block from FormatReport.
 func TestTheReportPublishesEveryPerRepetitionP99(t *testing.T) {

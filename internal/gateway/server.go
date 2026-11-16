@@ -54,14 +54,15 @@ type Server struct {
 	// reportBackendState makes a response carry the pressure reading its admission decision was made from.
 	//
 	// The benchmark needs it: "not_engaged" at a cache usage of 0.10 and at 0.83 against a 0.85 threshold are
-	// the same string and opposite conclusions. Nobody else does, so it defaults off.
+	// the same string and opposite conclusions.
+	// Nobody else does, so it defaults off.
 	reportBackendState bool
 	// enforceBenchmarkProfile refuses a request body outside the M5-b experiment's registered text-only shape.
 	//
-	// Off by default, and that default is the point: this gateway is not only the experiment's. A caller sending
-	// tool definitions is making a legitimate request, and a profile that refused it everywhere would be the
-	// experiment imposing its scope on traffic it has no authority over. A benchmark run turns it on; nobody
-	// else does.
+	// Off by default, and that default is the point: this gateway is not only the experiment's.
+	// A caller sending tool definitions is making a legitimate request, and a profile that refused it everywhere
+	// would be the experiment imposing its scope on traffic it has no authority over.
+	// A benchmark run turns it on; nobody else does.
 	enforceBenchmarkProfile bool
 	// bindPriority writes the tenant tier's engine priority into every forwarded request.
 	//
@@ -268,15 +269,17 @@ func (s *Server) readyz(w http.ResponseWriter, _ *http.Request) {
 //
 // They exist for the benchmark's evidence files, which recorded a status and nothing else: the tier the
 // gateway resolved and the reason it refused both had to be reconstructed afterwards from configuration that
-// the evidence did not contain. A header costs a few bytes on a response the caller is already receiving.
+// the evidence did not contain.
+// A header costs a few bytes on a response the caller is already receiving.
 const (
 	HeaderAdmissionTier   = "X-Admission-Tier"
 	HeaderAdmissionReason = "X-Admission-Reason"
 	// HeaderBackendState carries the pressure reading a pressure-driven admission control decided on.
 	//
-	// Off by default: backend occupancy is not a caller's business. The benchmark turns it on because the
-	// question it exists to answer -- whether the guard saw the pressure and let it through, or never saw
-	// pressure at all -- cannot be read from the decision alone.
+	// Off by default: backend occupancy is not a caller's business.
+	// The benchmark turns it on because the question it exists to answer -- whether the guard saw the
+	// pressure and let it through, or never saw pressure at all -- cannot be read from the decision
+	// alone.
 	HeaderBackendState = "X-Backend-State"
 )
 
@@ -325,17 +328,16 @@ func (s *Server) failUnresolvedModel(w http.ResponseWriter, tenant, model string
 // Why this cannot just be fail(): the admission guard's reasons ("input_rate_limit" here, "kv_cache_pressure" in Task 3) are not derivable from the HTTP status the way fail()'s errorCode mapping assumes, since both share status 429.
 //
 // Retry-After is set to 5s (design spec Config and API section) because an admission-guard 429 is expected to clear once bucket capacity or backend pressure recovers, at a time the gateway cannot compute.
-// The RPM limiter's 429 can compute it, and carries retryAfterSeconds instead.
-// refuseAdmission answers a request admission refused, with the status its reason calls for.
+// The RPM limiter's 429 can compute it, and carries retryAfterSeconds instead. refuseAdmission answers a request admission refused, with the status its reason calls for.
 func (s *Server) refuseAdmission(w http.ResponseWriter, tenant, model, reason string) {
 	switch {
-	// A request larger than the bucket can ever hold is refused permanently, so it must not carry the
-	// retry hint failReason attaches: a client obeying it would retry an arithmetically impossible request
-	// forever. 413 rather than 429 for the same reason — the caller's action is a smaller prompt, not a
-	// later one.
+	// A request larger than the bucket can ever hold is refused permanently, so it must not carry the retry hint
+	// failReason attaches: a client obeying it would retry an arithmetically impossible request forever. 413
+	// rather than 429 for the same reason — the caller's action is a smaller prompt, not a later one.
 	// The 413 does not go through failReason, so before the X-Admission-Reason header existed its reason reached
-	// nowhere a client could record it. That is why the 1,788 refusals in the 2026-09-03 run had to be
-	// explained months later by reading the runner's flags and the gateway's defaults.
+	// nowhere a client could record it.
+	// That is why the 1,788 refusals in the 2026-09-03 run had to be explained months later by reading the
+	// runner's flags and the gateway's defaults.
 	case reason == reasonInputExceedsBurst || reason == reasonInputExceedsReservation:
 		s.fail(w, tenant, model, http.StatusRequestEntityTooLarge)
 	// The gateway running out of room to hold is not the policy deciding, so it is not 429: internal/bench reads every 429
@@ -465,8 +467,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 2. Resolve the API key to a tenant.
 	tenant, ok, err := s.resolveTenant(ctx, r)
 	if err != nil {
-		// 503, not 401. The gateway could not establish whether this key is valid, and answering
-		// Unauthorized asserts that it did — for every tenant at once, since they all read the same Secret.
+		// 503, not 401.
+		// The gateway could not establish whether this key is valid, and answering Unauthorized asserts
+		// that it did — for every tenant at once, since they all read the same Secret.
 		// An operator seeing a fleet of 401s rotates credentials; one seeing 503s looks at the cluster.
 		log.FromContext(ctx).Error(err, "cannot read the api-keys secret", "request_id", rid)
 		s.fail(w, "", "", http.StatusServiceUnavailable)
@@ -534,7 +537,8 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// A body over the cap is not malformed, and 400 told the caller to fix their JSON when the JSON was
-		// fine. MaxBytesReader reports the case as a distinguishable type precisely so it can be separated.
+		// fine.
+		// MaxBytesReader reports the case as a distinguishable type precisely so it can be separated.
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			s.fail(w, tenant, "", http.StatusRequestEntityTooLarge)
 			return
@@ -586,11 +590,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// The reachable set is decided ONCE, here, and every stage below sees the same slice.
 	//
-	// tryBackends caps attempts at maxBackendAttempts and used to apply that cap itself, on its own copy. That
-	// was invisible while admission only ever consulted targets[0]. Once admission started asking every
-	// candidate, a third backend the request could never reach could reject it on its own pressure — a refusal
-	// attributable to a machine that was never going to serve. Registration has the same problem in the other
-	// direction: a scraper started for a backend outside the reachable set is telemetry nothing can act on.
+	// tryBackends caps attempts at maxBackendAttempts and used to apply that cap itself, on its own copy.
+	// That was invisible while admission only ever consulted targets[0].
+	// Once admission started asking every candidate, a third backend the request could never reach could reject it on
+	// its own pressure — a refusal attributable to a machine that was never going to serve.
+	// Registration has the same problem in the other direction: a scraper started for a backend outside the reachable
+	// set is telemetry nothing can act on.
 	// A routing policy chooses the head before anything else looks at the list, so admission, priority binding and the
 	// attempt cap all see the backend the request will actually be sent to first. routingPolicyFor returns none when
 	// any candidate is HoldCap, so the HoldCap step below is unchanged wherever it can matter.
@@ -613,9 +618,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	//
 	// The eligible population is tier == standard AND input over the threshold, and a raw row carried only
 	// the input estimate -- so the report scored the population on half the rule and agreed with the gateway
-	// by luck, the sole premium tenant happening to send prompts far below the threshold. Set before the
-	// admission stage, so a refused request carries it too: a request that was never admitted is exactly the
-	// one whose population membership decides whether the guard is being scored fairly.
+	// by luck, the sole premium tenant happening to send prompts far below the threshold.
+	// Set before the admission stage, so a refused request carries it too: a request that was never admitted
+	// is exactly the one whose population membership decides whether the guard is being scored fairly.
 	w.Header().Set(HeaderAdmissionTier, tier)
 	admitter, mode, holdCap := s.admissionFor(targets)
 	if holdCap && s.refuseHoldCapShape(w, tenant, meta, tier) {
@@ -623,7 +628,8 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	// The latency metrics start here, before admission, because an admitter may hold the request: serial-prefill
 	// queues a standard request for its turn, and a timer started after it would report a request held 20 s before a
-	// fast backend as fast (review of 197bd12). The hold itself is observed on its own as admission_wait_seconds.
+	// fast backend as fast (review of 197bd12).
+	// The hold itself is observed on its own as admission_wait_seconds.
 	start := time.Now()
 	tr.deciding(start)
 	res, admit, reason := decideAdmission(ctx, admitter, meta, targets, tenant, tier)
@@ -633,8 +639,8 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	admissionWait.WithLabelValues(tenant, admissionOutcome).Observe(time.Since(start).Seconds())
 	// Released on every way out from here: a refusal holds nothing, and an admitted request that errors, is
-	// cancelled or completes gives back whatever it still holds. The trace stamps the prefill release here when
-	// no body byte released it first.
+	// cancelled or completes gives back whatever it still holds.
+	// The trace stamps the prefill release here when no body byte released it first.
 	defer tr.releaseAtEnd(res)()
 	decision := "admit"
 	if !admit {
@@ -645,8 +651,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	//
 	// An admit had none, so four different facts about arm C arrived as one: a backend the guard never
 	// registered, telemetry too stale to read, a backend under no pressure, and a caller outside the gated
-	// population. The first two mean the guard was bypassed -- a run spent entirely in them is arm A under
-	// arm C's name, reporting as a clean scientific FAIL with nothing in the evidence to say otherwise.
+	// population.
+	// The first two mean the guard was bypassed -- a run spent entirely in them is arm A under arm C's
+	// name, reporting as a clean scientific FAIL with nothing in the evidence to say otherwise.
 	if reason != "" {
 		w.Header().Set(HeaderAdmissionReason, reason)
 	}
@@ -662,8 +669,8 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bound only after admission, so a refused request is never rewritten, and before the handoff, so every
-	// attempt on every backend carries the same priority.
+	// Bound only after admission, so a refused request is never rewritten, and before the handoff, so every attempt on
+	// every backend carries the same priority.
 	// Judged on the backends the request may still be sent to: a reservation pins it to the head, and a fallback it can
 	// no longer reach must not keep it unbound.
 	if err := s.settlePriority(w, r, tr, meta, tier, holdCap, forwardTargets(pinnedToHead(res, reason), targets)); err != nil {
@@ -697,13 +704,16 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// line or a token, the client is mid-response and a second backend cannot take over — it would splice two
 	// answers together. att.wrote is that latch, and for a streaming response it closes on the first token.
 	//
-	// It also needs the request body back. A POST is not replayable on its own, and this is exactly what
-	// r.GetBody was already installed for one stage earlier: the factory reads from a buffer held in memory,
-	// so rewinding costs nothing and cannot fail. Without it there would be no second attempt to make.
+	// It also needs the request body back.
+	// A POST is not replayable on its own, and this is exactly what r.GetBody was already installed for one
+	// stage earlier: the factory reads from a buffer held in memory, so rewinding costs nothing and cannot
+	// fail.
+	// Without it there would be no second attempt to make.
 	// The LAST failure code seen, kept so a request that ended without any backend answering is not published
-	// as the recorder's seeded 200. That happened on every cancelled request: the callback only wrote rec.code
-	// on a final attempt, the guards inside tryBackends stopped the loop before any final attempt ran, and a
-	// request nobody served went into requests_total as a success.
+	// as the recorder's seeded 200.
+	// That happened on every cancelled request: the callback only wrote rec.code on a final attempt, the
+	// guards inside tryBackends stopped the loop before any final attempt ran, and a request nobody served
+	// went into requests_total as a success.
 	lastFailure := 0
 	targets = forwardTargets(pinnedToHead(res, reason), targets)
 	urls := make([]*url.URL, 0, len(targets))
@@ -711,8 +721,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		urls = append(urls, t.URL)
 	}
 	// Recorded here rather than after the call, because this is the last line at which the answer is still
-	// "yes, the serving stack was asked" regardless of how the attempt turns out. A counter incremented on the
-	// way out would miss a panic or a cancelled request and quietly shrink the denominator it exists to be.
+	// "yes, the serving stack was asked" regardless of how the attempt turns out.
+	// A counter incremented on the way out would miss a panic or a cancelled request and quietly shrink the
+	// denominator it exists to be.
 	backendAttempts.WithLabelValues(tenant, meta.Model).Inc()
 	tr.handedOff()
 	var advanced bool
@@ -746,17 +757,18 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Observed only when a byte actually reached the client, because there is no such thing as the first-byte
 	// latency of a response that had none.
 	//
-	// MEASURED, not assumed: no request that gets this far currently fails this test. A refused dial, a
-	// header timeout and an already-cancelled context all end at proxy.go's ErrorHandler, which writes a 502
-	// or 504 envelope -- and that envelope is itself the first byte. Probes for all three were run and each
-	// incremented the histogram. An earlier version of this comment claimed the guard kept cancelled requests
-	// out of the quantile; that was a story about the code rather than a reading of it, and the probe that
-	// disproved it is the reason this paragraph exists.
+	// MEASURED, not assumed: no request that gets this far currently fails this test.
+	// A refused dial, a header timeout and an already-cancelled context all end at proxy.go's ErrorHandler,
+	// which writes a 502 or 504 envelope -- and that envelope is itself the first byte.
+	// Probes for all three were run and each incremented the histogram.
+	// An earlier version of this comment claimed the guard kept cancelled requests out of the quantile; that
+	// was a story about the code rather than a reading of it, and the probe that disproved it is the reason
+	// this paragraph exists.
 	//
 	// It stays because the zero value is reachable by construction even though no path reaches it today:
 	// statusRecorder.answered exists precisely because "nothing reached the client" is a distinct state
-	// (proxy.go:175), and a future ErrorHandler that declines to write a body would restore it. What it must
-	// not do is claim to be catching something it has never caught.
+	// (proxy.go:175), and a future ErrorHandler that declines to write a body would restore it.
+	// What it must not do is claim to be catching something it has never caught.
 	if !rec.firstByteAt.IsZero() {
 		timeToFirstByte.WithLabelValues(tenant, meta.Model).Observe(rec.firstByteAt.Sub(start).Seconds())
 	}
@@ -795,14 +807,15 @@ func (s *Server) route(w http.ResponseWriter, targets []*BackendRef, tenant, mod
 // any attempt reported, or 0 if none did.
 //
 // Nothing reaching the client means no backend answered, and the seeded 200 would publish a failed request
-// as a success. That is not hypothetical: it happened to every cancelled request, because the failure
-// callback only wrote rec.code on a FINAL attempt and the guards inside tryBackends stopped the loop before
-// any final attempt ran.
+// as a success.
+// That is not hypothetical: it happened to every cancelled request, because the failure callback only wrote
+// rec.code on a FINAL attempt and the guards inside tryBackends stopped the loop before any final attempt
+// ran.
 //
-// The answered guard is load-bearing rather than defensive. A request whose first attempt failed and whose
-// retry SUCCEEDED also leaves lastFailure set, and without the guard that genuine 200 would be overwritten
-// by the failure it recovered from.
-// reportObserved sets the backend-state header from the first target the admitter has numbers for.
+// The answered guard is load-bearing rather than defensive.
+// A request whose first attempt failed and whose retry SUCCEEDED also leaves lastFailure set, and without
+// the guard that genuine 200 would be overwritten by the failure it recovered from. reportObserved sets
+// the backend-state header from the first target the admitter has numbers for.
 func reportObserved(w http.ResponseWriter, admitter Admitter, targets []*BackendRef) {
 	obs, ok := admitter.(admissionObserver)
 	if !ok {
@@ -822,8 +835,9 @@ func responseHooks(r *http.Request, tr *requestTrace, res *reservation) (func(),
 	if res == nil || !res.onContent {
 		return tr.release(res), tr.body
 	}
-	// The watcher reads the body as it passes, so it must be plain text. A client that asks for gzip itself would get
-	// a compressed stream the watcher cannot read, and the hold would last the whole response (review of 64188a2).
+	// The watcher reads the body as it passes, so it must be plain text.
+	// A client that asks for gzip itself would get a compressed stream the watcher cannot read, and the hold would
+	// last the whole response (review of 64188a2).
 	// Without the client's header, Go's transport negotiates compression on its own and hands the proxy a decoded
 	// body.
 	r.Header.Del("Accept-Encoding")
@@ -849,14 +863,16 @@ func publishedCode(answered bool, code, lastFailure int) int {
 // servedByFallback reports whether this request is one the fallback path rescued.
 //
 // advanced is tryBackends reporting that it REALLY tried another candidate, rather than the failure callback
-// guessing. The callback fires before the retry guards run, so latching on it counted a fallback whenever a
-// non-final attempt failed — including the cancelled requests where no retry ever happened, which the
-// benchmark harness produces on every timeout.
+// guessing.
+// The callback fires before the retry guards run, so latching on it counted a fallback whenever a non-final
+// attempt failed — including the cancelled requests where no retry ever happened, which the benchmark
+// harness produces on every timeout.
 //
 // A successful status is required on top: a fallback that also failed is not a rescue, and counting it as
-// one inverts what the ratio means. The range is 2xx and 3xx rather than everything below 500, because a 4xx
-// from the spare means the request reached it and was refused on its own merits — the fallback path carried
-// the request but never served an answer, and the metric's name says "served".
+// one inverts what the ratio means.
+// The range is 2xx and 3xx rather than everything below 500, because a 4xx from the spare means the request
+// reached it and was refused on its own merits — the fallback path carried the request but never served an
+// answer, and the metric's name says "served".
 func servedByFallback(advanced bool, code int) bool {
 	return advanced && code >= 200 && code < 400
 }
@@ -928,8 +944,9 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 		// This must stay in step with RBAC.
 		//
 		// config/gateway/rbac.yaml grants secrets reads through a Role in the gateway namespace, limited by resourceNames to this
-		// one Secret. The apiserver authorizes a list or watch against resourceNames only when it carries this metadata.name
-		// selector, so the selector is what lets the narrower Role sync at all.
+		// one Secret.
+		// The apiserver authorizes a list or watch against resourceNames only when it carries this metadata.name selector, so the
+		// selector is what lets the narrower Role sync at all.
 		//
 		// Without this scope the cache tries to list/watch secrets it may not read, is denied, and never syncs, so readiness never opens.
 		//
@@ -961,8 +978,9 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 	// WaitForCacheSync, which flips readiness, waits for it.
 	// The index above registered InferenceDeployment; Secret and GPUQuotaPolicy were left to their first read, so the
 	// gateway reported ready with neither cached and its first requests each waited for an informer to start and sync,
-	// about one 100 ms sync poll per kind. The pilot measured that as 103 and 204 ms of dispatch lag on the first one
-	// or two requests of every cell (design page, "Pilot results, 2026-10-09").
+	// about one 100 ms sync poll per kind.
+	// The pilot measured that as 103 and 204 ms of dispatch lag on the first one or two requests of every cell (design
+	// page, "Pilot results, 2026-10-09").
 	for _, o := range []client.Object{&corev1.Secret{}, &platformv1.GPUQuotaPolicy{}} {
 		if _, err := ca.GetInformer(ctx, o); err != nil {
 			return nil, nil, fmt.Errorf("register the %T informer before start: %w", o, err)
@@ -981,35 +999,42 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 // The two halves take different sets, and that asymmetry is the point rather than an inconsistency.
 //
 // EVERY candidate is registered, because registration starts a telemetry scraper and a backend that can serve
-// traffic has to be observable before it does. Registering only the head meant that when the head went down
-// its scraper hit the same dead Service, its snapshot went stale, and the kv-aware guard — which fails OPEN on
-// staleness — admitted everything, while the spare absorbing all of the traffic had no scraper at all. The
-// guard went blind exactly when fallback made it matter, and nothing reported it, because every request still
-// succeeded. Register is idempotent, so this starts a scraper only the first time a backend is seen.
+// traffic has to be observable before it does.
+// Registering only the head meant that when the head went down its scraper hit the same dead Service, its
+// snapshot went stale, and the kv-aware guard — which fails OPEN on staleness — admitted everything, while the
+// spare absorbing all of the traffic had no scraper at all.
+// The guard went blind exactly when fallback made it matter, and nothing reported it, because every request
+// still succeeded.
+// Register is idempotent, so this starts a scraper only the first time a backend is seen.
 //
 // WHICH candidates are ASKED depends on whether asking costs anything.
 //
 // Asking only the head was wrong in the same shape as registering only the head, and for the same reason.
 // Admission runs before any attempt, so it cannot know which backend will serve; the head is merely the one
-// that will be TRIED first. When the head is unreachable its telemetry goes stale, the kv-aware guard
-// bypasses on staleness — correctly, since refusing traffic on a number nobody could read would be worse —
-// and the request then travels to a spare that was never consulted. The guard is at its most permissive
-// exactly when the backend under real pressure is the one about to receive the request.
+// that will be TRIED first.
+// When the head is unreachable its telemetry goes stale, the kv-aware guard bypasses on staleness —
+// correctly, since refusing traffic on a number nobody could read would be worse — and the request then
+// travels to a spare that was never consulted.
+// The guard is at its most permissive exactly when the backend under real pressure is the one about to
+// receive the request.
 //
-// So a stateless admitter is asked about every candidate, and one dissent rejects. It is the conservative
-// reading and deliberately so: a request is admitted only if every backend it could reach would take it. The
-// cost is that a loaded spare can now shed a long standard-tier request the head would have served. That
-// costs something only while a spare is genuinely under KV pressure, which on this routing table means it is
-// already absorbing traffic.
+// So a stateless admitter is asked about every candidate, and one dissent rejects.
+// It is the conservative reading and deliberately so: a request is admitted only if every backend it could
+// reach would take it.
+// The cost is that a loaded spare can now shed a long standard-tier request the head would have served.
+// That costs something only while a spare is genuinely under KV pressure, which on this routing table means
+// it is already absorbing traffic.
 //
 // A STATEFUL admitter is still asked once, about the head. static-cap's Admit spends EstInputTokens from a
 // per-backend limiter, so asking it about each candidate would bill one request several times and the arm
-// would stop measuring offered load. One request, one charge, decided up front.
-// forwardTargets is the candidate list a request may be forwarded to.
+// would stop measuring offered load.
+// One request, one charge, decided up front. forwardTargets is the candidate list a request may be
+// forwarded to.
 //
-// A request admission charged to the head goes only to the head. Falling back to another would put its work on a
-// backend whose holds or bucket never counted it, and that backend's cap could be exceeded there (found by review
-// for reservations, and again on 2026-11-07 for static-cap's bucket); any other request keeps the fallback path.
+// A request admission charged to the head goes only to the head.
+// Falling back to another would put its work on a backend whose holds or bucket never counted it, and that
+// backend's cap could be exceeded there (found by review for reservations, and again on 2026-11-07 for
+// static-cap's bucket); any other request keeps the fallback path.
 func forwardTargets(pinned bool, targets []*BackendRef) []*BackendRef {
 	if pinned {
 		return targets[:1]

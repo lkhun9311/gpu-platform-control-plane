@@ -27,14 +27,16 @@ import (
 
 // The repetition floor is a property of the STUDY, and these pin that the report says so when it is unmet.
 //
-// WHY A WARNING AND NOT A REFUSAL. By the time a report runs the cells are paid for. Declining to print the
-// tables would leave an operator with evidence and no way to read it, so the floor is reported beside the
-// measurements rather than instead of them. What must not happen is the opposite: a report that prints a
-// median over fewer blocks than the registration fixed and says nothing.
+// WHY A WARNING AND NOT A REFUSAL.
+// By the time a report runs the cells are paid for.
+// Declining to print the tables would leave an operator with evidence and no way to read it, so the floor
+// is reported beside the measurements rather than instead of them.
+// What must not happen is the opposite: a report that prints a median over fewer blocks than the
+// registration fixed and says nothing.
 //
-// The floors themselves are pinned in internal/bench/study_test.go as literals. What is pinned here is that
-// the comparison runs, that it reads the study the evidence carries, and that a study which registered no
-// floor is not judged against an invented one.
+// The floors themselves are pinned in internal/bench/study_test.go as literals.
+// What is pinned here is that the comparison runs, that it reads the study the evidence carries, and that a
+// study which registered no floor is not judged against an invented one.
 
 // floorFixture writes `reps` repetitions of a study's first two arms and returns the loaded evidence.
 //
@@ -43,11 +45,12 @@ import (
 // send timestamps, because two files with identical ones are the same replay counted twice and the loader
 // refuses that by design.
 //
-// THE ARMS COME FROM THE REGISTRY, and the first version of this helper hardcoded R1 and shared. That is
-// fine for three of the four studies here and wrong for the fourth: price-of-protection admits R1 and
-// default-fcfs, so loadArmEvidence refused the fixture with "study price-of-protection-2026-09-05 does not
-// admit shared" and the test failed for a reason that had nothing to do with repetition floors. A fixture
-// refused by an earlier guard tests nothing, and it looks exactly like the rule under test firing.
+// THE ARMS COME FROM THE REGISTRY, and the first version of this helper hardcoded R1 and shared.
+// That is fine for three of the four studies here and wrong for the fourth: price-of-protection admits R1
+// and default-fcfs, so loadArmEvidence refused the fixture with "study price-of-protection-2026-09-05 does
+// not admit shared" and the test failed for a reason that had nothing to do with repetition floors.
+// A fixture refused by an earlier guard tests nothing, and it looks exactly like the rule under test
+// firing.
 //
 // Deriving rather than listing is acceptable BECAUSE this is a fixture and not an assertion: the floors
 // themselves are pinned as literals in internal/bench/study_test.go, where building the expectation from
@@ -87,7 +90,8 @@ func floorFixture(t *testing.T, study string, reps int) *armEvidence {
 }
 
 func TestAStudysRepetitionFloorIsReportedWhenUnmet(t *testing.T) {
-	// The sharing matrix registered five. One repetition per arm is four short of it.
+	// The sharing matrix registered five.
+	// One repetition per arm is four short of it.
 	e := floorFixture(t, bench.StudySharingMatrix, 1)
 	summaries, _ := e.summarize()
 
@@ -128,8 +132,8 @@ func TestTheExploratoryLevelsAreNotWarnedAtTwoRepetitions(t *testing.T) {
 			}
 		})
 	}
-	// One repetition IS short of two, so the same study is checked in both directions. A floor that never
-	// fires is indistinguishable from one that is not read.
+	// One repetition IS short of two, so the same study is checked in both directions.
+	// A floor that never fires is indistinguishable from one that is not read.
 	e := floorFixture(t, bench.StudyTailCrossingShortLC, 1)
 	summaries, _ := e.summarize()
 	if why := e.repetitionFloorShortfall(summaries); why == "" {
@@ -141,9 +145,10 @@ func TestTheExploratoryLevelsAreNotWarnedAtTwoRepetitions(t *testing.T) {
 
 // A study that registered NO floor is not judged against one.
 //
-// Zero means "this registration did not say", the way a nil Frozen does. Treating it as a floor of none
-// would be an empty expectation that passes every value, which is this package's commonest defect shape;
-// treating it as five would make this file assert something the ladder's registration does not.
+// Zero means "this registration did not say", the way a nil Frozen does.
+// Treating it as a floor of none would be an empty expectation that passes every value, which is this
+// package's commonest defect shape; treating it as five would make this file assert something the
+// ladder's registration does not.
 func TestAStudyThatFixedNoFloorIsNotJudged(t *testing.T) {
 	e := floorFixture(t, bench.StudyPriceOfProtection, 1)
 	summaries, _ := e.summarize()
@@ -155,10 +160,11 @@ func TestAStudyThatFixedNoFloorIsNotJudged(t *testing.T) {
 // The thin-tail refusals must not be what produces the sentence.
 //
 // rowsFor writes four rows, far below MinTailSamples, so every arm in these fixtures is already disqualified
-// by the tail floors. If the shortfall sentence were coming from those instead of from the repetition count,
-// every assertion above would pass for the wrong reason -- the shape where an earlier guard shadows the one
-// being probed. So the count is asserted directly: four rows, one repetition, and a sentence that quotes the
-// REPETITION number rather than the sample size.
+// by the tail floors.
+// If the shortfall sentence were coming from those instead of from the repetition count, every assertion
+// above would pass for the wrong reason -- the shape where an earlier guard shadows the one being probed.
+// So the count is asserted directly: four rows, one repetition, and a sentence that quotes the REPETITION
+// number rather than the sample size.
 func TestTheSentenceComesFromTheRepetitionCountAndNotTheTailFloor(t *testing.T) {
 	e := floorFixture(t, bench.StudySharingMatrix, 1)
 	summaries, _ := e.summarize()
@@ -182,14 +188,16 @@ func TestTheSentenceComesFromTheRepetitionCountAndNotTheTailFloor(t *testing.T) 
 // An id the registry does not know falls back to the gateway study, exactly as its two siblings do.
 //
 // Nothing reaches the report this way: loadArmEvidence refuses an unregistered study by name, and
-// LookupStudy maps the empty id to the gateway study. Measured 2026-10-04 -- replacing the branch with
-// `study, _ :=` left the whole package green, so it is unreachable through the command. It is kept because
-// contendedArms and summarize fall back at the same point for the same reason, and a function that answered
-// differently about the same input would be the odd one of three.
+// LookupStudy maps the empty id to the gateway study.
+// Measured 2026-10-04 -- replacing the branch with `study, _ :=` left the whole package green, so it is
+// unreachable through the command.
+// It is kept because contendedArms and summarize fall back at the same point for the same reason, and a
+// function that answered differently about the same input would be the odd one of three.
 //
 // Pinned by calling the method on a hand-built armEvidence, which is the only way to supply a study id the
-// loader would have rejected. The fallback has an observable effect -- the gateway study's floor is five --
-// so this asserts the floor that was applied rather than merely that nothing crashed.
+// loader would have rejected.
+// The fallback has an observable effect -- the gateway study's floor is five -- so this asserts the floor
+// that was applied rather than merely that nothing crashed.
 func TestAnUnregisteredStudyFallsBackToTheGatewayFloor(t *testing.T) {
 	e := &armEvidence{study: "not-a-registered-study-2026"}
 	summaries := []bench.ArmSummary{
@@ -218,9 +226,10 @@ func TestAnUnregisteredStudyFallsBackToTheGatewayFloor(t *testing.T) {
 
 // The call site is pinned as TEXT, because deleting it would leave every assertion above green.
 //
-// Each test here calls the two functions directly. That proves they compute the right answer and says
-// nothing about whether the report asks them -- and a function nothing calls is this repository's recorded
-// defect shape. So the number of call sites is read off the file.
+// Each test here calls the two functions directly.
+// That proves they compute the right answer and says nothing about whether the report asks them -- and a
+// function nothing calls is this repository's recorded defect shape.
+// So the number of call sites is read off the file.
 func TestTheReportActuallyAsksForTheFloor(t *testing.T) {
 	src, err := os.ReadFile("main.go")
 	if err != nil {

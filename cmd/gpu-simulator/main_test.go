@@ -5,9 +5,10 @@ import "testing"
 // The simulator had no tests at all until the resource name stopped being a constant.
 //
 // That was tolerable while there was exactly one name and one socket: the DaemonSet either worked or the
-// node advertised nothing, and the failure was loud. It stops being tolerable the moment two instances run
-// on one node, because the way that breaks is quiet — the second instance removes the first one's socket on
-// startup and inherits its registration, and the node goes on advertising a plausible number.
+// node advertised nothing, and the failure was loud.
+// It stops being tolerable the moment two instances run on one node, because the way that breaks is quiet —
+// the second instance removes the first one's socket on startup and inherits its registration, and the node
+// goes on advertising a plausible number.
 
 // The historical deployment must render byte-identically, or every existing kind cluster changes underneath
 // an experiment that was not about sockets.
@@ -20,9 +21,9 @@ func TestTheDefaultResourceKeepsItsHistoricalSocket(t *testing.T) {
 // A profile-shaped name cannot be used as a file name as it stands.
 //
 // "nvidia.com/mig-1g.5gb" carries a slash, which would make filepath.Join treat it as a directory that does
-// not exist, and dots, which are merely ugly. The point of the assertion is the slash: a socket path with an
-// unescaped one fails at listen time, after the plugin has already removed what it thought was its own
-// stale socket.
+// not exist, and dots, which are merely ugly.
+// The point of the assertion is the slash: a socket path with an unescaped one fails at listen time, after
+// the plugin has already removed what it thought was its own stale socket.
 func TestAProfileNameBecomesAUsableSocketName(t *testing.T) {
 	got := socketNameFor("nvidia.com/mig-1g.5gb")
 	want := "gpu-simulator-nvidia-com-mig-1g-5gb.sock"

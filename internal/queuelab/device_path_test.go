@@ -17,9 +17,9 @@ import (
 // buildFakeCUDA compiles testdata/fake_libcuda.c into a libcuda.so.1 the workload will load.
 //
 // It skips rather than fails when there is no compiler, because the value here is the check itself and a
-// build environment without gcc is not evidence about the workload. It does NOT skip when the compile
-// fails: that is the shim being broken, and a silently skipped shim is exactly the reassurance this file
-// exists to refuse.
+// build environment without gcc is not evidence about the workload.
+// It does NOT skip when the compile fails: that is the shim being broken, and a silently skipped shim is
+// exactly the reassurance this file exists to refuse.
 func buildFakeCUDA(t *testing.T) string {
 	t.Helper()
 	cc, err := exec.LookPath("gcc")
@@ -45,10 +45,11 @@ func runWorkload(t *testing.T, libDir string, env []string, seconds, arm string)
 // runWorkloadAtDuty is the same, with the workload's third argument spelled out.
 //
 // The arguments are replaced by POSITION FROM THE FRONT, which is what stops this helper from breaking every
-// time the workload gains an argument. It counted from the END twice: the two-argument version overwrote the
-// last two and, when duty was added, handed the arm string to float(); counting three from the end then did
-// the same thing again when the state path was added, and every device-path test failed with a ValueError
-// about 'ignore' rather than with anything about the device.
+// time the workload gains an argument.
+// It counted from the END twice: the two-argument version overwrote the last two and, when duty was added,
+// handed the arm string to float(); counting three from the end then did the same thing again when the state
+// path was added, and every device-path test failed with a ValueError about 'ignore' rather than with
+// anything about the device.
 //
 // Positional arguments are appended, never inserted, so an index from the front names the same argument
 // forever while an index from the end names a different one after every addition.
@@ -92,12 +93,13 @@ func stderrAs(err error, target **exec.ExitError) bool {
 	return ok
 }
 
-// The workload's DEVICE path, executed. Nothing in this repository had ever run it.
+// The workload's DEVICE path, executed.
+// Nothing in this repository had ever run it.
 //
 // TestTheShippedWorkloadActuallyRunsAndReportsWhatTheParserExpects runs on a host with no libcuda.so.1, so
 // it takes the fallback branch at the first line of cuda() and never constructs a kernel argument, never
-// loads the PTX, never launches anything. Its own comment claims nothing else can do what it does; that was
-// true only of the fallback.
+// loads the PTX, never launches anything.
+// Its own comment claims nothing else can do what it does; that was true only of the fallback.
 //
 // The shim asserts, from the C side and with distinct exit statuses so a failure cannot be mistaken for a
 // broken GPU: the module image is this file's PTX and targets sm_75, the kernel is named burn, the
@@ -107,7 +109,8 @@ func stderrAs(err error, target **exec.ExitError) bool {
 //
 // That last pair is the one worth having. kernelParams is an array of raw addresses; ctypes copies the
 // integer and keeps no reference, so a build whose argument objects go out of scope hands the driver two
-// dangling pointers. This test dereferences them on every launch.
+// dangling pointers.
+// This test dereferences them on every launch.
 func TestTheWorkloadsDevicePathRunsAgainstAFakeDriver(t *testing.T) {
 	lib := buildFakeCUDA(t)
 	out, code := runWorkload(t, lib, nil, "1", "ignore")
@@ -129,7 +132,8 @@ func TestTheWorkloadsDevicePathRunsAgainstAFakeDriver(t *testing.T) {
 }
 
 // Each way the driver can refuse produces its own token, and the tokens are what send an operator to the
-// right place. They were a closed set nobody had ever driven from the driver's side.
+// right place.
+// They were a closed set nobody had ever driven from the driver's side.
 func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 	lib := buildFakeCUDA(t)
 	for _, tc := range []struct{ symbol, token string }{
@@ -176,15 +180,17 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 // The kernel arguments must outlive the function that built them.
 //
 // This is a STRUCTURAL check, and the reason is worth stating: the defect is undefined behaviour that does
-// not reproduce. `args._objects` is nil and the closure's free variables are `('args',)`, so the two
-// argument objects are freed when cuda() returns and every launch dereferences reclaimed memory -- but the
-// loop allocates nothing that lands on those blocks, and 2.9 million launches under two different Python
-// allocators read the correct values. Forcing the reuse by hand corrupts them immediately.
+// not reproduce.
+// `args._objects` is nil and the closure's free variables are `('args',)`, so the two argument objects are
+// freed when cuda() returns and every launch dereferences reclaimed memory -- but the loop allocates
+// nothing that lands on those blocks, and 2.9 million launches under two different Python allocators read
+// the correct values.
+// Forcing the reuse by hand corrupts them immediately.
 //
 // So the shim above cannot catch it, and a test that waited for it to bite would pass on a broken build.
-// What is checked instead is the property that makes it safe: the launch closure keeps a reference. That is
-// a weaker kind of test and it is the honest one for a bug whose manifestation is a matter of allocator
-// luck on a machine costing money by the hour.
+// What is checked instead is the property that makes it safe: the launch closure keeps a reference.
+// That is a weaker kind of test and it is the honest one for a bug whose manifestation is a matter of
+// allocator luck on a machine costing money by the hour.
 func TestTheKernelArgumentsOutliveTheirBuilder(t *testing.T) {
 	script := workloadScript
 	if !strings.Contains(script, "args=(ctypes.c_void_p*2)(") {
@@ -208,19 +214,22 @@ func TestTheKernelArgumentsOutliveTheirBuilder(t *testing.T) {
 // The PTX in the tree must be the PTX somebody compiled.
 //
 // This used to shell out to ptxas and SKIP when there was none, which is how it behaves on every machine
-// without a CUDA toolkit -- including this one. A check that disappears silently proves nothing, and a green
-// suite was reading as evidence that the one verification submit.go names as available without a GPU had
-// been done. Before that, the comment claimed the compilation had happened and no check existed anywhere in
-// the repository at all.
+// without a CUDA toolkit -- including this one.
+// A check that disappears silently proves nothing, and a green suite was reading as evidence that the one
+// verification submit.go names as available without a GPU had been done.
+// Before that, the comment claimed the compilation had happened and no check existed anywhere in the
+// repository at all.
 //
 // So the compilation is done deliberately by hack/verify-ptx.sh, which stores its result keyed to a hash of
-// the PTX it compiled. This is the termination canary's shape: a stored qualification, refused the moment
-// the thing it qualified changes. What it establishes is that this exact text compiled somewhere, for the
-// listed targets, and that nobody has edited it since -- weaker than "ptxas ran just now", stronger than a
-// skip, and honest about which.
+// the PTX it compiled.
+// This is the termination canary's shape: a stored qualification, refused the moment the thing it qualified
+// changes.
+// What it establishes is that this exact text compiled somewhere, for the listed targets, and that nobody
+// has edited it since -- weaker than "ptxas ran just now", stronger than a skip, and honest about which.
 //
 // It earned its place immediately on the first attempt: moving the target to sm_75, which is the T4 this
-// study rents, made .version 6.0 illegal because ISA 6.0 predates Turing. The pairing shipped for minutes.
+// study rents, made .version 6.0 illegal because ISA 6.0 predates Turing.
+// The pairing shipped for minutes.
 //
 // Mutation that turns this red: edit one character of the PTX without re-running the script.
 func TestTheEmbeddedPTXWasCompiled(t *testing.T) {
@@ -250,8 +259,8 @@ func TestTheEmbeddedPTXWasCompiled(t *testing.T) {
 			"Run hack/verify-ptx.sh; it needs no GPU, and until it is run nothing establishes that this "+
 			"kernel assembles for any architecture.", sum, att.PTXSHA256)
 	}
-	// The target the study actually rents. A verification for architectures the session will never see is
-	// not a verification of the session.
+	// The target the study actually rents.
+	// A verification for architectures the session will never see is not a verification of the session.
 	want := "sm_75"
 	if !slices.Contains(att.Targets, want) {
 		t.Fatalf("the PTX was verified for %v and not for %s, which is the T4 this study rents",
@@ -266,25 +275,27 @@ func TestTheEmbeddedPTXWasCompiled(t *testing.T) {
 // TestDutyReachesTheDevicePathAndNotJustTheFallback measures the knob where it has to work.
 //
 // The duty cycle exists so a run can hold a card and idle, which is the only way to tell a reserved
-// GPU-second from an observed device-second. A CPU-path check cannot show that: the fallback loop is Python
-// arithmetic and touches no driver. This runs the DEVICE branch against the shim, where every iteration is a
-// real cuLaunchKernel followed by cuCtxSynchronize, and checks that halving the declared duty roughly halves
-// the launches while the context and the allocation stay open throughout -- which is what "holding the card"
-// means.
+// GPU-second from an observed device-second.
+// A CPU-path check cannot show that: the fallback loop is Python arithmetic and touches no driver.
+// This runs the DEVICE branch against the shim, where every iteration is a real cuLaunchKernel followed by
+// cuCtxSynchronize, and checks that halving the declared duty roughly halves the launches while the context
+// and the allocation stay open throughout -- which is what "holding the card" means.
 //
 // WHAT THIS CHECK IS, AND IS NOT.
 //
-// It is an operational regression guard on the iteration counts the workload REPORTS. It does not measure the
-// fraction of time spent sleeping, and it cannot: the counts come from three separate runs, and iterations per
-// second is not constant between them. A shared runner throttles and deschedules the run that never rests more
-// than the one that rests half the time, so the ratio drifts upward for reasons the duty knob has nothing to do
-// with. On 2026-09-28 it drifted to 0.8049 against this ceiling and the run went red with nothing wrong.
+// It is an operational regression guard on the iteration counts the workload REPORTS.
+// It does not measure the fraction of time spent sleeping, and it cannot: the counts come from three separate
+// runs, and iterations per second is not constant between them.
+// A shared runner throttles and deschedules the run that never rests more than the one that rests half the
+// time, so the ratio drifts upward for reasons the duty knob has nothing to do with.
+// On 2026-09-28 it drifted to 0.8049 against this ceiling and the run went red with nothing wrong.
 //
 // Observed discrimination, which is the honest form of the claim: with the workload's `time.sleep` replaced by
 // `pass` -- a workload that reads the duty and discards it -- the half/full ratio came out at or above 1.0 and
-// this check failed, in each of two runs on this host. The counts themselves are not reproducible (the two runs
-// gave 0.996 and 1.009), and the ordering check happened to fail in one run and pass in the other, so what is
-// recorded here is that the margin fired, not a figure to compare against.
+// this check failed, in each of two runs on this host.
+// The counts themselves are not reproducible (the two runs gave 0.996 and 1.009), and the ordering check
+// happened to fail in one run and pass in the other, so what is recorded here is that the margin fired, not a
+// figure to compare against.
 func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 	lib := buildFakeCUDA(t)
 
@@ -292,14 +303,16 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 	//
 	// It used to be a flat four seconds, which was fine while the period was one second and wrong the moment
 	// it became 2.6: four seconds holds one and a half periods, the last one is truncated mid-work, and half
-	// duty measured 0.81 of full on CI instead of 0.5. The threshold was not too tight -- the window was not
-	// a multiple of the thing being measured. Two whole periods remove the deliberate truncation; they do not
-	// remove overshoot, descheduling or sleep overrun, because the loop takes each segment deadline from the
-	// current time rather than from a fixed schedule.
+	// duty measured 0.81 of full on CI instead of 0.5.
+	// The threshold was not too tight -- the window was not a multiple of the thing being measured.
+	// Two whole periods remove the deliberate truncation; they do not remove overshoot, descheduling or sleep
+	// overrun, because the loop takes each segment deadline from the current time rather than from a fixed
+	// schedule.
 	//
-	// Passed as a DECIMAL, not rounded up to a whole second. Rounding 5.2 to 6 put a third of a period on the
-	// end and half duty measured 0.58 instead of 0.5 -- a smaller version of the same defect, in the line
-	// written to fix it. The workload parses its duration as a float.
+	// Passed as a DECIMAL, not rounded up to a whole second.
+	// Rounding 5.2 to 6 put a third of a period on the end and half duty measured 0.58 instead of 0.5 -- a
+	// smaller version of the same defect, in the line written to fix it.
+	// The workload parses its duration as a float.
 	seconds := strconv.FormatFloat(2*workloadPeriod(t), 'f', -1, 64)
 
 	launches := func(duty string) int {
@@ -324,22 +337,24 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 	// Judged by ORDER rather than by a ratio against a target.
 	//
 	// The first version required half duty to land within [0.35, 0.65] of full, from one local measurement.
-	// CI returned 0.68 and the run went red. The tolerance was not merely too tight: iterations per second is
-	// not constant between the two runs. Full duty hammers a shared runner for the whole interval and gets
-	// throttled and descheduled; half duty rests for half of it and goes faster while it is awake, so the
-	// ratio drifts upward for a reason that has nothing to do with the knob.
+	// CI returned 0.68 and the run went red.
+	// The tolerance was not merely too tight: iterations per second is not constant between the two runs.
+	// Full duty hammers a shared runner for the whole interval and gets throttled and descheduled; half duty
+	// rests for half of it and goes faster while it is awake, so the ratio drifts upward for a reason that
+	// has nothing to do with the knob.
 	//
-	// What the knob has to do is order the three, and clear a margin. Neither is a measurement of idling: a
-	// workload that read the duty and discarded it returns three counts close together, which this ordering and
-	// margin have been observed to reject -- not which they are guaranteed to reject.
+	// What the knob has to do is order the three, and clear a margin.
+	// Neither is a measurement of idling: a workload that read the duty and discarded it returns three counts
+	// close together, which this ordering and margin have been observed to reject -- not which they are
+	// guaranteed to reject.
 	full := launches("1")
 	half := launches("0.5")
 	quarter := launches("0.25")
 	if full == 0 {
 		t.Fatal("the device path launched nothing at full duty")
 	}
-	// full*4/5 truncates, so the effective cutoff is an integer rather than exactly 0.8 of full. The message
-	// reports that integer, because "0.800" would be a boundary the code does not use.
+	// full*4/5 truncates, so the effective cutoff is an integer rather than exactly 0.8 of full.
+	// The message reports that integer, because "0.800" would be a boundary the code does not use.
 	if cutoff := full * 4 / 5; half >= cutoff {
 		t.Errorf("half/full reported-launch ratio = %.4f (half=%d, full=%d); this guard requires half < %d",
 			float64(half)/float64(full), half, full, cutoff)
@@ -352,10 +367,10 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 
 // TestTheWorkloadWritesTheDutyThisPackageParses closes the language boundary for the fourth field.
 //
-// The parser above is only as good as the sentence it is fed. This runs the embedded script against the fake
-// CUDA shim at a declared duty and parses its real termination message with the real parser, so a workload
-// that stopped reporting the field -- or reported it in another spelling -- fails here rather than at the
-// point where a session is being paid for.
+// The parser above is only as good as the sentence it is fed.
+// This runs the embedded script against the fake CUDA shim at a declared duty and parses its real
+// termination message with the real parser, so a workload that stopped reporting the field -- or reported it
+// in another spelling -- fails here rather than at the point where a session is being paid for.
 func TestTheWorkloadWritesTheDutyThisPackageParses(t *testing.T) {
 	lib := buildFakeCUDA(t)
 	out, code := runWorkloadAtDuty(t, lib, nil, "3", "ignore", "0.5")
@@ -395,16 +410,16 @@ func workloadPeriod(t *testing.T) float64 {
 
 // A checkpointing workload never reaches for the driver, and this is measured rather than asserted.
 //
-// The pre-registration asked for a device-path run of the resume arms to be REFUSED at submission. Nothing
-// at submission can know whether libcuda will load on the node a Pod lands on -- that is a fact about the
-// node's driver and container toolkit -- so the path is made unreachable instead of predicted, and this is
-// the test that it actually is.
+// The pre-registration asked for a device-path run of the resume arms to be REFUSED at submission.
+// Nothing at submission can know whether libcuda will load on the node a Pod lands on -- that is a fact
+// about the node's driver and container toolkit -- so the path is made unreachable instead of predicted,
+// and this is the test that it actually is.
 //
 // Why it matters: on the device path the inner loop launches the kernel and never touches x, so the
-// checkpoint holds the seed. Restoring it sets the iteration count to the restored value while restoring NO
-// WORK, and the accumulator check cannot contradict that, because a resumed device attempt and a fresh one
-// both report the seed. The verdict the resume arms are measured by would come from a run that did not do
-// what it claims.
+// checkpoint holds the seed.
+// Restoring it sets the iteration count to the restored value while restoring NO WORK, and the accumulator
+// check cannot contradict that, because a resumed device attempt and a fresh one both report the seed.
+// The verdict the resume arms are measured by would come from a run that did not do what it claims.
 //
 // Both halves are asserted against the SAME fake driver, which is the only way this says anything: without
 // the first, a day when the shim stops loading at all leaves the second passing for a reason unrelated to

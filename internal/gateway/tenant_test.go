@@ -80,9 +80,9 @@ var _ = Describe("resolveTenant", func() {
 // A Secret the gateway cannot read is not a caller whose key is wrong.
 //
 // Both used to collapse into ok=false and answer 401, so RBAC revoked, the object deleted or the apiserver
-// briefly unreachable told every tenant at once that their credential was invalid. That sends an operator to
-// rotate keys while the fault is on the cluster, and a fleet-wide 401 is the shape of an outage, not of an
-// auth failure.
+// briefly unreachable told every tenant at once that their credential was invalid.
+// That sends an operator to rotate keys while the fault is on the cluster, and a fleet-wide 401 is the shape
+// of an outage, not of an auth failure.
 //
 // Mutation that turns this red: return ok=false with a nil error when the Get fails.
 var _ = Describe("an unreadable api-keys secret", func() {

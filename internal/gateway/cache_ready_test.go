@@ -19,8 +19,9 @@ import (
 )
 
 // When the cache says it has synced -- the moment the gateway reports ready -- every kind the request path reads
-// is already cached. Before, Secret and GPUQuotaPolicy informers started on the first request, which each waited
-// one or two 100 ms sync polls: the pilot's 103 and 204 ms first-request lags.
+// is already cached.
+// Before, Secret and GPUQuotaPolicy informers started on the first request, which each waited one or two 100 ms
+// sync polls: the pilot's 103 and 204 ms first-request lags.
 //
 // It needs a real API server, so it fails rather than skips without envtest's binaries: a skip reads as a pass.
 // Mutation that turns it red: remove the GetInformer registrations from NewCache.
@@ -61,8 +62,9 @@ func TestNewCacheHasEveryRequestPathKindSyncedWhenReady(t *testing.T) {
 	if !ca.WaitForCacheSync(ctx) {
 		t.Fatal("the cache never synced")
 	}
-	// Each read the request path makes, through the gateway's own client. The cache refuses a kind it was not given
-	// before start, so a missing registration fails here at once instead of racing an informer this test created.
+	// Each read the request path makes, through the gateway's own client.
+	// The cache refuses a kind it was not given before start, so a missing registration fails here at once instead
+	// of racing an informer this test created.
 	if err := cl.Get(ctx, types.NamespacedName{Name: "gateway-api-keys", Namespace: "default"}, &corev1.Secret{}); !apierrors.IsNotFound(err) {
 		t.Errorf("the Secret read was not served from the cache: %v", err)
 	}

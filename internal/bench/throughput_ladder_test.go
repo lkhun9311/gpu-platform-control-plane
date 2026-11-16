@@ -25,8 +25,8 @@ import (
 //
 // The contender count is the registered 139 and the tail is well above the sample floor, because a fixture
 // that left either at a refusing value would make every case below fail through L0 and the test would pass
-// for a reason that has nothing to do with what it is about. This repository has paid for that kind of
-// green more than once.
+// for a reason that has nothing to do with what it is about.
+// This repository has paid for that kind of green more than once.
 func ladderCell(rung int, topology string, ttftP99 float64) ArmSummary {
 	return ArmSummary{
 		Arm:            ThroughputLadderArm(rung, topology),
@@ -87,9 +87,9 @@ func TestLadderSplitCostsCapacityReversesTheRecommendation(t *testing.T) {
 	}
 }
 
-// A topology that met at NO rung has no rung number, and the reading must not invent one. The second paid
-// ladder produced exactly this: the whole-card control breached at all three rungs and the reading said it
-// "sustained the target to rung 0" -- a sentence about a cell that does not exist.
+// A topology that met at NO rung has no rung number, and the reading must not invent one.
+// The second paid ladder produced exactly this: the whole-card control breached at all three rungs and the
+// reading said it "sustained the target to rung 0" -- a sentence about a cell that does not exist.
 func TestLadderTopologyThatNeverMetHasNoRungNumber(t *testing.T) {
 	res := ladderAnswer(t, []ArmSummary{
 		ladderCell(1, ArmShared, 1282), ladderCell(1, ArmTimeSlicing, 124),
@@ -212,8 +212,9 @@ func TestLadderRungWithOneContendedArmIsInvalid(t *testing.T) {
 	}
 }
 
-// The contender is what the ladder holds fixed. A rung that moved it changed two things at once, and its
-// comparison is not the one the pre-registration describes.
+// The contender is what the ladder holds fixed.
+// A rung that moved it changed two things at once, and its comparison is not the one the
+// pre-registration describes.
 func TestLadderContenderOutsideToleranceIsInvalid(t *testing.T) {
 	drifted := ladderCell(2, ArmTimeSlicing, 90)
 	drifted.DispositionByTenant = map[string]Disposition{
@@ -296,8 +297,9 @@ func TestLadderNearTheTargetDemandsARepetition(t *testing.T) {
 	}
 }
 
-// Two rungs must never pool into one arm. This is the property the arm naming exists to guarantee, and it
-// is worth a test because the guarantee is in a format string.
+// Two rungs must never pool into one arm.
+// This is the property the arm naming exists to guarantee, and it is worth a test because the guarantee
+// is in a format string.
 func TestLadderRungsAreDistinctArms(t *testing.T) {
 	seen := map[string]bool{}
 	for _, arm := range throughputLadderArms() {
@@ -338,10 +340,10 @@ func TestLadderIgnoresForeignArms(t *testing.T) {
 // first.
 //
 // This test exists because of a mutation that did not go red: moving L5 below L2 changed no answer, since
-// L2 independently refuses when neither topology met the target. Two guards agreeing is not a reason to
-// leave one of them untested -- the day the second one is relaxed, the order is all that is left, and the
-// pre-registration's claim that readings are evaluated in a fixed sequence would be true of the document
-// and not of the code.
+// L2 independently refuses when neither topology met the target.
+// Two guards agreeing is not a reason to leave one of them untested -- the day the second one is relaxed,
+// the order is all that is left, and the pre-registration's claim that readings are evaluated in a fixed
+// sequence would be true of the document and not of the code.
 func TestLadderReadingsAreEvaluatedInTheRegisteredOrder(t *testing.T) {
 	res := ladderAnswer(t, []ArmSummary{
 		ladderCell(1, ArmShared, 60), ladderCell(1, ArmTimeSlicing, 55),
@@ -377,9 +379,9 @@ func TestLadderWithNoEvidenceRefuses(t *testing.T) {
 	}
 }
 
-// Rungs must be their OWN comparison group, because they replay different traces on purpose. The report's
-// trace-identity refusal was written against a single group and refused the ladder's own evidence the first
-// time the ladder ran -- after all five cells had been measured.
+// Rungs must be their OWN comparison group, because they replay different traces on purpose.
+// The report's trace-identity refusal was written against a single group and refused the ladder's own
+// evidence the first time the ladder ran -- after all five cells had been measured.
 func TestEachRungIsItsOwnComparisonGroup(t *testing.T) {
 	if g := ArmComparisonGroup(ThroughputLadderArm(1, ArmShared)); g != "rung01" {
 		t.Fatalf("group of a rung-1 cell is %q, want rung01", g)
@@ -399,8 +401,8 @@ func TestEachRungIsItsOwnComparisonGroup(t *testing.T) {
 }
 
 // Two call sites decide something load-bearing from "is this the baseline": gen-trace filters the
-// contender out of its trace, and the trace-identity check exempts it because its row count differs. A
-// ladder baseline they did not recognise would have carried the contender and then been refused for
+// contender out of its trace, and the trace-identity check exempts it because its row count differs.
+// A ladder baseline they did not recognise would have carried the contender and then been refused for
 // disagreeing with the arms it was supposed to be the denominator of -- silently, in both directions.
 func TestIsolatedBaselineIsRecognisedInEveryStudy(t *testing.T) {
 	for _, arm := range []string{ArmR1, ThroughputLadderArm(1, ArmR1), ThroughputLadderArm(throughputLadderRungs, ArmR1)} {
@@ -416,8 +418,9 @@ func TestIsolatedBaselineIsRecognisedInEveryStudy(t *testing.T) {
 	}
 }
 
-// The registered combination rule says the two runs are never pooled. The instrument could not honour it --
-// an ArmSummary pools every file carrying its arm name -- so it refuses instead.
+// The registered combination rule says the two runs are never pooled.
+// The instrument could not honour it -- an ArmSummary pools every file carrying its arm name -- so it
+// refuses instead.
 //
 // An adversarial review built the counterexample: two replays of 300 premium completions and 70 contender
 // offers each pool into 600 and 140, clearing both floors, and the ladder returns a verdict on a cell where
@@ -438,10 +441,11 @@ func TestLadderRefusesPooledReplays(t *testing.T) {
 	}
 }
 
-// Censoring at or above one percent FAILS the registered criterion, so it is a breach. It used to be
-// reached only after the tail-sample floor, so an arm that lost a fifth of its premium requests to timeouts
-// -- which is what breaching looks like at a high offered rate -- came back INVALID for having too few
-// completions left to estimate a p99 from. The instrument refused to score its own clearest failure.
+// Censoring at or above one percent FAILS the registered criterion, so it is a breach.
+// It used to be reached only after the tail-sample floor, so an arm that lost a fifth of its premium
+// requests to timeouts -- which is what breaching looks like at a high offered rate -- came back INVALID
+// for having too few completions left to estimate a p99 from.
+// The instrument refused to score its own clearest failure.
 func TestLadderHeavyCensoringIsABreachNotARefusal(t *testing.T) {
 	drowned := ladderCell(2, ArmTimeSlicing, 60)
 	drowned.Censored = true
@@ -463,8 +467,9 @@ func TestLadderHeavyCensoringIsABreachNotARefusal(t *testing.T) {
 }
 
 // A final report needs the isolated baseline; a between-rung verdict does not, because the baseline is
-// bought last. Removing the baseline used to leave the report saying "no isolated-baseline cell breached
-// the target" when none had been measured at all.
+// bought last.
+// Removing the baseline used to leave the report saying "no isolated-baseline cell breached the target"
+// when none had been measured at all.
 func TestLadderFinalReportRequiresABaseline(t *testing.T) {
 	without := ladderAnswer(t, []ArmSummary{
 		ladderCell(1, ArmShared, 60), ladderCell(1, ArmTimeSlicing, 55),
@@ -486,7 +491,8 @@ func TestLadderFinalReportRequiresABaseline(t *testing.T) {
 }
 
 // "This rung is not here" and "this rung stopped the ladder" are different facts, and a boolean cannot carry
-// the difference. Asking about an absent rung used to come back as a registered STOP.
+// the difference.
+// Asking about an absent rung used to come back as a registered STOP.
 func TestLadderIncompleteRungIsNotAStop(t *testing.T) {
 	res := ladderAnswer(t, []ArmSummary{ladderCell(2, ArmShared, 60), ladderCell(2, ArmTimeSlicing, 55)})
 	if LadderRungComplete(res, 4) {
@@ -524,8 +530,8 @@ func TestLadderStoppingRule(t *testing.T) {
 		t.Fatalf("the stop does not say it is the registered rule: %q", detail)
 	}
 
-	// An incomplete rung is not a decision. Continuing on one would climb past a topology that was never
-	// measured at this load.
+	// An incomplete rung is not a decision.
+	// Continuing on one would climb past a topology that was never measured at this load.
 	half := ladderAnswer(t, []ArmSummary{ladderCell(1, ArmShared, 60)})
 	if cont, detail := LadderShouldContinue(half, 1); cont {
 		t.Fatalf("the ladder climbed on a rung with one cell: %s", detail)

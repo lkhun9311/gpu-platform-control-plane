@@ -253,8 +253,9 @@ var _ = Describe("NodeHealth Controller", func() {
 		})
 
 		// A merge patch replaces the whole taints list, so a taint another controller added between this
-		// reconciler's read and its patch was lost (codex audit, 2026-10-28). The patch now carries the
-		// resourceVersion it read, so a racing write is a conflict to retry, not a taint to overwrite.
+		// reconciler's read and its patch was lost (codex audit, 2026-10-28).
+		// The patch now carries the resourceVersion it read, so a racing write is a conflict to retry,
+		// not a taint to overwrite.
 		//
 		// Mutation that turns this red: patch with client.MergeFrom again, without the optimistic lock.
 		It("keeps a taint another controller adds between its read and its patch", func() {

@@ -75,19 +75,20 @@ func TestAnIdleCardDoesNotEstablishWork(t *testing.T) {
 
 	// One busy sample is a reading, not a state: a driver reports non-zero utilisation while another process
 	// initialises, and that must not carry the claim.
-	// Index 20 is t=20 s, INSIDE the 10..30 s interval. An earlier version of this test made a sample at
-	// t=5 s busy, outside the window, so it was filtered before the count and the mutation that accepted a
-	// single busy sample survived.
+	// Index 20 is t=20 s, INSIDE the 10..30 s interval.
+	// An earlier version of this test made a sample at t=5 s busy, outside the window, so it was filtered
+	// before the count and the mutation that accepted a single busy sample survived.
 	o.Samples[20].UtilisationPercent = 60
 	if ok, _ := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); ok {
 		t.Fatal("a single non-zero sample established that the device did work")
 	}
 	// Two ADJACENT busy samples are still one instant, because this observer scrapes faster than its source
-	// updates and the exporter serves a cached snapshot in between. This fixture samples every second, which
-	// is inside minBusySeparation, so these two can be one collection read twice.
+	// updates and the exporter serves a cached snapshot in between.
+	// This fixture samples every second, which is inside minBusySeparation, so these two can be one
+	// collection read twice.
 	//
-	// This is the case that was passing and should not have been. On real hardware every value in the
-	// victim's series repeated in pairs for exactly this reason.
+	// This is the case that was passing and should not have been.
+	// On real hardware every value in the victim's series repeated in pairs for exactly this reason.
 	o.Samples[21].UtilisationPercent = 60
 	if ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); ok {
 		t.Fatalf("two busy samples closer together than the observer's own source cadence established work: %s", why)
@@ -186,8 +187,9 @@ func TestTheDeviceMustBeIdentifiedAndSingular(t *testing.T) {
 	}
 }
 
-// A URL is not an identity. It says where the bytes came from, not what produced them, and any HTTP server
-// can be at a URL — which is exactly the attack a fake exporter demonstrated on this very code.
+// A URL is not an identity.
+// It says where the bytes came from, not what produced them, and any HTTP server can be at a URL — which
+// is exactly the attack a fake exporter demonstrated on this very code.
 func TestAnEndpointIsNotAnIdentity(t *testing.T) {
 	o := goodObservation()
 	o.Endpoint = "http://127.0.0.1:9400/metrics"
@@ -216,12 +218,13 @@ func TestAnObservationMustAdmitItsSourceWasDeclared(t *testing.T) {
 	}
 }
 
-// Two busy rows from ONE instant are a reading, not a state. DCGM emits duplicated device-wide series, and
-// MIG and label drift make that ordinary — so the count cannot be over rows.
+// Two busy rows from ONE instant are a reading, not a state.
+// DCGM emits duplicated device-wide series, and MIG and label drift make that ordinary — so the count
+// cannot be over rows.
 //
 // Distinct timestamps are not enough either, which TestAnIdleCardDoesNotEstablishWork covers: this observer
-// scrapes faster than the exporter collects, so one collection arrives at several distinct timestamps. The
-// count is over instants at least minBusySeparation apart.
+// scrapes faster than the exporter collects, so one collection arrives at several distinct timestamps.
+// The count is over instants at least minBusySeparation apart.
 //
 // Mutation that turns this red: count busy rows instead of separated busy instants.
 func TestTwoBusyRowsFromOneInstantAreNotAState(t *testing.T) {
@@ -260,8 +263,9 @@ func TestTwoBusyRowsFromOneInstantAreNotAState(t *testing.T) {
 // The clause that turns a utilisation reading into an attribution.
 //
 // DCGM_FI_DEV_GPU_UTIL is DEVICE utilisation; the Kubernetes labels beside it say what the device is
-// ALLOCATED to, not which process made it busy. Under time-slicing, MPS, a MIG parent, or a stale label at
-// the exit transition, a positive reading under this Pod's name can be somebody else's work entirely.
+// ALLOCATED to, not which process made it busy.
+// Under time-slicing, MPS, a MIG parent, or a stale label at the exit transition, a positive reading under
+// this Pod's name can be somebody else's work entirely.
 //
 // So the premise is required rather than the conclusion inferred: every entity this Pod was seen on must
 // have carried no other Pod's label anywhere in the observation.
@@ -286,9 +290,9 @@ func TestASharedDeviceCannotAttributeWorkToEither(t *testing.T) {
 // Superseded by TestALabelInTheStaleMarginStillDefeatsAttribution.
 //
 // This asserted that a label ANY time before the window defeated attribution, which was the whole-observation
-// scope -- and that scope refused the protocol's own handover in every arm. The replacement tests both sides
-// of the derived margin instead: inside it a stale label still convicts, outside it a tenant that gave the
-// card up long ago does not.
+// scope -- and that scope refused the protocol's own handover in every arm.
+// The replacement tests both sides of the derived margin instead: inside it a stale label still convicts,
+// outside it a tenant that gave the card up long ago does not.
 
 // A Pod the run never saw is the same problem wearing no identity, and it is why the parser keeps
 // unattributable samples instead of dropping them.
@@ -321,12 +325,12 @@ func TestAnotherPodOnAnotherDeviceIsNotAConflict(t *testing.T) {
 }
 
 // The experiment's DEFINING event is a handover: the borrower releases the card and the owner takes it, on a
-// node with exactly the two devices the protocol needs. The owner's label therefore lands on the victim's
-// entity a few seconds after the hold ends, in every arm.
+// node with exactly the two devices the protocol needs.
+// The owner's label therefore lands on the victim's entity a few seconds after the hold ends, in every arm.
 //
 // The exclusivity clause used to scan the whole observation and refused exactly that — so every run would
-// have been denied device attribution, deterministically, by the gate meant to license it. Serial
-// reallocation after the window is not ambiguity; it is the thing being measured.
+// have been denied device attribution, deterministically, by the gate meant to license it.
+// Serial reallocation after the window is not ambiguity; it is the thing being measured.
 //
 // Mutation that turns this red: widen the scan back to the whole observation.
 func TestTheProtocolsOwnHandoverDoesNotDefeatAttribution(t *testing.T) {
@@ -385,9 +389,10 @@ func TestALabelInTheStaleMarginStillDefeatsAttribution(t *testing.T) {
 // TestAnUnattributedRunDoesNotAccuseTheExporterOfBeingOff is the distinction a paid session found missing.
 //
 // A run on real hardware was refused with "an exporter with its kubernetes mapping off or its pod-resources
-// mount broken" while the same observation named nine distinct Pods across 667 of its 760 samples. The
-// mapping was plainly on, and the message sent an operator to fix a component that was working. An
-// unlabelled busy card alone does not establish a broken exporter; only an exporter that names nobody does.
+// mount broken" while the same observation named nine distinct Pods across 667 of its 760 samples.
+// The mapping was plainly on, and the message sent an operator to fix a component that was working.
+// An unlabelled busy card alone does not establish a broken exporter; only an exporter that names nobody
+// does.
 func TestAnUnattributedRunDoesNotAccuseTheExporterOfBeingOff(t *testing.T) {
 	// The observer watched the whole interval and attributed plenty -- to somebody else.
 	o := &DeviceObservation{

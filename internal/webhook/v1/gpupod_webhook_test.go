@@ -56,8 +56,8 @@ func gpuValidator(t *testing.T, objs ...client.Object) *GPUPodValidator {
 	return &GPUPodValidator{
 		// testScheme rather than scheme.Scheme: the guard reads GPUQuotaPolicy to decide whether this
 		// namespace is metered by Kueue or by a ResourceQuota, and a fake client whose scheme does not know
-		// the type cannot hold one. Widening the scheme changes nothing for the tests that pass only
-		// built-ins.
+		// the type cannot hold one.
+		// Widening the scheme changes nothing for the tests that pass only built-ins.
 		Reader:  fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build(),
 		decoder: admission.NewDecoder(scheme.Scheme),
 	}
@@ -110,7 +110,8 @@ func TestABareGPUPodIsRefused(t *testing.T) {
 // about it: a tenant writes an ownerReference naming a real, queued Job, and the guard reads it as evidence.
 //
 // ownerReferences are supplied by whoever creates the object and Kubernetes does not check that the named
-// owner had anything to do with it. One kubectl apply obtained two devices.
+// owner had anything to do with it.
+// One kubectl apply obtained two devices.
 //
 // Mutation that turns this red: drop the requester check and trust the ownerReference again.
 func TestAForgedOwnerReferenceIsRefused(t *testing.T) {
@@ -171,7 +172,8 @@ func TestAPodWithNoDeviceRequestIsUntouched(t *testing.T) {
 }
 
 // exemptAnnotation is the annotation that used to admit a device outside every budget; see the comment where
-// its constant was in gpupod_webhook.go. Spelled out here because nothing in the guard names it any more.
+// its constant was in gpupod_webhook.go.
+// Spelled out here because nothing in the guard names it any more.
 const exemptAnnotation = "platform.lkhun9311.github.io/quota-exempt"
 
 // A tenant annotating its own Pod was always refused, and still is.
@@ -188,8 +190,9 @@ func TestATenantCannotExemptItself(t *testing.T) {
 }
 
 // The bypass the exemption left open: a tenant puts the annotation in a Deployment's Pod template, and the
-// ReplicaSet controller, a kube-system service account, creates the Pod carrying it. The guard used to admit
-// that Pod outside every budget; this namespace has neither a queue the Pod is in nor a ResourceQuota.
+// ReplicaSet controller, a kube-system service account, creates the Pod carrying it.
+// The guard used to admit that Pod outside every budget; this namespace has neither a queue the Pod is in
+// nor a ResourceQuota.
 //
 // Mutation that turns this red: restore the exemption for kube-system service accounts.
 func TestAControllerCannotCarryATemplatesExemption(t *testing.T) {
@@ -209,7 +212,8 @@ func TestAControllerCannotCarryATemplatesExemption(t *testing.T) {
 }
 
 // A device request can arrive as a limit, as a request, or on an init container, and BuildJob sets only the
-// limit. A guard that read one of the three would be bypassed by writing the other.
+// limit.
+// A guard that read one of the three would be bypassed by writing the other.
 func TestEveryShapeOfDeviceRequestIsCounted(t *testing.T) {
 	for _, row := range []struct {
 		name   string
@@ -257,9 +261,9 @@ func TestALookupFailureRefusesAndSaysWhy(t *testing.T) {
 
 // A Pod carrying the queue label needs no owner: Kueue's pod integration charges it directly.
 //
-// The label is a bill, not a permission. Forging it does not obtain free capacity — it obtains metered
-// capacity, which is what the guard is for. Verified on the cluster: a bare Pod labelled queue-name got an
-// admitted Kueue Workload.
+// The label is a bill, not a permission.
+// Forging it does not obtain free capacity — it obtains metered capacity, which is what the guard is for.
+// Verified on the cluster: a bare Pod labelled queue-name got an admitted Kueue Workload.
 //
 // Mutation that turns this red: remove the queue-label branch, which also breaks every serving Pod.
 func TestALabelledPodIsAdmittedWithoutAnyOwner(t *testing.T) {
@@ -334,9 +338,9 @@ func TestTheManagedLabelAloneIsNotEnough(t *testing.T) {
 	}
 }
 
-// A quota is worth what its reclaim is worth, and reclaim waits for termination. The tenant being preempted
-// sets terminationGracePeriodSeconds, so without a cap the borrower decides how long it keeps a device its
-// owner already reclaimed.
+// A quota is worth what its reclaim is worth, and reclaim waits for termination.
+// The tenant being preempted sets terminationGracePeriodSeconds, so without a cap the borrower decides how
+// long it keeps a device its owner already reclaimed.
 //
 // Measured on the cluster before this cap existed: grace 30 held the device 32 seconds after deletion,
 // grace 300 held it 301.
@@ -357,9 +361,10 @@ func TestAnOverlongGracePeriodIsRefusedForADeviceHolder(t *testing.T) {
 	}
 }
 
-// The cap has to leave room for the workloads this platform exists for. A training step that checkpoints on
-// SIGTERM needs longer than the 30-second default, and refusing that would push tenants to ignore SIGTERM —
-// which the queuelab measured as the behaviour with the worst outcome for the quota owner.
+// The cap has to leave room for the workloads this platform exists for.
+// A training step that checkpoints on SIGTERM needs longer than the 30-second default, and refusing that
+// would push tenants to ignore SIGTERM — which the queuelab measured as the behaviour with the worst
+// outcome for the quota owner.
 func TestAGracePeriodWithinTheCapIsAdmitted(t *testing.T) {
 	v := gpuValidator(t, queuedJob("train-1", "team-a-queue"))
 	ok := int64(90)
@@ -386,8 +391,9 @@ func TestTheGraceCapDoesNotTouchAPodWithNoDevice(t *testing.T) {
 }
 
 // The bypass an architectural review found, as a test: a tenant needs no Job, no owner and no exemption to
-// hold a device past any reclaim. A queue label is enough, and the queue label is a bill the tenant is happy
-// to pay -- metered capacity held for an hour is still held for an hour.
+// hold a device past any reclaim.
+// A queue label is enough, and the queue label is a bill the tenant is happy to pay -- metered capacity held
+// for an hour is still held for an hour.
 //
 // This is the guard's own thesis turned on the guard: the cap was expressed correctly and then placed behind
 // two returns that admit, so the field the tenant writes decided the outcome after all.

@@ -33,7 +33,8 @@ func (d VersionStudyDesign) CalibrationTrace(ordinal int, rate float64) ([]Trace
 
 // ObserveRung reads one rung's observation off the replayed rows' own monotonic clock.
 //
-// The window is the rung's, in intended-arrival time. A request is outstanding at t when it arrived before t and had not ended by t.
+// The window is the rung's, in intended-arrival time.
+// A request is outstanding at t when it arrived before t and had not ended by t.
 // A row without an intended arrival or a disposition cannot be placed, so the rung is refused rather than counted around it.
 func ObserveRung(rows []RawRow, rate float64, rule CalibrationRule, startedDrained bool) (RungObservation, error) {
 	sec := int64(time.Second)

@@ -133,8 +133,8 @@ func TestWaitBarrierReturnsAtOnceOnAnUnknownBarrierKind(t *testing.T) {
 }
 
 // The other direction, which the classification must not break: an object the barrier is WAITING to appear is
-// absent, which is the ordinary state of every barrier before it holds. That must keep polling and end as a
-// barrier miss at the horizon, not as a terminal failure.
+// absent, which is the ordinary state of every barrier before it holds.
+// That must keep polling and end as a barrier miss at the horizon, not as a terminal failure.
 func TestWaitBarrierKeepsPollingWhileTheObjectIsMerelyAbsent(t *testing.T) {
 	scheme := testScheme(t)
 	if err := platformv1.AddToScheme(scheme); err != nil {
@@ -167,11 +167,12 @@ func TestWaitBarrierKeepsPollingWhileTheObjectIsMerelyAbsent(t *testing.T) {
 
 // The horizon refusal says "the last check failed", so it must be describing the last check.
 //
-// waitBarrier carries the most recent error so a barrier still failing at the deadline can say why. It never
-// cleared that error when a later check succeeded, so one transient failure early — a connection reset, a
-// momentarily unavailable apiserver — followed by minutes of clean polls that simply never saw the barrier
-// hold, produced a refusal blaming an error that had already resolved. An operator reads that and goes
-// hunting for a connectivity problem instead of asking why the condition was never met.
+// waitBarrier carries the most recent error so a barrier still failing at the deadline can say why.
+// It never cleared that error when a later check succeeded, so one transient failure early — a connection
+// reset, a momentarily unavailable apiserver — followed by minutes of clean polls that simply never saw the
+// barrier hold, produced a refusal blaming an error that had already resolved.
+// An operator reads that and goes hunting for a connectivity problem instead of asking why the condition was
+// never met.
 //
 // Mutation that turns this red: delete the `lastErr = nil` assignment in waitBarrier's err == nil branch.
 func TestWaitBarrierDoesNotBlameAnErrorThatLaterChecksCleared(t *testing.T) {
@@ -212,13 +213,14 @@ func TestWaitBarrierDoesNotBlameAnErrorThatLaterChecksCleared(t *testing.T) {
 
 // The main goroutine used to call col.builder.Desync directly while the four watch goroutines were still
 // running and still calling Observe through flush under col.mu, and LedgerBuilder has no locking of its own:
-// invalid, events, lastEvent and ready are plain fields. That is a data race on the single field that
-// decides whether the run may produce a number at all.
+// invalid, events, lastEvent and ready are plain fields.
+// That is a data race on the single field that decides whether the run may produce a number at all.
 //
 // The whole test suite was green under -race before this fix and proved nothing, because no test ran the
-// live collector with concurrent watch goroutines. This one does: one goroutine plays the watch side
-// (submitObserved takes col.mu and calls Observe, exactly as flush does) while the test goroutine plays the
-// main side. Run under -race it fails on the unlocked Desync and passes on the locked one.
+// live collector with concurrent watch goroutines.
+// This one does: one goroutine plays the watch side (submitObserved takes col.mu and calls Observe, exactly
+// as flush does) while the test goroutine plays the main side.
+// Run under -race it fails on the unlocked Desync and passes on the locked one.
 func TestCollectorDesyncIsSerialisedWithTheWatchGoroutines(t *testing.T) {
 	scheme := testScheme(t)
 	if err := platformv1.AddToScheme(scheme); err != nil {
@@ -283,15 +285,17 @@ func stripStampOnCreate(stored map[string]string, uid types.UID) func(context.Co
 	}
 }
 
-// A stamp in the Create body is a request, not a fact. Strip it in admission and this run's OWN namespace
-// reads foreign at teardown: recoverTargets decides ownership by that label alone, residueHoldsWorker sees
-// nothing of ours left, and the worker's dedication label and NoSchedule taint come off over a live namespace
-// this run created — under a stderr line saying nothing this run created is still on the cluster.
+// A stamp in the Create body is a request, not a fact.
+// Strip it in admission and this run's OWN namespace reads foreign at teardown: recoverTargets decides
+// ownership by that label alone, residueHoldsWorker sees nothing of ours left, and the worker's dedication
+// label and NoSchedule taint come off over a live namespace this run created — under a stderr line saying
+// nothing this run created is still on the cluster.
 //
-// Detecting it and returning an error does not close that. The namespace is still there, still unstamped,
-// still unclaimable by any teardown, and the worker release that follows is still wrong; the hole is only
-// announced. So the assertions below are deliberately not satisfiable by an error alone: the namespace this
-// call created must be gone, and the delete that removed it must have been conditioned on the UID the Create
+// Detecting it and returning an error does not close that.
+// The namespace is still there, still unstamped, still unclaimable by any teardown, and the worker release
+// that follows is still wrong; the hole is only announced.
+// So the assertions below are deliberately not satisfiable by an error alone: the namespace this call
+// created must be gone, and the delete that removed it must have been conditioned on the UID the Create
 // returned, or a name freed and recreated by another actor in between is what the delete would destroy.
 func TestEnsureNamespaceRemovesWhatTheClusterStoredUnstamped(t *testing.T) {
 	const createdUID = types.UID("ns-uid-1")
@@ -314,8 +318,8 @@ func TestEnsureNamespaceRemovesWhatTheClusterStoredUnstamped(t *testing.T) {
 					o := &client.DeleteOptions{}
 					o.ApplyOptions(opts)
 					// Captured rather than checked through the fake: the fake ignores preconditions outright, so
-					// a delete armed with the wrong UID still removes the object there. What it was armed with is
-					// the only thing this test can prove.
+					// a delete armed with the wrong UID still removes the object there.
+					// What it was armed with is the only thing this test can prove.
 					gotPreconditions = o.Preconditions
 					return c.Delete(ctx, obj, opts...)
 				},
@@ -355,8 +359,9 @@ func TestEnsureNamespaceRemovesWhatTheClusterStoredUnstamped(t *testing.T) {
 
 // A namespace that could not be removed after the cluster refused its stamp is the worst state in this whole
 // area: it is on the cluster under no stamp any teardown can recognise, so nothing this run or a later one
-// runs will ever claim it. Swallowing the delete's error would report that as an ordinary setup failure and
-// leave the operator with no reason to go looking.
+// runs will ever claim it.
+// Swallowing the delete's error would report that as an ordinary setup failure and leave the operator with
+// no reason to go looking.
 func TestEnsureNamespaceReportsANamespaceItCouldNotRemove(t *testing.T) {
 	refused := apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "queuelab-r1",
 		fmt.Errorf("namespace deletion is not bound"))
@@ -382,8 +387,8 @@ func TestEnsureNamespaceReportsANamespaceItCouldNotRemove(t *testing.T) {
 	}
 }
 
-// Swallowing AlreadyExists is how a previous run's leftovers came to satisfy a new run's barriers. An
-// existing object is ours only if it carries our stamp; anything else is a refusal, not a shrug.
+// Swallowing AlreadyExists is how a previous run's leftovers came to satisfy a new run's barriers.
+// An existing object is ours only if it carries our stamp; anything else is a refusal, not a shrug.
 func TestEnsureNamespaceAdoptsOnlyItsOwnStamp(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -422,9 +427,10 @@ func TestEnsureNamespaceAdoptsOnlyItsOwnStamp(t *testing.T) {
 // Every fixture kind is covered, not just the ResourceFlavor: applyFixtures applies createOwned's ownership
 // check to every object in its loop, and a mutation that special-cased only the first object (the Flavor)
 // would leave the ClusterQueue and LocalQueue cases silently adoptive while this test still passed if they
-// were untested. The "no stamp at all" case is the one a lenient reading of the ownership check (treat an
-// absent label as "not yet stamped, adopt it") would pass: every fixture created before this task carries no
-// TxLabel at all, so that is not a hypothetical, it is what a rerun against real leftover objects hits.
+// were untested.
+// The "no stamp at all" case is the one a lenient reading of the ownership check (treat an absent label as
+// "not yet stamped, adopt it") would pass: every fixture created before this task carries no TxLabel at all,
+// so that is not a hypothetical, it is what a rerun against real leftover objects hits.
 //
 // checkFlavorVariant's own pre-check is exercised too ("our tx, wrong variant"), so a mutation that deleted
 // that block would not sail through on the strength of the ownership check alone covering applyFixtures.
@@ -440,11 +446,11 @@ func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
 
 	// The pre-existing object is built from the SPEC BuildFixtures produces, with only its labels varied.
 	//
-	// Earlier versions of these cases seeded a bare ResourceFlavor carrying labels and no spec at all. That is
-	// not what a leftover looks like: anything an earlier attempt created came from BuildFixtures and carries
-	// the node selector, taint and toleration that isolate the run. Adopting a spec-less flavor would give the
-	// run no isolation at all, so once adoption started checking the spec these cases were asserting that a
-	// contaminating object gets adopted.
+	// Earlier versions of these cases seeded a bare ResourceFlavor carrying labels and no spec at all.
+	// That is not what a leftover looks like: anything an earlier attempt created came from BuildFixtures and
+	// carries the node selector, taint and toleration that isolate the run.
+	// Adopting a spec-less flavor would give the run no isolation at all, so once adoption started checking
+	// the spec these cases were asserting that a contaminating object gets adopted.
 	leftover := func(fs *queuelab.FixtureSet, labels map[string]string) client.Object {
 		rf := fs.Flavor.DeepCopy()
 		rf.Labels = labels
@@ -568,8 +574,9 @@ func isPodList(list client.ObjectList) bool {
 // that makes those consumers safe.
 //
 // LedgerBuilder has no locking of its own, so run() only ever reads it after col.wait() has joined every
-// consumer. A test that wants to watch an invalidation ARRIVE cannot wait that long — the point is that the
-// run is still observing when it happens — so it borrows the collector's mutex instead of racing it.
+// consumer.
+// A test that wants to watch an invalidation ARRIVE cannot wait that long — the point is that the run is
+// still observing when it happens — so it borrows the collector's mutex instead of racing it.
 func ledgerErr(col *collector) error {
 	col.mu.Lock()
 	defer col.mu.Unlock()
@@ -578,9 +585,10 @@ func ledgerErr(col *collector) error {
 
 // A namespace this run created moments ago must be empty of the four kinds it watches, so an object already
 // standing in one is a previous attempt's or another actor's — and the trace job names are fixed by the
-// protocol, so a previous attempt's Pods carry the very names this run is about to use. Folding them in would
-// have the reconstruction measure one run against another's work; dropping them silently would leave the
-// ledger describing a namespace it had only half seen. Neither is a run, so there is no run.
+// protocol, so a previous attempt's Pods carry the very names this run is about to use.
+// Folding them in would have the reconstruction measure one run against another's work; dropping them
+// silently would leave the ledger describing a namespace it had only half seen.
+// Neither is a run, so there is no run.
 //
 // Mutation that turns this red: delete the `if n := s.Baseline().Objects; n > 0` block in collector.start.
 // The baseline is then counted and discarded, which is what startWatchStream on its own does today.
@@ -599,17 +607,18 @@ func TestCollectorRefusesANamespaceThatAlreadyHoldsWatchedObjects(t *testing.T) 
 	if !strings.Contains(err.Error(), kindPod) || !strings.Contains(err.Error(), "1 object") {
 		t.Fatalf("the refusal %q names neither the occupied kind nor how much was there", err)
 	}
-	// The error is what stops run(); this is what stops anything else. A caller that dropped the error must
-	// still not be able to get a number out of the ledger.
+	// The error is what stops run(); this is what stops anything else.
+	// A caller that dropped the error must still not be able to get a number out of the ledger.
 	if col.builder.Err() == nil {
 		t.Fatal("a refused baseline must also invalidate the ledger, or only the caller's diligence stands between a polluted namespace and a published result")
 	}
 }
 
-// Nothing may be submitted until every stream has actually accepted a watch. The failure this pins is the one
-// the old collector had by construction: it retried a failing watch forever, in silence, while run() went
-// straight into the submit loop — so a run could spend its entire window offering work to a cluster it was
-// not observing and still reach the end with a ledger it treated as complete.
+// Nothing may be submitted until every stream has actually accepted a watch.
+// The failure this pins is the one the old collector had by construction: it retried a failing watch forever,
+// in silence, while run() went straight into the submit loop — so a run could spend its entire window
+// offering work to a cluster it was not observing and still reach the end with a ledger it treated as
+// complete.
 //
 // Mutation that turns this red: replace awaitEstablished's select with a bare `<-ks.stream.Established()`.
 // The wait then never returns for a watch that is merely failing, and the test hangs until the package
@@ -648,11 +657,12 @@ func TestCollectorRefusesToObserveWhenAWatchNeverEstablishes(t *testing.T) {
 
 // deadlineSpy records every observation stream that was handed a context carrying a deadline.
 //
-// It exists because of how the first version of the test below failed. That version bounded establishment
-// with a 150ms budget and then checked, ~900ms later, that no stream had died — which does catch the trap at
-// 150ms and does NOT catch it at the production constant, because a stream killed at fifteen seconds outlives
-// any test that waits under a second. The mutation could therefore be reintroduced at the value that actually
-// ships with the whole suite green: the same class of silent hole this gate exists to close, one level up.
+// It exists because of how the first version of the test below failed.
+// That version bounded establishment with a 150ms budget and then checked, ~900ms later, that no stream had
+// died — which does catch the trap at 150ms and does NOT catch it at the production constant, because a
+// stream killed at fifteen seconds outlives any test that waits under a second.
+// The mutation could therefore be reintroduced at the value that actually ships with the whole suite green:
+// the same class of silent hole this gate exists to close, one level up.
 //
 // A deadline is visible the moment the context arrives, whatever its value, so the check sits at the watch
 // call rather than in a race against the clock.
@@ -689,20 +699,22 @@ func (s *deadlineSpy) observed() (int, []string) {
 	return s.calls, append([]string(nil), s.bounded...)
 }
 
-// The trap startWatchStream's doc comment names, in executable form. Bounding establishment with a
-// context.WithTimeout hands that deadline to the streams themselves, so every stream dies when it expires and
-// every ending afterwards reads as Cancelled — the caller's own shutdown signature. A run that stopped
-// observing fifteen seconds into a 150-second window would then report itself as having shut down cleanly,
-// which is the exact failure class this whole change exists to remove, reintroduced by the fix for it.
+// The trap startWatchStream's doc comment names, in executable form.
+// Bounding establishment with a context.WithTimeout hands that deadline to the streams themselves, so every
+// stream dies when it expires and every ending afterwards reads as Cancelled — the caller's own shutdown
+// signature.
+// A run that stopped observing fifteen seconds into a 150-second window would then report itself as having
+// shut down cleanly, which is the exact failure class this whole change exists to remove, reintroduced by the
+// fix for it.
 //
 // The budget passed here is the REAL one, so nothing about this test depends on the constant being small.
 // What kills it is the deadline itself, seen where the stream's context arrives.
 //
 // Mutation that turns this red: bound the streams' own context anywhere, e.g. `ctx, cancel :=
-// context.WithTimeout(ctx, establishBudget)` at the top of collector.start. The run-level half of the same
-// mutation — col.start(context.WithTimeout(cctx, establishBudget)) inside run() — is pinned by
-// TestRunHandsTheStreamsAnUnboundedContext, because no collector-level test can see how run() built the
-// context it was given.
+// context.WithTimeout(ctx, establishBudget)` at the top of collector.start.
+// The run-level half of the same mutation — col.start(context.WithTimeout(cctx, establishBudget)) inside
+// run() — is pinned by TestRunHandsTheStreamsAnUnboundedContext, because no collector-level test can see
+// how run() built the context it was given.
 //
 // A different wrong implementation with no deadline in it at all — an establishment-scoped
 // context.WithCancel whose cancel is deferred — is caught too, by whichever check the timing reaches first:
@@ -745,16 +757,18 @@ func TestCollectorEstablishmentBudgetIsNotTheStreamsDeadline(t *testing.T) {
 }
 
 // A stream that ends while the run is still observing is a gap that can never be closed: the events in it are
-// lost, not delayed, and no later list can say what they were. The old collector reconnected from "now" here
-// and carried on, which is precisely how a run could miss a preemption and still print a number.
+// lost, not delayed, and no later list can say what they were.
+// The old collector reconnected from "now" here and carried on, which is precisely how a run could miss a
+// preemption and still print a number.
 //
-// The reconnect is refused with a WRAPPED Forbidden on purpose. RetryWatcher recognises the reason but cannot
-// assert the concrete status type, so it terminates having forwarded nothing at all: there is no error event,
-// no status, and nothing to notice except the ending itself.
+// The reconnect is refused with a WRAPPED Forbidden on purpose.
+// RetryWatcher recognises the reason but cannot assert the concrete status type, so it terminates having
+// forwarded nothing at all: there is no error event, no status, and nothing to notice except the ending
+// itself.
 //
-// Mutation that turns this red: delete the `case !end.Cancelled && !end.Stopped` arm in consume. With no
-// status forwarded on this path there is nothing else left to catch it, and the run stays valid with a Pod
-// stream that stopped delivering.
+// Mutation that turns this red: delete the `case !end.Cancelled && !end.Stopped` arm in consume.
+// With no status forwarded on this path there is nothing else left to catch it, and the run stays valid
+// with a Pod stream that stopped delivering.
 func TestCollectorInvalidatesWhenAStreamEndsWhileTheRunIsObserving(t *testing.T) {
 	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("no watch permission"))
 	first := watch.NewFake()
@@ -803,12 +817,13 @@ func TestCollectorInvalidatesWhenAStreamEndsWhileTheRunIsObserving(t *testing.T)
 }
 
 // A 410 is the one terminal cause the apiserver states outright — the resume point has aged out of etcd — and
-// the run has to carry that cause, not merely the fact that something stopped. An operator who sees "Gone"
-// knows to rerun; one who sees "the stream ended" does not know whether to fix RBAC first.
+// the run has to carry that cause, not merely the fact that something stopped.
+// An operator who sees "Gone" knows to rerun; one who sees "the stream ended" does not know whether to fix
+// RBAC first.
 //
-// Mutation that turns this red: delete the `case end.LastStatus != nil` arm in consume. The run is still
-// invalidated by the arm below it, so the mutation is invisible to a test that only asks whether the ledger
-// refused — which is why this one asserts on the cause instead.
+// Mutation that turns this red: delete the `case end.LastStatus != nil` arm in consume.
+// The run is still invalidated by the arm below it, so the mutation is invisible to a test that only asks
+// whether the ledger refused — which is why this one asserts on the cause instead.
 func TestCollectorInvalidationNamesATerminalWatchStatus(t *testing.T) {
 	gone := watch.NewFakeWithChanSize(1, false)
 	gone.Error(&metav1.Status{

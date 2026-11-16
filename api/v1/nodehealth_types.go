@@ -50,8 +50,9 @@ type NodeHealthSpec struct {
 type NodeHealthStatus struct {
 	// phase is the high-level health state of the node.
 	//
-	// Pending means no target node was found. Ready and Quarantine follow the node's own Ready condition, and
-	// Quarantine is the one that carries the unhealthy taint.
+	// Pending means no target node was found.
+	// Ready and Quarantine follow the node's own Ready condition, and Quarantine is the one that carries the
+	// unhealthy taint.
 	//
 	// The enum lists exactly the three values the controller can produce. It used to also admit Intake and
 	// Degraded, "reserved" for the lifecycle stages in docs/03 and emitted by nothing: there is one health

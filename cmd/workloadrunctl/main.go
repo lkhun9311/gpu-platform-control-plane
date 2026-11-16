@@ -18,8 +18,9 @@ limitations under the License.
 //
 // The manager binary runs every controller, which is what a cluster wants and exactly what an evidence run
 // must not do: pointing it at a cluster that already has an operator puts two reconcilers on the same
-// objects. This exists so a WorkloadRun can be driven against a real apiserver without that, and so the
-// end-to-end script can prove the trail on a throwaway cluster rather than in envtest.
+// objects.
+// This exists so a WorkloadRun can be driven against a real apiserver without that, and so the end-to-end
+// script can prove the trail on a throwaway cluster rather than in envtest.
 package main
 
 import (
@@ -77,9 +78,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// A plain loop rather than a manager. The reconciler asks to be requeued and this obeys that, so the
-	// poll cadence -- which the gap check measures against -- is the controller's own rather than this
-	// wrapper's idea of one.
+	// A plain loop rather than a manager.
+	// The reconciler asks to be requeued and this obeys that, so the poll cadence -- which the gap check
+	// measures against -- is the controller's own rather than this wrapper's idea of one.
 	req := ctrl.Request{}
 	req.Name, req.Namespace = name, namespace
 	for {
@@ -98,8 +99,9 @@ func main() {
 			fmt.Printf("COMPLETE verdict=%s reason=%s\n", run.Status.Verdict, run.Status.Reason)
 			return
 		case platformv1.WorkloadRunRefused:
-			// Exit 0. A refusal is a correct outcome of a correct controller -- it is the trail saying it
-			// cannot stand behind a verdict -- and a non-zero exit would make the driving script treat the
+			// Exit 0.
+			// A refusal is a correct outcome of a correct controller -- it is the trail saying it cannot
+			// stand behind a verdict -- and a non-zero exit would make the driving script treat the
 			// discipline as a malfunction.
 			fmt.Printf("REFUSED reason=%s\n", run.Status.Reason)
 			return

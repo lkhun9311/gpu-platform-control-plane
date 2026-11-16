@@ -40,9 +40,9 @@ const (
 	// It is not folded into setup-failed, and the distinction is the point of having a disposition at all: a
 	// setup failure is this run's own Create being refused and the operator's move is to look at this run,
 	// while an unqualified environment is a leftover GPU Pod, a cordon or a node too small for the arm and the
-	// operator's move is to look at the cluster. Collapsing them would make every record carrying either one
-	// require its free-text reason to be read before it could be classified, which is what the disposition
-	// exists to make unnecessary.
+	// operator's move is to look at the cluster.
+	// Collapsing them would make every record carrying either one require its free-text reason to be read
+	// before it could be classified, which is what the disposition exists to make unnecessary.
 	dispEnvironmentUnqualified = disposition("environment-unqualified")
 	dispSetupFailed            = disposition("setup-failed")
 	dispCancelled              = disposition("cancelled")
@@ -59,26 +59,30 @@ const (
 	//
 	// It is a distinct disposition rather than a desync because nothing about the CLUSTER went wrong: the
 	// protocol ran, the ledger is intact, and the control-plane figures in the record are as good as any
-	// other run's. What failed is that the run was bought for something it did not return.
+	// other run's.
+	// What failed is that the run was bought for something it did not return.
 	dispDeviceNotEstablished = disposition("device-not-established")
 	dispWorkerNotRestored    = disposition("worker-not-restored")
 	// dispResidueLeft is a fact about the cluster, not a failure to compute one: teardown ran and something is
-	// still standing at one of this run's names. Usually that is an object this run created; it can also be
-	// one another transaction holds, which this run may not touch and which the next run under this id will
-	// collide with just the same, so both are reported here and the record names which.
+	// still standing at one of this run's names.
+	// Usually that is an object this run created; it can also be one another transaction holds, which this run
+	// may not touch and which the next run under this id will collide with just the same, so both are reported
+	// here and the record names which.
 	//
 	// It is separate from worker-not-restored because the worker is not restored on this path WHEN THE
 	// LEFTOVER IS OURS — releasing a node whose namespace still holds GPUs is the outcome teardown exists to
 	// prevent — so collapsing the two would make a chosen containment look like a failed release the operator
-	// should retry. Where every leftover belongs to somebody else the worker does go back (residueHoldsWorker
-	// draws that line), and this disposition then reports the collision alone.
+	// should retry.
+	// Where every leftover belongs to somebody else the worker does go back (residueHoldsWorker draws that
+	// line), and this disposition then reports the collision alone.
 	dispResidueLeft = disposition("residue-left")
 	// dispChecksPassed is deliberately not called "valid", and it keeps that name now that the four gates it
-	// was named around all exist. The residual recordUnchecked names is real — nothing here travels the
-	// operator's reconcile loop, Kueue's admission or the Job controller — so the strongest statement available
-	// is still that the checks this build implements passed. A rename to "valid" on the day the last gate
-	// landed would have been the overclaim this spelling exists to refuse, and the wire value is read by
-	// decodeRunRecord besides.
+	// was named around all exist.
+	// The residual recordUnchecked names is real — nothing here travels the operator's reconcile loop, Kueue's
+	// admission or the Job controller — so the strongest statement available is still that the checks this
+	// build implements passed.
+	// A rename to "valid" on the day the last gate landed would have been the overclaim this spelling exists to
+	// refuse, and the wire value is read by decodeRunRecord besides.
 	dispChecksPassed = disposition("completed-implemented-checks-passed")
 	// dispUnclassified is not reachable by design; it exists so that a bug which makes it reachable says so.
 	//
@@ -92,9 +96,10 @@ const (
 
 // outcome is what run returns instead of a bare error, so its deferred cleanup can amend it.
 //
-// There is deliberately no error field. The record has nowhere to put one, and both classifiers below
-// already fold the cause into Reason, so an error carried alongside would be written by every path and read
-// by none — a field with no reader is the same dead weight as a disposition with no producer.
+// There is deliberately no error field.
+// The record has nowhere to put one, and both classifiers below already fold the cause into Reason, so an
+// error carried alongside would be written by every path and read by none — a field with no reader is the
+// same dead weight as a disposition with no producer.
 type outcome struct {
 	Disposition disposition
 	Reason      string

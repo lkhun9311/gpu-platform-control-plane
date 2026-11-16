@@ -9,12 +9,12 @@ import (
 //
 // They live in their own file because they are a different experiment's criteria from EvaluateChecks', and
 // the 2026-09-07 pilot showed what happens when a study has none of its own: the report handed the caller an
-// empty Checks, which rendered as three failures and a verdict for criteria nobody had evaluated. Every
-// number in that pilot's write-up was computed by hand.
+// empty Checks, which rendered as three failures and a verdict for criteria nobody had evaluated.
+// Every number in that pilot's write-up was computed by hand.
 //
-// The order matters and is the pre-registration's: "the first reading that fires is the answer". Reading 4
-// is evaluated first even though it is numbered last, because a load that produced no contention makes the
-// other four comparisons meaningless rather than negative.
+// The order matters and is the pre-registration's: "the first reading that fires is the answer".
+// Reading 4 is evaluated first even though it is numbered last, because a load that produced no contention
+// makes the other four comparisons meaningless rather than negative.
 
 // Disposition is what became of one tenant's offered requests in one arm.
 //
@@ -82,9 +82,9 @@ const (
 func EvaluatePriceOfProtection(r1, control ArmSummary, cells []ArmSummary, premiumTenant, noisyTenant string) PoPResult {
 	var res PoPResult
 
-	// The two INVALID readings come first and short-circuit. Both say the trace rather than the
-	// configurations is what has to change, so scoring the cells underneath either one would be scoring
-	// comparisons that do not mean anything.
+	// The two INVALID readings come first and short-circuit.
+	// Both say the trace rather than the configurations is what has to change, so scoring the cells
+	// underneath either one would be scoring comparisons that do not mean anything.
 	for _, r := range []PoPReading{
 		popReadingFour(r1, control),
 		popReadingFourB(control, noisyTenant),
@@ -153,15 +153,17 @@ func scoreCells(r1, control ArmSummary, cells []ArmSummary, premiumTenant, noisy
 		// A cell has to have a tail of its own before it can be compared to a tail bar.
 		//
 		// This used to check only the DENOMINATORS -- R1's tail, R1's TPOT, the control's throughput and
-		// share -- and a cell supplies the numerators. `percentile` returns 0 for an empty slice, so a cell
-		// whose premium requests ALL timed out arrived here with TTFTMsP99 of 0 and no TPOT entry, and
-		// 0/100 = 0 cleared the 2x bar while 0 cleared the 1.25x one. Reading 1 then fired POSITIVE and
-		// named it the deliverable: the cell that starved the protected tenant completely was reported as
-		// the configuration that protected it. That is the worst wrong number this file could print.
+		// share -- and a cell supplies the numerators.
+		// `percentile` returns 0 for an empty slice, so a cell whose premium requests ALL timed out arrived
+		// here with TTFTMsP99 of 0 and no TPOT entry, and 0/100 = 0 cleared the 2x bar while 0 cleared the
+		// 1.25x one.
+		// Reading 1 then fired POSITIVE and named it the deliverable: the cell that starved the protected
+		// tenant completely was reported as the configuration that protected it.
+		// That is the worst wrong number this file could print.
 		//
-		// MinTailSamples and Censored are here for the same reason one level down. A p99 over fewer than
-		// a hundred completions is the slowest request wearing a percentile's name, and a censored tail is
-		// a lower bound; neither is a tail a bar can be applied to.
+		// MinTailSamples and Censored are here for the same reason one level down.
+		// A p99 over fewer than a hundred completions is the slowest request wearing a percentile's name,
+		// and a censored tail is a lower bound; neither is a tail a bar can be applied to.
 		s.computable = r1.TTFTMsP99 > 0 && r1.TPOTMsP99ByTenant[premiumTenant] > 0 &&
 			control.OutputTokensPerSecond > 0 && controlNoisy > 0 &&
 			c.TTFTMsP99 > 0 && c.TPOTMsP99ByTenant[premiumTenant] > 0 &&
@@ -188,8 +190,8 @@ func popReadingFour(r1, control ArmSummary) PoPReading {
 	//
 	// This divided straight into the ratio, so a control whose premium requests all timed out gave 0/67 = 0,
 	// which is under the 5x floor, and reading 4 fired INVALID saying the load created no contention -- the
-	// exact inverse of what had happened. Reading 4b exists for that case and never got the chance, because
-	// 4 short-circuits ahead of it.
+	// exact inverse of what had happened.
+	// Reading 4b exists for that case and never got the chance, because 4 short-circuits ahead of it.
 	if control.TTFTMsP99 <= 0 {
 		r.NotEvaluable = true
 		r.Detail = fmt.Sprintf("the control completed no premium requests, so there is no tail to compare against R1's %.1f ms; that is a load too high to measure rather than one that made no contention, and reading 4b names it",
@@ -205,11 +207,11 @@ func popReadingFour(r1, control ArmSummary) PoPReading {
 
 // popReadingFourB, added by 2026-09-08-the-load-needs-an-upper-gate.md: reading 4 guards only the low side.
 //
-// A load can also be too high to measure. The first pilot's control completed 17 of 555 premium requests and
-// 26 of 544 of the contending tenant's, everything else timing out -- and every reading below is a ratio of
-// tails and shares over those handfuls. The floor is MinTailSamples, which is not a number chosen here: it
-// is the point where a nearest-rank p99 stops being the largest observation, derived in report.go and
-// already gating the other study.
+// A load can also be too high to measure.
+// The first pilot's control completed 17 of 555 premium requests and 26 of 544 of the contending tenant's,
+// everything else timing out -- and every reading below is a ratio of tails and shares over those handfuls.
+// The floor is MinTailSamples, which is not a number chosen here: it is the point where a nearest-rank p99
+// stops being the largest observation, derived in report.go and already gating the other study.
 func popReadingFourB(control ArmSummary, noisyTenant string) PoPReading {
 	r := PoPReading{ID: "4b", Name: "the load was too high to measure -- INVALID"}
 	done := control.DispositionByTenant[noisyTenant].Completed
@@ -241,9 +243,10 @@ func popReadingOne(all []scored) PoPReading {
 		if !s.computable || !s.ttftOK || !s.tpotOK || !s.shareOK || !s.thruOK {
 			continue
 		}
-		// Highest noisy share wins. On an EXACT tie the later cell wins, because cells arrive in the study's
-		// order and that order is ascending by budget -- the pre-registration breaks ties toward the larger
-		// budget, as the smaller change from the control, and says its first draft got this backwards.
+		// Highest noisy share wins.
+		// On an EXACT tie the later cell wins, because cells arrive in the study's order and that order is
+		// ascending by budget -- the pre-registration breaks ties toward the larger budget, as the smaller
+		// change from the control, and says its first draft got this backwards.
 		if won == nil || s.share >= won.share {
 			won = s
 		}
@@ -282,8 +285,9 @@ func popReadingOneB(all []scored) PoPReading {
 }
 
 // popReadingTwo: protection only by deletion, which requires the ledger to show the work was refused or
-// discarded rather than merely late. A smaller share alone cannot tell those apart, and the pre-registration
-// forbids calling it deletion without the counts.
+// discarded rather than merely late.
+// A smaller share alone cannot tell those apart, and the pre-registration forbids calling it deletion
+// without the counts.
 func popReadingTwo(all []scored, noisyTenant string) PoPReading {
 	r := PoPReading{ID: "2", Name: "protection only by deletion -- NEGATIVE"}
 	var metTail []*scored
@@ -325,10 +329,10 @@ func popReadingTwo(all []scored, noisyTenant string) PoPReading {
 func popReadingThree(control ArmSummary, all []scored) PoPReading {
 	r := PoPReading{ID: "3", Name: "no cell beats the control -- INCONCLUSIVE"}
 	// This reading is the one that fires when everything above it did not, so it is the one that would turn
-	// "nothing could be scored" into a verdict. It used to compare tails without asking whether any of them
-	// were comparable, and with an R1 that carried no premium TPOT every cell was unscorable, readings 1,
-	// 1b and 2 printed "no cell met..." as though they had looked, and this reading answered INCONCLUSIVE
-	// about evidence nobody had scored.
+	// "nothing could be scored" into a verdict.
+	// It used to compare tails without asking whether any of them were comparable, and with an R1 that
+	// carried no premium TPOT every cell was unscorable, readings 1, 1b and 2 printed "no cell met..." as
+	// though they had looked, and this reading answered INCONCLUSIVE about evidence nobody had scored.
 	if scorable := countScorable(all); scorable == 0 && len(all) > 0 {
 		r.NotEvaluable = true
 		r.Detail = "no cell could be scored against the bars" + unscorableSuffix(all)
@@ -363,8 +367,9 @@ func answerOf(r PoPReading) string {
 	return r.ID
 }
 
-// ratioOr is a/b, and zero when b cannot be divided by. A zero ratio never passes a "<= bar" test by
-// accident because the callers gate on computable first.
+// ratioOr is a/b, and zero when b cannot be divided by.
+// A zero ratio never passes a "<= bar" test by accident because the callers gate on computable
+// first.
 func ratioOr(a, b float64) float64 {
 	if b == 0 {
 		return 0
@@ -377,10 +382,12 @@ func ratioOr(a, b float64) float64 {
 // Range rather than a standard deviation because the pre-registration says "repetition-to-repetition
 // spread" and the confirmatory run has three repetitions: a standard deviation over three values is a
 // number with the shape of a statistic and none of the content, and this study has already been bitten once
-// by a bootstrap over four blocks being read as a 95% interval. The range is what it claims to be.
+// by a bootstrap over four blocks being read as a 95% interval.
+// The range is what it claims to be.
 //
-// ok is false when there are fewer than two repetitions, because one value has no spread. Returning zero
-// there would silently make every cell "fail to beat the noise", which is a verdict rather than a refusal.
+// ok is false when there are fewer than two repetitions, because one value has no spread.
+// Returning zero there would silently make every cell "fail to beat the noise", which is a verdict rather
+// than a refusal.
 func repetitionSpread(perRep []float64) (float64, bool) {
 	if len(perRep) < 2 {
 		return 0, false
@@ -407,9 +414,10 @@ func shareOf(s ArmSummary, tenant string) float64 {
 
 // FormatPriceOfProtection renders the readings under the measurements.
 //
-// Every reading is printed, fired or not, with the numbers it was decided on. A page that showed only the
-// winner would be a conclusion without its basis, and this study's whole design is that the first reading to
-// fire is the answer -- which a reader can only check if they can see the ones that did not.
+// Every reading is printed, fired or not, with the numbers it was decided on.
+// A page that showed only the winner would be a conclusion without its basis, and this study's whole design
+// is that the first reading to fire is the answer -- which a reader can only check if they can see the ones
+// that did not.
 func FormatPriceOfProtection(res PoPResult) string {
 	var b strings.Builder
 	b.WriteString("\nPre-registered readings (docs/superpowers/specs/2026-09-05-the-price-of-protection.md)\n")
@@ -417,8 +425,9 @@ func FormatPriceOfProtection(res PoPResult) string {
 		state := "did not fire"
 		switch {
 		case r.NotEvaluable:
-			// Distinct from "did not fire" on purpose. One says the evidence answered no; the other says the
-			// evidence could not be asked, and treating them alike is how a run reports an absence as a result.
+			// Distinct from "did not fire" on purpose.
+			// One says the evidence answered no; the other says the evidence could not be asked, and treating
+			// them alike is how a run reports an absence as a result.
 			state = "NOT EVALUABLE"
 		case r.Fired:
 			state = readingFired
@@ -449,7 +458,8 @@ func countScorable(all []scored) int {
 }
 
 // unscorableSuffix names the cells that could not be scored, so "no cell met the bar" is never confused with
-// "no cell could be measured". They are different findings and only one of them is about the configurations.
+// "no cell could be measured".
+// They are different findings and only one of them is about the configurations.
 func unscorableSuffix(all []scored) string {
 	var why []string
 	for i := range all {

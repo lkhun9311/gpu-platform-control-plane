@@ -24,8 +24,9 @@ import (
 // declaredLoadArm builds one arm whose engine-reported counts are stated outright.
 //
 // reported maps tenant -> count -> rows, and unreported maps tenant -> rows the engine answered without a
-// usage block. Written as a helper rather than inline because every case below differs in exactly those two
-// maps, and a reader has to be able to see which.
+// usage block.
+// Written as a helper rather than inline because every case below differs in exactly those two maps, and a
+// reader has to be able to see which.
 func declaredLoadArm(arm string, reported map[string]map[int]int, unreported map[string]int) ArmSummary {
 	if reported == nil {
 		reported = map[string]map[int]int{}
@@ -56,9 +57,10 @@ func declaredLoadFrozen() *FrozenTuple {
 
 // Reading 4e tells agreement, disagreement, silence and emptiness apart.
 //
-// The four outcomes are the point. A check that returns one verdict for "every row carried the declared
-// length" and for "no row said anything" is worse than no check: it makes a reader believe the load was
-// verified when nothing was compared.
+// The four outcomes are the point.
+// A check that returns one verdict for "every row carried the declared length" and for "no row said
+// anything" is worse than no check: it makes a reader believe the load was verified when nothing was
+// compared.
 func TestTheDeclaredLoadGateSeparatesAgreementFromSilence(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -99,8 +101,9 @@ func TestTheDeclaredLoadGateSeparatesAgreementFromSilence(t *testing.T) {
 			wantDetail: "reported 512",
 		},
 		{
-			// A single row is enough. The frozen tuple is a claim about the whole trace, and one request that
-			// carried something else contradicts it.
+			// A single row is enough.
+			// The frozen tuple is a claim about the whole trace, and one request that carried something else
+			// contradicts it.
 			name: "a single row disagrees among tens of thousands that agree",
 			summaries: []ArmSummary{
 				declaredLoadArm(ArmShared, map[string]map[int]int{
@@ -112,7 +115,8 @@ func TestTheDeclaredLoadGateSeparatesAgreementFromSilence(t *testing.T) {
 			wantDetail: "reported 257 on 1 rows",
 		},
 		{
-			// NOT a pass. Nothing says the load was wrong, and nothing says it was right.
+			// NOT a pass.
+			// Nothing says the load was wrong, and nothing says it was right.
 			name: "the engine reported nothing for some rows",
 			summaries: []ArmSummary{
 				declaredLoadArm(ArmShared, map[string]map[int]int{
@@ -124,8 +128,8 @@ func TestTheDeclaredLoadGateSeparatesAgreementFromSilence(t *testing.T) {
 			wantDetail:   "cannot be called verified",
 		},
 		{
-			// An empty population is not agreement with anything. This is the case the old code would have
-			// read as "nothing disagreed".
+			// An empty population is not agreement with anything.
+			// This is the case the old code would have read as "nothing disagreed".
 			name: "no row reported a count at all",
 			summaries: []ArmSummary{
 				declaredLoadArm(ArmShared, nil, nil),
@@ -172,9 +176,9 @@ func TestTheDeclaredLoadGateSeparatesAgreementFromSilence(t *testing.T) {
 
 // R1 carrying no contender is not a missing population.
 //
-// R1 is the isolated premium baseline BY DESIGN -- reading 4b's contender floor already exempts it. A gate
-// that counted its absent contender as unreported rows would come back uncomputable on every correct
-// matrix, which is a refusal nobody could ever clear.
+// R1 is the isolated premium baseline BY DESIGN -- reading 4b's contender floor already exempts it.
+// A gate that counted its absent contender as unreported rows would come back uncomputable on every
+// correct matrix, which is a refusal nobody could ever clear.
 func TestTheDeclaredLoadGateDoesNotPunishR1ForHavingNoContender(t *testing.T) {
 	got := EvaluateDeclaredLoad([]ArmSummary{
 		declaredLoadArm(ArmR1, map[string]map[int]int{PremiumTenant: {256: 100}}, nil),
@@ -190,8 +194,9 @@ func TestTheDeclaredLoadGateDoesNotPunishR1ForHavingNoContender(t *testing.T) {
 //
 // The engine's count agreeing with the declared count does not show the prompt STRINGS were the frozen ones,
 // that the tokenizer revision matched, that the tokens were prefilled rather than served from cache, or that
-// the other three frozen values applied. A reader who takes this gate for "the load was the declared load"
-// has been misled by its name, so the detail carries the limits.
+// the other three frozen values applied.
+// A reader who takes this gate for "the load was the declared load" has been misled by its name, so the
+// detail carries the limits.
 func TestTheDeclaredLoadGateStatesWhatItDoesNotEstablish(t *testing.T) {
 	got := EvaluateDeclaredLoad([]ArmSummary{
 		declaredLoadArm(ArmShared, map[string]map[int]int{

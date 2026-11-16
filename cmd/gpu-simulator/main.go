@@ -56,8 +56,9 @@ import (
 // to change to consume it.
 //
 // FAKE_RESOURCE_NAME overrides it, which is what lets one node advertise several
-// profile-shaped keys from several instances of this binary. The default is the
-// old constant, so a DaemonSet that sets nothing behaves exactly as before.
+// profile-shaped keys from several instances of this binary.
+// The default is the old constant, so a DaemonSet that sets nothing behaves
+// exactly as before.
 const defaultResourceName = "nvidia.com/gpu"
 
 // socketName is the file this plugin listens on inside the device-plugin directory.
@@ -86,9 +87,9 @@ func main() {
 	//
 	// The kubelet dials back to the endpoint given in RegisterRequest, and the plugin removes a stale socket
 	// at that path on startup -- so a second instance reusing the name would delete the first one's socket
-	// and silently take over its resource. The socket defaults to a name derived from the resource, which
-	// keeps the single-resource deployment on its historical path and makes collisions impossible to reach
-	// by accident.
+	// and silently take over its resource.
+	// The socket defaults to a name derived from the resource, which keeps the single-resource deployment on
+	// its historical path and makes collisions impossible to reach by accident.
 	resource := envOr("FAKE_RESOURCE_NAME", defaultResourceName)
 	socketName := envOr("FAKE_SOCKET_NAME", socketNameFor(resource))
 	log = log.WithValues("resource", resource, "socket", socketName)

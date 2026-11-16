@@ -10,8 +10,9 @@ import (
 // The fixtures are built from the pre-registration's bars rather than from the pilot's numbers, so a reading
 // that drifts from the document fails here rather than agreeing with whatever the last run happened to do.
 //
-// R1: TTFT p99 100 ms, premium TPOT p99 20 ms. Control: TTFT p99 1000 ms (10x, so reading 4 never fires by
-// accident), 1000 output tokens of which the noisy tenant has 400, throughput 100 tok/s.
+// R1: TTFT p99 100 ms, premium TPOT p99 20 ms.
+// Control: TTFT p99 1000 ms (10x, so reading 4 never fires by accident), 1000 output tokens of which the
+// noisy tenant has 400, throughput 100 tok/s.
 func popR1() ArmSummary {
 	return ArmSummary{
 		Arm: ArmR1, TTFTMsP99: 100, TailSampleSize: 500,
@@ -112,7 +113,8 @@ var _ = Describe("the price-of-protection readings", func() {
 		res := EvaluatePriceOfProtection(popR1(), control,
 			[]ArmSummary{popCell("mbt-0512-priority", 1.5, 1.1, 0.9, 0.98)}, PremiumTenant, NoisyTenant)
 
-		// The share clauses divide by this tenant's share under the control. Twelve completions is not a share.
+		// The share clauses divide by this tenant's share under the control.
+		// Twelve completions is not a share.
 		Expect(readingByID(res, "4b").Fired).To(BeTrue())
 		Expect(readingByID(res, "4b").Detail).To(ContainSubstring(NoisyTenant))
 	})
@@ -152,8 +154,9 @@ var _ = Describe("the price-of-protection readings", func() {
 		res := EvaluatePriceOfProtection(popR1(), popControl(), []ArmSummary{deleted}, PremiumTenant, NoisyTenant)
 		Expect(readingByID(res, "2").Fired).To(BeTrue())
 
-		// The same small share, reached by timing out instead. That is delay, and the pre-registration is
-		// explicit that a share loss alone cannot tell the two apart.
+		// The same small share, reached by timing out instead.
+		// That is delay, and the pre-registration is explicit that a share loss alone cannot tell the two
+		// apart.
 		late := popCell("mbt-0512-fcfs", 1.5, 1.1, 0.10, 1.0)
 		late.DispositionByTenant = map[string]Disposition{
 			NoisyTenant: {Offered: 100, Completed: 10, TimedOut: 90},
@@ -187,7 +190,8 @@ var _ = Describe("the price-of-protection readings", func() {
 	})
 
 	It("fires reading 3 when no cell beats the control by more than its own spread", func() {
-		// Control spread is 1020-980 = 40 ms. This cell improves it by 10 ms, which is inside the noise.
+		// Control spread is 1020-980 = 40 ms.
+		// This cell improves it by 10 ms, which is inside the noise.
 		res := EvaluatePriceOfProtection(popR1(), popControl(), []ArmSummary{
 			{Arm: "mbt-0512-fcfs", TTFTMsP99: 990, TailSampleSize: 500,
 				TPOTMsP99ByTenant: map[string]float64{PremiumTenant: 200}, OutputTokens: 1000,
@@ -216,8 +220,9 @@ var _ = Describe("the price-of-protection readings", func() {
 	It("breaks an exact tie toward the larger budget", func() {
 		// The pre-registration says so and says why: the larger budget is the smaller change from the
 		// control, and its first draft broke ties the other way on a claim about operating cost that this
-		// run has no evidence for. Cells arrive in the study's order, which is ascending by budget, so the
-		// later of two equal shares is the larger budget.
+		// run has no evidence for.
+		// Cells arrive in the study's order, which is ascending by budget, so the later of two equal
+		// shares is the larger budget.
 		res := EvaluatePriceOfProtection(popR1(), popControl(), []ArmSummary{
 			popCell("mbt-0256-priority", 1.2, 1.1, 0.90, 1.0),
 			popCell("mbt-2048-priority", 1.2, 1.1, 0.90, 1.0),
@@ -294,8 +299,8 @@ var _ = Describe("the price-of-protection readings", func() {
 	})
 
 	It("reports no answer rather than a false one when nothing fired", func() {
-		// A cell that beats the control well past its spread, but misses every positive bar. None of the five
-		// applies, and the honest output is silence rather than the nearest negative.
+		// A cell that beats the control well past its spread, but misses every positive bar.
+		// None of the five applies, and the honest output is silence rather than the nearest negative.
 		res := EvaluatePriceOfProtection(popR1(), popControl(), []ArmSummary{
 			popCell("mbt-0512-priority", 3.0, 5.0, 1.0, 1.0),
 		}, PremiumTenant, NoisyTenant)

@@ -57,19 +57,20 @@ type Admitter interface {
 	// Admit returns whether the request may proceed, and a stable machine-readable reason either way.
 	//
 	// The reason is reported on both outcomes, not only refusals: arm C admits for four different reasons and
-	// two of them mean the guard was bypassed rather than satisfied. On a refusal it is also the JSON error
-	// body's "code" field. This comment used to promise an empty reason on admission, which is what the code
-	// did and what made a blind guard indistinguishable from a working one.
+	// two of them mean the guard was bypassed rather than satisfied.
+	// On a refusal it is also the JSON error body's "code" field.
+	// This comment used to promise an empty reason on admission, which is what the code did and what made a
+	// blind guard indistinguishable from a working one.
 	Admit(ctx context.Context, meta RequestMeta, backend *BackendRef, tenant, tier string) (bool, string)
 }
 
 // BackendState is what a pressure-driven admission control was looking at when it decided.
 //
-// The reason a request was admitted says whether the guard was engaged; this says how close it was. Those
-// are different questions with opposite answers: "not_engaged" at a cache usage of 0.10 means the load never
-// pressured the engine and the experiment failed to create the condition it is testing, while "not_engaged"
-// at 0.83 against a threshold of 0.85 means the threshold sits past where the damage happens. The last paid
-// run cannot tell them apart, and that is the question its successor exists to answer.
+// The reason a request was admitted says whether the guard was engaged; this says how close it was.
+// Those are different questions with opposite answers: "not_engaged" at a cache usage of 0.10 means the load
+// never pressured the engine and the experiment failed to create the condition it is testing, while
+// "not_engaged" at 0.83 against a threshold of 0.85 means the threshold sits past where the damage happens.
+// The last paid run cannot tell them apart, and that is the question its successor exists to answer.
 type BackendState struct {
 	// CacheUsage is the KV-cache occupancy the guard read, from 0 to 1.
 	CacheUsage float64
@@ -124,10 +125,11 @@ const reasonInputRateLimit = "input_rate_limit"
 // The reasons an admission control let a request through.
 //
 // Admit used to return an empty reason for every one of these, so the evidence and the decisions metric
-// recorded four different facts as one. The difference that matters most is between a guard that saw a calm
-// backend and a guard that could not see at all: arm C bypasses itself whenever telemetry is stale or a
-// backend was never registered, and a run spent entirely in that bypass is arm A wearing arm C's name. It
-// would report as a clean scientific FAIL, and nothing in the evidence would say otherwise.
+// recorded four different facts as one.
+// The difference that matters most is between a guard that saw a calm backend and a guard that could not
+// see at all: arm C bypasses itself whenever telemetry is stale or a backend was never registered, and a
+// run spent entirely in that bypass is arm A wearing arm C's name.
+// It would report as a clean scientific FAIL, and nothing in the evidence would say otherwise.
 const (
 	// reasonBackendUnregistered means no scraper has ever run for this backend, so the guard has no state.
 	reasonBackendUnregistered = "backend_unregistered"
@@ -151,10 +153,11 @@ const (
 // reasonInputExceedsBurst is reported when a request's estimated input can never fit the bucket at all.
 //
 // rate.Limiter.AllowN refuses n > burst unconditionally: the bucket never holds that many tokens, so no
-// amount of waiting changes the answer. Reporting that as input_rate_limit told the caller their request was
-// momentarily over budget and gave them a five-second Retry-After, so a well-behaved client retried a request
-// that was arithmetically impossible to admit, forever. It is a size problem, not a timing one, and the only
-// action that resolves it is a smaller prompt.
+// amount of waiting changes the answer.
+// Reporting that as input_rate_limit told the caller their request was momentarily over budget and gave them
+// a five-second Retry-After, so a well-behaved client retried a request that was arithmetically impossible to
+// admit, forever.
+// It is a size problem, not a timing one, and the only action that resolves it is a smaller prompt.
 const reasonInputExceedsBurst = "input_exceeds_burst"
 
 // offAdmitter always admits.
@@ -197,9 +200,11 @@ type staticCapAdmitter struct {
 	// procedure calls for.
 	//
 	// The procedure asks for the static bucket to be simulated against a pilot's arrival trace and the rate
-	// frozen before the confirmatory run. Without a seam here that simulation cannot use this code, and a
-	// reimplementation of a token bucket beside the real one would be a second copy to keep in step -- the
-	// shape that has already cost this project two paid runs. Production never sets it.
+	// frozen before the confirmatory run.
+	// Without a seam here that simulation cannot use this code, and a reimplementation of a token bucket
+	// beside the real one would be a second copy to keep in step -- the shape that has already cost this
+	// project two paid runs.
+	// Production never sets it.
 	now func() time.Time
 
 	// limiters maps a backend key (namespace/name) to that backend's bucket.
@@ -279,10 +284,11 @@ func NewStaticCapAdmitter(tokensPerSec float64, burst int, longThreshold int) Ad
 // NewStaticCapAdmitterAtClock is NewStaticCapAdmitter driven by a caller's clock instead of the wall clock.
 //
 // It exists for the design spec's Arm B tuning procedure, which asks for the bucket to be simulated against a
-// pilot's arrival trace and the rate frozen before the confirmatory run. Replaying a ten-minute trace in
-// milliseconds needs the arrival timestamps to be the clock, and running the real admitter against them is
-// what keeps the frozen number honest: a separate simulator would be a second token bucket to keep in step
-// with this one, and every defect this experiment has produced so far has been a value two places held apart.
+// pilot's arrival trace and the rate frozen before the confirmatory run.
+// Replaying a ten-minute trace in milliseconds needs the arrival timestamps to be the clock, and running the
+// real admitter against them is what keeps the frozen number honest: a separate simulator would be a second
+// token bucket to keep in step with this one, and every defect this experiment has produced so far has been a
+// value two places held apart.
 func NewStaticCapAdmitterAtClock(tokensPerSec float64, burst int, longThreshold int, now func() time.Time) Admitter {
 	a := newStaticCapAdmitter(tokensPerSec, burst, longThreshold)
 	a.now = now

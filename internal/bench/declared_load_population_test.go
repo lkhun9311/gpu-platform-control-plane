@@ -20,22 +20,26 @@ import "testing"
 
 // The declared-load tally covers every offered row, including the ones the admission guard never gated.
 //
-// WHY THIS FILE EXISTS, measured 2026-10-03. The gate's own tests build ArmSummary directly, so they never
-// run Summarize and never exercise the choice of population. Moving the tally inside the eligible-population
-// guard -- the single most likely wrong edit anyone could make to it -- left the whole suite GREEN. A
-// mutation run found that: three other mutations of the gate each reddened four tests, and that one reddened
-// none.
+// WHY THIS FILE EXISTS, measured 2026-10-03.
+// The gate's own tests build ArmSummary directly, so they never run Summarize and never exercise the choice
+// of population.
+// Moving the tally inside the eligible-population guard -- the single most likely wrong edit anyone could
+// make to it -- left the whole suite GREEN.
+// A mutation run found that: three other mutations of the gate each reddened four tests, and that one
+// reddened none.
 //
-// The consequence is not cosmetic. The guard's rule is tier == standard AND estimate >= threshold. The
-// premium tier's estimate is 294 against a 4,096 threshold, so premium is excluded BY CONSTRUCTION: in the
-// ninth pilot that is 69,825 of 71,215 rows, and premium TTFT is the study's primary endpoint. Narrowed to
-// the eligible rows, the gate would compare only the contender, find it agreeing, and PASS -- printing "the
-// engine reported the declared count" over a premium population nothing had looked at.
+// The consequence is not cosmetic.
+// The guard's rule is tier == standard AND estimate >= threshold.
+// The premium tier's estimate is 294 against a 4,096 threshold, so premium is excluded BY CONSTRUCTION: in
+// the ninth pilot that is 69,825 of 71,215 rows, and premium TTFT is the study's primary endpoint.
+// Narrowed to the eligible rows, the gate would compare only the contender, find it agreeing, and PASS --
+// printing "the engine reported the declared count" over a premium population nothing had looked at.
 //
 // So the property pinned here is the population itself, not the verdict.
 func TestTheDeclaredLoadTallyCoversRowsTheAdmissionGuardNeverSaw(t *testing.T) {
 	// A premium row exactly as the sharing matrix sends it: estimate 294, far BELOW the 4,096 threshold, and
-	// a tier the guard does not gate. Nothing about it is eligible.
+	// a tier the guard does not gate.
+	// Nothing about it is eligible.
 	premium := RawRow{
 		Arm: ArmShared, Tenant: PremiumTenant, Tier: "premium",
 		EstInputTokens: 294, EngineInputTokens: 256, OutputTokens: 16, HTTPStatus: 200,
@@ -63,8 +67,9 @@ func TestTheDeclaredLoadTallyCoversRowsTheAdmissionGuardNeverSaw(t *testing.T) {
 		t.Errorf("the declared-load tally counted %d contender rows reporting 8192, want 1", got)
 	}
 
-	// And the gate built on those counts must PASS here. A population check that pins the counters but not
-	// the reading would survive a change that collected the rows and then ignored them.
+	// And the gate built on those counts must PASS here.
+	// A population check that pins the counters but not the reading would survive a change that collected
+	// the rows and then ignored them.
 	r := EvaluateDeclaredLoad([]ArmSummary{s}, &FrozenTuple{PremiumInputTokens: 256, ContenderInputTokens: 8192},
 		PremiumTenant, NoisyTenant)
 	if r.Fired || r.NotEvaluable {

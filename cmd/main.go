@@ -262,17 +262,18 @@ func main() {
 	// without one and would fail to start.
 	//
 	// Its failurePolicy is Fail, so a cluster that has the ValidatingWebhookConfiguration installed but no
-	// running webhook rejects every MLTrainingJob write. That is the correct direction for this rule: it
-	// exists to stop writes that are silently ignored, and a rule that disappears when the server is down
-	// would go missing exactly when the cluster is least healthy.
+	// running webhook rejects every MLTrainingJob write.
+	// That is the correct direction for this rule: it exists to stop writes that are silently ignored, and
+	// a rule that disappears when the server is down would go missing exactly when the cluster is least
+	// healthy.
 	if len(webhookCertPath) > 0 {
 		if err := webhookv1.SetupMLTrainingJobWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "mltrainingjob")
 			os.Exit(1)
 		}
-		// The Pod guard is what makes the tenant GPU budget a boundary rather than a convention. Without it a
-		// Pod created directly, with a device request and no queue, is admitted by nobody and counted by
-		// nobody — demonstrated on this cluster before the guard existed.
+		// The Pod guard is what makes the tenant GPU budget a boundary rather than a convention.
+		// Without it a Pod created directly, with a device request and no queue, is admitted by nobody and
+		// counted by nobody — demonstrated on this cluster before the guard existed.
 		if err := webhookv1.SetupGPUPodWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "gpupod")
 			os.Exit(1)

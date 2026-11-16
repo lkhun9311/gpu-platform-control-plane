@@ -77,7 +77,8 @@ func TestWatchAdapterPassesTheResumeOptionsThrough(t *testing.T) {
 
 // NewRetryWatcherWithContext returns as soon as it launches its receive goroutine, before its first watch
 // has necessarily succeeded, so a barrier built on construction can release while the watch is still
-// failing. The signal has to come from inside the call that actually established one.
+// failing.
+// The signal has to come from inside the call that actually established one.
 func TestWatchAdapterSignalsOnlyAfterAWatchActuallySucceeds(t *testing.T) {
 	fail := true
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
@@ -197,8 +198,9 @@ func TestWatchStreamResumesFromTheLastDeliveredVersion(t *testing.T) {
 }
 
 // A baseline resource version of "" or "0" makes a watch start from now rather than from a known point,
-// which is a silent continuity hole, so RetryWatcher rejects both. This pins that upstream behaviour rather
-// than the component's, so a client-go upgrade that relaxed it shows up here and not as a lost gap.
+// which is a silent continuity hole, so RetryWatcher rejects both.
+// This pins that upstream behaviour rather than the component's, so a client-go upgrade that relaxed it
+// shows up here and not as a lost gap.
 func TestRetryWatcherRejectsUnusableInitialVersions(t *testing.T) {
 	for _, rv := range []string{"", "0"} {
 		if _, err := watchtools.NewRetryWatcherWithContext(context.Background(), rv, &scriptedWatcher{}); err == nil {
@@ -551,8 +553,8 @@ func TestWatchStreamCancellationEndsTheStreamWithAnEventParkedMidForward(t *test
 // exists to refuse.
 //
 // Mutation that turns this red: drop `lopts = append(lopts, a.scope.opts...)` from
-// watchAdapter.WatchWithContext, or `scope.opts...` from the baseline List in startWatchStream. Either turns
-// the namespaced case into a cluster-wide one while every other test in this file still passes.
+// watchAdapter.WatchWithContext, or `scope.opts...` from the baseline List in startWatchStream.
+// Either turns the namespaced case into a cluster-wide one while every other test in this file still passes.
 func TestStreamScopeReachesBothTheBaselineListAndEveryWatch(t *testing.T) {
 	for name, tc := range map[string]struct {
 		scope streamScope

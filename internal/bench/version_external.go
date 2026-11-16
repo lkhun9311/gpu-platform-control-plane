@@ -7,8 +7,8 @@ import (
 )
 
 // Invalidation rule 6, external cause, is an automatic predicate over AWS's own records for the instance (owner amendment, 2026-11-15).
-// It reads nothing the run produced, so it cannot be chosen after seeing results; any crash or unavailability it does not
-// cover is an engine outcome.
+// It reads nothing the run produced, so it cannot be chosen after seeing results; any crash or unavailability it does not cover is an
+// engine outcome.
 
 // InstanceRecordKind is one of the three AWS records the registration counts as external.
 type InstanceRecordKind string

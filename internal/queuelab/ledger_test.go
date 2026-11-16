@@ -26,7 +26,8 @@ import (
 const sec = int64(1_000_000_000)
 
 // reclaimAnyTrace is the frozen offered work Reconstruct is seeded from: a1 and a2 both borrow tenant-a's
-// side, b1 is the returning owner. Reconstruct never invents jobs beyond these rows.
+// side, b1 is the returning owner.
+// Reconstruct never invents jobs beyond these rows.
 func reclaimAnyTrace() []TrainingTraceRow {
 	return []TrainingTraceRow{
 		{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 600},
@@ -67,8 +68,8 @@ func reclaimAnyEvents() []LifecycleEvent {
 		{ElapsedNs: 591 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Reason: "InCohortReclamation"},
 		// The Pod does not stop the instant Kueue decides to preempt; it keeps running through the
 		// termination grace window and only stops here, so the discarded work is measured up to this point.
-		// The Failed phase is what makes this stop attributable to the preemption rather than to the
-		// workload finishing its own service, and the collector always stamps one of the two terminal phases.
+		// The Failed phase is what makes this stop attributable to the preemption rather than to the workload
+		// finishing its own service, and the collector always stamps one of the two terminal phases.
 		{ElapsedNs: 593 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", ObjectUID: "pod-a2", Reason: StopReasonFailed},
 
 		{ElapsedNs: 590 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1"},
@@ -110,7 +111,8 @@ func TestReconstructReclaimAny(t *testing.T) {
 		t.Fatalf("b1 admit latency = %d ns, want %d", byJob["b1"].AdmitLatencyNs, 2*sec)
 	}
 	// a2 wasted GPU-seconds: measured from PodReady to the Pod actually stopping, not the preemption
-	// decision, so 1 * (593 - 2.5) = 590.5, not 588.5. The stop was observed in-horizon, so it is EXACT.
+	// decision, so 1 * (593 - 2.5) = 590.5, not 588.5.
+	// The stop was observed in-horizon, so it is EXACT.
 	if got := byJob["a2"].WastedGPUSeconds; got < 590.4 || got > 590.6 {
 		t.Fatalf("a2 wasted GPU-seconds = %.2f, want ~590.5", got)
 	}
@@ -129,11 +131,12 @@ func TestReconstructReclaimAny(t *testing.T) {
 }
 
 func TestWasteNoStopChargesToHorizonAsUnattributedOccupancy(t *testing.T) {
-	// No AttemptStopped was observed by the horizon. Under the fail-closed collector contract (every terminal
-	// transition is observed or the run is invalidated), an absent stop means the attempt still held the GPU
-	// at the horizon, so Ready->horizon is a floor on its OCCUPANCY. It is not a floor on its waste: without a
-	// Failed terminal phase nothing establishes that the preemption stopped it, so the interval is charged as
-	// unattributed and flagged unknown rather than presumed lost.
+	// No AttemptStopped was observed by the horizon.
+	// Under the fail-closed collector contract (every terminal transition is observed or the run is
+	// invalidated), an absent stop means the attempt still held the GPU at the horizon, so Ready->horizon is a
+	// floor on its OCCUPANCY.
+	// It is not a floor on its waste: without a Failed terminal phase nothing establishes that the preemption
+	// stopped it, so the interval is charged as unattributed and flagged unknown rather than presumed lost.
 	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 2, DurationSec: 300}}
 	events := []LifecycleEvent{
 		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2"},
@@ -316,8 +319,9 @@ func TestReconstructRejectsUnknownJob(t *testing.T) {
 }
 
 func TestReconstructRejectsMissingSubmission(t *testing.T) {
-	// Every offered row must carry a Submitted (written after a successful Create). A row with no submission
-	// evidence means the job was never created, which invalidates the run instead of censoring it.
+	// Every offered row must carry a Submitted (written after a successful Create).
+	// A row with no submission evidence means the job was never created, which invalidates the run instead
+	// of censoring it.
 	trace := []TrainingTraceRow{{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 10}}
 	if _, err := Reconstruct("Any", trace, nil, 100*sec); err == nil {
 		t.Fatalf("a trace row with no Submitted event must error")
@@ -580,9 +584,9 @@ func TestReconstructChargesPostHorizonStopOccupancyToHorizon(t *testing.T) {
 
 func TestReconstructDoesNotChargePostHorizonSucceededStopAsWaste(t *testing.T) {
 	// This is the published error verbatim: the victim ignored SIGTERM, ran to natural completion and exited
-	// zero, and the stop landed past the horizon. Reading only "no in-horizon stop" charged 47 GPU-seconds of
-	// completed work as censored discarded work; the Succeeded reason is folded even past the horizon and
-	// must refute that reading wherever it is read.
+	// zero, and the stop landed past the horizon.
+	// Reading only "no in-horizon stop" charged 47 GPU-seconds of completed work as censored discarded work;
+	// the Succeeded reason is folded even past the horizon and must refute that reading wherever it is read.
 	a2 := postHorizonStopOutcome(t, StopReasonSucceeded)
 	if a2.WastedGPUSeconds != 0 {
 		t.Fatalf("a2 waste = %.1f, want 0: a Succeeded stop is not preemption-caused loss", a2.WastedGPUSeconds)
@@ -722,9 +726,10 @@ func twoPreemptedAttemptsTrace() []TrainingTraceRow {
 
 // twoPreemptedAttemptsEvents preempts two different attempts on the same row, SEQUENTIALLY: a row runs
 // Parallelism: 1, one attempt at a time, so the second attempt's Ready only follows the first attempt's
-// observed stop (attemptsDoNotOverlap enforces exactly this). The first stops Failed in-horizon (a non-zero
-// exact waste, which also lower-bounds it), and the second reaches no terminal phase at all by the horizon
-// (a non-zero unattributed occupancy), so both terms of the invariant are non-zero on the very same row.
+// observed stop (attemptsDoNotOverlap enforces exactly this).
+// The first stops Failed in-horizon (a non-zero exact waste, which also lower-bounds it), and the second
+// reaches no terminal phase at all by the horizon (a non-zero unattributed occupancy), so both terms of the
+// invariant are non-zero on the very same row.
 func twoPreemptedAttemptsEvents() []LifecycleEvent {
 	return []LifecycleEvent{
 		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "m1"},
@@ -798,9 +803,10 @@ func TestReconstructHoldsWasteAndOccupancyInvariants(t *testing.T) {
 }
 
 func TestReconstructRejectsUninterpretableStopReason(t *testing.T) {
-	// Attribution must fail closed rather than blacklist the one reason it knows to exempt. ClassifyPod can
-	// only ever emit Succeeded or Failed, so any other value means the evidence is not interpretable, and
-	// charging it as preemption waste by default is how a completed run got published as discarded work.
+	// Attribution must fail closed rather than blacklist the one reason it knows to exempt.
+	// ClassifyPod can only ever emit Succeeded or Failed, so any other value means the evidence is not
+	// interpretable, and charging it as preemption waste by default is how a completed run got published as
+	// discarded work.
 	for _, reason := range []string{"", "Evicted", "succeeded", "Unknown"} {
 		trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}}
 		events := []LifecycleEvent{
@@ -898,8 +904,9 @@ func completedNoTerminalPhaseEvents() []LifecycleEvent {
 
 func TestReconstructDoesNotChargeWasteOnARowTheLedgerSaysCompleted(t *testing.T) {
 	// A row cannot both have completed and have had its work discarded, yet the fallback arm rendered exactly
-	// that pair on one line. Waste requires a Failed terminal phase; with no terminal phase at all the cause
-	// is not establishable from Pod state, so it is unattributed, not loss.
+	// that pair on one line.
+	// Waste requires a Failed terminal phase; with no terminal phase at all the cause is not establishable
+	// from Pod state, so it is unattributed, not loss.
 	res, err := Reconstruct("Any", noTerminalPhaseTrace(), completedNoTerminalPhaseEvents(), 50*sec)
 	if err != nil {
 		t.Fatal(err)
@@ -935,8 +942,9 @@ func TestReconstructDoesNotChargeWasteOnARowTheLedgerSaysCompleted(t *testing.T)
 
 func TestReconstructDoesNotChargeWasteForAnAttemptStillRunningAtTheHorizon(t *testing.T) {
 	// This is the arm the study exists to characterise: a workload that ignores the signal is still running
-	// at the horizon, and it is MORE LIKELY THAN NOT to go on to succeed. Presuming discarded work here is
-	// backwards, so the occupancy is reported as unattributed and the cause is left unstated.
+	// at the horizon, and it is MORE LIKELY THAN NOT to go on to succeed.
+	// Presuming discarded work here is backwards, so the occupancy is reported as unattributed and the
+	// cause is left unstated.
 	res, err := Reconstruct("Any", noTerminalPhaseTrace(), preemptedNoTerminalPhaseEvents(), 50*sec)
 	if err != nil {
 		t.Fatal(err)
@@ -966,7 +974,8 @@ func TestReconstructDoesNotChargeWasteForAnAttemptStillRunningAtTheHorizon(t *te
 
 func TestReconstructCreditsASoleAttemptWithTheRowsCompletion(t *testing.T) {
 	// With exactly one attempt, the row's completion can only have happened on that attempt, so the attempt
-	// was not stopped and the preemption did not take effect. That is the refuting evidence N1 named, read.
+	// was not stopped and the preemption did not take effect.
+	// That is the refuting evidence N1 named, read.
 	res, err := Reconstruct("Any", noTerminalPhaseTrace(), completedNoTerminalPhaseEvents(), 50*sec)
 	if err != nil {
 		t.Fatal(err)
@@ -986,10 +995,11 @@ func TestReconstructCreditsASoleAttemptWithTheRowsCompletion(t *testing.T) {
 // TestReconstructChargesAPreemptedAttemptsOwnFailedStopEvenWhenTheRowLaterCompletes checks a DIFFERENT rule
 // than its name once suggested: this attempt has its own observed Failed stop, so it is resolved in the
 // "a.stopped" branch of chargeWaste and never reaches the "no stop observed" fallback where the
-// len(attemptSeq)==1 credit gate lives. What this pins is that the row's later completion (which belongs to
-// the retry) is not read back onto an already-resolved earlier attempt. The credit-gate rule itself -- that a
-// completion may only be credited when there is exactly one attempt -- is pinned by
-// TestReconstructDoesNotCreditACompletionToAnUnstoppedAttemptOfSeveral below.
+// len(attemptSeq)==1 credit gate lives.
+// What this pins is that the row's later completion (which belongs to the retry) is not read back onto an
+// already-resolved earlier attempt.
+// The credit-gate rule itself -- that a completion may only be credited when there is exactly one attempt --
+// is pinned by TestReconstructDoesNotCreditACompletionToAnUnstoppedAttemptOfSeveral below.
 func TestReconstructChargesAPreemptedAttemptsOwnFailedStopEvenWhenTheRowLaterCompletes(t *testing.T) {
 	events := append(preemptedNoTerminalPhaseEvents(),
 		// The first attempt is observed to stop Failed before the retry becomes Ready.
@@ -1179,11 +1189,11 @@ func TestReconstructPairsAPromptlyStoppedVictim(t *testing.T) {
 
 // reorderedCompletionEvents has the Job's completion observed BEFORE its own Pod's Ready.
 //
-// That is not corrupt data. Job and Pod arrive on independent watches and the ledger says outright that
-// comparing their observed instants proves nothing about what happened first, so this ordering is legal and
-// a run carrying it must still be readable.
-// reorderedTrace declares exactly the two rows reorderedCompletionEvents drives, so the reconstruction is
-// not refused for a third row the fixture never submits.
+// That is not corrupt data.
+// Job and Pod arrive on independent watches and the ledger says outright that comparing their observed
+// instants proves nothing about what happened first, so this ordering is legal and a run carrying it must
+// still be readable. reorderedTrace declares exactly the two rows reorderedCompletionEvents drives, so the
+// reconstruction is not refused for a third row the fixture never submits.
 func reorderedTrace() []TrainingTraceRow {
 	return []TrainingTraceRow{
 		{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 600},
@@ -1211,7 +1221,8 @@ func reorderedCompletionEvents() []LifecycleEvent {
 //
 // Negative occupancy does not merely misreport the attempt it belongs to: the row's total is a sum, so a
 // negative term silently cancels another attempt's real cost and the report comes out lower with nothing
-// flagged. That is the failure mode this lab exists to refuse.
+// flagged.
+// That is the failure mode this lab exists to refuse.
 //
 // Mutation that turns this red: return end without clamping it up to readyNs in occupancyEnd.
 func TestOccupancyIsNeverNegativeWhenWatchesReorder(t *testing.T) {
@@ -1252,9 +1263,11 @@ func TestOccupancyIsNeverNegativeWhenWatchesReorder(t *testing.T) {
 //
 // The horizon gate folds a post-horizon AttemptStopped deliberately — an attempt still running when the
 // window closed needs its end to charge occupancy correctly — while dropping every other post-horizon event,
-// PodReady included. So the stop arrived with no attempt to attach to and the whole arm was refused under a
-// reason that reads as a malformed sequence. Both events are deliverable in the interval between the horizon
-// being reached and the watches being cancelled.
+// PodReady included.
+// So the stop arrived with no attempt to attach to and the whole arm was refused under a reason that reads
+// as a malformed sequence.
+// Both events are deliverable in the interval between the horizon being reached and the watches being
+// cancelled.
 //
 // Mutation that turns this red: error on an unknown Pod regardless of when the stop happened.
 func TestReconstructIgnoresAPostHorizonStopForAPostHorizonAttempt(t *testing.T) {
@@ -1273,8 +1286,9 @@ func TestReconstructIgnoresAPostHorizonStopForAPostHorizonAttempt(t *testing.T) 
 	}
 }
 
-// The half that must keep erroring. A stop INSIDE the window for a Pod never seen Ready inside it is a
-// malformed sequence, and folding it silently would charge occupancy from an instant nothing established.
+// The half that must keep erroring.
+// A stop INSIDE the window for a Pod never seen Ready inside it is a malformed sequence, and folding it
+// silently would charge occupancy from an instant nothing established.
 //
 // Mutation that turns this red: return nil for an unknown Pod at any elapsed time.
 func TestReconstructStillRefusesAnInHorizonStopWithNoReadiness(t *testing.T) {
@@ -1361,8 +1375,9 @@ func TestReconstructReportsNoStampIntervalWhenTheComponentsPublishedNone(t *test
 // STAMP must come from that same attempt.
 //
 // If it does not, the interval is built from two different Pods: one attempt's readiness on the components'
-// clocks against another's on the collector's. The two figures would then disagree for a reason that has
-// nothing to do with watch lag, which is the one thing the pair exists to tell apart.
+// clocks against another's on the collector's.
+// The two figures would then disagree for a reason that has nothing to do with watch lag, which is the one
+// thing the pair exists to tell apart.
 //
 // attemptSeq is observation-insertion order rather than chronological order, so this is reachable: the
 // fixture below folds the LATER attempt first, exactly as a reordered watch would deliver it.

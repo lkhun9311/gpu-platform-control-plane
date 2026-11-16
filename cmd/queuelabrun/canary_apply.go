@@ -31,23 +31,24 @@ import (
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/controller"
 )
 
-// This file takes the reading canary.go judges. It creates two Pods on the worker that differ only in the one
-// shell command the arms differ in, asks both to stop at once, and watches what each of them does about it.
+// This file takes the reading canary.go judges.
+// It creates two Pods on the worker that differ only in the one shell command the arms differ in, asks both
+// to stop at once, and watches what each of them does about it.
 
 const (
 	// canaryFinalizer keeps the probe Pod's OBJECT alive after its containers are gone, and it is the reason
 	// this measurement is deterministic rather than a race.
 	//
 	// A Pod deleted without one disappears shortly after the kubelet writes its terminal status: the exit code
-	// this canary exists to read is published and then garbage-collected, and a poller can lose the race. The
-	// finalizer blocks only removal from etcd — the kubelet still receives the deletion, still sends SIGTERM at
-	// the deletionTimestamp and still SIGKILLs at the deadline — so it changes nothing about what is being
-	// measured and everything about whether it can be read afterwards. teardown_kind_test.go holds a Pod the
-	// same way and for the same kind of reason.
+	// this canary exists to read is published and then garbage-collected, and a poller can lose the race.
+	// The finalizer blocks only removal from etcd — the kubelet still receives the deletion, still sends
+	// SIGTERM at the deletionTimestamp and still SIGKILLs at the deadline — so it changes nothing about what is
+	// being measured and everything about whether it can be read afterwards. teardown_kind_test.go holds a Pod
+	// the same way and for the same kind of reason.
 	//
-	// What it costs is one cleanup obligation, discharged by releaseProbes on every exit path. A canary killed
-	// between the delete and that cleanup leaves two terminated Pod objects in the canary namespace holding no
-	// device and no CPU; the refusal below says how to clear them.
+	// What it costs is one cleanup obligation, discharged by releaseProbes on every exit path.
+	// A canary killed between the delete and that cleanup leaves two terminated Pod objects in the canary
+	// namespace holding no device and no CPU; the refusal below says how to clear them.
 	canaryFinalizer = "queuelab.gpu-platform/canary-hold"
 
 	// canaryPollInterval is how often the probes' state is read.
@@ -60,8 +61,9 @@ const (
 	// canaryStartBudget bounds waiting for both probes to be running.
 	//
 	// The pinned sleeper is a multi-arch busybox that may not be on the node yet, so this has to cover an image
-	// pull on a cold cluster and not merely a container start. Exceeding it is a refusal that names the Pod's
-	// own phase and waiting reason, which is where an operator meets an ImagePullBackOff or a full node.
+	// pull on a cold cluster and not merely a container start.
+	// Exceeding it is a refusal that names the Pod's own phase and waiting reason, which is where an operator
+	// meets an ImagePullBackOff or a full node.
 	canaryStartBudget = 3 * time.Minute
 
 	// canaryStopSlack is what the stop budget adds on top of the grace period the cluster actually defaulted.
@@ -72,15 +74,17 @@ const (
 	canaryStopSlack = 30 * time.Second
 
 	// canaryStopBudgetMax is the ceiling on that budget, and it exists for the case where the cluster's default
-	// grace period is not the 30 seconds this protocol is timed against at all. Without it a cluster defaulting
-	// ten minutes would hold this process for ten minutes before reporting a fact that was already visible on
-	// the created Pod: judgeCanary refuses the wrong grace period whatever the probes went on to do.
+	// grace period is not the 30 seconds this protocol is timed against at all.
+	// Without it a cluster defaulting ten minutes would hold this process for ten minutes before reporting a
+	// fact that was already visible on the created Pod: judgeCanary refuses the wrong grace period whatever the
+	// probes went on to do.
 	canaryStopBudgetMax = 3 * time.Minute
 
 	// canaryModeTimeout bounds the whole mode, and is deliberately larger than the sum of the budgets above so
 	// that it is never the binding constraint — the same relationship teardownContextTimeout has to
-	// teardownBudget, and for the same reason. What decides has to be the loop that can report why it gave up,
-	// not a context expiring underneath it and turning every subsequent read into a cancellation.
+	// teardownBudget, and for the same reason.
+	// What decides has to be the loop that can report why it gave up, not a context expiring underneath it and
+	// turning every subsequent read into a cancellation.
 	canaryModeTimeout = canaryStartBudget + canaryStopBudgetMax + 4*time.Minute
 )
 
@@ -130,19 +134,19 @@ const probeTrainerContainer = "trainer"
 // the Pods a stranded holder left instead of rebuilding their names, and a selector spelled by hand in a
 // second place would silently match nothing rather than fail.
 //
-// Its value is the same string as canaryAnnotationKey, and the two are deliberately not shared. One is a
-// Node annotation holding a qualification document; this is a Pod label holding an id. They coincide today
-// and nothing should make a change to one move the other.
+// Its value is the same string as canaryAnnotationKey, and the two are deliberately not shared.
+// One is a Node annotation holding a qualification document; this is a Pod label holding an id.
+// They coincide today and nothing should make a change to one move the other.
 const canaryProbeLabel = "queuelab.gpu-platform/termination-canary"
 
 // canaryPod builds one probe Pod out of the Pod template the operator would actually render.
 //
 // The template is fetched from the same place the key's hash is taken (renderedPodTemplate at
-// templateProbeJob), so the thing hashed and the thing run are one rendering. That is what closes the gap the
-// hash alone left: a hash detects a change and then refuses, and before this the re-take that follows the
-// refusal probed a Pod without the change in it. Detection with hollow remediation is worse than no detection,
-// because it looks like a check. Now a preStop hook added to the template is in the Pod this creates, and the
-// re-take measures it.
+// templateProbeJob), so the thing hashed and the thing run are one rendering.
+// That is what closes the gap the hash alone left: a hash detects a change and then refuses, and before this
+// the re-take that follows the refusal probed a Pod without the change in it.
+// Detection with hollow remediation is worse than no detection, because it looks like a check.
+// Now a preStop hook added to the template is in the Pod this creates, and the re-take measures it.
 func canaryPod(canaryID, node, runID string, contract canaryContract, p probeSpec) (*corev1.Pod, error) {
 	return probePodFrom(renderedPodTemplate(templateProbeJob()), canaryID, node, runID, contract, p)
 }
@@ -155,45 +159,49 @@ func canaryPod(canaryID, node, runID string, contract canaryContract, p probeSpe
 //
 // The template is adopted WHOLE and three things are changed, each of which is a decision rather than a tidy-up:
 //
-// The WORKLOAD is replaced. Image and command come from the contract and the probe spec, because the mechanism
-// under test is the honouring/ignoring pair and the template's own image is a sentinel that does not exist. The
-// probe adopts the template's SHAPE, not its workload; both replaced values are key fields in their own right,
-// so nothing about them is being taken on trust here.
+// The WORKLOAD is replaced.
+// Image and command come from the contract and the probe spec, because the mechanism under test is the
+// honouring/ignoring pair and the template's own image is a sentinel that does not exist.
+// The probe adopts the template's SHAPE, not its workload; both replaced values are key fields in their own
+// right, so nothing about them is being taken on trust here.
 //
-// The DEVICE REQUEST is dropped from EVERY container, and this is the one place where what is hashed and what
-// is run differ, so it has to be argued rather than assumed. spec.nodeName removes the scheduler but NOT the
+// The DEVICE REQUEST is dropped from EVERY container, and this is the one place where what is hashed and what is
+// run differ, so it has to be argued rather than assumed. spec.nodeName removes the scheduler but NOT the
 // kubelet's admission: a Pod asking for more of an extended resource than the node advertises is rejected
 // outright, and the sentinel's gpuCount is 7 because 7 is distinct from the other two numbers in the probe job,
-// not because any run needs seven devices. Keeping it would make a worker unqualifiable unless it had seven free
-// devices, and it would make a node whose devices are legitimately held fail the canary for a reason that has
-// nothing to do with signal delivery. Allocation is not what this measures. Only the device is removed — a cpu
-// or memory limit the template later grows is left in place and probed, because those DO shape what the kubelet
-// does to a container. If the operator ever renames the device resource, this stops matching it and the probe
-// asks for something the node does not have: that is a loud refusal at the start budget, not a silent one, and
-// the hash will have changed anyway.
+// not because any run needs seven devices.
+// Keeping it would make a worker unqualifiable unless it had seven free devices, and it would make a node whose
+// devices are legitimately held fail the canary for a reason that has nothing to do with signal delivery.
+// Allocation is not what this measures.
+// Only the device is removed — a cpu or memory limit the template later grows is left in place and probed,
+// because those DO shape what the kubelet does to a container.
+// If the operator ever renames the device resource, this stops matching it and the probe asks for something the
+// node does not have: that is a loud refusal at the start budget, not a silent one, and the hash will have
+// changed anyway.
 //
 // IDENTITY AND PLACEMENT are added. spec.nodeName is set rather than a nodeSelector because what is being
 // qualified is THIS node's kubelet and THIS node's runtime, so the probe must not be allowed to land elsewhere.
 // The toleration is appended to whatever the template carries rather than replacing it, and it is the same
 // shape internal/queuelab's ResourceFlavor gives the arm's own Pods, so the probe is admitted under the rule
-// the workload it stands for is. The finalizer is what keeps the exit code readable after the container stops,
-// and it is the one overlay that replaces rather than merges; the reason is at the assignment.
+// the workload it stands for is.
+// The finalizer is what keeps the exit code readable after the container stops, and it is the one overlay that
+// replaces rather than merges; the reason is at the assignment.
 //
 // A MULTI-CONTAINER template is adopted rather than refused, and the alternative is worth stating because it is
-// arguably the more conservative reading of this function's own refuse-rather-than-guess rule. A sidecar in the
-// template is something a RUN's Pod would carry, and it is not inert to what this canary measures: deleting a
-// Pod signals every container in it, and under RestartPolicyNever the Pod is not finished until all of them
-// stop, so a sidecar that ignores SIGTERM changes the shutdown a run actually gets. Refusing it would make a
-// template the operator supports unqualifiable and would throw that fidelity away. What must not be guessed is
-// WHICH container's ending is the reading, and the trainer's name is what settles that — here, and in
-// terminatedState and probeRunning, which read the same name for the same reason.
+// arguably the more conservative reading of this function's own refuse-rather-than-guess rule.
+// A sidecar in the template is something a RUN's Pod would carry, and it is not inert to what this canary
+// measures: deleting a Pod signals every container in it, and under RestartPolicyNever the Pod is not finished
+// until all of them stop, so a sidecar that ignores SIGTERM changes the shutdown a run actually gets.
+// Refusing it would make a template the operator supports unqualifiable and would throw that fidelity away.
+// What must not be guessed is WHICH container's ending is the reading, and the trainer's name is what settles
+// that — here, and in terminatedState and probeRunning, which read the same name for the same reason.
 //
 // terminationGracePeriodSeconds is still not pinned HERE, and the reason is unchanged even though the source of
 // the value has moved: a run's Pods take whatever the apiserver defaults, and four separate pieces of the
-// protocol's arithmetic assume that default is 30. What HAS changed is that if the template ever pins one, the
-// probe now carries it and the reading is taken under it — which is the whole point — and judgeCanary refuses
-// anything but terminationGraceSec, so the change surfaces as a refusal rather than as a quietly different
-// experiment.
+// protocol's arithmetic assume that default is 30.
+// What HAS changed is that if the template ever pins one, the probe now carries it and the reading is taken
+// under it — which is the whole point — and judgeCanary refuses anything but terminationGraceSec, so the change
+// surfaces as a refusal rather than as a quietly different experiment.
 func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, contract canaryContract,
 	p probeSpec) (*corev1.Pod, error) {
 	spec := *tpl.Spec.DeepCopy()
@@ -205,9 +213,10 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 		}
 	}
 	if trainer < 0 {
-		// Refused rather than guessed. Writing the arm's command into whatever container happened to be there
-		// would produce a reading of something nobody chose, and a canary that cannot say which container is the
-		// workload cannot say what it qualified.
+		// Refused rather than guessed.
+		// Writing the arm's command into whatever container happened to be there would produce a reading of
+		// something nobody chose, and a canary that cannot say which container is the workload cannot say what
+		// it qualified.
 		names := make([]string, 0, len(spec.Containers))
 		for i := range spec.Containers {
 			names = append(names, spec.Containers[i].Name)
@@ -221,19 +230,21 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 	spec.Containers[trainer].Command = p.command
 	// Args is cleared because Command and Args are one unit: Command is the entrypoint and Args is what
 	// follows it, so replacing one and adopting the other leaves half of a pair and is not a replacement at
-	// all. BuildJob renders no Args today, which is exactly why this is worth writing down rather than
-	// leaving to be discovered — if it ever renders mltj.Spec.Args, the template hash changes and forces a
-	// re-take, and the re-taken probe would run `sh -c '<arm command>' <template args>`, where those args
-	// become $0 and $1 to the shell. That is a different process shape from the arm's, and canaryProbe
-	// records only p.command, so the qualification would name a command line nobody ran. The mechanism would
-	// have detected the drift and then qualified the wrong thing, which is the hollow remediation this file
-	// argues against elsewhere.
+	// all.
+	// BuildJob renders no Args today, which is exactly why this is worth writing down rather than leaving to
+	// be discovered — if it ever renders mltj.Spec.Args, the template hash changes and forces a re-take, and
+	// the re-taken probe would run `sh -c '<arm command>' <template args>`, where those args become $0 and
+	// $1 to the shell.
+	// That is a different process shape from the arm's, and canaryProbe records only p.command, so the
+	// qualification would name a command line nobody ran.
+	// The mechanism would have detected the drift and then qualified the wrong thing, which is the hollow
+	// remediation this file argues against elsewhere.
 	spec.Containers[trainer].Args = nil
 	// EVERY container, not just the trainer, because the admission this is avoiding is per-POD: the kubelet adds
 	// up what the whole Pod asks for and rejects it against the node's allocatable, so a sidecar holding a device
-	// request makes the probe unschedulable exactly as the trainer's would. Stripping only the container whose
-	// command was replaced would have left the strip working for the shape of template that exists today and
-	// silently not working for the one this commit made possible.
+	// request makes the probe unschedulable exactly as the trainer's would.
+	// Stripping only the container whose command was replaced would have left the strip working for the shape of
+	// template that exists today and silently not working for the one this commit made possible.
 	//
 	// Requests as well as Limits: BuildJob writes only Limits today, but a template that spelled the device as a
 	// request would be admitted against the same allocatable, and a strip that covered one of the two fields
@@ -255,18 +266,20 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 	// The argument is the device request's, one size larger. templateProbeJob names a PersistentVolumeClaim
 	// that exists nowhere, because a sentinel is what makes the hash see the field at all -- and a Pod
 	// referencing a claim that does not exist is never scheduled: it sits Pending until the start budget runs
-	// out, and the canary would refuse for a reason that has nothing to do with signal delivery. Creating the
-	// claim instead would make the canary provision storage in order to measure a grace period, and would
-	// need a storageClassName this repository has deliberately not chosen.
+	// out, and the canary would refuse for a reason that has nothing to do with signal delivery.
+	// Creating the claim instead would make the canary provision storage in order to measure a grace period,
+	// and would need a storageClassName this repository has deliberately not chosen.
 	//
 	// Volumes AND mounts, because either alone is invalid: a container mounting a volume the Pod does not
 	// declare is rejected by the apiserver, and a Pod declaring a volume nothing mounts is a shape the
-	// template never had. Every container for the reason the device strip covers every container -- today
-	// only the trainer mounts it, and a template that grew a sidecar sharing the claim would otherwise keep a
-	// mount whose volume had gone.
+	// template never had.
+	// Every container for the reason the device strip covers every container -- today only the trainer mounts
+	// it, and a template that grew a sidecar sharing the claim would otherwise keep a mount whose volume had
+	// gone.
 	//
-	// What a run's Pod does with the volume is therefore NOT probed. That is the same gap the device request
-	// leaves and it is covered the same way: by a controller-path envtest, not by a reading taken here.
+	// What a run's Pod does with the volume is therefore NOT probed.
+	// That is the same gap the device request leaves and it is covered the same way: by a controller-path
+	// envtest, not by a reading taken here.
 	for i := range spec.Containers {
 		for j := range spec.Containers[i].VolumeMounts {
 			if spec.Containers[i].VolumeMounts[j].Name == controller.StateVolumeName {
@@ -308,15 +321,17 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 	meta.Labels[canaryProbeLabel] = canaryID
 	meta.Labels["queuelab.gpu-platform/contract"] = p.contract
 	// The canary's finalizer REPLACES whatever the template carries, and this is the one overlay that does not
-	// merge. The reason is not symmetry with the others, it is what a finalizer does: it decides when the object
+	// merge.
+	// The reason is not symmetry with the others, it is what a finalizer does: it decides when the object
 	// disappears, not what the kubelet does to the containers, so adopting one adds nothing to a reading about
-	// signal delivery. What it would add is a probe nobody can clear — releaseProbes removes the finalizer it
-	// installed and no other, so a foreign one would strand a Pod object in the canary namespace and the refusal
-	// printed for it names a command that would not be enough.
+	// signal delivery.
+	// What it would add is a probe nobody can clear — releaseProbes removes the finalizer it installed and no
+	// other, so a foreign one would strand a Pod object in the canary namespace and the refusal printed for it
+	// names a command that would not be enough.
 	//
 	// The template's own finalizer is still KEYED: podTemplateHashOf hashes the whole PodTemplateSpec, metadata
-	// included, so a template that grows one invalidates every reading taken before it. It is noticed and
-	// deliberately not adopted, which is a different thing from not noticed.
+	// included, so a template that grows one invalidates every reading taken before it.
+	// It is noticed and deliberately not adopted, which is a different thing from not noticed.
 	meta.Finalizers = []string{canaryFinalizer}
 	return &corev1.Pod{ObjectMeta: meta, Spec: spec}, nil
 }
@@ -326,11 +341,13 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 // It accepts one it did not create, unlike ensureNamespace, and the difference is not laxity: a run's
 // namespace IS its unit of teardown, so a run inside somebody else's namespace cannot clean up after itself,
 // while this namespace is only a container for two Pods that are named per attempt, created by name and
-// deleted by name. Nothing about the canary's verdict depends on who made the namespace.
+// deleted by name.
+// Nothing about the canary's verdict depends on who made the namespace.
 //
-// It is also never deleted. An empty namespace costs nothing, and deleting one is the asynchronous,
-// finalizer-bound operation this repository has a whole file of teardown machinery for — none of which a
-// recovery tool should be dragging in to tidy up after itself.
+// It is also never deleted.
+// An empty namespace costs nothing, and deleting one is the asynchronous, finalizer-bound operation this
+// repository has a whole file of teardown machinery for — none of which a recovery tool should be
+// dragging in to tidy up after itself.
 func ensureCanaryNamespace(ctx context.Context, c client.Client) error {
 	err := c.Create(ctx, &corev1.Namespace{
 		Name:   canaryNamespace,
@@ -344,15 +361,17 @@ func ensureCanaryNamespace(ctx context.Context, c client.Client) error {
 // trainerStatus is the status of the container the arm's command is in, or nil while the cluster has published
 // none for it.
 //
-// Both readers below go through this, and the reason is a change of premise rather than a tidy-up. They were
-// written when the probe was one hand-built container, so "the first status carrying X" and "the trainer's
-// status" were the same sentence. Building the probe from the operator's template made a MULTI-CONTAINER probe
-// possible, and the two stopped being the same sentence the moment that landed: a sidecar that exits promptly
-// would supply the terminal status this canary records as the reading, and a sidecar that is up while the
-// trainer is still starting would satisfy "something is running".
+// Both readers below go through this, and the reason is a change of premise rather than a tidy-up.
+// They were written when the probe was one hand-built container, so "the first status carrying X" and "the
+// trainer's status" were the same sentence.
+// Building the probe from the operator's template made a MULTI-CONTAINER probe possible, and the two stopped
+// being the same sentence the moment that landed: a sidecar that exits promptly would supply the terminal
+// status this canary records as the reading, and a sidecar that is up while the trainer is still starting
+// would satisfy "something is running".
 //
 // That is the same argument probeTrainerContainer already makes one level up — a reading of a workload nobody
-// meant to probe — and it was left unapplied here. Matching by name is what keeps the two levels consistent.
+// meant to probe — and it was left unapplied here.
+// Matching by name is what keeps the two levels consistent.
 //
 // It returns nil rather than an error for a missing status because an empty list and a list whose trainer entry
 // is still Waiting are ordinary intermediate states, not failures: the budget in awaitProbesStopped is what
@@ -380,13 +399,14 @@ func terminatedState(p *corev1.Pod) *corev1.ContainerStateTerminated {
 
 // probeRunning reports whether the probe's trainer container is actually executing.
 //
-// The phase alone is not enough. What has to be true before the delete is that the SHELL IS RUNNING with its
-// trap installed: signalling a Pod whose container has not started yet would measure the start-up race rather
-// than the termination contract, and would do it in the direction that makes the honouring probe look good.
+// The phase alone is not enough.
+// What has to be true before the delete is that the SHELL IS RUNNING with its trap installed: signalling a
+// Pod whose container has not started yet would measure the start-up race rather than the termination
+// contract, and would do it in the direction that makes the honouring probe look good.
 //
-// So it is the trainer's own Running state that is required, not any container's. A sidecar that came up first
-// says nothing about whether the trap exists yet, and accepting it would re-open exactly the race this function
-// was written to close.
+// So it is the trainer's own Running state that is required, not any container's.
+// A sidecar that came up first says nothing about whether the trap exists yet, and accepting it would re-open
+// exactly the race this function was written to close.
 func probeRunning(p *corev1.Pod) bool {
 	if p.Status.Phase != corev1.PodRunning {
 		return false
@@ -426,8 +446,8 @@ func awaitProbesRunning(ctx context.Context, c client.Client, pods []*corev1.Pod
 			if err := c.Get(ctx, client.ObjectKeyFromObject(p), &got); err != nil {
 				// Retried rather than returned, for the reason the stop loop below keeps its last error: a single
 				// blip against the apiserver would otherwise throw away a probe that is starting perfectly well,
-				// and the budget is what decides. A read that keeps failing spends the budget and is reported as
-				// the trouble it is.
+				// and the budget is what decides.
+				// A read that keeps failing spends the budget and is reported as the trouble it is.
 				allRunning = false
 				trouble = append(trouble, fmt.Sprintf("%s: could not be read: %v", p.Name, err))
 				continue
@@ -460,33 +480,36 @@ func awaitProbesRunning(ctx context.Context, c client.Client, pods []*corev1.Pod
 // deleteProbe asks one probe to stop and returns the instant from which its stopping is measured.
 //
 // No GracePeriodSeconds option is passed, deliberately: the delete has to use the Pod's own defaulted grace
-// period, because that is what a run's Pods are deleted under. Overriding it here would measure a window this
-// harness never actually gives a workload.
+// period, because that is what a run's Pods are deleted under.
+// Overriding it here would measure a window this harness never actually gives a workload.
 func deleteProbe(ctx context.Context, c client.Client, p *corev1.Pod, now func() time.Time) (time.Time, error) {
 	if err := c.Delete(ctx, p); err != nil {
 		return time.Time{}, fmt.Errorf("ask probe %s to stop: %w", p.Name, err)
 	}
 	// Stamped after the call rather than before it, so the probe is not charged for the round trip: by the time
 	// Delete returns the apiserver has set the deletionTimestamp, which is the earliest instant from which the
-	// kubelet could have been told anything. The same rule is used for both probes, so the contrast between
-	// them — which is what the verdict actually turns on — is unaffected either way.
+	// kubelet could have been told anything.
+	// The same rule is used for both probes, so the contrast between them — which is what the verdict actually
+	// turns on — is unaffected either way.
 	return now(), nil
 }
 
 // awaitProbesStopped watches both probes until each has a terminal container status or the budget runs out.
 //
 // The budget is derived from the grace period the cluster ACTUALLY defaulted rather than from the constant,
-// because a probe that was given five minutes to shut down cannot be expected to finish inside thirty
-// seconds; the ceiling is what stops that reasoning turning into an unbounded wait. A probe still running when
-// the budget expires is recorded as unobserved rather than as anything else, and judgeCanary refuses on it.
+// because a probe that was given five minutes to shut down cannot be expected to finish inside thirty seconds;
+// the ceiling is what stops that reasoning turning into an unbounded wait.
+// A probe still running when the budget expires is recorded as unobserved rather than as anything else, and
+// judgeCanary refuses on it.
 func awaitProbesStopped(ctx context.Context, c client.Client, probes []*canaryProbe, pods []*corev1.Pod,
 	t0 []time.Time, graceSec int64, now func() time.Time, sleep func(time.Duration)) {
 	budget := min(time.Duration(graceSec)*time.Second+canaryStopSlack, canaryStopBudgetMax)
 	deadline := now().Add(budget)
 	// The last read failure per probe, kept rather than acted on immediately: one blip against the apiserver
 	// must not end a reading that is going fine, but a read that never succeeds has to be what the record says
-	// happened rather than being reported as a probe that would not stop. The same reasoning
-	// resolveAmbiguousAcquire's lastReadErr follows, including clearing it on a read that works.
+	// happened rather than being reported as a probe that would not stop.
+	// The same reasoning resolveAmbiguousAcquire's lastReadErr follows, including clearing it on a read that
+	// works.
 	lastReadErr := make([]error, len(pods))
 	for {
 		done := true
@@ -500,8 +523,8 @@ func awaitProbesStopped(ctx context.Context, c client.Client, probes []*canaryPr
 			case apierrors.IsNotFound(err):
 				// The finalizer this canary installed is what keeps the object readable after its containers
 				// stop, so a Pod that vanished anyway had that finalizer removed by something else — and with it
-				// went the exit code, which cannot be recovered from anywhere. Not retried, unlike the error
-				// below: nothing is coming back.
+				// went the exit code, which cannot be recovered from anywhere.
+				// Not retried, unlike the error below: nothing is coming back.
 				probes[i].Unobserved = "the Pod object was removed before any terminal container status could be " +
 					"read; its canary finalizer must have been stripped by something other than this canary"
 			case err != nil:
@@ -556,8 +579,9 @@ func awaitProbesStopped(ctx context.Context, c client.Client, probes []*canaryPr
 // releaseProbes removes the canary's finalizer from every probe and deletes what is left.
 //
 // It runs on every exit path, including the refusals, because the finalizer is the one thing this mode leaves
-// behind that does not clean itself up. Each failure is reported and none of them stops the others: a probe
-// that could not be released must not take the second one's cleanup down with it.
+// behind that does not clean itself up.
+// Each failure is reported and none of them stops the others: a probe that could not be released must not
+// take the second one's cleanup down with it.
 //
 // The finalizer is removed before the delete is issued rather than after, so the two orders a crash can
 // interrupt are the same one: a Pod with the finalizer already gone is deleted by the outstanding deletion the
@@ -646,16 +670,17 @@ func stampCanary(ctx context.Context, c client.Client, j journal, q canaryQualif
 // terminationCanary takes the reading and records it on the worker.
 //
 // It ACQUIRES the worker through the ordinary ownership transaction rather than just creating Pods on it, and
-// that is not ceremony. Two probe Pods appearing on a node in the middle of somebody's measured run would be
-// exactly the foreign contamination the capacity gate refuses runs over, and a run starting underneath a
-// canary would find the node's grace period being exercised by somebody else. The transaction makes both
-// impossible, refuses with a name when the node is already held, and gives an operator the same
-// -inspect-worker recovery for a crashed canary that they already have for a crashed run.
+// that is not ceremony.
+// Two probe Pods appearing on a node in the middle of somebody's measured run would be exactly the foreign
+// contamination the capacity gate refuses runs over, and a run starting underneath a canary would find the
+// node's grace period being exercised by somebody else.
+// The transaction makes both impossible, refuses with a name when the node is already held, and gives an
+// operator the same -inspect-worker recovery for a crashed canary that they already have for a crashed run.
 //
-// The verdict is written to the Node whether it passed or failed. A cluster proven unable to stop a Pod is the
-// most valuable thing this can record, and leaving a previous PASSING qualification standing after proving the
-// opposite would be the worst outcome available: runs would keep consulting a document this canary had just
-// falsified.
+// The verdict is written to the Node whether it passed or failed.
+// A cluster proven unable to stop a Pod is the most valuable thing this can record, and leaving a previous
+// PASSING qualification standing after proving the opposite would be the worst outcome available: runs would
+// keep consulting a document this canary had just falsified.
 func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 	now func() time.Time, sleep func(time.Duration), out io.Writer) (err error) {
 	contract, cerr := harnessTerminationContract()
@@ -666,9 +691,10 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 	runID := canaryRunID(canaryID)
 
 	// The canary's journal says what the canary actually leaves behind: two Pods whose names derive from this
-	// id, in a namespace it SHARES and must never delete. It carries no study or variant, and decodeJournal
-	// refuses a canary journal that has them — an earlier version invented both to satisfy a non-empty check,
-	// which made the document look recoverable while enumerate failed on it every time.
+	// id, in a namespace it SHARES and must never delete.
+	// It carries no study or variant, and decodeJournal refuses a canary journal that has them — an earlier
+	// version invented both to satisfy a non-empty check, which made the document look recoverable while
+	// enumerate failed on it every time.
 	j, aerr := acquireWorker(ctx, c, nodeName, ownerIdentity{
 		Kind:      ownerCanary,
 		TxID:      newTxID(),
@@ -737,8 +763,9 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 			return fmt.Errorf("create probe %s: %w", p.Name, cerr)
 		}
 		// The Create RESPONSE is the persisted object — the typed client decodes it back into the pointer it was
-		// given — so this is the grace period the apiserver defaulted, not the one that was asked for. Reading
-		// it here rather than with a second Get is the same argument ensureNamespace makes about its stamp.
+		// given — so this is the grace period the apiserver defaulted, not the one that was asked for.
+		// Reading it here rather than with a second Get is the same argument ensureNamespace makes about its
+		// stamp.
 		if p.Spec.TerminationGracePeriodSeconds != nil {
 			probes[i].GraceSec = *p.Spec.TerminationGracePeriodSeconds
 		}
@@ -760,8 +787,9 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 		t0[i] = stamp
 	}
 	// The observed grace period rather than the constant, so a cluster that defaults something else is waited
-	// out and reported rather than timed out and reported as a stall. Both probes carry the same default; the
-	// first is taken because judgeCanary is what refuses them if they are not what this protocol needs.
+	// out and reported rather than timed out and reported as a stall.
+	// Both probes carry the same default; the first is taken because judgeCanary is what refuses them if they
+	// are not what this protocol needs.
 	awaitProbesStopped(ctx, c, probes, pods, t0, probes[0].GraceSec, now, sleep)
 
 	q := canaryQualification{
@@ -794,8 +822,9 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 			// compared out of the same place on both sides.
 			PodTemplateHash: contract.PodTemplateHash,
 			// Observed, like the grace period and unlike the template hash: it is which manager image is
-			// running on this cluster right now. A reading taken under one digest must not qualify a run
-			// under another, and recording it here is the half that makes canaryKeyFor's comparison possible.
+			// running on this cluster right now.
+			// A reading taken under one digest must not qualify a run under another, and recording it here is
+			// the half that makes canaryKeyFor's comparison possible.
 			OperatorImageID: operatorImageIDFrom(ctx, c),
 		},
 		Honor:    *probes[0],
@@ -803,11 +832,12 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 		Failures: judgeCanary(*probes[0], *probes[1]),
 	}
 	reportCanary(out, q)
-	// On cleanupContext, not ctx, and it is the only write in this mode that needs saying twice. Every other
-	// thing this function does is reversible or self-clearing — probes are deleted, the worker is released —
-	// but the stamp is the entire product, and a signal or an expiring mode budget landing here would throw
-	// away a reading whose probes have already been spent. It is the same argument the release path makes,
-	// applied to the one write whose loss cannot be recovered by re-reading anything.
+	// On cleanupContext, not ctx, and it is the only write in this mode that needs saying twice.
+	// Every other thing this function does is reversible or self-clearing — probes are deleted, the worker
+	// is released — but the stamp is the entire product, and a signal or an expiring mode budget landing
+	// here would throw away a reading whose probes have already been spent.
+	// It is the same argument the release path makes, applied to the one write whose loss cannot be
+	// recovered by re-reading anything.
 	stampCtx, stampCancel := cleanupContext()
 	serr := stampCanary(stampCtx, c, j, q)
 	stampCancel()
@@ -819,7 +849,8 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 		// What the operator most needs to know here is what is STILL ON THE NODE, because this failure leaves
 		// whatever was there before untouched — and on a failing reading that is the dangerous case: a
 		// previously passing qualification survives the canary that has just contradicted it, and runs go on
-		// consulting it. Saying only "not recorded" leaves that to be worked out.
+		// consulting it.
+		// Saying only "not recorded" leaves that to be worked out.
 		standing := "whatever qualification was already on the node is unchanged, so runs will go on consulting it"
 		if len(q.Failures) > 0 {
 			standing = "this reading FAILED and did not replace what was already on the node: any qualification " +
@@ -866,9 +897,10 @@ func reportCanary(out io.Writer, q canaryQualification) {
 //
 // It exists beside operatorImageID rather than replacing it because the two callers hold different things:
 // qualify is already given every Pod in the cluster and must not list them twice, while the canary take path
-// has only a client. A read failure returns "" for the same reason ambiguity does -- the honest answer to
-// "which image rendered this" is sometimes "nobody here can say", and a canary keyed on that matches only
-// another run equally unable to say.
+// has only a client.
+// A read failure returns "" for the same reason ambiguity does -- the honest answer to "which image rendered
+// this" is sometimes "nobody here can say", and a canary keyed on that matches only another run equally
+// unable to say.
 func operatorImageIDFrom(ctx context.Context, c client.Client) string {
 	var pods corev1.PodList
 	if err := c.List(ctx, &pods, client.MatchingLabels{"control-plane": "controller-manager"}); err != nil {

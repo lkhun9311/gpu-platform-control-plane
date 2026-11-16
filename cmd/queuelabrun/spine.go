@@ -38,15 +38,17 @@ const (
 	// graceBoundedDoseSec returns the owner early enough that the victim still has more service left than the
 	// grace period, so an ignoring victim is cut short by the grace period rather than finishing on its own.
 	//
-	// 20 s leaves 40 s of remaining service against a 30 s grace. It is a second CONSTANT rather than a free
-	// flag for the reason the pair above is: the previous CLI let the duration be chosen freely and the dose
-	// silently became 49 s instead of 40. A closed set of two named regimes keeps the arithmetic pinned while
-	// letting the experiment reach the side of the grace period it could not reach at all before.
+	// 20 s leaves 40 s of remaining service against a 30 s grace.
+	// It is a second CONSTANT rather than a free flag for the reason the pair above is: the previous CLI let
+	// the duration be chosen freely and the dose silently became 49 s instead of 40.
+	// A closed set of two named regimes keeps the arithmetic pinned while letting the experiment reach the
+	// side of the grace period it could not reach at all before.
 	graceBoundedDoseSec = 20
 
 	// terminationGraceSec mirrors internal/queuelab's private terminationGraceSec (the Pod termination grace
-	// period the fixture runs with). It is duplicated rather than imported because that package must not
-	// change for this fix and does not export the constant.
+	// period the fixture runs with).
+	// It is duplicated rather than imported because that package must not change for this fix and does not
+	// export the constant.
 	terminationGraceSec = 30
 	// startupMarginSec covers Pod scheduling and container-start latency on each of the schedule's three
 	// sequential Ready waits (a1, victim, owner), none of which the protocol's timing accounts for on its own.
@@ -56,18 +58,20 @@ const (
 // horizonSec is the fixed observation window, derived from the protocol's own timing rather than typed in.
 //
 // A free -horizon flag is how a previous run silently truncated itself and still exited 0: 60 s cuts the run
-// off before the owner is ever Ready. The window has to cover the dose (the wait before the owner returns),
-// the victim's full service (so an unpreempted victim in N-ref still has time to run out its service), the
-// termination grace period (the victim's worst-case shutdown once preempted), and the startup margin above,
-// so it sums all four rather than approximating one of them away.
+// off before the owner is ever Ready.
+// The window has to cover the dose (the wait before the owner returns), the victim's full service (so an
+// unpreempted victim in N-ref still has time to run out its service), the termination grace period (the
+// victim's worst-case shutdown once preempted), and the startup margin above, so it sums all four rather
+// than approximating one of them away.
 const horizonSec = doseSec + victimServiceSec + terminationGraceSec + startupMarginSec
 
 // doseProtocol is the fixed timing of one dose regime, resolved together so the horizon cannot be computed
 // from one regime's dose while the trace is built from another's.
 //
-// That pairing is the point. The horizon is DERIVED from the dose, so a second regime with its own dose and
-// a horizon still summed from the first would truncate the run — the failure horizonSec exists to rule out,
-// reintroduced by the change that added the regime.
+// That pairing is the point.
+// The horizon is DERIVED from the dose, so a second regime with its own dose and a horizon still summed
+// from the first would truncate the run — the failure horizonSec exists to rule out, reintroduced by the
+// change that added the regime.
 type doseProtocol struct {
 	Regime           queuelab.DoseRegime
 	VictimServiceSec int
@@ -100,8 +104,9 @@ func doseProtocolFor(name string) (doseProtocol, error) {
 // fixed window.
 //
 // A flag that could go below the window would reintroduce the exact truncation the derivation exists to rule
-// out, so requested only widens the window and never narrows it. Zero means "this regime's own window",
-// which is the default: a fixed default computed from one regime's dose would silently truncate the other.
+// out, so requested only widens the window and never narrows it.
+// Zero means "this regime's own window", which is the default: a fixed default computed from one regime's
+// dose would silently truncate the other.
 func horizonFor(requested time.Duration, p doseProtocol) (time.Duration, error) {
 	minHorizon := time.Duration(p.HorizonSec()) * time.Second
 	if requested == 0 {
@@ -205,8 +210,8 @@ func namespaceFor(runID string) (string, error) {
 //
 // dispatchOperatorMode used to take these eleven values as positional bool/string parameters; two adjacent
 // bools (accept-divergence, clear-quarantine) could be swapped at the call site and the compiler would not
-// notice, silently rewiring the attestation gate for the most destructive path onto the wrong mode. A
-// struct with named fields turns that mistake from silent into a field name that visibly does not match
+// notice, silently rewiring the attestation gate for the most destructive path onto the wrong mode.
+// A struct with named fields turns that mistake from silent into a field name that visibly does not match
 // what it is assigned.
 type operatorModeArgs struct {
 	Arm    string
@@ -216,20 +221,22 @@ type operatorModeArgs struct {
 	// prints for one mode cannot be right while the same hint for another is not runnable as printed.
 	Inspect bool
 
-	// TerminationCanary is the one mode here that is not recovery. It sits with them because it is not a run
-	// either — it produces no result, leaves no run record, and above all it has to be runnable on a worker no
-	// run can yet be allowed on: qualifyWorker refuses a node with no recorded canary, so if taking one required
-	// a run the two would deadlock on each other.
+	// TerminationCanary is the one mode here that is not recovery.
+	// It sits with them because it is not a run either — it produces no result, leaves no run record, and above
+	// all it has to be runnable on a worker no run can yet be allowed on: qualifyWorker refuses a node with no
+	// recorded canary, so if taking one required a run the two would deadlock on each other.
 	TerminationCanary bool
 
 	// DevicePreflight sits beside TerminationCanary for the same reason, and answers the question the canary
 	// structurally cannot: the canary's probes have their device request stripped, so nothing it reports is
-	// about a card. This one keeps the request and asks whether the workload reaches the driver at all.
+	// about a card.
+	// This one keeps the request and asks whether the workload reaches the driver at all.
 	DevicePreflight bool
 
 	// DeviceMetrics and DeviceObserver configure the preflight's observer check, and belong to that mode
-	// alone. They are refused beside the others for the same reason the run-only flags are: an invocation
-	// that names an exporter and then never scrapes it reads to its author as configured.
+	// alone.
+	// They are refused beside the others for the same reason the run-only flags are: an invocation that
+	// names an exporter and then never scrapes it reads to its author as configured.
 	DeviceMetrics  string
 	DeviceObserver string
 
@@ -238,10 +245,10 @@ type operatorModeArgs struct {
 	// real claim, let alone twice.
 	StateProbe bool
 
-	// StateClass belongs to this mode AND to a run, which is why it is not simply a run-only flag. The
-	// invariant the refusals here protect is that every explicitly supplied flag is consumed or refused —
-	// not that this particular one belongs to runs — so giving it a second legitimate consumer keeps the
-	// invariant while removing it from the map would break it.
+	// StateClass belongs to this mode AND to a run, which is why it is not simply a run-only flag.
+	// The invariant the refusals here protect is that every explicitly supplied flag is consumed or
+	// refused — not that this particular one belongs to runs — so giving it a second legitimate consumer
+	// keeps the invariant while removing it from the map would break it.
 	StateClass string
 
 	ReleaseStale bool
@@ -273,7 +280,8 @@ type operatorModeArgs struct {
 var runOnlyFlagNames = map[string]bool{
 	"runid": true, "out": true, "preview": true, "horizon": true,
 	// -state-class configures the claim a checkpointing arm's victim mounts, and no recovery mode creates
-	// one. Left out, an operator who typed it alongside -inspect-worker would be told nothing and would
+	// one.
+	// Left out, an operator who typed it alongside -inspect-worker would be told nothing and would
 	// believe the storage had been named.
 	"state-class": true,
 }
@@ -281,8 +289,9 @@ var runOnlyFlagNames = map[string]bool{
 // suppliedRunOnlyFlags reports which run-only flags were present on the command line, in a stable order.
 //
 // flag.Visit walks only the flags actually set, which is what makes this a report of what the operator typed
-// rather than of what the defaults happen to be. It takes the FlagSet rather than reading the global one so
-// the refusal it feeds can be tested without a process-wide command line.
+// rather than of what the defaults happen to be.
+// It takes the FlagSet rather than reading the global one so the refusal it feeds can be tested without a
+// process-wide command line.
 func suppliedRunOnlyFlags(fs *flag.FlagSet) []string {
 	var names []string
 	fs.Visit(func(f *flag.Flag) {
@@ -332,7 +341,8 @@ const (
 //
 // modeNone is returned both when no mode was requested (err is nil; the caller falls through to the
 // ordinary run) and when a requested mode is malformed (err is non-nil; the caller must still stop rather
-// than fall through). The two are distinguished by err, not by the mode value alone.
+// than fall through).
+// The two are distinguished by err, not by the mode value alone.
 func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	requested := 0
 	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine, a.TerminationCanary,
@@ -354,10 +364,10 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	if a.Arm != "" {
 		return modeNone, fmt.Errorf("an operator mode cannot be combined with -arm: it is a recovery tool, not a run")
 	}
-	// The same argument as -arm, for the flags that were merely ignored rather than refused. An invocation
-	// that names a run id, an output path, a preview or a horizon and then quietly does none of those things
-	// reads to its author as configured, which is the worst kind of no-op: they will believe the recovery
-	// they just ran was the one they described.
+	// The same argument as -arm, for the flags that were merely ignored rather than refused.
+	// An invocation that names a run id, an output path, a preview or a horizon and then quietly does none
+	// of those things reads to its author as configured, which is the worst kind of no-op: they will believe
+	// the recovery they just ran was the one they described.
 	// The device flags are the preflight's own, and mean nothing to the six other modes.
 	if !a.DevicePreflight && (a.DeviceMetrics != "" || a.DeviceObserver != "") {
 		return modeNone, fmt.Errorf(
@@ -365,9 +375,10 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 				"operator mode scrapes anything, so this invocation would have looked configured while " +
 				"doing nothing of the kind")
 	}
-	// -state-class is the storage probe's own, exactly as the device flags are the preflight's. It is also a
-	// run's, which is why it stays in runOnlyFlagNames: the invariant is that a supplied flag is consumed or
-	// refused, and this mode is its second legitimate consumer rather than an exemption from the rule.
+	// -state-class is the storage probe's own, exactly as the device flags are the preflight's.
+	// It is also a run's, which is why it stays in runOnlyFlagNames: the invariant is that a supplied flag
+	// is consumed or refused, and this mode is its second legitimate consumer rather than an exemption from
+	// the rule.
 	if !a.StateProbe && a.StateClass != "" {
 		return modeNone, fmt.Errorf(
 			"-state-class belongs to -state-probe and to a run; no other operator mode creates a claim, so " +
@@ -384,15 +395,16 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	case a.Inspect:
 		return modeInspect, nil
 	case a.TerminationCanary:
-		// No attestation of its own. The three destructive modes require one because nothing this tool can
-		// observe tells the operator whether the previous process is dead; this mode asks nobody to judge
-		// anything — it takes the worker through the ordinary transaction, which refuses a node somebody else
-		// holds, and everything it creates it names and deletes itself.
+		// No attestation of its own.
+		// The three destructive modes require one because nothing this tool can observe tells the operator
+		// whether the previous process is dead; this mode asks nobody to judge anything — it takes the worker
+		// through the ordinary transaction, which refuses a node somebody else holds, and everything it
+		// creates it names and deletes itself.
 		return modeTerminationCanary, nil
 	case a.DevicePreflight:
 		// An endpoint with no identity would be scraped, parsed, and then refused by EstablishesDeviceWork for
-		// a reason about provenance rather than about the card -- after the Pod ran. Refusing here costs the
-		// operator a second instead of a minute, and says the thing worth saying.
+		// a reason about provenance rather than about the card -- after the Pod ran.
+		// Refusing here costs the operator a second instead of a minute, and says the thing worth saying.
 		if a.DeviceMetrics != "" && a.DeviceObserver == "" {
 			return modeNone, fmt.Errorf(
 				"-device-metrics requires -device-observer: an observation whose source cannot be named is " +
@@ -405,7 +417,8 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 		// Refused here rather than after the worker is acquired, for the reason the preflight's observer
 		// check is: the probe exists to test ONE class against this worker, and a probe with no class named
 		// would take the node, create a claim under the cluster's default, and report on storage nobody
-		// asked about. That costs an operator a node and several minutes to learn a flag was missing.
+		// asked about.
+		// That costs an operator a node and several minutes to learn a flag was missing.
 		if a.StateClass == "" {
 			return modeNone, fmt.Errorf(
 				"-state-probe requires -state-class: the probe tests one storage class against this worker, " +
@@ -423,7 +436,8 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 		// whether that transaction's process is dead, and that is the judgement that actually matters here.
 		// Releasing a live run's journal leaves it holding a worker it no longer owns, so this is the mode
 		// most likely to cost a run its exclusivity — and, being the one -inspect-worker recommends first,
-		// also the most reached for. It is attested like the other two destructive modes.
+		// also the most reached for.
+		// It is attested like the other two destructive modes.
 		if !a.ConfirmOwnerDead {
 			return modeNone, fmt.Errorf(
 				"-release-stale requires -confirm-owner-dead: a -txid match identifies the transaction but " +
@@ -459,21 +473,22 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 // gateRefusal and unimplementedGates are gone, and what they stood for moved into the record rather than
 // disappearing.
 //
-// gateRefusal refused every non-preview invocation and named four missing gates as its reason. All four now
-// exist and run on every invocation, preview or not: the streams are opened with resourceVersion continuity
-// and their endings recorded, the worker is qualified against this run's own fixtures and against a recorded
-// termination canary, the exclusive hold is watched continuously and audited across the release, and the
-// record carries all three plus a verdict derived from those fields. A refusal whose stated reason has become
-// false is worse than no refusal at all: it teaches its reader that the tool refuses for reasons that are not
-// true, which is how the next real refusal gets waived by reflex.
+// gateRefusal refused every non-preview invocation and named four missing gates as its reason.
+// All four now exist and run on every invocation, preview or not: the streams are opened with resourceVersion
+// continuity and their endings recorded, the worker is qualified against this run's own fixtures and against
+// a recorded termination canary, the exclusive hold is watched continuously and audited across the release,
+// and the record carries all three plus a verdict derived from those fields.
+// A refusal whose stated reason has become false is worse than no refusal at all: it teaches its reader that
+// the tool refuses for reasons that are not true, which is how the next real refusal gets waived by reflex.
 //
-// What did NOT move here is the judgement. Nothing decides up front whether an invocation may count — the
-// record decides, afterwards, from what the run actually observed, which is why deriveValidity reads only
-// persisted fields. A flag could never have made that judgement anyway; it could only have deferred it.
+// What did NOT move here is the judgement.
+// Nothing decides up front whether an invocation may count — the record decides, afterwards, from what
+// the run actually observed, which is why deriveValidity reads only persisted fields.
+// A flag could never have made that judgement anyway; it could only have deferred it.
 //
 // The record's own statement of what it cannot speak for is recordUnchecked, in record.go, and it is
-// deliberately not a copy of the roadmap this refusal used to print. See its comment for why one list could
-// not serve both.
+// deliberately not a copy of the roadmap this refusal used to print.
+// See its comment for why one list could not serve both.
 
 // selfCompletingProtocol is the default regime, resolved once so callers cannot assemble a doseProtocol whose
 // dose and horizon disagree by hand.

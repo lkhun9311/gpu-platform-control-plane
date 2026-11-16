@@ -51,15 +51,16 @@ type TraceRow struct {
 	IsNoisy bool `json:"isNoisy"`
 	// ExactInputTokens is the served tokenizer's own count for this prompt, measured rather than estimated.
 	//
-	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens, and every
-	// run so far has computed it over ceil(chars/4) instead -- a quantity the project's own calibration
-	// records as 36 percent low on a short prompt and 30 percent high on a long one (10,000 estimated against 7,695 measured). So the pre-registered
-	// criterion has never actually been evaluated.
+	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens, and every run so far has computed it over
+	// ceil(chars/4) instead -- a quantity the project's own calibration records as 36 percent low on a short prompt and 30 percent high on a long
+	// one (10,000 estimated against 7,695 measured).
+	// So the pre-registered criterion has never actually been evaluated.
 	//
 	// It lives on the trace rather than only on the response because a REFUSED request never reaches the
 	// engine and has no response to read a count from, and the fraction needs the refused ones: they are its
-	// denominator. Measured once per distinct prompt length against the running engine, which is the only
-	// authority on what its tokenizer does.
+	// denominator.
+	// Measured once per distinct prompt length against the running engine, which is the only authority on
+	// what its tokenizer does.
 	//
 	// Zero means not measured, and a report refuses the admission-match check rather than falling back to
 	// the estimate, since falling back is how the criterion came to be unevaluated in the first place.
@@ -71,7 +72,8 @@ type TraceRow struct {
 	MinOutputTokens int `json:"minOutputTokens,omitempty"`
 	// PrefixGroup, PrefixChars, PrefixControl and PromptSeed describe a shared-prefix row (GeneratePrefixTrace): which
 	// system prompt it opens with, how long that is, whether its own header is moved to the front, and the seed its
-	// header names. All omitted when zero, so every earlier trace keeps its bytes and its pinned checksum.
+	// header names.
+	// All omitted when zero, so every earlier trace keeps its bytes and its pinned checksum.
 	PrefixGroup   int   `json:"prefixGroup,omitempty"`
 	PrefixChars   int   `json:"prefixChars,omitempty"`
 	PrefixControl bool  `json:"prefixControl,omitempty"`
@@ -109,18 +111,21 @@ func StampFrozenExactTokens(rows []TraceRow, frozen map[int]int) error {
 // TenantSpec describes one tenant's share of a trace and the shape of its requests.
 // PromptLenCharsByTenant reports the prompt length each tenant's rows carry, in characters.
 //
-// It exists so a manifest can say what load it replayed. Two runs of one study, at the same rate and the
-// same seed, sent premium prompts of 200 and 1,174 characters -- 50 against 294 estimated tokens, a 5.9x
-// difference in prefill -- and produced headline ratios of 27.2x and 23.0x. Nothing on either manifest
-// said so: traceChecksum made the difference detectable (it is the sha256 of the trace, and the trace
-// records lengths) but not legible, and promptCorpusSHA pins the TEXT, which was identical.
+// It exists so a manifest can say what load it replayed.
+// Two runs of one study, at the same rate and the same seed, sent premium prompts of 200 and 1,174
+// characters -- 50 against 294 estimated tokens, a 5.9x difference in prefill -- and produced headline
+// ratios of 27.2x and 23.0x.
+// Nothing on either manifest said so: traceChecksum made the difference detectable (it is the sha256 of
+// the trace, and the trace records lengths) but not legible, and promptCorpusSHA pins the TEXT, which
+// was identical.
 //
 // Characters rather than estimated tokens, because this is the quantity the generator was CONFIGURED with
 // and ceil(chars/4) has no inverse.
 //
-// A tenant whose rows disagree returns -1 for that tenant rather than a mean. Every row of one tenant in a
-// frozen trace is drawn at one fixed length (TenantSpec.PromptLenChars), so a disagreement means the trace
-// is not the one the study froze -- and averaging it away is how that would go unnoticed.
+// A tenant whose rows disagree returns -1 for that tenant rather than a mean.
+// Every row of one tenant in a frozen trace is drawn at one fixed length (TenantSpec.PromptLenChars), so a
+// disagreement means the trace is not the one the study froze -- and averaging it away is how that would
+// go unnoticed.
 func PromptLenCharsByTenant(rows []TraceRow) map[string]int {
 	out := map[string]int{}
 	for _, r := range rows {
@@ -153,14 +158,17 @@ type TenantSpec struct {
 	//
 	// Under Weight, a tenant's arrival TIMES are a function of every other tenant in the trace: the gaps are
 	// drawn at the total rate and the tenant of each arrival is drawn from the same stream, so changing one
-	// tenant's share moves all of them. That is what the M5-c ladder ran into. It held the contender at 139
-	// requests give or take two by solving a weight for every rung, and the count came out right while the
-	// SCHEDULE came out different at each rung, so a rung-to-rung comparison moved two things at once.
+	// tenant's share moves all of them.
+	// That is what the M5-c ladder ran into.
+	// It held the contender at 139 requests give or take two by solving a weight for every rung, and the
+	// count came out right while the SCHEDULE came out different at each rung, so a rung-to-rung comparison
+	// moved two things at once.
 	//
 	// Under RatePerSec each tenant is its own Poisson process on its own stream, keyed by the tenant's name
 	// rather than its position, so its schedule depends on nothing but its own rate, the seed and the
-	// duration. Holding a contender fixed while a premium rate climbs then produces a byte-identical
-	// contender schedule, which trace_test.go pins under "GenerateTrace under the independent-arrivals model".
+	// duration.
+	// Holding a contender fixed while a premium rate climbs then produces a byte-identical contender schedule,
+	// which trace_test.go pins under "GenerateTrace under the independent-arrivals model".
 	//
 	// The two models are exclusive and mixing them is refused, because a trace generated half one way has no
 	// stated arrival process at all.
@@ -182,10 +190,13 @@ type TraceParams struct {
 // maxTraceRows bounds how many arrivals one trace may hold.
 //
 // The guards in GenerateTrace refuse the rates they can name, and this is what holds when a rate gets past
-// them. On 2026-09-15 a tenant with no rate reached the loop half-written, the offset never reached the
-// duration, and the test binary grew to 45 GB before the kernel's OOM killer took it and other processes on
-// the machine with it. Here the same mistake fails as an error instead. A million rows is far above anything
-// replayed so far -- the frozen weighted trace holds 1,199 -- and a replay could never offer that load anyway.
+// them.
+// On 2026-09-15 a tenant with no rate reached the loop half-written, the offset never reached the duration,
+// and the test binary grew to 45 GB before the kernel's OOM killer took it and other processes on the machine
+// with it.
+// Here the same mistake fails as an error instead.
+// A million rows is far above anything replayed so far -- the frozen weighted trace holds 1,199 -- and a
+// replay could never offer that load anyway.
 const maxTraceRows = 1_000_000
 
 // tooManyRows is the refusal both arrival models return when a trace reaches maxTraceRows.
@@ -236,9 +247,10 @@ func GenerateTrace(params TraceParams) ([]TraceRow, error) {
 
 	// Which arrival model this trace uses is decided by the tenants, and a trace may not be half of each.
 	//
-	// The refusal is deliberate rather than a fallback to one of them. A caller that sets both has two
-	// different intentions on the page, and picking either silently produces a trace whose arrival process
-	// cannot be stated -- which is the one thing a replayed measurement cannot afford to leave open.
+	// The refusal is deliberate rather than a fallback to one of them.
+	// A caller that sets both has two different intentions on the page, and picking either silently
+	// produces a trace whose arrival process cannot be stated -- which is the one thing a replayed
+	// measurement cannot afford to leave open.
 	var rated, weighted []string
 	for _, t := range params.Tenants {
 		if t.RatePerSec > 0 {
@@ -320,8 +332,9 @@ func GenerateTrace(params TraceParams) ([]TraceRow, error) {
 //
 // The point of the separation is stated on TenantSpec.RatePerSec: a tenant's arrival times must be a
 // function of that tenant alone, so that an experiment which varies one tenant's rate varies exactly one
-// thing. Under the weighted model it varied two, and the M5-c ladder paid for four rungs before the second
-// one was visible.
+// thing.
+// Under the weighted model it varied two, and the M5-c ladder paid for four rungs before the second one
+// was visible.
 func generateIndependent(params TraceParams) ([]TraceRow, error) {
 	seen := map[string]bool{}
 	var rows []TraceRow

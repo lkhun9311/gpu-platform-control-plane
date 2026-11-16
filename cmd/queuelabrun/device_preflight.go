@@ -36,22 +36,24 @@ import (
 // The preflight is the termination canary's mirror image, and the pair is worth reading together.
 //
 // The canary STRIPS the device request, because what it qualifies is signal delivery and a probe that needed a
-// free card would fail on a node whose devices are legitimately held. The preflight KEEPS it, because the only
-// question it asks is whether a real device works here. Everything else -- the Pod template, the placement,
-// the toleration, the finalizer that keeps a terminated status readable -- is deliberately identical, so a
-// preflight that passes is a statement about the shape a run actually gets rather than about a Pod invented
-// for the occasion.
+// free card would fail on a node whose devices are legitimately held.
+// The preflight KEEPS it, because the only question it asks is whether a real device works here.
+// Everything else -- the Pod template, the placement, the toleration, the finalizer that keeps a terminated
+// status readable -- is deliberately identical, so a preflight that passes is a statement about the shape a
+// run actually gets rather than about a Pod invented for the occasion.
 //
-// It exists because nothing else in this harness can ask that question. The canary cannot: its probes have no
-// device. A run cannot either, not usefully -- it answers only at the end, after the protocol has spent its
-// minutes and the meter has run, and it answers with a refused record rather than with which of the eight
-// driver calls said no. On rented hardware that difference is the whole cost of the session.
+// It exists because nothing else in this harness can ask that question.
+// The canary cannot: its probes have no device.
+// A run cannot either, not usefully -- it answers only at the end, after the protocol has spent its minutes
+// and the meter has run, and it answers with a refused record rather than with which of the eight driver
+// calls said no.
+// On rented hardware that difference is the whole cost of the session.
 const (
 	// preflightDurationSec is how long the workload runs when nobody stops it.
 	//
-	// Short, because the preflight measures nothing: it asks whether a kernel launches. Long enough that the
-	// loop marks its termination log at least once from inside itself, which is what the ignoring arm depends
-	// on in a real run and therefore what is worth exercising here too.
+	// Short, because the preflight measures nothing: it asks whether a kernel launches.
+	// Long enough that the loop marks its termination log at least once from inside itself, which is what the
+	// ignoring arm depends on in a real run and therefore what is worth exercising here too.
 	preflightDurationSec = 8
 
 	// preflightStartBudget bounds waiting for the Pod to reach a terminal phase.
@@ -71,12 +73,14 @@ const preflightModeTimeout = preflightBudget + 3*time.Minute
 // devicePreflight applies one GPU-holding Pod to a worker and reports what the workload said about the device.
 //
 // It acquires the worker through the ordinary transaction rather than applying a Pod beside whatever is
-// running. Two reasons, and the second is the one that matters: a preflight racing a run would take the device
-// the run is measuring, and a preflight that found no free device would report a device fault when what it
-// actually found was a busy node.
+// running.
+// Two reasons, and the second is the one that matters: a preflight racing a run would take the device the run
+// is measuring, and a preflight that found no free device would report a device fault when what it actually
+// found was a busy node.
 //
-// It is not a run and writes no record. The verdict here is a yes/no about hardware, and putting it in a
-// document whose schema describes measured intervals would let a reader take it for one.
+// It is not a run and writes no record.
+// The verdict here is a yes/no about hardware, and putting it in a document whose schema describes
+// measured intervals would let a reader take it for one.
 func devicePreflight(ctx context.Context, c client.Client, nodeName, metricsURL, observerIdentity string,
 	now func() time.Time, sleep func(time.Duration), out io.Writer) (err error) {
 	contract, cerr := harnessTerminationContract()
@@ -147,8 +151,9 @@ func devicePreflight(ctx context.Context, c client.Client, nodeName, metricsURL,
 	}()
 
 	// The observer runs WHILE the Pod holds the device, because that is the only moment there is anything to
-	// see. It is started before the wait and stopped after it, so the window it covers is the window the
-	// workload occupied.
+	// see.
+	// It is started before the wait and stopped after it, so the window it covers is the window the workload
+	// occupied.
 	t0 := now()
 	elapsed := func() int64 { return now().Sub(t0).Nanoseconds() }
 	watcher := startPreflightObserver(ctx, pod, metricsURL, observerIdentity, elapsed)
@@ -159,10 +164,11 @@ func devicePreflight(ctx context.Context, c client.Client, nodeName, metricsURL,
 		return werr
 	}
 	// Both verdicts are computed before either is reported, because their COMBINATION is a third answer that
-	// neither carries alone. A workload on the CPU beside an observer reporting its card busy is not two
-	// independent failures; it is the fake-exporter shape, and the record refuses exactly that pairing. A
-	// preflight that returned on the first failure would never look at the second and would send an operator
-	// to replace a driver when the problem was a misattributing exporter.
+	// neither carries alone.
+	// A workload on the CPU beside an observer reporting its card busy is not two independent failures; it
+	// is the fake-exporter shape, and the record refuses exactly that pairing.
+	// A preflight that returned on the first failure would never look at the second and would send an
+	// operator to replace a driver when the problem was a misattributing exporter.
 	wl := preflightWorkload(term)
 	if metricsURL == "" {
 		if wl.err != nil {
@@ -183,13 +189,15 @@ func devicePreflight(ctx context.Context, c client.Client, nodeName, metricsURL,
 	}
 	if missed > 0 {
 		// Not fatal: it means the exporter saw Pods this preflight did not, which on a shared node is
-		// ordinary. It is printed because on a node that should be exclusive it is not.
+		// ordinary.
+		// It is printed because on a node that should be exclusive it is not.
 		_, _ = fmt.Fprintf(out, "  device observer: %d sample(s) named Pods this preflight never applied\n",
 			missed)
 	}
 	// The preflight's probe has no ledger and no owner waiting on it, so its attempt and its "hold" are the
-	// same interval: the window it ran for. Passing it twice is not a shortcut here -- there is genuinely
-	// only one interval, and the gate's two clauses both apply to it.
+	// same interval: the window it ran for.
+	// Passing it twice is not a shortcut here -- there is genuinely only one interval, and the gate's two
+	// clauses both apply to it.
 	attributed, why := queuelab.EstablishesDeviceWork(obs, queuelab.DeviceClaim{
 		PodUID:     string(pod.UID),
 		WorkFromNs: fromNs, WorkToNs: toNs,
@@ -223,10 +231,10 @@ type preflightObserver struct {
 	cancel context.CancelFunc
 	obs    *queuelab.DeviceObservation
 	missed int
-	// err is the scrape's own failure, and discarding it was a diagnostic hole rather than tidiness. A
-	// refused HTTP request, a malformed payload or a parser incompatibility all end the observation early,
-	// and the attribution gate then reports a coverage gap -- a message about an interval, produced by an
-	// error somewhere else entirely.
+	// err is the scrape's own failure, and discarding it was a diagnostic hole rather than tidiness.
+	// A refused HTTP request, a malformed payload or a parser incompatibility all end the observation
+	// early, and the attribution gate then reports a coverage gap -- a message about an interval, produced
+	// by an error somewhere else entirely.
 	err error
 }
 
@@ -246,9 +254,9 @@ func (p *preflightObserver) stop() (*queuelab.DeviceObservation, int, error) {
 // startPreflightObserver begins scraping the exporter for the duration of the preflight.
 //
 // The resolver knows exactly one Pod, which is the whole difference from a run's: a run resolves through the
-// collector's registry of everything it watched, and this has one object whose UID it holds already. Samples
-// naming any other Pod resolve to "" and are KEPT rather than dropped -- unattributable, but present, because
-// the exclusivity clause needs to see a second tenant on the card to convict one.
+// collector's registry of everything it watched, and this has one object whose UID it holds already.
+// Samples naming any other Pod resolve to "" and are KEPT rather than dropped -- unattributable, but present,
+// because the exclusivity clause needs to see a second tenant on the card to convict one.
 func startPreflightObserver(ctx context.Context, pod *corev1.Pod, metricsURL, identity string,
 	elapsed func() int64) *preflightObserver {
 	if metricsURL == "" {
@@ -256,9 +264,9 @@ func startPreflightObserver(ctx context.Context, pod *corev1.Pod, metricsURL, id
 	}
 	uid := string(pod.UID)
 	scraper := &queuelab.DeviceScraper{
-		// Declared by configuration, not verified here, exactly as a run declares it. The preflight cannot
-		// check an exporter's identity any more than a run can; what it checks is that the endpoint answers,
-		// parses, and names this Pod on a card.
+		// Declared by configuration, not verified here, exactly as a run declares it.
+		// The preflight cannot check an exporter's identity any more than a run can; what it checks is that
+		// the endpoint answers, parses, and names this Pod on a card.
 		Observer: queuelab.ObserverDCGM,
 		Identity: identity,
 		Endpoint: metricsURL,
@@ -283,28 +291,33 @@ func startPreflightObserver(ctx context.Context, pod *corev1.Pod, metricsURL, id
 
 // reportNodeWarmth says whether the workload's image was already on the node when the preflight arrived.
 //
-// It matters because this Pod is about to put it there. Everything after the preflight runs on a warm node:
-// the layer cache is populated, so the protocol's own Pods start without a pull.
+// It matters because this Pod is about to put it there.
+// Everything after the preflight runs on a warm node: the layer cache is populated, so the protocol's own
+// Pods start without a pull.
 //
 // That is desirable and it is also a property of the measurement rather than of the platform, which is why
-// it is reported rather than left implicit. A cold first run pulls inside the observation window, pushes
-// every container stop later, and can push one past the horizon -- which flips measurement.censored and
-// turns wastedGPUSeconds from a value into a floor, with nothing in the terminal saying why. So the
-// preflight is not merely a check that happens to warm the node; running it is what makes every subsequent
-// run comparable to every other.
+// it is reported rather than left implicit.
+// A cold first run pulls inside the observation window, pushes every container stop later, and can push
+// one past the horizon -- which flips measurement.censored and turns wastedGPUSeconds from a value into a
+// floor, with nothing in the terminal saying why.
+// So the preflight is not merely a check that happens to warm the node; running it is what makes every
+// subsequent run comparable to every other.
 //
-// A failure to read the node is not fatal. This is a diagnostic, and refusing a preflight because the
-// warmth of a node could not be established would refuse the check for the sake of its footnote.
+// A failure to read the node is not fatal.
+// This is a diagnostic, and refusing a preflight because the warmth of a node could not be
+// established would refuse the check for the sake of its footnote.
 func reportNodeWarmth(ctx context.Context, c client.Client, nodeName string, out io.Writer) {
 	var n corev1.Node
 	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
 		_, _ = fmt.Fprintf(out, "  node warmth: unknown (%v)\n", err)
 		return
 	}
-	// Matched on the DIGEST rather than the whole reference. The kubelet reports what it pulled, which for a
-	// digest-pinned image is "docker.io/library/python@sha256:..." -- repository plus digest, without the tag
-	// this build's constant carries. Comparing the strings whole reported every warm node as cold, which the
-	// first run of this check showed immediately.
+	// Matched on the DIGEST rather than the whole reference.
+	// The kubelet reports what it pulled, which for a digest-pinned image is
+	// "docker.io/library/python@sha256:..." -- repository plus digest, without the tag this build's constant
+	// carries.
+	// Comparing the strings whole reported every warm node as cold, which the first run of this check showed
+	// immediately.
 	//
 	// The digest is the right key anyway: it is what identifies the bytes, and it is why the image is pinned
 	// by one.
@@ -330,7 +343,8 @@ func reportNodeWarmth(ctx context.Context, c client.Client, nodeName string, out
 //
 // It is the HONOURING arm, and the choice is not arbitrary: this Pod is deleted at the end whether it finished
 // or not, and an ignoring workload would sit through the full grace period before SIGKILL, adding thirty
-// seconds to every preflight for no reading. The device path is identical in both arms.
+// seconds to every preflight for no reading.
+// The device path is identical in both arms.
 func preflightCommand() ([]string, error) {
 	job, err := queuelab.RenderMLTrainingJobWithContract(queuelab.TrainingTraceRow{
 		Index: 0, Name: "device-preflight", Tenant: "canary",
@@ -344,11 +358,12 @@ func preflightCommand() ([]string, error) {
 
 // preflightPod builds the preflight Pod from the same rendered template the canary probes.
 //
-// It goes through probePodFrom and then puts the device request BACK, rather than building a Pod here. The
-// duplication that would otherwise arise is not cosmetic: probePodFrom carries the placement, the toleration
-// that matches the ResourceFlavor a run's Pods are admitted under, the trainer-by-name lookup and the
-// finalizer that keeps a terminated status readable after the container stops. A second copy of those would
-// drift, and the copy that drifted would be the one nobody runs until a GPU node is already rented.
+// It goes through probePodFrom and then puts the device request BACK, rather than building a Pod here.
+// The duplication that would otherwise arise is not cosmetic: probePodFrom carries the placement, the
+// toleration that matches the ResourceFlavor a run's Pods are admitted under, the trainer-by-name lookup and
+// the finalizer that keeps a terminated status readable after the container stops.
+// A second copy of those would drift, and the copy that drifted would be the one nobody runs until a GPU
+// node is already rented.
 //
 // Exactly one device, not the sentinel's seven and not the row's count: the preflight asks whether A card
 // works, and asking for more would turn a working node with a busy neighbour into a preflight failure.
@@ -390,15 +405,16 @@ func shortID(id string) string {
 //
 // It waits for a TERMINAL container state rather than for the Pod to be Running, because a workload that
 // starts and then cannot reach the driver is exactly the case this exists to catch: it runs, it reports, and
-// it exits zero. Readiness would have called that a pass.
+// it exits zero.
+// Readiness would have called that a pass.
 func awaitPreflightStopped(ctx context.Context, c client.Client, pod *corev1.Pod,
 	now func() time.Time, elapsed func() int64, sleep func(time.Duration),
 ) (term *corev1.ContainerStateTerminated, fromNs, toNs int64, err error) {
 	deadline := now().Add(preflightBudget)
 	var last string
-	// The window opens when the container is first seen RUNNING rather than when the Pod was applied. An
-	// image pull can take minutes, and charging the observer with covering it would refuse every cold node
-	// for a gap that is not about the card.
+	// The window opens when the container is first seen RUNNING rather than when the Pod was applied.
+	// An image pull can take minutes, and charging the observer with covering it would refuse every cold
+	// node for a gap that is not about the card.
 	fromNs = -1
 	for {
 		var live corev1.Pod
@@ -418,16 +434,19 @@ func awaitPreflightStopped(ctx context.Context, c client.Client, pod *corev1.Pod
 		if t := terminatedState(&live); t != nil {
 			if fromNs < 0 {
 				// It terminated without this loop ever catching it Running, which a short workload on a fast
-				// node can do between polls. The Pod's own start time is not on this clock, so the window is
-				// taken from the beginning rather than invented: an interval that is too WIDE can only make
-				// the coverage check stricter, never falsely pass it.
+				// node can do between polls.
+				// The Pod's own start time is not on this clock, so the window is taken from the beginning
+				// rather than invented: an interval that is too WIDE can only make the coverage check
+				// stricter, never falsely pass it.
 				fromNs = 0
 			}
 			// The far end comes from the KUBELET's own finishedAt where there is one, not from the poll that
-			// happened to notice. This loop polls every two seconds and the gate allows a two-second gap, so
-			// a poll-derived end is up to a full budget late: the Pod's label leaves the exporter's view
-			// within a scrape of the real stop, and the last attributed sample then sits further from the
-			// interval's end than the gate permits. A healthy card refused on a race with the poll phase.
+			// happened to notice.
+			// This loop polls every two seconds and the gate allows a two-second gap, so a poll-derived end
+			// is up to a full budget late: the Pod's label leaves the exporter's view within a scrape of the
+			// real stop, and the last attributed sample then sits further from the interval's end than the
+			// gate permits.
+			// A healthy card refused on a race with the poll phase.
 			//
 			// finishedAt is on the kubelet's wall clock and the samples are on this process's elapsed one,
 			// so it is converted through the poll that observed it rather than used raw; when the kubelet
@@ -461,10 +480,11 @@ func awaitPreflightStopped(ctx context.Context, c client.Client, pod *corev1.Pod
 // reportPreflight turns the workload's own report into the verdict an operator acts on.
 //
 // The failing case names the DEVICE STATUS token rather than saying the device did not work, and that is the
-// entire value of this mode. "no-libcuda" is a base image or a container runtime that never injected the
-// driver; "no-device" is a card that was not passed through; "ptx-load-failed" is a kernel this driver would
-// not compile. Those send an operator to three different places, and a session that discovered the difference
-// from a refused record would have paid for the protocol to find out.
+// entire value of this mode.
+// "no-libcuda" is a base image or a container runtime that never injected the driver; "no-device" is a card
+// that was not passed through; "ptx-load-failed" is a kernel this driver would not compile.
+// Those send an operator to three different places, and a session that discovered the difference from a
+// refused record would have paid for the protocol to find out.
 type workloadVerdict struct {
 	// usedDevice is whether the workload reached a driver call at all, which is the fact the contradiction
 	// check needs and which `err` alone cannot carry: an unreadable report is also an error, and it is NOT
@@ -472,19 +492,20 @@ type workloadVerdict struct {
 	usedDevice bool
 	kind       string
 	device     string
-	// pass is what to print when nothing else refuses. It is held rather than written because a verdict that
-	// printed as it decided could put "DEVICE USABLE" above a refusal.
+	// pass is what to print when nothing else refuses.
+	// It is held rather than written because a verdict that printed as it decided could put "DEVICE USABLE"
+	// above a refusal.
 	pass string
 	err  error
 }
 
 // preflightWorkload turns the container's own report into a verdict, without printing.
 //
-// The failing cases name the DEVICE STATUS TOKEN, and that is the whole reason this mode exists. A preflight
-// that said "the device did not work" would leave an operator with a rented GPU node and eight candidate
-// causes. no-libcuda is a base image or a runtime that never injected the driver; no-device is a card that
-// was not passed through; ptx-load-failed is a kernel this driver would not compile. Three different
-// afternoons.
+// The failing cases name the DEVICE STATUS TOKEN, and that is the whole reason this mode exists.
+// A preflight that said "the device did not work" would leave an operator with a rented GPU node and eight
+// candidate causes. no-libcuda is a base image or a runtime that never injected the driver; no-device is a
+// card that was not passed through; ptx-load-failed is a kernel this driver would not compile.
+// Three different afternoons.
 func preflightWorkload(t *corev1.ContainerStateTerminated) workloadVerdict {
 	rep := queuelab.ReportFromMessage(t.Message)
 	iters, kind, device := rep.Iterations, rep.Kind, rep.Device

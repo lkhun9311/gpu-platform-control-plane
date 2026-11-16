@@ -443,9 +443,10 @@ func (d VersionStudyDesign) analysedBlocks(l AttemptLedger) ([]int, error) {
 
 // CheckVersionCampaign pairs a campaign's cells through its bundle and ledger, and returns the analysed blocks.
 //
-// Each manifest has already passed LoadManifest. What one cell cannot show is how cells relate: that each replayed the
-// bundle's trace for its block and load, under the bundle's λ0, model and tokenizer, and that every valid block is whole
-// (audit findings 2, 3, 17 and 21). Pairing reads the identity the manifest recorded before execution, never a file name.
+// Each manifest has already passed LoadManifest.
+// What one cell cannot show is how cells relate: that each replayed the bundle's trace for its block and load, under the
+// bundle's λ0, model and tokenizer, and that every valid block is whole (audit findings 2, 3, 17 and 21).
+// Pairing reads the identity the manifest recorded before execution, never a file name.
 func CheckVersionCampaign(b *CampaignBundle, bundleSHA string, ledger AttemptLedger, cells []RunManifest) ([]int, error) {
 	st, ok := LookupStudy(b.Study)
 	if !ok || st.Version == nil {

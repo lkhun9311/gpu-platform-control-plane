@@ -36,20 +36,23 @@ import (
 type stateRequest struct {
 	// Needed is whether this arm's victim checkpoints, and so whether a claim must exist at all.
 	Needed bool
-	// Class is the StorageClass to create the claim with. Empty exactly when Needed is false:
-	// stateRequestFor refuses both of the combinations that would break that.
+	// Class is the StorageClass to create the claim with.
+	// Empty exactly when Needed is false: stateRequestFor refuses both of the combinations
+	// that would break that.
 	Class string
 }
 
 // stateRequestFor resolves what an arm needs from storage, refusing an invocation whose -arm and
 // -state-class disagree.
 //
-// Both directions are refused rather than only the missing class. A class named for an arm that checkpoints
-// nothing creates no claim and does nothing, which is the failure decideOperatorMode already refuses for
-// its own run-only flags: the invocation looks configured to its author while doing none of it.
+// Both directions are refused rather than only the missing class.
+// A class named for an arm that checkpoints nothing creates no claim and does nothing, which is the failure
+// decideOperatorMode already refuses for its own run-only flags: the invocation looks configured to its
+// author while doing none of it.
 //
 // It takes the arm rather than the flag string so the closed list of checkpointing arms stays in the
-// protocol. A switch here would be a second enumeration to keep in step, which is item 5 of
+// protocol.
+// A switch here would be a second enumeration to keep in step, which is item 5 of
 // docs/superpowers/specs/2026-09-21-the-resume-arms-and-what-they-contrast.md written again.
 func stateRequestFor(a queuelab.Arm, class string) (stateRequest, error) {
 	plan, err := a.StateFor(queuelab.VictimRow)
@@ -76,7 +79,8 @@ func stateRequestFor(a queuelab.Arm, class string) (stateRequest, error) {
 // This is a separate read rather than a question left to the claim's own binding, because an unprovisionable
 // claim does not fail: the apiserver accepts it, it stays Pending, and it surfaces much later as a victim
 // that never started — on a run that has by then taken a worker, applied fixtures and begun spending its
-// horizon. Reading the class first turns that into a refusal naming the class.
+// horizon.
+// Reading the class first turns that into a refusal naming the class.
 //
 // A class that exists is not a promise that provisioning succeeds; a broken CSI driver still binds nothing.
 // This check removes the one failure mode that is knowable up front, and says nothing about the rest.

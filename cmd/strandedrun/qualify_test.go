@@ -25,7 +25,8 @@ import (
 //
 // The probe would land on the expected node whichever strategy the cluster is actually running, so observing it
 // there could not refute an unapplied treatment -- which is the single failure this whole command exists to
-// catch. Refusing such a fixture is therefore a requirement rather than a nicety.
+// catch.
+// Refusing such a fixture is therefore a requirement rather than a nicety.
 //
 // Mutation that turns this red: make Discriminates return nil unconditionally.
 func TestAFixtureBothStrategiesAgreeOnQualifiesNothing(t *testing.T) {
@@ -53,10 +54,11 @@ func TestAFixtureBothStrategiesAgreeOnQualifiesNothing(t *testing.T) {
 // node's post-placement allocated fraction -- (reserved + request) / allocatable -- and MostAllocated prefers
 // the highest, LeastAllocated the lowest.
 //
-// Counterexample: capacities [4,2], reservations [1,0], request 1. Raw free is [3,2], so ranking free counts
-// makes the two strategies disagree and this fixture look discriminating. The real post-placement fractions are
-// (1+1)/4 = 0.5 and (0+1)/2 = 0.5 -- a TIE, which means an observed placement here proves nothing about which
-// strategy ran.
+// Counterexample: capacities [4,2], reservations [1,0], request 1.
+// Raw free is [3,2], so ranking free counts makes the two strategies disagree and this fixture look
+// discriminating.
+// The real post-placement fractions are (1+1)/4 = 0.5 and (0+1)/2 = 0.5 -- a TIE, which means an observed
+// placement here proves nothing about which strategy ran.
 //
 // The live fixture used on the cluster, free [2,1,0] over equal-sized nodes, happens to agree under both
 // models, which is why this defect never surfaced there.
@@ -100,7 +102,9 @@ func TestScoringIsOverAllocationFractionsNotRawFreeCounts(t *testing.T) {
 	//
 	// The first version of this test pinned nothing: its tie case was caught by the tie detector (also
 	// fraction-based, and not mutated), and its ordering case happened to give the same answer under both
-	// models. Reverting the comparison to raw free counts left the suite green. Found by running the control.
+	// models.
+	// Reverting the comparison to raw free counts left the suite green.
+	// Found by running the control.
 	//
 	// capacities [2,5], reservations [0,2], request 1:
 	//   free counts        = [2, 3]      -> MostAllocated (least free) would pick big
@@ -146,9 +150,10 @@ func TestATiedFixtureIsRefusedRatherThanGuessed(t *testing.T) {
 
 // The discriminating fixture the study will actually use, and both directions of its verdict.
 //
-// Free devices a=3, b=1: LeastAllocated prefers a, MostAllocated prefers b. Observing the wrong one must be
-// reported as the treatment not applying, and the message must name the strategy that WOULD have produced it --
-// because "the placement was unexpected" and "the cluster ran the other arm" are different diagnoses.
+// Free devices a=3, b=1: LeastAllocated prefers a, MostAllocated prefers b.
+// Observing the wrong one must be reported as the treatment not applying, and the message must name the
+// strategy that WOULD have produced it -- because "the placement was unexpected" and "the cluster ran the other
+// arm" are different diagnoses.
 //
 // Mutation that turns this red: compare against the wrong strategy, or drop the alternative-strategy branch.
 func TestAWrongPlacementNamesTheStrategyThatWouldHaveProducedIt(t *testing.T) {
@@ -213,8 +218,8 @@ func TestAPlacementMatchingNeitherStrategyIsNotBlamedOnTheTreatment(t *testing.T
 
 // An unplaced probe is a census that did not happen, not a null result about the strategy.
 //
-// This is the study's recurring shape: an absent observation reading as a negative one. A pod that never got
-// scheduled says nothing about scoring, because scoring runs after filtering.
+// This is the study's recurring shape: an absent observation reading as a negative one.
+// A pod that never got scheduled says nothing about scoring, because scoring runs after filtering.
 //
 // Mutation that turns this red: treat an empty observed node as a mismatch.
 func TestAnUnplacedProbeIsNotANullResult(t *testing.T) {

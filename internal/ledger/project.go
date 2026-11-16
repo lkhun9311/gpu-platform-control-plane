@@ -42,8 +42,9 @@ type Projection struct {
 	EventsAlreadyPresent int
 	// RunsWithoutStart is how many runs had no status.startedAt, and so have no derivable wall clock.
 	//
-	// Those are runs that never entered Observing. A Refused run is usually NOT one of them: the gap check
-	// refuses a trail with a hole after observation has begun.
+	// Those are runs that never entered Observing.
+	// A Refused run is usually NOT one of them: the gap check refuses a trail with a hole after
+	// observation has begun.
 	RunsWithoutStart int
 	// RunsStale is how many runs were skipped because the ledger already held a fresher snapshot, or one that
 	// had already ended.
@@ -56,13 +57,13 @@ type Projection struct {
 // isAtLeastAsFresh reports whether this snapshot may advance the stored row.
 //
 // status.lastObservedAt is when the controller last actually looked (api/v1/workloadrun_types.go:202), which
-// makes it the only honest basis for deciding which of two readings is later. A snapshot with none cannot
-// establish that it is newer, so it may create a row but never replace one.
+// makes it the only honest basis for deciding which of two readings is later.
+// A snapshot with none cannot establish that it is newer, so it may create a row but never replace one.
 //
 // It is not enough on its own, because a refusal ends a run without advancing lastObservedAt: the Observing
 // snapshot taken before the refusal carries the same instant, and it overwrote Refused (codex audit, 2026-10-28).
-// Complete and Refused are terminal in the controller, so a snapshot that would move a stored terminal phase to
-// a non-terminal one is older whatever its timestamp says.
+// Complete and Refused are terminal in the controller, so a snapshot that would move a stored terminal phase to a
+// non-terminal one is older whatever its timestamp says.
 func isAtLeastAsFresh(tx *sql.Tx, run *platformv1.WorkloadRun) (bool, error) {
 	var stored sql.NullInt64
 	var storedPhase string
@@ -97,11 +98,13 @@ func terminal(p platformv1.WorkloadRunPhase) bool {
 // testing here, and a function that needs an apiserver to test it would be tested less.
 //
 // projectedAt is passed in rather than read from the clock so a test can pin it, and it is stored as
-// projected_at_unix_nanos -- the time the PROJECTION happened. Nothing here treats it as the time anything
-// occurred; the run's own elapsed offsets are the timing authority.
+// projected_at_unix_nanos -- the time the PROJECTION happened.
+// Nothing here treats it as the time anything occurred; the run's own elapsed offsets are the timing
+// authority.
 //
-// Everything happens in one transaction. A projection that failed halfway and left some runs recorded would
-// be a ledger that disagrees with itself about how far it got.
+// Everything happens in one transaction.
+// A projection that failed halfway and left some runs recorded would be a ledger that disagrees with itself
+// about how far it got.
 func (s *Store) ProjectWorkloadRuns(runs []platformv1.WorkloadRun, projectedAt time.Time) (Projection, error) {
 	var p Projection
 	p.RunsSeen = len(runs)
@@ -115,8 +118,9 @@ func (s *Store) ProjectWorkloadRuns(runs []platformv1.WorkloadRun, projectedAt t
 	for i := range runs {
 		run := &runs[i]
 		if run.UID == "" {
-			// The UID is the identity the whole table is keyed by. Without it two different runs would
-			// collapse into one row, or one run would append a second account of itself on every projection.
+			// The UID is the identity the whole table is keyed by.
+			// Without it two different runs would collapse into one row, or one run would append a second
+			// account of itself on every projection.
 			return Projection{}, fmt.Errorf("run %s/%s has no UID; refusing to key a ledger row on nothing",
 				run.Namespace, run.Name)
 		}
@@ -128,7 +132,8 @@ func (s *Store) ProjectWorkloadRuns(runs []platformv1.WorkloadRun, projectedAt t
 			p.RunsWithoutStart++
 			if len(run.Status.Observations) > 0 {
 				// The trail's offsets are measured from startedAt, so observations without one have no
-				// meaning at all. Storing them would put a trail in the ledger whose clock does not exist.
+				// meaning at all.
+				// Storing them would put a trail in the ledger whose clock does not exist.
 				return Projection{}, fmt.Errorf("run %s/%s reports %d observations but no startedAt; the offsets have no origin",
 					run.Namespace, run.Name, len(run.Status.Observations))
 			}
@@ -146,10 +151,11 @@ func (s *Store) ProjectWorkloadRuns(runs []platformv1.WorkloadRun, projectedAt t
 		// Freshness is decided BEFORE anything else this snapshot says is believed.
 		//
 		// This ordering was found by a test rather than reasoned out: the stale check and the shrinking-trail
-		// check contradicted each other. A snapshot from a minute ago legitimately has a shorter trail, so the
-		// ghost-row check fired and refused a projection that should simply have been a no-op. The resolution
-		// is that a stale snapshot has no standing to say anything -- not that the trail shrank, and not that
-		// the phase moved -- so it is skipped whole.
+		// check contradicted each other.
+		// A snapshot from a minute ago legitimately has a shorter trail, so the ghost-row check fired and
+		// refused a projection that should simply have been a no-op.
+		// The resolution is that a stale snapshot has no standing to say anything -- not that the trail
+		// shrank, and not that the phase moved -- so it is skipped whole.
 		fresher, err := isAtLeastAsFresh(tx, run)
 		if err != nil {
 			return Projection{}, err
@@ -209,9 +215,9 @@ func (s *Store) ProjectWorkloadRuns(runs []platformv1.WorkloadRun, projectedAt t
 		// The ledger must not hold observations the object no longer reports.
 		//
 		// status.observations is append-only in the controller, so a shrinking trail should be impossible --
-		// which is exactly why it is checked rather than assumed. If it ever happens, the stored rows beyond
-		// the trail's end are a claim that something was observed, standing on nothing, and they would be
-		// read as evidence.
+		// which is exactly why it is checked rather than assumed.
+		// If it ever happens, the stored rows beyond the trail's end are a claim that something was
+		// observed, standing on nothing, and they would be read as evidence.
 		var stored int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM operation_events WHERE object_uid = ?`,
 			string(run.UID)).Scan(&stored); err != nil {
@@ -233,12 +239,13 @@ func (s *Store) ProjectWorkloadRuns(runs []platformv1.WorkloadRun, projectedAt t
 //
 // The UID identifies the object, and everything checked here is immutable for that object's whole life: the
 // scenario and target carry `self == oldSelf` CEL rules, the namespace and name cannot change, and startedAt
-// is written once on entry to Observing. If a stored row disagrees with the object now being projected, one of
-// the two is not what it claims to be, and updating the status columns would graft new readings onto an
-// identity that did not produce them.
+// is written once on entry to Observing.
+// If a stored row disagrees with the object now being projected, one of the two is not what it claims to be,
+// and updating the status columns would graft new readings onto an identity that did not produce them.
 //
 // Kubernetes hands a recreated object a new UID, so delete-and-recreate under the same name is safe and lands
-// in its own row. What this catches is the case that should be impossible.
+// in its own row.
+// What this catches is the case that should be impossible.
 func refuseIncompatibleIdentity(tx *sql.Tx, run *platformv1.WorkloadRun) error {
 	var (
 		namespace, name, scenario, kind, target, targetNS string
@@ -280,10 +287,11 @@ func refuseIncompatibleIdentity(tx *sql.Tx, run *platformv1.WorkloadRun) error {
 
 // insertObservation stores one observation at its position in the trail, reporting whether it was new.
 //
-// A conflict on (object_uid, ordinal) is the NORMAL outcome of a replay and must not be an error. What must be
-// an error is a conflict whose stored row DISAGREES: the same position in the same run's trail reported twice
-// with different contents is a contradiction about the cluster rather than a duplicate of a fact. Writing
-// either version over the other would settle it silently, and the settled row would read as evidence.
+// A conflict on (object_uid, ordinal) is the NORMAL outcome of a replay and must not be an error.
+// What must be an error is a conflict whose stored row DISAGREES: the same position in the same run's trail
+// reported twice with different contents is a contradiction about the cluster rather than a duplicate of a
+// fact.
+// Writing either version over the other would settle it silently, and the settled row would read as evidence.
 func insertObservation(tx *sql.Tx, uid string, ordinal int, obs platformv1.WorkloadRunObservation) (bool, error) {
 	res, err := tx.Exec(`INSERT INTO operation_events (object_uid, ordinal, elapsed_seconds, state, healthy)
 		VALUES (?, ?, ?, ?, ?) ON CONFLICT(object_uid, ordinal) DO NOTHING`,
@@ -308,8 +316,8 @@ func insertObservation(tx *sql.Tx, uid string, ordinal int, obs platformv1.Workl
 		WHERE object_uid = ? AND ordinal = ?`, uid, ordinal).
 		Scan(&storedElapsed, &storedState, &storedHealthy)
 	if errors.Is(err, sql.ErrNoRows) {
-		// Nothing was inserted and nothing is there, which the schema does not allow. Reporting this as a
-		// successful replay would claim the observation is recorded when it is not.
+		// Nothing was inserted and nothing is there, which the schema does not allow.
+		// Reporting this as a successful replay would claim the observation is recorded when it is not.
 		return false, errors.New("observation was neither inserted nor found; the ledger did not store it")
 	}
 	if err != nil {

@@ -29,10 +29,10 @@ import (
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
-// The projector's only interesting property is that running it again changes nothing. Everything here is a
-// way of asking that, plus the cases where silence would be a lie: a run that never started, a position
-// reported twice with different contents, a ledger holding more than the object claims, a snapshot older than
-// the one already stored, and a second run's status arriving under the first one's UID.
+// The projector's only interesting property is that running it again changes nothing.
+// Everything here is a way of asking that, plus the cases where silence would be a lie: a run that never
+// started, a position reported twice with different contents, a ledger holding more than the object claims, a
+// snapshot older than the one already stored, and a second run's status arriving under the first one's UID.
 
 var projectedAt = time.Unix(1_700_000_000, 0)
 
@@ -54,9 +54,9 @@ func obs(elapsed int32, state string, healthy bool) platformv1.WorkloadRunObserv
 //
 // The fixtures used to leave the verdict empty beside phase Complete, which the API forbids -- a verdict is
 // set only in Complete -- and every projector test in this file was quietly building that state until the
-// schema started constraining the pair. So the verdict is decided here from the phase rather than passed in
-// and forgotten, and lastObservedAt is always set because it is what decides whether a snapshot may advance
-// the stored row.
+// schema started constraining the pair.
+// So the verdict is decided here from the phase rather than passed in and forgotten, and lastObservedAt is
+// always set because it is what decides whether a snapshot may advance the stored row.
 func runWith(uid, name string, phase platformv1.WorkloadRunPhase, start *time.Time,
 	lastObserved time.Time, trail ...platformv1.WorkloadRunObservation) platformv1.WorkloadRun {
 	r := platformv1.WorkloadRun{
@@ -142,8 +142,8 @@ func TestProjectingThriceChangesNothing(t *testing.T) {
 	}
 }
 
-// The trail that motivated keying on position: a round trip inside one second. All three observations must
-// survive, and a replay must still change nothing.
+// The trail that motivated keying on position: a round trip inside one second.
+// All three observations must survive, and a replay must still change nothing.
 func TestARoundTripInsideOneSecondKeepsEveryObservation(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
@@ -173,7 +173,8 @@ func TestARoundTripInsideOneSecondKeepsEveryObservation(t *testing.T) {
 }
 
 // A projection that fails partway must leave nothing, or the ledger disagrees with itself about how far it
-// got. The second run has no UID, which is refused after the first has already been written in the same
+// got.
+// The second run has no UID, which is refused after the first has already been written in the same
 // transaction.
 func TestAFailedProjectionWritesNothing(t *testing.T) {
 	s := openTemp(t)
@@ -269,8 +270,9 @@ func TestObservationsWithNoStartAreRefused(t *testing.T) {
 	}
 }
 
-// An older snapshot must not overwrite a newer one. Without this the ledger rewrites its own history
-// backwards, and every column still looks like a legitimate reading.
+// An older snapshot must not overwrite a newer one.
+// Without this the ledger rewrites its own history backwards, and every column still looks like a
+// legitimate reading.
 func TestAStaleSnapshotDoesNotRewriteHistoryBackwards(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
@@ -321,7 +323,8 @@ func TestAnEqualTimeSnapshotDoesNotUndoATerminalPhase(t *testing.T) {
 }
 
 // The same position reported twice with different contents is a contradiction about the cluster, not a
-// duplicate of a fact. Settling it silently would leave a row that reads as evidence.
+// duplicate of a fact.
+// Settling it silently would leave a row that reads as evidence.
 func TestAContradictedPositionIsRefusedRatherThanResolved(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
@@ -348,7 +351,8 @@ func TestAContradictedPositionIsRefusedRatherThanResolved(t *testing.T) {
 	}
 }
 
-// One UID is one object. A status arriving with a different identity must not be grafted onto the stored row.
+// One UID is one object.
+// A status arriving with a different identity must not be grafted onto the stored row.
 func TestAStatusUnderAnotherRunsIdentityIsRefused(t *testing.T) {
 	start := projectedAt.Add(-time.Minute)
 	original := runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start, projectedAt, obs(0, "Ready", true))
@@ -385,8 +389,9 @@ func TestAStatusUnderAnotherRunsIdentityIsRefused(t *testing.T) {
 	}
 }
 
-// The ledger must not keep observations the object no longer reports. The controller's trail is append-only,
-// so this should be impossible -- which is why it is checked rather than assumed.
+// The ledger must not keep observations the object no longer reports.
+// The controller's trail is append-only, so this should be impossible -- which is why it is checked rather
+// than assumed.
 func TestALedgerHoldingMoreThanTheObjectClaimsIsRefused(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)

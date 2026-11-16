@@ -87,10 +87,11 @@ func parseAPIKeys(s string) map[string]string {
 
 // parsePriorities turns "tenant=0,tenant2=5" into the per-tenant scheduling priority map.
 //
-// Unlike parseAPIKeys it refuses malformed input instead of skipping it. A dropped API key fails loudly on
-// the first request; a dropped priority does not fail at all -- the run completes, the rows look healthy,
-// and the arm that was supposed to carry the treatment silently replays the control. An arm whose whole
-// hypothesis is the priority field must not be able to lose it quietly.
+// Unlike parseAPIKeys it refuses malformed input instead of skipping it.
+// A dropped API key fails loudly on the first request; a dropped priority does not fail at all -- the run
+// completes, the rows look healthy, and the arm that was supposed to carry the treatment silently replays
+// the control.
+// An arm whose whole hypothesis is the priority field must not be able to lose it quietly.
 func parsePriorities(s string) (map[string]int, error) {
 	out := map[string]int{}
 	for pair := range strings.SplitSeq(s, ",") {
@@ -275,22 +276,25 @@ type stubProfile struct {
 	// readyAfter is how long after start /health reports healthy.
 	//
 	// A real engine loads weights and profiles memory before it serves; this stub is ready the instant it
-	// binds, and that difference is not cosmetic where readiness is the thing under observation. M7's
-	// pod-kill scenario was unobservable because of it: the replacement Pod went healthy inside a second,
-	// so the outage fell between polls and the evidence trail recorded a platform that never changed. Runs
-	// disagreed with each other about whether the failure had happened at all.
+	// binds, and that difference is not cosmetic where readiness is the thing under observation.
+	// M7's pod-kill scenario was unobservable because of it: the replacement Pod went healthy inside a
+	// second, so the outage fell between polls and the evidence trail recorded a platform that never
+	// changed.
+	// Runs disagreed with each other about whether the failure had happened at all.
 	//
 	// Zero keeps the old behaviour, which is what every other caller wants.
 	readyAfter time.Duration
 	// metrics serves /metrics with a completed-request counter in vLLM's name.
 	//
 	// It exists so the m5c rehearsal can drive the matrix's engine-metrics scrape down the path a real engine
-	// takes. It is off by default because the gateway's admission guard reads an engine's /metrics too, and
-	// every other rehearsal has always met a stub that answered 404 there.
+	// takes.
+	// It is off by default because the gateway's admission guard reads an engine's /metrics too, and every
+	// other rehearsal has always met a stub that answered 404 there.
 	metrics bool
 	// tokensFromRequest makes each response as long as the request's own max_tokens, as pilot mode does, without
-	// pilot mode's step log. A replay that scores output against a frozen cap reads a fixed-length stub as a
-	// failure on every row; the hold-cap product study's rehearsal needs the cap honoured and nothing else.
+	// pilot mode's step log.
+	// A replay that scores output against a frozen cap reads a fixed-length stub as a failure on every row; the
+	// hold-cap product study's rehearsal needs the cap honoured and nothing else.
 	tokensFromRequest bool
 	// iterLog, when set, prints vLLM v0.27.1's per-iteration log lines for every request the stub serves.
 	iterLog *stubIterLog
@@ -301,11 +305,13 @@ type stubProfile struct {
 	// cell read 0 tokens and refused it, so the check's passing path could not be rehearsed.
 	usage bool
 	// prefixCache, when set, models the engine's prefix cache and exports its counters; prefill charges the uncached
-	// part of each prompt. Both exist for the routing study's rehearsal, whose endpoints are those counters.
+	// part of each prompt.
+	// Both exist for the routing study's rehearsal, whose endpoints are those counters.
 	prefixCache *stubPrefixCache
 	prefill     *stubPrefill
 	// finishReasons puts vLLM's finish reason on each response's last content chunk: "length" when the response
-	// reached the request's max_tokens, "stop" otherwise. The version study refuses a completion without one.
+	// reached the request's max_tokens, "stop" otherwise.
+	// The version study refuses a completion without one.
 	finishReasons bool
 	// capacity, when set, lets only so many requests run at once and queues the rest, as an engine's batch does.
 	capacity *stubCapacity
@@ -436,9 +442,10 @@ func (l *stubIterLog) request(promptTokens int64, tokens int) {
 // validate refuses a profile that would serve a backend other than the one declared.
 //
 // Neither bad value fails on its own: `for i := range p.tokens` with a negative count emits nothing at all,
-// and time.Sleep of a negative duration returns immediately. A mistyped flag or a stub:// URI therefore does
-// not crash the stub — it quietly stands up a different experiment, and the run's numbers describe that one
-// while the manifest describes the other. A refusal at startup is the only place this is cheap to catch.
+// and time.Sleep of a negative duration returns immediately.
+// A mistyped flag or a stub:// URI therefore does not crash the stub — it quietly stands up a different
+// experiment, and the run's numbers describe that one while the manifest describes the other.
+// A refusal at startup is the only place this is cheap to catch.
 func (p stubProfile) validate() error {
 	if p.tokens < 1 {
 		return fmt.Errorf("stub profile: tokens is %d; a response with no tokens measures nothing", p.tokens)
@@ -474,10 +481,11 @@ func (p *stubProfile) applyModelPath(modelPath string) error {
 	u, err := url.Parse(modelPath)
 	if err != nil {
 		// A parse failure and "not a stub URI" were one condition, which meant a malformed stub:// URI ran the
-		// defaults while the CR described the profile the author intended. They are separated by intent: a
-		// string that announces itself as a stub URI and then does not parse is a typo in the one field this
-		// backend can be configured through, and guessing is how a run measures a backend nobody asked for. A
-		// real serving runtime's storage URI still passes through untouched, because it does not claim to be
+		// defaults while the CR described the profile the author intended.
+		// They are separated by intent: a string that announces itself as a stub URI and then does not parse
+		// is a typo in the one field this backend can be configured through, and guessing is how a run
+		// measures a backend nobody asked for.
+		// A real serving runtime's storage URI still passes through untouched, because it does not claim to be
 		// one of ours.
 		if strings.HasPrefix(modelPath, "stub:") {
 			return fmt.Errorf("model path %q announces the stub scheme but does not parse: %w", modelPath, err)
@@ -490,16 +498,19 @@ func (p *stubProfile) applyModelPath(modelPath string) error {
 	// url.Values.Query() is not used, and that is the third way this function used to serve the defaults
 	// quietly: Query() DISCARDS anything it cannot parse and returns no error, so "tokens=%zz" arrives as no
 	// tokens parameter at all — past the unknown-key check below, because the key never appears — and the
-	// default stands. ParseQuery reports it.
+	// default stands.
+	// ParseQuery reports it.
 	q, qerr := url.ParseQuery(u.RawQuery)
 	if qerr != nil {
 		return fmt.Errorf("model path %q: its parameters do not parse: %w", modelPath, qerr)
 	}
 	// An unrecognised parameter is refused for the same reason an unparseable value is, and it is the likelier
 	// mistake of the two: "token=4" for "tokens=4" reads correctly to a human, is silently not a parameter this
-	// understands, and leaves the default in place. Nothing downstream can notice, because the default is a
-	// valid profile — the startup validation added beside this cannot catch it either. The refusal names what
-	// is accepted, since the whole point is that the author believed they had set something.
+	// understands, and leaves the default in place.
+	// Nothing downstream can notice, because the default is a valid profile — the startup validation added
+	// beside this cannot catch it either.
+	// The refusal names what is accepted, since the whole point is that the author believed they had set
+	// something.
 	for key := range q {
 		switch key {
 		case "tokens", "ttft-ms", "itl-ms", "ready-after-ms":
@@ -594,8 +605,9 @@ func stubServe(args []string) error {
 		{"gpu-memory-utilization", "gpu_memory_utilization", "float"},
 		{"max-num-batched-tokens", "max_num_batched_tokens", "int"}, {"scheduling-policy", "scheduling_policy", "str"},
 		{"scheduler-cls", "scheduler_cls", "str"},
-		// The admission diagnostic's per-step prefill cap. The stub has no scheduler to apply it to; it only reports
-		// it, so the validator sees what the card's engine prints.
+		// The admission diagnostic's per-step prefill cap.
+		// The stub has no scheduler to apply it to; it only reports it, so the validator sees what the card's engine
+		// prints.
 		{"long-prefill-token-threshold", "long_prefill_token_threshold", "int"},
 	} {
 		pilotArgs = append(pilotArgs, stubArg{key: f.key, kind: f.kind, val: fs.String(f.name, "", "vLLM's flag; reported in the non-default args line")})
@@ -734,7 +746,8 @@ func stubFinishReason(raw []byte, tokens int) string {
 //
 // The seam is not cosmetic: the streaming handler's obligation to abandon a request whose client has gone
 // away is a claim about what happens DURING a response, and nothing that only starts a listener can assert
-// it. It went unnoticed for exactly that reason.
+// it.
+// It went unnoticed for exactly that reason.
 func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
@@ -748,11 +761,11 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 		}
 		// Every wait and every write is abandoned the moment the client goes away.
 		//
-		// The bare time.Sleep this replaces ignored r.Context(), so a request the harness had already timed
-		// out kept its handler asleep for the whole configured response — and stats.begin/end counted it as
-		// in flight the entire time. peakInFlight is what PoolSizeForTrace is derived from, so the contamination
-		// landed in the instrument's own sizing, not merely in a log line. Ignoring write errors kept it
-		// writing into a closed connection for the same span.
+		// The bare time.Sleep this replaces ignored r.Context(), so a request the harness had already timed out
+		// kept its handler asleep for the whole configured response — and stats.begin/end counted it as in
+		// flight the entire time. peakInFlight is what PoolSizeForTrace is derived from, so the contamination
+		// landed in the instrument's own sizing, not merely in a log line.
+		// Ignoring write errors kept it writing into a closed connection for the same span.
 		wait := func(d time.Duration) bool {
 			if d <= 0 {
 				return true
@@ -855,9 +868,10 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 	// becomes ready and the Service it backs never gets an endpoint.
 	//
 	// Before readyAfter has elapsed it reports 503, which is what a serving container looks like while it is
-	// still loading. Without that this stub is ready the instant it binds, and a scenario that kills a Pod
-	// has nothing observable to show: the replacement is healthy before the next poll, and the evidence
-	// trail records a platform that never changed.
+	// still loading.
+	// Without that this stub is ready the instant it binds, and a scenario that kills a Pod has nothing
+	// observable to show: the replacement is healthy before the next poll, and the evidence trail records a
+	// platform that never changed.
 	mux.HandleFunc("/health", stubHealth(profile.readyAfter, time.Now()))
 	if profile.metrics {
 		// One counter, in the name vLLM gives it, and nothing that would pass for a latency: a stub's timings
@@ -883,14 +897,17 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 		writeStats(w, stats.snapshot())
 	})
 	mux.HandleFunc("/stats/reset", func(w http.ResponseWriter, r *http.Request) {
-		// POST-only. This endpoint destroys the connection accounting an evidence run is in the middle of
+		// POST-only.
+		// This endpoint destroys the connection accounting an evidence run is in the middle of
 		// collecting, and a GET is what a probe, a link prefetch, a browser or a stray curl issues — the
-		// kubelet already GETs this port for /health. Requiring POST removes the accidental route.
+		// kubelet already GETs this port for /health.
+		// Requiring POST removes the accidental route.
 		//
 		// It is NOT authentication, and this comment says so rather than implying the hole is closed:
-		// anything that can reach the Service can still POST here. The stub exists only inside the evidence
-		// cluster, so the realistic failure is an accident rather than an adversary; a real fix is a separate
-		// administrative listener, which is more machinery than a measurement stub has earned.
+		// anything that can reach the Service can still POST here.
+		// The stub exists only inside the evidence cluster, so the realistic failure is an accident rather
+		// than an adversary; a real fix is a separate administrative listener, which is more machinery than a
+		// measurement stub has earned.
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
 			http.Error(w, "reset requires POST: a GET here would silently discard a run's counters",

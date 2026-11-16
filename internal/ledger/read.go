@@ -54,8 +54,9 @@ type RunRecord struct {
 
 // Observation is one entry of a run's trail as the ledger holds it.
 //
-// ElapsedSeconds is the timing authority. WallClock is DERIVED from the run's StartedAt and is nil when the
-// run has none, because a trail whose origin is unknown has no wall-clock reading to report.
+// ElapsedSeconds is the timing authority.
+// WallClock is DERIVED from the run's StartedAt and is nil when the run has none, because a trail whose
+// origin is unknown has no wall-clock reading to report.
 type Observation struct {
 	Ordinal        int
 	ElapsedSeconds int32
@@ -66,9 +67,9 @@ type Observation struct {
 
 // ListWorkloadRuns returns every projected run, oldest projection first.
 //
-// An empty slice with a nil error means the ledger is readable and holds no runs. That is a real answer, and
-// it is reachable only because OpenForRead refuses a ledger it cannot read at all -- which is what keeps this
-// return value from ever standing in for "the recording could not be opened".
+// An empty slice with a nil error means the ledger is readable and holds no runs.
+// That is a real answer, and it is reachable only because OpenForRead refuses a ledger it cannot read at all
+// -- which is what keeps this return value from ever standing in for "the recording could not be opened".
 func (s *Store) ListWorkloadRuns() ([]RunRecord, error) {
 	rows, err := s.db.Query(`SELECT uid, namespace, name, scenario, target_kind, target_name, target_namespace,
 		phase, verdict, reason, started_at_unix_nanos, last_observed_at_unix_nanos,
@@ -96,16 +97,18 @@ func (s *Store) ListWorkloadRuns() ([]RunRecord, error) {
 // ErrAmbiguousRun is returned when a namespace/name names more than one recorded run.
 //
 // Kubernetes reuses names: delete a WorkloadRun and recreate it and the ledger holds two rows, correctly
-// distinguished by UID. Returning either one would be a coin toss presented as a record.
+// distinguished by UID.
+// Returning either one would be a coin toss presented as a record.
 var ErrAmbiguousRun = errors.New("more than one recorded run has this name")
 
 // GetWorkloadRun returns one run by namespace and name, with its trail.
 //
-// Namespace and name rather than UID because that is what an operator has in their hand. The cost of that
-// choice is that the pair is NOT unique -- names are reusable -- and the first version of this function had no
-// ordering and no ambiguity check, so a cold review reproduced it returning an older `Recovered` in preference
-// to the current `NotRecovered`. An evidence store that answers the wrong run is worse than one that refuses,
-// so a duplicate name is refused and the caller is told to pick a UID.
+// Namespace and name rather than UID because that is what an operator has in their hand.
+// The cost of that choice is that the pair is NOT unique -- names are reusable -- and the first version of
+// this function had no ordering and no ambiguity check, so a cold review reproduced it returning an older
+// `Recovered` in preference to the current `NotRecovered`.
+// An evidence store that answers the wrong run is worse than one that refuses, so a duplicate name is refused
+// and the caller is told to pick a UID.
 func (s *Store) GetWorkloadRun(namespace, name string) (RunRecord, []Observation, error) {
 	rows, err := s.db.Query(`SELECT uid, namespace, name, scenario, target_kind, target_name, target_namespace,
 		phase, verdict, reason, started_at_unix_nanos, last_observed_at_unix_nanos,
@@ -152,8 +155,9 @@ func (s *Store) GetWorkloadRun(namespace, name string) (RunRecord, []Observation
 // GetWorkloadRunByUID returns one run by the Kubernetes object UID, with its trail.
 //
 // This is the unambiguous lookup, and it exists so that the refusal GetWorkloadRun returns for a reused name is
-// actionable: the error names the UIDs, and this is what the caller does with one. A UID is not what anybody
-// types from memory, which is why it is the second entry point rather than the only one.
+// actionable: the error names the UIDs, and this is what the caller does with one.
+// A UID is not what anybody types from memory, which is why it is the second entry point rather than the only
+// one.
 func (s *Store) GetWorkloadRunByUID(uid string) (RunRecord, []Observation, error) {
 	row := s.db.QueryRow(`SELECT uid, namespace, name, scenario, target_kind, target_name, target_namespace,
 		phase, verdict, reason, started_at_unix_nanos, last_observed_at_unix_nanos,

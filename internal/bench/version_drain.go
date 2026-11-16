@@ -10,8 +10,9 @@ import (
 // registered drain bound.
 //
 // Replay returns only once its last request has answered or timed out, which can be a whole request timeout after the
-// last arrival; a drain timed from that return would grant the engine that much extra time. The origin is the moment the
-// caller started the replay, read just before calling it, so the deadline is never later than the registered one.
+// last arrival; a drain timed from that return would grant the engine that much extra time.
+// The origin is the moment the caller started the replay, read just before calling it, so the deadline is never later
+// than the registered one.
 func CellDrainDeadline(origin time.Time, trace []TraceRow, drain time.Duration) (time.Time, error) {
 	if len(trace) == 0 {
 		return time.Time{}, errors.New("a cell with no scheduled arrival has no drain")

@@ -45,15 +45,17 @@ import (
 const (
 	// stateProbeToken prefixes the payload the writer stores and the reader must find.
 	//
-	// The payload is unique per invocation. A fixed one would be satisfied by a previous probe's residue on a
-	// reused volume, which is a pass produced by the thing the probe is meant to detect.
+	// The payload is unique per invocation.
+	// A fixed one would be satisfied by a previous probe's residue on a reused volume, which is a pass
+	// produced by the thing the probe is meant to detect.
 	stateProbeToken = "queuelab-smoke-"
 
 	// stateProbeBudget bounds each half: the writer reaching a terminal phase, and the reader after it.
 	//
 	// Generous for the reason the preflight's is: the first Pod on a fresh node pulls an image, and under
 	// WaitForFirstConsumer the claim is provisioned during scheduling, so a cold cluster spends a volume
-	// creation here too. A timeout must send an operator to the storage class, not to a phantom hang.
+	// creation here too.
+	// A timeout must send an operator to the storage class, not to a phantom hang.
 	stateProbeBudget = 6 * time.Minute
 
 	// stateProbeGoneBudget bounds waiting for the writer's object to be ABSENT, not merely deleted.
@@ -77,9 +79,9 @@ const stateProbeModeTimeout = 2*stateProbeBudget + stateProbeGoneBudget + 4*time
 // otherwise print a bare "released" over a claim that is still standing — the shape the registration page
 // forbids, an unresolved probe presented as a restored worker.
 //
-// A first version paired this with a `Passed` field. Nothing ever read it: the verdict reaches the operator
-// through the function's error and its printed lines, so the field was a second place for the same answer to
-// live and a second place for the two to disagree.
+// A first version paired this with a `Passed` field.
+// Nothing ever read it: the verdict reaches the operator through the function's error and its printed lines,
+// so the field was a second place for the same answer to live and a second place for the two to disagree.
 type probeLeftovers struct {
 	names []string
 }
@@ -87,9 +89,10 @@ type probeLeftovers struct {
 // stateProbe applies a writer Pod and then a reader Pod to one claim, and reports whether the second saw
 // what the first wrote.
 //
-// It acquires the worker through the ordinary transaction, as the preflight does. The reason is not the
-// device — this probe holds none — but interference: it consumes node-local volume attachment capacity and
-// CSI activity, either of which can perturb a live run's checkpoint timing without either side failing.
+// It acquires the worker through the ordinary transaction, as the preflight does.
+// The reason is not the device — this probe holds none — but interference: it consumes node-local volume
+// attachment capacity and CSI activity, either of which can perturb a live run's checkpoint timing without
+// either side failing.
 // Acquisition excludes other invocations of this harness; it does not isolate the backend, and this function
 // claims no more than that.
 func stateProbe(ctx context.Context, c client.Client, nodeName, class string,
@@ -121,18 +124,20 @@ func stateProbe(ctx context.Context, c client.Client, nodeName, class string,
 	//
 	// Go closes over the variable, not the value, so a declaration after this defer would not be the thing
 	// this closure sees — it would silently bind the package's own `outcome` type instead, which is what the
-	// first version did and the compiler caught. The ordering that matters is LEXICAL here and temporal
-	// there: defers run LIFO, so the cleanup registered later runs first and this has the answer by then.
+	// first version did and the compiler caught.
+	// The ordering that matters is LEXICAL here and temporal there: defers run LIFO, so the cleanup
+	// registered later runs first and this has the answer by then.
 	left := &probeLeftovers{}
 	defer func() {
 		relCtx, relCancel := cleanupContext()
 		defer relCancel()
 		rerr := releaseOwned(relCtx, c, j)
 		if rerr == nil {
-			// The markers came off, which is not the same sentence as "nothing of this probe is left". The
-			// cleanup defer runs BEFORE this one (defers are LIFO and it was registered later), so by now
-			// LeftBehind says whether the claim went. Printing a bare "released" over a leftover would be
-			// the shape the registration page forbids: an unresolved probe presented as a restored worker.
+			// The markers came off, which is not the same sentence as "nothing of this probe is left".
+			// The cleanup defer runs BEFORE this one (defers are LIFO and it was registered later), so by
+			// now LeftBehind says whether the claim went.
+			// Printing a bare "released" over a leftover would be the shape the registration page forbids:
+			// an unresolved probe presented as a restored worker.
 			if n := len(left.names); n > 0 {
 				_, _ = fmt.Fprintf(out, "worker %s released, but %d object(s) this probe created are "+
 					"unresolved: %s\n", nodeName, n, strings.Join(left.names, ", "))
@@ -166,8 +171,9 @@ func stateProbe(ctx context.Context, c client.Client, nodeName, class string,
 		reportStateProbeCleanup(relCtx, c, pvc, left, out)
 	}()
 
-	// NOT waiting for the claim to bind first. Under WaitForFirstConsumer there is no first consumer until a
-	// Pod is scheduled, so a wait here is a deadlock against the binding mode this lab actually needs.
+	// NOT waiting for the claim to bind first.
+	// Under WaitForFirstConsumer there is no first consumer until a Pod is scheduled, so a wait here is a
+	// deadlock against the binding mode this lab actually needs.
 	_, _ = fmt.Fprintf(out, "  claim %s/%s created for class %q (not waiting for binding: the writer is "+
 		"what binds it)\n", pvc.Namespace, pvc.Name, class)
 
@@ -185,14 +191,16 @@ func stateProbe(ctx context.Context, c client.Client, nodeName, class string,
 		releaseProbes(relCtx, c, []*corev1.Pod{writer, reader}, out)
 	}()
 
-	// The writer, then its ABSENCE, then the reader. The order is the whole point: ReadWriteOnce permits two
-	// Pods on one node at once, so it orders nothing by itself.
+	// The writer, then its ABSENCE, then the reader.
+	// The order is the whole point: ReadWriteOnce permits two Pods on one node at once, so it orders nothing
+	// by itself.
 	if err := runStateProbeHalf(ctx, c, writer, "writer", now, sleep, out); err != nil {
 		return err
 	}
-	// Captured BEFORE the handoff deletes it, from the SERVER's copy. Both facts are the cluster's to state:
-	// the UID is the apiserver's and the placement is the scheduler's, so reading them off the object this
-	// process submitted would be reading back what it already knew.
+	// Captured BEFORE the handoff deletes it, from the SERVER's copy.
+	// Both facts are the cluster's to state: the UID is the apiserver's and the placement is the
+	// scheduler's, so reading them off the object this process submitted would be reading back what it
+	// already knew.
 	ids := probeIdentities{claimUID: pvc.UID}
 	wuid, wnode, oerr := observeProbePod(ctx, c, writer)
 	if oerr != nil {
@@ -210,9 +218,9 @@ func stateProbe(ctx context.Context, c client.Client, nodeName, class string,
 		return err
 	}
 
-	// The identity conditions the page registers. Completion, payload equality and succession are established
-	// by the flow above rather than here, and this closes the three the first version left out: the claim's
-	// object identity, and where each half ran.
+	// The identity conditions the page registers.
+	// Completion, payload equality and succession are established by the flow above rather than here, and
+	// this closes the three the first version left out: the claim's object identity, and where each half ran.
 	if verr := verifyStateProbe(ctx, c, pvc, ids, reader, nodeName); verr != nil {
 		return verr
 	}
@@ -225,9 +233,9 @@ func stateProbe(ctx context.Context, c client.Client, nodeName, class string,
 
 // stateProbeWriteCommand writes the payload the way the workload writes its progress file: tmp then replace.
 //
-// The shape is copied deliberately rather than simplified. What the arms depend on is that a replacement Pod
-// reads a file its predecessor wrote through os.replace, so a probe that wrote with a plain open would be
-// exercising a different operation against the same volume.
+// The shape is copied deliberately rather than simplified.
+// What the arms depend on is that a replacement Pod reads a file its predecessor wrote through os.replace,
+// so a probe that wrote with a plain open would be exercising a different operation against the same volume.
 func stateProbeWriteCommand(payload string) []string {
 	return []string{"python3", "-c", `import os,sys
 p,t=sys.argv[1],sys.argv[2]
@@ -241,8 +249,9 @@ print("wrote "+t,flush=True)
 // stateProbeReadCommand reads it back and refuses anything that is not exactly it.
 //
 // Three outcomes, and they are distinguished rather than collapsed: exit 0 read the payload, exit 2 found no
-// file at all, exit 3 found something else. The third is the one that matters most — a volume carrying an
-// earlier probe's residue would satisfy a check that only asked whether the file existed.
+// file at all, exit 3 found something else.
+// The third is the one that matters most — a volume carrying an earlier probe's residue would satisfy a
+// check that only asked whether the file existed.
 func stateProbeReadCommand(payload string) []string {
 	return []string{"python3", "-c", `import sys
 p,t=sys.argv[1],sys.argv[2]
@@ -266,9 +275,10 @@ print("read "+got,flush=True)
 // The DEVICE REQUEST IS DROPPED, from every container, for the reason the canary drops it: this probe asks
 // nothing about a card, and one that held a device would contend with the runs it is clearing the way for.
 //
-// PLACEMENT IS BY SELECTOR, not by spec.NodeName. That is registered rather than chosen: nodeName removes
-// the scheduler, and WaitForFirstConsumer binding is a scheduler decision, so a probe that pinned the node
-// would report success on a binding mode no run will use.
+// PLACEMENT IS BY SELECTOR, not by spec.NodeName.
+// That is registered rather than chosen: nodeName removes the scheduler, and WaitForFirstConsumer binding
+// is a scheduler decision, so a probe that pinned the node would report success on a binding mode no run
+// will use.
 func stateProbePod(name, probeID, runID string, command []string) (*corev1.Pod, error) {
 	row := queuelab.TrainingTraceRow{
 		Index: 0, Name: queuelab.VictimRow, Tenant: "canary",
@@ -340,16 +350,18 @@ func stateProbePod(name, probeID, runID string, command []string) (*corev1.Pod, 
 	// object to outlive that delete or the exit code it is measuring is garbage-collected out from under it.
 	// Nothing deletes this probe's Pods before their terminal status is read: each half runs to completion on
 	// its own under RestartPolicy: Never, and the only deleters here are the handoff and the cleanup, both
-	// after the read. A first version copied the finalizer across anyway and wrote the canary's reason on it,
-	// which was a false invariant plus an object that cannot go away until something remembers to release it.
+	// after the read.
+	// A first version copied the finalizer across anyway and wrote the canary's reason on it, which was a
+	// false invariant plus an object that cannot go away until something remembers to release it.
 	return &corev1.Pod{ObjectMeta: meta, Spec: spec}, nil
 }
 
 // stateProbeRowDurationSec is the row duration the probe renders at.
 //
 // It reaches the rendered command and nothing else: both halves replace that command outright, so the value
-// decides no timing. It is non-zero because the renderer refuses a row that would sleep for no time, and
-// small so that a reader of the manifest is not invited to think the probe waits for it.
+// decides no timing.
+// It is non-zero because the renderer refuses a row that would sleep for no time, and small so that a
+// reader of the manifest is not invited to think the probe waits for it.
 const stateProbeRowDurationSec = 8
 
 // runStateProbeHalf creates one half of the probe and waits for it to finish, reporting what the container
@@ -402,10 +414,10 @@ func awaitStateProbeStopped(ctx context.Context, c client.Client, pod *corev1.Po
 
 // awaitProbeGone deletes the probe and waits until the object is ABSENT.
 //
-// It goes through releaseProbe, which strips the canary's finalizer before deleting. This probe's Pods carry
-// none — see stateProbePod for why — so that step is a no-op here and the call is kept for one reason: a
-// probe Pod left by an older build, or by a future one that decides it needs a finalizer after all, is still
-// removable by this path rather than stranded.
+// It goes through releaseProbe, which strips the canary's finalizer before deleting.
+// This probe's Pods carry none — see stateProbePod for why — so that step is a no-op here and the call is
+// kept for one reason: a probe Pod left by an older build, or by a future one that decides it needs a
+// finalizer after all, is still removable by this path rather than stranded.
 //
 // Deleting and moving on would be the defect this whole mode is arranged against: acceptance of a delete is
 // not absence, and ReadWriteOnce lets two Pods hold one volume on the same node — so a reader started on
@@ -414,15 +426,17 @@ func awaitStateProbeStopped(ctx context.Context, c client.Client, pod *corev1.Po
 func awaitProbeGone(ctx context.Context, c client.Client, pod *corev1.Pod, observed probeIdentities,
 	now func() time.Time, sleep func(time.Duration)) error {
 	// The captured identity is a PARAMETER so that the ordering is visible at the call site, and the refusal
-	// below is a backstop rather than a guarantee. What it actually buys, stated narrowly because two
-	// reviewers found the first version of this comment claiming more:
+	// below is a backstop rather than a guarantee.
+	// What it actually buys, stated narrowly because two reviewers found the first version of this comment
+	// claiming more:
 	//
-	// It catches the ZERO VALUE — a caller that deleted the writer having observed nothing. It does NOT
-	// catch a caller that fills these in from the wrong source, because `writer.UID` after Create and the
-	// `-worker` flag are both non-empty and both wrong: the first is what the apiserver told this process at
-	// submission rather than what the cluster holds now, and the second is what was ASKED for rather than
-	// where the Pod ran. Only the end-to-end test in state_probe_e2e_test.go, whose double reports a
-	// different node than the flag names, distinguishes those.
+	// It catches the ZERO VALUE — a caller that deleted the writer having observed nothing.
+	// It does NOT catch a caller that fills these in from the wrong source, because `writer.UID` after
+	// Create and the `-worker` flag are both non-empty and both wrong: the first is what the apiserver told
+	// this process at submission rather than what the cluster holds now, and the second is what was ASKED
+	// for rather than where the Pod ran.
+	// Only the end-to-end test in state_probe_e2e_test.go, whose double reports a different node than the
+	// flag names, distinguishes those.
 	//
 	// It also does not leave the writer standing for inspection: stateProbe defers releaseProbes over both
 	// halves, and that cleanup runs on the way out regardless.
@@ -468,10 +482,12 @@ func awaitProbeGone(ctx context.Context, c client.Client, pod *corev1.Pod, obser
 // nothing and have to decide what nothing means.
 //
 // The first version re-read both Pods into locals and then compared the CALLER's objects instead, so the
-// re-read was dead code. Against a real apiserver those objects do carry UIDs — Create decodes the server's
-// response back into them — so the comparison was real and trivially satisfied, two differently named Pods
-// never sharing a UID. Against a fake apiserver that assigns none it was skipped by an `!= ""` guard. What
-// was missing was not the comparison but everything else the page registered: the claim's identity and
+// re-read was dead code.
+// Against a real apiserver those objects do carry UIDs — Create decodes the server's response back into
+// them — so the comparison was real and trivially satisfied, two differently named Pods never sharing a
+// UID.
+// Against a fake apiserver that assigns none it was skipped by an `!= ""` guard.
+// What was missing was not the comparison but everything else the page registered: the claim's identity and
 // where either Pod ran.
 type probeIdentities struct {
 	// claimUID is the claim's identity as the apiserver assigned it at Create.
@@ -497,16 +513,20 @@ func observeProbePod(ctx context.Context, c client.Client, pod *corev1.Pod) (typ
 
 // verifyStateProbe checks every identity a successful read could otherwise be wrong about.
 //
-// The reader exiting zero establishes only that it found the payload. It does not establish that it found it
-// on the volume the writer used, that the two were different Pods, or that either ran on the worker this
-// probe took out of service. `2026-09-22-the-claim-must-prove-two-pods-share-it.md` registers all four
-// conditions. An earlier implementation compared the two Pod UIDs, asked whether a claim of that name was
-// Bound, and stopped there — so the claim's object identity and both placements went unchecked, and the page
-// said otherwise. That is the gap this closes.
+// The reader exiting zero establishes only that it found the payload.
+// It does not establish that it found it on the volume the writer used, that the two were different Pods, or
+// that either ran on the worker this probe took out of service.
+// `2026-09-22-the-claim-must-prove-two-pods-share-it.md` registers all four conditions.
+// An earlier implementation compared the two Pod UIDs, asked whether a claim of that name was Bound, and
+// stopped there — so the claim's object identity and both placements went unchecked, and the page said
+// otherwise.
+// That is the gap this closes.
 //
-// EVERY identity must be non-empty, and that is not defensiveness. A fake apiserver assigns no UIDs, so a
-// comparison written as `a != "" && b != "" && a == b` is skipped entirely against one, and the only test
-// that could have noticed is one asserting the ABSENCE is refused. Demanding the values makes it so.
+// EVERY identity must be non-empty, and that is not defensiveness.
+// A fake apiserver assigns no UIDs, so a comparison written as `a != "" && b != "" && a == b` is skipped
+// entirely against one, and the only test that could have noticed is one asserting the ABSENCE is
+// refused.
+// Demanding the values makes it so.
 func verifyStateProbe(ctx context.Context, c client.Client, pvc *corev1.PersistentVolumeClaim,
 	ids probeIdentities, reader *corev1.Pod, wantNode string) error {
 	readerUID, readerNode, err := observeProbePod(ctx, c, reader)
@@ -534,8 +554,9 @@ func verifyStateProbe(ctx context.Context, c client.Client, pvc *corev1.Persiste
 		return fmt.Errorf("the writer and the reader are the same Pod (%s), so nothing was handed over",
 			readerUID)
 	}
-	// Point 2 of the registered criteria. A probe whose Pods landed elsewhere would have exercised some other
-	// node's storage path while this worker sat taken out of service.
+	// Point 2 of the registered criteria.
+	// A probe whose Pods landed elsewhere would have exercised some other node's storage path while this
+	// worker sat taken out of service.
 	for _, p := range []struct {
 		half, node string
 	}{{"writer", ids.writerNode}, {"reader", readerNode}} {
@@ -549,9 +570,10 @@ func verifyStateProbe(ctx context.Context, c client.Client, pvc *corev1.Persiste
 	if err := c.Get(ctx, client.ObjectKeyFromObject(pvc), &bound); err != nil {
 		return fmt.Errorf("read the probe's claim back to confirm both Pods used it: %w", err)
 	}
-	// Point 4's second identity. Name equality is not object equality: a claim deleted and recreated between
-	// the two halves carries the same name and a different volume, which is exactly the substitution that
-	// would make a reader's success meaningless.
+	// Point 4's second identity.
+	// Name equality is not object equality: a claim deleted and recreated between the two halves carries the
+	// same name and a different volume, which is exactly the substitution that would make a reader's success
+	// meaningless.
 	if bound.UID != ids.claimUID {
 		return fmt.Errorf("the claim %s/%s now has UID %s and the one this probe created had %s; the two "+
 			"halves did not share an object, whatever they each read", bound.Namespace, bound.Name,
@@ -570,9 +592,10 @@ func verifyStateProbe(ctx context.Context, c client.Client, pvc *corev1.Persiste
 
 // reportBoundVolume prints the PersistentVolume the claim bound and, above all, its reclaim policy.
 //
-// The policy is reported rather than acted on. Under Retain the backing storage outlives the claim, so a
-// cluster where this probe runs often is accumulating volumes nothing in this repository removes — and the
-// probe must not quietly change the policy to make its own cleanup tidier.
+// The policy is reported rather than acted on.
+// Under Retain the backing storage outlives the claim, so a cluster where this probe runs often is
+// accumulating volumes nothing in this repository removes — and the probe must not quietly change the
+// policy to make its own cleanup tidier.
 func reportBoundVolume(ctx context.Context, c client.Client, pvc *corev1.PersistentVolumeClaim, out io.Writer) {
 	var bound corev1.PersistentVolumeClaim
 	if err := c.Get(ctx, client.ObjectKeyFromObject(pvc), &bound); err != nil {
@@ -595,9 +618,10 @@ func reportBoundVolume(ctx context.Context, c client.Client, pvc *corev1.Persist
 
 // reportStateProbeCleanup deletes the probe's claim and says whether it could establish that it is gone.
 //
-// Separate from the verdict, and that separation is the point. Calling a delete is not completing one:
-// deletion of a bound claim waits on the volume, and a probe that reported "cleaned up" on acceptance would
-// be making the same unchecked claim its own read-side refusal exists to catch.
+// Separate from the verdict, and that separation is the point.
+// Calling a delete is not completing one: deletion of a bound claim waits on the volume, and a probe that
+// reported "cleaned up" on acceptance would be making the same unchecked claim its own read-side refusal
+// exists to catch.
 func reportStateProbeCleanup(ctx context.Context, c client.Client, pvc *corev1.PersistentVolumeClaim,
 	left *probeLeftovers, out io.Writer) {
 	name := pvc.Namespace + "/" + pvc.Name
@@ -606,7 +630,8 @@ func reportStateProbeCleanup(ctx context.Context, c client.Client, pvc *corev1.P
 	// Without it this is a delete by namespace and name, and the one scenario the new UID check exists to
 	// detect is exactly the scenario where that is wrong: verifyStateProbe has just established that the
 	// object standing at this name is NOT the one this probe created, and the very next thing the cleanup
-	// would do is delete it. A precondition turns that into a refusal naming the mismatch.
+	// would do is delete it.
+	// A precondition turns that into a refusal naming the mismatch.
 	if err := c.Delete(ctx, pvc, client.Preconditions{UID: &pvc.UID}); err != nil && !apierrors.IsNotFound(err) {
 		left.names = append(left.names, name)
 		_, _ = fmt.Fprintf(out, "CLEANUP INCOMPLETE: the probe's claim %s could not be deleted: %v\n"+
@@ -634,7 +659,8 @@ func reportStateProbeCleanup(ctx context.Context, c client.Client, pvc *corev1.P
 }
 
 // The claim is rendered through queuelab.StateClaim at the one call site above rather than through a helper
-// here, and that is deliberate after a first draft did the opposite. A wrapper "exposed so a test can assert
-// the shape" had no caller but the test, which makes the test assert a function nothing in the probe's real
-// path uses — the hollow check this repository argues against elsewhere. The shape is pinned by asserting
-// what the probe actually creates.
+// here, and that is deliberate after a first draft did the opposite.
+// A wrapper "exposed so a test can assert the shape" had no caller but the test, which makes the test assert
+// a function nothing in the probe's real path uses — the hollow check this repository argues against
+// elsewhere.
+// The shape is pinned by asserting what the probe actually creates.

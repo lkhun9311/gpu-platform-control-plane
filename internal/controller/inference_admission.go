@@ -59,9 +59,11 @@ const (
 // engineInForce reports whether every Pod serving the Service runs a template this controller rendered from spec.engine.
 //
 // The gateway binds a tier on such a backend in Off as well as HoldCap, and a request carrying a priority to an engine
-// that was not rendered with priority scheduling may be refused. So, as with HoldCap, the desired spec is not enough:
-// the rendered template must have rolled out, with nothing older still serving. Every rendered template carries the
-// admission annotation, HoldCap or Off; a template without it is not one this controller rendered from spec.engine.
+// that was not rendered with priority scheduling may be refused.
+// So, as with HoldCap, the desired spec is not enough: the rendered template must have rolled out, with nothing older
+// still serving.
+// Every rendered template carries the admission annotation, HoldCap or Off; a template without it is not one this
+// controller rendered from spec.engine.
 func engineInForce(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) metav1.Condition {
 	cond := func(status metav1.ConditionStatus, reason, msg string) metav1.Condition {
 		return metav1.Condition{Type: platformv1.ConditionEngineInForce, Status: status, Reason: reason, Message: msg,

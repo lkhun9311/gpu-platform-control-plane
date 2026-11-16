@@ -6,15 +6,17 @@ import (
 )
 
 // estimandArm is the smallest arm the registered estimand will accept: a clean tail, enough completions and
-// five per-repetition p99s. Anything the refusals look at is set explicitly, so a test that wants one of them
-// to fire says so in its own body rather than relying on a zero value.
+// five per-repetition p99s.
+// Anything the refusals look at is set explicitly, so a test that wants one of them to fire says so in its
+// own body rather than relying on a zero value.
 func estimandArm(name string, reps []float64) ArmSummary {
 	return ArmSummary{
 		Arm:             name,
 		TailSampleSize:  MinTailSamples,
 		RepetitionCount: len(reps),
-		// MinRepetitionTail is set deliberately. Left at zero it trips the per-repetition floor, and every
-		// test in this file would then fail on a fixture defect while reporting the refusal it was not about.
+		// MinRepetitionTail is set deliberately.
+		// Left at zero it trips the per-repetition floor, and every test in this file would then fail on a
+		// fixture defect while reporting the refusal it was not about.
 		MinRepetitionTail:   MinTailSamples,
 		RepetitionTTFTMsP99: reps,
 	}
@@ -23,8 +25,8 @@ func estimandArm(name string, reps []float64) ArmSummary {
 // The report prints B, C and R, not just the row they can be derived from.
 //
 // The per-repetition block made the estimand derivable and left the arithmetic to the reader, which is not
-// the same as the repository computing what the registration decided. The three field names are asserted
-// because the amendment freezes them by name as status.result fields.
+// the same as the repository computing what the registration decided.
+// The three field names are asserted because the amendment freezes them by name as status.result fields.
 //
 // Mutation that turns this red: delete the FormatRegisteredEstimand call from FormatReport.
 func TestTheReportPrintsTheRegisteredEstimand(t *testing.T) {
@@ -46,10 +48,11 @@ func TestTheReportPrintsTheRegisteredEstimand(t *testing.T) {
 
 // A censored arm is refused, with the reason printed instead of a ratio.
 //
-// A censored tail is a lower bound the design spec says to report as at-least-the-timeout. The median of a
-// set of lower bounds is not the median of the quantity, so B and C would understate and R would be the
-// quotient of two understatements. Reading 4 already refuses to divide by a censored R1, and the estimand has
-// to refuse the same evidence or the two paths disagree about one run.
+// A censored tail is a lower bound the design spec says to report as at-least-the-timeout.
+// The median of a set of lower bounds is not the median of the quantity, so B and C would understate and R
+// would be the quotient of two understatements.
+// Reading 4 already refuses to divide by a censored R1, and the estimand has to refuse the same evidence or
+// the two paths disagree about one run.
 //
 // Mutation that turns this red: drop the censored() loop from RegisteredEstimandFor.
 func TestACensoredArmHasNoRegisteredEstimand(t *testing.T) {
@@ -125,9 +128,9 @@ func TestEvidenceWithoutTheTwoArmsPrintsNoEstimandBlock(t *testing.T) {
 // A thin REPETITION is refused even when the pool clears the floor.
 //
 // B and C are medians over the per-repetition p99s, so one block whose p99 is its own maximum does not just
-// widen the sample -- with five repetitions it can BE the median. EvaluateChecks already refuses this exact
-// condition (report.go, `RepetitionCount > 0 && MinRepetitionTail < MinTailSamples`), and the estimand was
-// accepting evidence that sibling path rejects.
+// widen the sample -- with five repetitions it can BE the median.
+// EvaluateChecks already refuses this exact condition (report.go, `RepetitionCount > 0 && MinRepetitionTail
+// < MinTailSamples`), and the estimand was accepting evidence that sibling path rejects.
 //
 // The pool is left comfortably above the floor on purpose: if the pooled branch were the one firing, this
 // test would pass for the wrong reason.
@@ -153,8 +156,9 @@ func TestAThinRepetitionIsRefusedThoughThePoolClearsTheFloor(t *testing.T) {
 // Censoring is reported before a thin repetition, because it is the stronger fact about the same arm.
 //
 // A censored tail makes every statistic of that arm a lower bound, including the per-repetition counts the
-// floors read. Reporting "a repetition is thin" for a censored arm sends a reader to check block sizes that
-// are not the problem.
+// floors read.
+// Reporting "a repetition is thin" for a censored arm sends a reader to check block sizes that are not the
+// problem.
 //
 // Mutation that turns this red: run the floor loop before the censoring loop.
 func TestCensoringIsReportedBeforeAThinRepetition(t *testing.T) {

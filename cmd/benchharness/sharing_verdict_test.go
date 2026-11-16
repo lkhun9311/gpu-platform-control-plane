@@ -28,10 +28,12 @@ import (
 // The exit status must separate a refused ARM from a refused RUN.
 //
 // hack/m5c-matrix.sh calls `benchharness report ... || fail`, so this predicate decides whether a paid
-// session is reported as having produced nothing. It used to match the substring "INVALID" against the
-// reading's NAME, and reading 4c is named "the sharing mode did not engage -- INVALID for that arm" -- so
-// a run that measured time-slicing and merely failed to bring MPS up was thrown away whole. MPS has
-// already been measured failing to engage on this AMI, which makes that the expected run, not an edge.
+// session is reported as having produced nothing.
+// It used to match the substring "INVALID" against the reading's NAME, and reading 4c is named "the
+// sharing mode did not engage -- INVALID for that arm" -- so a run that measured time-slicing and merely
+// failed to bring MPS up was thrown away whole.
+// MPS has already been measured failing to engage on this AMI, which makes that the expected run, not an
+// edge.
 func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -60,7 +62,8 @@ func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 		},
 		{
 			// A gate that could not be computed is not a run that stands: it says the evidence could not be
-			// assessed. This exited zero, so the paid runner accepted a censored control as a good session.
+			// assessed.
+			// This exited zero, so the paid runner accepted a censored control as a good session.
 			name:    "4 could not be evaluated: the control's tail is censored",
 			reading: bench.PoPReading{ID: "4", Name: "the load did not create contention -- INVALID", NotEvaluable: true},
 			invalid: true,
@@ -77,15 +80,16 @@ func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 			invalid: false,
 		},
 		{
-			// 4e fired: the engine reported a length the registration did not declare. Every reading under it
-			// is a statement about a load nobody can name, so the run does not stand.
+			// 4e fired: the engine reported a length the registration did not declare.
+			// Every reading under it is a statement about a load nobody can name, so the run does not stand.
 			name:    "4e fired: the measured load is not the declared load",
 			reading: bench.PoPReading{ID: "4e", Name: "the measured load is not the declared load -- INVALID", Fired: true},
 			invalid: true,
 		},
 		{
-			// 4e could not be computed: rows the engine never accounted for. "We did not check" and "we
-			// checked and it agreed" must not share an exit status -- that is the defect this gate is for.
+			// 4e could not be computed: rows the engine never accounted for.
+			// "We did not check" and "we checked and it agreed" must not share an exit status -- that is
+			// the defect this gate is for.
 			name:    "4e could not be evaluated: rows carried no reported count",
 			reading: bench.PoPReading{ID: "4e", Name: "the measured load is not the declared load -- INVALID", NotEvaluable: true},
 			invalid: true,
@@ -114,10 +118,11 @@ func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 // The same replay passed twice may not become two repetitions.
 //
 // A repetition is an independent measurement, and readings 3 and 5 compare an improvement against the
-// CONTROL'S repetition-to-repetition spread. Two copies of one replay have a spread of exactly zero, so
-// every improvement clears it. A review reproduced this by passing each of the eighth pilot's raw files
-// twice: RepetitionCount became 2, the equal-repetitions check passed, and reading 5 fired on evidence
-// that contained one repetition.
+// CONTROL'S repetition-to-repetition spread.
+// Two copies of one replay have a spread of exactly zero, so every improvement clears it.
+// A review reproduced this by passing each of the eighth pilot's raw files twice: RepetitionCount
+// became 2, the equal-repetitions check passed, and reading 5 fired on evidence that contained one
+// repetition.
 func TestTheSameReplayCannotBeCountedTwice(t *testing.T) {
 	dir := t.TempDir()
 	a := writeRepetition(t, dir, "raw-R1-1.jsonl", "R1", 200, 100, 150, 0)
@@ -125,11 +130,13 @@ func TestTheSameReplayCannotBeCountedTwice(t *testing.T) {
 	// A byte-for-byte copy under a different name is the case that matters: a second -raw of the SAME path
 	// could be caught by comparing paths, and that is not the defect.
 	//
-	// The copy carries a DIFFERENT repetition identity on purpose. Naming it raw-R1-1 as well would trip the
-	// duplicate-identity refusal in loadArmEvidence first, and this test would then pass while proving
-	// something else: that two files cannot claim one repetition number. The defect here is the opposite
-	// shape -- two legitimately numbered repetitions whose CONTENTS are one replay -- and only the send-time
-	// hash can see it. Keeping the identities distinct is what makes the two refusals testable apart.
+	// The copy carries a DIFFERENT repetition identity on purpose.
+	// Naming it raw-R1-1 as well would trip the duplicate-identity refusal in loadArmEvidence first, and
+	// this test would then pass while proving something else: that two files cannot claim one repetition
+	// number.
+	// The defect here is the opposite shape -- two legitimately numbered repetitions whose CONTENTS are one
+	// replay -- and only the send-time hash can see it.
+	// Keeping the identities distinct is what makes the two refusals testable apart.
 	b := filepath.Join(dir, "raw-R1-2.jsonl")
 	blob, err := os.ReadFile(a)
 	if err != nil {

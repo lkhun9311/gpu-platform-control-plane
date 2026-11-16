@@ -24,11 +24,11 @@ import (
 // The scale benchmarks measure the CACHED client, because that is the one production runs and the one the
 // rest of this package never exercises.
 //
-// The Ginkgo suite builds its client with client.New, which reads straight through to the apiserver. Every
-// cache-shaped property is therefore invisible to it: whether a List consults an index or scans the store,
-// whether a label selector narrows anything, how any of it grows with the object count. Those are exactly
-// the properties a scale claim is about, so measuring them requires standing up a real informer cache
-// rather than reusing the suite's.
+// The Ginkgo suite builds its client with client.New, which reads straight through to the apiserver.
+// Every cache-shaped property is therefore invisible to it: whether a List consults an index or scans the
+// store, whether a label selector narrows anything, how any of it grows with the object count.
+// Those are exactly the properties a scale claim is about, so measuring them requires standing up a real
+// informer cache rather than reusing the suite's.
 //
 // Each benchmark starts its own envtest because BeforeSuite only runs inside RunSpecs, and a benchmark is
 // not a spec.
@@ -84,8 +84,9 @@ func startCache(b testing.TB, ctx context.Context, cfg *rest.Config) client.Clie
 	if err != nil {
 		b.Fatalf("build cache: %v", err)
 	}
-	// The same index SetupWithManager installs. Without it the benchmark would measure a lookup production
-	// never performs, and the MatchingFields List would fail rather than scan.
+	// The same index SetupWithManager installs.
+	// Without it the benchmark would measure a lookup production never performs, and the MatchingFields
+	// List would fail rather than scan.
 	if err := c.IndexField(ctx, &kueuev1beta1.Workload{}, WorkloadJobRefIndex, indexWorkloadByJobRef); err != nil {
 		b.Fatalf("index workloads: %v", err)
 	}
@@ -189,9 +190,10 @@ func BenchmarkGetWorkloadForJobMiss(b *testing.B) {
 
 // BenchmarkGetWorkloadForJobHit measures the lookup once Kueue has created the Workload.
 //
-// Its value is as a CONTROL for the miss benchmark. If both grow with n, the fallback is not what costs —
-// the label List itself scans. If only the miss grows, the scan is the fallback's, and the two have different
-// fixes. Reading the miss number alone cannot tell those apart.
+// Its value is as a CONTROL for the miss benchmark.
+// If both grow with n, the fallback is not what costs — the label List itself scans.
+// If only the miss grows, the scan is the fallback's, and the two have different fixes.
+// Reading the miss number alone cannot tell those apart.
 func BenchmarkGetWorkloadForJobHit(b *testing.B) {
 	for _, n := range []int{100, 500, 2000} {
 		b.Run(fmt.Sprintf("workloads=%d", n), func(b *testing.B) {

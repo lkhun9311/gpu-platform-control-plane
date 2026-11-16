@@ -18,12 +18,14 @@ import (
 // What config/policy/gpu-workload-static.yaml refuses, asserted against a real apiserver.
 //
 // The policy is the one admission layer with no Go code behind it, so nothing else in this package can tell
-// whether it works. A CEL expression that fails to compile does not fail quietly either: the policy's
-// failurePolicy is Fail, so a typo turns into "every MLTrainingJob is refused" -- and `kustomize build`
-// renders it happily, because YAML that parses is all kustomize checks.
+// whether it works.
+// A CEL expression that fails to compile does not fail quietly either: the policy's failurePolicy is Fail,
+// so a typo turns into "every MLTrainingJob is refused" -- and `kustomize build` renders it happily,
+// because YAML that parses is all kustomize checks.
 //
-// The manifest is READ FROM DISK rather than restated here. A copy in this file would drift, and a test
-// asserting its own copy of an expression proves nothing about what the cluster installs.
+// The manifest is READ FROM DISK rather than restated here.
+// A copy in this file would drift, and a test asserting its own copy of an expression proves nothing
+// about what the cluster installs.
 
 // installStaticPolicy applies config/policy/gpu-workload-static.yaml into the running apiserver.
 //
@@ -39,7 +41,8 @@ func installStaticPolicy(t *testing.T, ctx context.Context, c client.Client) {
 	}
 
 	// Two documents, and both are needed: the policy alone is inert until a binding says what to do with its
-	// decisions. Splitting on the separator rather than decoding a list, because that is the shape on disk.
+	// decisions.
+	// Splitting on the separator rather than decoding a list, because that is the shape on disk.
 	docs := strings.Split(string(b), "\n---\n")
 	if len(docs) != 2 {
 		t.Fatalf("expected a policy and a binding in %s, got %d documents", path, len(docs))
@@ -62,10 +65,10 @@ func installStaticPolicy(t *testing.T, ctx context.Context, c client.Client) {
 	}
 
 	// The apiserver compiles and starts enforcing a policy asynchronously, so a Create issued immediately
-	// after the binding can be admitted by a policy that is not live yet. Waiting on an object the policy
-	// must refuse is the only signal that says enforcement has started -- a fixed sleep would either be
-	// flaky or slow, and polling the policy's status would assert the apiserver's bookkeeping rather than
-	// its behaviour.
+	// after the binding can be admitted by a policy that is not live yet.
+	// Waiting on an object the policy must refuse is the only signal that says enforcement has started --
+	// a fixed sleep would either be flaky or slow, and polling the policy's status would assert the
+	// apiserver's bookkeeping rather than its behaviour.
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		err := c.Create(ctx, mltj("policy-liveness-probe", func(j *platformv1.MLTrainingJob) {
@@ -74,7 +77,8 @@ func installStaticPolicy(t *testing.T, ctx context.Context, c client.Client) {
 		if err != nil {
 			return
 		}
-		// It was admitted, which means the policy is not enforcing yet. Remove it and try again.
+		// It was admitted, which means the policy is not enforcing yet.
+		// Remove it and try again.
 		_ = c.Delete(ctx, mltj("policy-liveness-probe", nil))
 		if time.Now().After(deadline) {
 			t.Fatal("the policy admitted a :latest image for 30s; it never started enforcing")

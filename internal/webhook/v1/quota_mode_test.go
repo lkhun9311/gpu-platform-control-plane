@@ -38,10 +38,12 @@ import (
 // The defect these tests pin: a tenant that never asked for Kueue could not submit a GPU Job at all.
 //
 // GPUQuotaPolicyReconciler labels the namespace gpu-quota-enforced whatever the policy says, and both guards
-// select on that label. With trainingQuota off it then deletes the queues and keeps the namespace
-// ResourceQuota capping requests.nvidia.com/gpu. So the Job guard demanded a queue label in a namespace
-// where no queue exists, the Pod guard refused the Pod for the same reason, and the policy reported Synced
-// throughout. Nothing was over-admitted; ordinary metered work was refused with no route open to the tenant.
+// select on that label.
+// With trainingQuota off it then deletes the queues and keeps the namespace ResourceQuota capping
+// requests.nvidia.com/gpu.
+// So the Job guard demanded a queue label in a namespace where no queue exists, the Pod guard refused the
+// Pod for the same reason, and the policy reported Synced throughout.
+// Nothing was over-admitted; ordinary metered work was refused with no route open to the tenant.
 
 // policy returns a GPUQuotaPolicy targeting ns, in whichever mode.
 func policy(name, ns string, training bool) *platformv1.GPUQuotaPolicy {
@@ -95,8 +97,9 @@ func TestAnUnqueuedGPUJobIsAdmittedWhereAResourceQuotaMetersIt(t *testing.T) {
 	}
 }
 
-// The Pod half. Refusing here would move the refusal rather than remove it: the Job controller creates the
-// Pod, and the Pod carries no queue label because the Job carries none either.
+// The Pod half.
+// Refusing here would move the refusal rather than remove it: the Job controller creates the Pod, and the
+// Pod carries no queue label because the Job carries none either.
 //
 // Mutation that turns this red: delete the meteredByResourceQuota branch from the Pod guard.
 func TestAPodFromAnUnqueuedJobIsAdmittedWhereAResourceQuotaMetersIt(t *testing.T) {
@@ -111,8 +114,8 @@ func TestAPodFromAnUnqueuedJobIsAdmittedWhereAResourceQuotaMetersIt(t *testing.T
 }
 
 // One policy with trainingQuota set makes Kueue an authority over this namespace, and two policies may
-// target one namespace. Admitting on the first false one found would hand a Kueue-governed namespace an
-// unmetered path.
+// target one namespace.
+// Admitting on the first false one found would hand a Kueue-governed namespace an unmetered path.
 //
 // Mutation that turns this red: return true on the first ResourceQuota-mode policy instead of refusing the
 // whole namespace when any policy sets trainingQuota.
@@ -152,8 +155,8 @@ func TestAQuotaWithoutTheGPUKeyIsNotAMeteredNamespace(t *testing.T) {
 	}
 }
 
-// A guard that stops applying when a read fails admits exactly what it exists to refuse, invisibly. The
-// webhook's failurePolicy is Fail for the same reason.
+// A guard that stops applying when a read fails admits exactly what it exists to refuse, invisibly.
+// The webhook's failurePolicy is Fail for the same reason.
 //
 // Mutation that turns this red: swallow the error from meteredByResourceQuota and treat it as false, or as
 // true.
@@ -161,10 +164,12 @@ func TestAFailedQuotaModeReadRefusesRatherThanGuesses(t *testing.T) {
 	// The owner Job reads back fine, so the guard reaches the quota-mode question and fails THERE.
 	//
 	// The first version of this test used erroringClient, whose Get fails — so tracesToAQueue errored first
-	// and the quota-mode read was never reached. It passed while the branch it names was never executed,
-	// which a mutation confirmed: swallowing the List error left the test green. Checking only !Allowed would
-	// have hidden it even here, because swallowing the error as "not metered" still produces a refusal. The
-	// assertion is therefore on the cause the refusal carries.
+	// and the quota-mode read was never reached.
+	// It passed while the branch it names was never executed, which a mutation confirmed: swallowing the List
+	// error left the test green.
+	// Checking only !Allowed would have hidden it even here, because swallowing the error as "not metered"
+	// still produces a refusal.
+	// The assertion is therefore on the cause the refusal carries.
 	job := &batchv1.Job{Name: "train-1", Namespace: "team-a"}
 	v := &GPUPodValidator{
 		Reader:  listErroringReader{fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(job).Build()},
@@ -190,8 +195,9 @@ func (listErroringReader) List(_ context.Context, _ client.ObjectList, _ ...clie
 	return errors.New("apiserver unreachable")
 }
 
-// The ResourceQuota path is an accounting decision. Grace is not: a Pod admitted through it holds its device
-// against a reclaiming owner exactly as long as one admitted through a queue.
+// The ResourceQuota path is an accounting decision.
+// Grace is not: a Pod admitted through it holds its device against a reclaiming owner exactly as long as one
+// admitted through a queue.
 //
 // Mutation that turns this red: move the meteredByResourceQuota branch above the graceTooLong check in the
 // Job guard, which is how the Pod guard's own header records this going wrong once already.
@@ -338,9 +344,9 @@ func TestAServingPodIsRefusedWhereNoQuotaChargesIt(t *testing.T) {
 	}
 }
 
-// A changed ceiling reaches status.hard after spec.hard. In between, Kubernetes still charges a Pod against the
-// key status.hard carries, at its old value, so the Pod is charged and refusing it would only make the tenant
-// retry.
+// A changed ceiling reaches status.hard after spec.hard.
+// In between, Kubernetes still charges a Pod against the key status.hard carries, at its old value, so the Pod
+// is charged and refusing it would only make the tenant retry.
 //
 // Mutation that turns this red: require status.hard to equal spec.hard.
 func TestAPodIsAdmittedWhileAChangedCeilingPropagates(t *testing.T) {

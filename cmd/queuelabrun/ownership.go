@@ -36,10 +36,11 @@ const (
 	// A forced break leaves this record instead of a free Node, because nothing can prove the previous
 	// process is dead and a free Node would let a second run acquire underneath a live one.
 	quarantineKey = "queuelab.gpu-platform/quarantine"
-	// residueKey explains a hold; it never creates one. The label and the taint are what keep Pods off the
-	// node — an annotation the scheduler does not understand cannot contain a residual GPU Pod, which is the
-	// same trap forceQuarantine's comment names. This record exists so the next operator can tell a run that
-	// is legitimately in flight from one that finished and could not remove its namespace.
+	// residueKey explains a hold; it never creates one.
+	// The label and the taint are what keep Pods off the node — an annotation the scheduler does not
+	// understand cannot contain a residual GPU Pod, which is the same trap forceQuarantine's comment names.
+	// This record exists so the next operator can tell a run that is legitimately in flight from one that
+	// finished and could not remove its namespace.
 	residueKey       = "queuelab.gpu-platform/residue"
 	journalSchema    = 3
 	quarantineSchema = 1
@@ -54,7 +55,8 @@ const (
 )
 
 // ownerIdentity is what acquisition writes into the journal, and it is a union over the two holders rather
-// than the run's own seed. Passing the seed made the canary invent a study and a variant it does not have.
+// than the run's own seed.
+// Passing the seed made the canary invent a study and a variant it does not have.
 type ownerIdentity struct {
 	Kind      string
 	TxID      string
@@ -86,30 +88,33 @@ type journal struct {
 	NodeUID string `json:"nodeUID"`
 	// Kind says WHAT holds this worker, and it exists because the two holders recover differently.
 	//
-	// A run's objects regenerate from Study, Variant and Namespace through the fixture builder. A probe
-	// builds no fixtures at all: it creates Pods inside a SHARED namespace that must never be deleted. A
-	// first attempt gave the canary synthetic study and variant values purely to satisfy this document's
-	// non-empty checks — which made the journal look recoverable while enumerate failed on it every time,
-	// the precise defect this whole record exists to prevent.
+	// A run's objects regenerate from Study, Variant and Namespace through the fixture builder.
+	// A probe builds no fixtures at all: it creates Pods inside a SHARED namespace that must never be
+	// deleted.
+	// A first attempt gave the canary synthetic study and variant values purely to satisfy this
+	// document's non-empty checks — which made the journal look recoverable while enumerate failed on it
+	// every time, the precise defect this whole record exists to prevent.
 	//
 	// This kind covers BOTH probes: the termination canary, which makes two Pods, and the device preflight,
-	// which makes one. They are not distinguished here, and that is now harmless because recovery lists the
-	// Pods rather than rebuilding their names. It was not harmless before: printRecoverable reconstructed the
-	// canary's two names for every holder of this kind, so a stranded preflight named two Pods that had never
-	// existed and omitted the one that had.
+	// which makes one.
+	// They are not distinguished here, and that is now harmless because recovery lists the Pods rather than
+	// rebuilding their names.
+	// It was not harmless before: printRecoverable reconstructed the canary's two names for every holder of
+	// this kind, so a stranded preflight named two Pods that had never existed and omitted the one that had.
 	Kind string `json:"kind"`
-	// CanaryID is set for ownerCanary only. It is the value every probe Pod carries in canaryProbeLabel, so
-	// it is what recovery SELECTS on — it is no longer used to rebuild a name, and must not be again: the two
-	// probe kinds name their Pods differently and only the cluster knows which ones exist.
+	// CanaryID is set for ownerCanary only.
+	// It is the value every probe Pod carries in canaryProbeLabel, so it is what recovery SELECTS on — it is
+	// no longer used to rebuild a name, and must not be again: the two probe kinds name their Pods
+	// differently and only the cluster knows which ones exist.
 	CanaryID string `json:"canaryID,omitempty"`
 	// Study, Variant and Namespace are here so that teardown can be reconstructed from the NODE alone.
 	//
-	// The teardown seed was documented as durable and written before the first fixture is created. It was
-	// neither: it lived as a local variable handed to an in-process defer, so a crash between acquiring the
-	// worker and finishing the run left fixtures on the cluster and a node marked, with nothing durable
-	// naming what to delete. enumerate refuses a seed missing any of these — correctly, since an empty
-	// RunID makes a flavor name that can match an unrelated run's leftovers — so recovery could not even be
-	// attempted.
+	// The teardown seed was documented as durable and written before the first fixture is created.
+	// It was neither: it lived as a local variable handed to an in-process defer, so a crash between
+	// acquiring the worker and finishing the run left fixtures on the cluster and a node marked, with
+	// nothing durable naming what to delete. enumerate refuses a seed missing any of these — correctly,
+	// since an empty RunID makes a flavor name that can match an unrelated run's leftovers — so recovery
+	// could not even be attempted.
 	//
 	// They are written in the SAME patch that takes ownership, because a second write is a second place to
 	// crash: the gap this closes is precisely the interval between two writes.
@@ -193,9 +198,10 @@ type residueLeft struct {
 
 // residueRecord is why a worker is still held after its run finished.
 //
-// It carries a summary AND the path of the run record, deliberately. The path alone is useless whenever the
-// next run happens on another machine or in another directory — which is exactly when a human is most lost —
-// so the summary must stand on its own; the path is an invitation to read more, not the payload.
+// It carries a summary AND the path of the run record, deliberately.
+// The path alone is useless whenever the next run happens on another machine or in another directory — which
+// is exactly when a human is most lost — so the summary must stand on its own; the path is an invitation to
+// read more, not the payload.
 type residueRecord struct {
 	Schema     int           `json:"schema"`
 	TxID       string        `json:"txID"`
@@ -216,10 +222,11 @@ func encodeResidue(r residueRecord) (string, error) {
 // decodeResidue refuses anything it does not fully understand, for the same reason decodeJournal does: a
 // document with fields that were silently ignored is not one to quote at an operator as fact.
 //
-// The CONSEQUENCE of a failure here is where the two part company. An unreadable journal is a refusal
-// (reasonBadJournal), because the journal decides who owns a GPU worker. An unreadable residue record is
-// not, because this record decides nothing — see residueNote. An empty Left is refused because a record
-// that names nothing explains nothing, and a refusal quoting it would be worse than one that stayed silent.
+// The CONSEQUENCE of a failure here is where the two part company.
+// An unreadable journal is a refusal (reasonBadJournal), because the journal decides who owns a GPU worker.
+// An unreadable residue record is not, because this record decides nothing — see residueNote.
+// An empty Left is refused because a record that names nothing explains nothing, and a refusal quoting it
+// would be worse than one that stayed silent.
 func decodeResidue(s string) (residueRecord, error) {
 	dec := json.NewDecoder(strings.NewReader(s))
 	dec.DisallowUnknownFields()
@@ -270,8 +277,8 @@ type refusal struct {
 	//
 	// A refusal that renders its cause with %v alone is a dead end: the reason makes the state classifiable
 	// but the underlying failure stops being reachable through errors.Is/errors.As, which is what a caller
-	// needs to tell a decode failure from a transport one. Detail still carries the human sentence; this
-	// carries the error itself.
+	// needs to tell a decode failure from a transport one.
+	// Detail still carries the human sentence; this carries the error itself.
 	Cause error
 }
 
@@ -407,8 +414,9 @@ func decideAcquire(obs ownership, id ownerIdentity, takenAt string) (journal, er
 // residueNote is what a residue record adds to a foreign-owner refusal, and the only thing it adds anywhere.
 //
 // It returns "" when there is no record, so a refusal on a node without one is byte-for-byte what it was
-// before this existed. An unreadable record degrades to saying so: this document carries no safety weight,
-// and an informational field that invents a new failure mode is worse than no field at all.
+// before this existed.
+// An unreadable record degrades to saying so: this document carries no safety weight, and an informational
+// field that invents a new failure mode is worse than no field at all.
 //
 // The finalizer warning is repeated here rather than left to the run record, because this refusal is what an
 // operator reads at the exact moment they are most tempted to strip a stuck namespace's finalizer — and the
@@ -416,11 +424,13 @@ func decideAcquire(obs ownership, id ownerIdentity, takenAt string) (journal, er
 // afterwards reports clean over objects that are still running.
 //
 // Every field decoded out of the record is quoted, for the reason inspectWorker states about the journal:
-// decoding a hostile string does not make it safe. All of this came out of a Node annotation, this refusal is
-// printed straight to an operator's terminal by both the run path and inspectWorker, and the last line below
-// hands that operator a command to run — so an unescaped kind or record path could rewrite the instructions
-// printed around it into a different, legitimate-looking one. The node name is the one thing here this tool
-// did not read out of an annotation, so it stays unquoted like every other node name this package prints.
+// decoding a hostile string does not make it safe.
+// All of this came out of a Node annotation, this refusal is printed straight to an operator's terminal by
+// both the run path and inspectWorker, and the last line below hands that operator a command to run — so an
+// unescaped kind or record path could rewrite the instructions printed around it into a different,
+// legitimate-looking one.
+// The node name is the one thing here this tool did not read out of an annotation, so it stays unquoted like
+// every other node name this package prints.
 func residueNote(obs ownership) string {
 	if obs.ResidueRaw == "" {
 		return ""
@@ -579,9 +589,10 @@ func decideForce(obs ownership, nodeUID, quarantineID, forcedAt string) (quarant
 //
 // The quarantine id alone is not enough. decideForce records the node NAME and the node UID precisely
 // because a record is a document that can be copied onto another Node, and because a Node deleted and
-// recreated under the same name is a different machine wearing the same label. Clearing is the step that
-// makes a node acquirable again, so it must confirm it is unblocking the object that was actually broken,
-// the same way decideForce required the operator to confirm the target it was breaking.
+// recreated under the same name is a different machine wearing the same label.
+// Clearing is the step that makes a node acquirable again, so it must confirm it is unblocking the object
+// that was actually broken, the same way decideForce required the operator to confirm the target it was
+// breaking.
 func decideClear(obs ownership, quarantineID string) error {
 	if obs.QuarantineRaw == "" {
 		return refuse(reasonNotOurs, "node %s carries no quarantine record", obs.NodeName)

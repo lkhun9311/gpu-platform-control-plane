@@ -118,8 +118,9 @@ const (
 )
 
 // ConditionEngineInForce is True when every Pod serving the Service runs a template rendered from spec.engine, for the
-// generation in its observedGeneration. The gateway binds a tenant's tier only on such a backend, because every engine
-// the controller renders schedules by priority and an engine it did not render may refuse a priority.
+// generation in its observedGeneration.
+// The gateway binds a tenant's tier only on such a backend, because every engine the controller renders schedules by
+// priority and an engine it did not render may refuse a priority.
 const ConditionEngineInForce = "EngineInForce"
 
 // VLLMProfileV0271A10G is the engine configuration the admission study measured.

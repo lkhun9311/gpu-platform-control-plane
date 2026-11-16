@@ -94,26 +94,26 @@ func configureKubectlKubeRC() {
 
 // installKueueCRDs applies the Kueue CRDs the manager indexes against.
 //
-// At startup the manager builds a field index over kueue.x-k8s.io/v1beta1 Workloads, which fails with
-// "no matches for kind \"Workload\"" when the CRD is absent. That is a hard failure rather than a degraded
-// mode, and correctly so: an operator whose whole job is to hand work to a scheduler is worse silently
-// skipping the scheduler than refusing to start.
+// At startup the manager builds a field index over kueue.x-k8s.io/v1beta1 Workloads, which fails with "no
+// matches for kind \"Workload\"" when the CRD is absent.
+// That is a hard failure rather than a degraded mode, and correctly so: an operator whose whole job is to
+// hand work to a scheduler is worse silently skipping the scheduler than refusing to start.
 //
 // In a Kind cluster with no Kueue installed, that put the manager in CrashLoopBackOff and every spec waiting
 // on the metrics endpoint timed out after three minutes -- reporting a timeout on an endpoint rather than a
 // missing dependency, which is why this suite was red without anyone reading why.
 //
-// The same files already back the admission suite through envtest's CRDDirectoryPaths. The Kind path did not
-// load them, and nothing said the two environments differed.
+// The same files already back the admission suite through envtest's CRDDirectoryPaths.
+// The Kind path did not load them, and nothing said the two environments differed.
 func installKueueCRDs() {
 	By("installing the Kueue CRDs the manager indexes against")
 	// The path is from the PROJECT ROOT, not from this file. utils.Run rewrites cmd.Dir -- and chdirs the
 	// process -- to the module root before running anything, so a path relative to test/e2e resolves nowhere.
 	//
 	// Server-side, because client-side apply stores the whole manifest in a last-applied-configuration
-	// annotation and the Workload CRD is larger than the 262,144-byte annotation limit. The three smaller
-	// definitions went in and that one was rejected, which reads as a partial install rather than a size
-	// limit unless the message is read to the end.
+	// annotation and the Workload CRD is larger than the 262,144-byte annotation limit.
+	// The three smaller definitions went in and that one was rejected, which reads as a partial install
+	// rather than a size limit unless the message is read to the end.
 	cmd := exec.Command("kubectl", "apply", "--server-side", "-f", filepath.Join("config", "kueue-crds"))
 	_, err := utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to install the Kueue CRDs")

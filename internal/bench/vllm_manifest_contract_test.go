@@ -34,8 +34,9 @@ import (
 )
 
 // The manifest's numbers are only as good as the measurements they came from, and prose in a header cannot
-// keep the two in step. These tests read config/vllm/deployment.yaml and the recorded calibration and fail
-// when an edit to either breaks the relationship the other depends on.
+// keep the two in step.
+// These tests read config/vllm/deployment.yaml and the recorded calibration and fail when an edit to
+// either breaks the relationship the other depends on.
 //
 // Each case below corresponds to something that has actually gone wrong -- an engine that refused to start,
 // an engine that started and served the wrong thing, or a Pod that never scheduled at all.
@@ -100,8 +101,8 @@ func argValue(args []string, flag string) (string, bool) {
 // The calibration was measured against one tokenizer; the Deployment must serve that model.
 //
 // Every token count this experiment reports -- the contender's 7,695, the false-positive band around the
-// guard's threshold -- is a property of a specific vocabulary and chat template. Serving a different model
-// leaves those numbers in the report describing traffic that was never sent.
+// guard's threshold -- is a property of a specific vocabulary and chat template.
+// Serving a different model leaves those numbers in the report describing traffic that was never sent.
 func TestServedModelIsTheOneTheCalibrationWasMeasuredAgainst(t *testing.T) {
 	cal := loadCalibration(t)
 	c := vllmContainer(t, loadVLLMDeployment(t))
@@ -160,13 +161,15 @@ func TestContextWindowHoldsTheLargestMeasuredPrompt(t *testing.T) {
 // The flagship and the sharing matrix must serve the same model at the same dtype, or they measure two things.
 //
 // This assertion used to be that dtype is startable on a T4: vLLM's platforms/cuda.py refuses bfloat16
-// below sm_80, so on sm_75 fp16 was a startup condition. The card is an A10G now (sm_86), which accepts
-// bfloat16 -- so that reason is gone, and asserting it would be asserting something false.
+// below sm_80, so on sm_75 fp16 was a startup condition.
+// The card is an A10G now (sm_86), which accepts bfloat16 -- so that reason is gone, and asserting it
+// would be asserting something false.
 //
 // The reason that replaced it is stronger, because it binds two files instead of restating a vendor limit.
 // M5-c's exclusive arm IS this configuration, one engine with the card to itself, so the flagship's result
-// is that arm. Engines that differed in dtype would make the matrix compare sharing mode AND numerics, and
-// the difference would be attributed to the mode.
+// is that arm.
+// Engines that differed in dtype would make the matrix compare sharing mode AND numerics, and the
+// difference would be attributed to the mode.
 func TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype(t *testing.T) {
 	flagship := vllmContainer(t, loadVLLMDeployment(t))
 	flagshipDtype, ok := argValue(flagship.Args, "--dtype")
@@ -212,9 +215,9 @@ func TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype(t *testing.T) {
 
 // mustDifferAcrossTopology names the only engine flags a split card may change, and says why for each.
 //
-// Everything absent from this map has to be identical in the flagship and in both sharing engines. That is
-// the direction the check has to run: the matrix varies TOPOLOGY, so a flag that differs without a reason
-// here is a second variable, and the write-up would attribute its effect to separation.
+// Everything absent from this map has to be identical in the flagship and in both sharing engines.
+// That is the direction the check has to run: the matrix varies TOPOLOGY, so a flag that differs without a
+// reason here is a second variable, and the write-up would attribute its effect to separation.
 var mustDifferAcrossTopology = map[string]string{
 	"--max-num-seqs": "half each, so the card admits the same total concurrency under either topology",
 }
@@ -222,8 +225,9 @@ var mustDifferAcrossTopology = map[string]string{
 // mustAccompanyAcrossTopology names a flag the split engines add ALONGSIDE one the flagship passes, and why.
 //
 // This began as mayReplace -- the split engines were to express the budget as an absolute and drop the
-// fraction. That was wrong, and reading vLLM v0.27.1 rather than its log message is what showed it. The two
-// flags do two different jobs:
+// fraction.
+// That was wrong, and reading vLLM v0.27.1 rather than its log message is what showed it.
+// The two flags do two different jobs:
 //
 //	--gpu-memory-utilization  is the startup ADMISSION GATE. request_memory() raises ValueError when free
 //	                          memory is below utilization * total. It reads the fraction whether or not an
@@ -231,22 +235,23 @@ var mustDifferAcrossTopology = map[string]string{
 //	--kv-cache-memory         is the SIZING, and it does override the fraction for that: vLLM skips
 //	                          profiling and logs "This does not respect the gpu_memory_utilization config."
 //
-// Dropping the fraction therefore does not relax the gate, it raises it to the default. The 2026-09-12
-// pilot measured the second engine to profile seeing 13.81 GiB free, so both split arms would have failed
-// to start on a card that had just been rented. The engine's own advice -- "Replace gpu_memory_utilization
-// config with --kv-cache-memory=..." -- is about sizing, and taking it literally is what nearly did it.
+// Dropping the fraction therefore does not relax the gate, it raises it to the default.
+// The 2026-09-12 pilot measured the second engine to profile seeing 13.81 GiB free, so both split arms
+// would have failed to start on a card that had just been rented.
+// The engine's own advice -- "Replace gpu_memory_utilization config with --kv-cache-memory=..." -- is
+// about sizing, and taking it literally is what nearly did it.
 var mustAccompanyAcrossTopology = map[string]string{
 	"--gpu-memory-utilization": "--kv-cache-memory",
 }
 
 // The sharing engines must match the flagship on every flag the split does not force them to change.
 //
-// This is the check that was missing, and its absence was not hypothetical. The sharing manifests carried no
-// --no-enable-prefix-caching while the flagship argues that flag at length for the same trace, so vLLM's V1
-// default would have left prefix caching ON in the split arms only. Every request in this trace repeats one
-// prompt shape, which is most of the prefill, so the split arms would have beaten the exclusive arm by a
-// wide margin because of a cache rather than because the card was divided -- and nothing in the run would
-// have looked wrong.
+// This is the check that was missing, and its absence was not hypothetical.
+// The sharing manifests carried no --no-enable-prefix-caching while the flagship argues that flag at length
+// for the same trace, so vLLM's V1 default would have left prefix caching ON in the split arms only.
+// Every request in this trace repeats one prompt shape, which is most of the prefill, so the split arms
+// would have beaten the exclusive arm by a wide margin because of a cache rather than because the card was
+// divided -- and nothing in the run would have looked wrong.
 //
 // The unclassified-flag branch is the part that keeps this from rotting: a flag added to the flagship later
 // fails here until someone either mirrors it into the sharing engines or writes down why it may differ.
@@ -320,9 +325,9 @@ func TestTheSharingEnginesDifferFromTheFlagshipOnlyWhereTheSplitForcesIt(t *test
 // vllmFlagsIn returns the --flag arguments a manifest passes to its vLLM container, keyed by flag name.
 //
 // Read textually rather than decoded because these files hold a Deployment and a Service in one stream and
-// sigs.k8s.io/yaml decodes a single document; the contract tests above read them the same way. Positional
-// arguments -- the served model -- are skipped, because TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype
-// already owns that comparison.
+// sigs.k8s.io/yaml decodes a single document; the contract tests above read them the same way.
+// Positional arguments -- the served model -- are skipped, because
+// TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype already owns that comparison.
 func vllmFlagsIn(t *testing.T, path string) map[string]string {
 	t.Helper()
 	b, err := os.ReadFile(path)
@@ -356,12 +361,12 @@ func vllmFlagsIn(t *testing.T, path string) map[string]string {
 
 // No engine manifest may pin a namespace, because both runs place their engines themselves.
 //
-// A pinned `namespace: system` defeated that silently in two different ways at once. `kubectl apply -k`
-// keeps a namespace the object already carries and ignores -n, so the M5-b session would have deployed the
-// engine into system and then waited for a rollout in its own namespace until the timeout; `kubectl apply
-// -f -n` refuses outright with a message about a mismatch. The matrix needs the freedom for a further
-// reason: it puts one engine per namespace so the gateway can route one tenant to each, and that routing
-// IS its time-slicing arm.
+// A pinned `namespace: system` defeated that silently in two different ways at once.
+// `kubectl apply -k` keeps a namespace the object already carries and ignores -n, so the M5-b session
+// would have deployed the engine into system and then waited for a rollout in its own namespace until the
+// timeout; `kubectl apply -f -n` refuses outright with a message about a mismatch.
+// The matrix needs the freedom for a further reason: it puts one engine per namespace so the gateway can
+// route one tenant to each, and that routing IS its time-slicing arm.
 func TestNoEngineManifestPinsANamespace(t *testing.T) {
 	files, err := filepath.Glob("../../config/vllm-shared/engine-*.yaml")
 	if err != nil {
@@ -385,12 +390,14 @@ func TestNoEngineManifestPinsANamespace(t *testing.T) {
 
 // The sequence cap must sit ABOVE the concurrency that fills the cache, or it becomes the binding limit.
 //
-// This is the defect that moving from a T4 to an A10G introduced, and it introduces nothing visible. With
-// --max-num-seqs below the block limit the engine simply never runs out of blocks: KV usage plateaus under
-// the engage threshold, the guard's cache arm never fires, and the arm under test degenerates into the
-// waiting arm. Every number still looks reasonable.
+// This is the defect that moving from a T4 to an A10G introduced, and it introduces nothing visible.
+// With --max-num-seqs below the block limit the engine simply never runs out of blocks: KV usage plateaus
+// under the engage threshold, the guard's cache arm never fires, and the arm under test degenerates into
+// the waiting arm.
+// Every number still looks reasonable.
 //
-// 32 was right on a T4, where 24 concurrent contenders filled the cache. The A10G's cache takes 50.
+// 32 was right on a T4, where 24 concurrent contenders filled the cache.
+// The A10G's cache takes 50.
 func TestTheSequenceCapDoesNotBindBeforeTheKVCacheDoes(t *testing.T) {
 	c := vllmContainer(t, loadVLLMDeployment(t))
 	raw, ok := argValue(c.Args, "--max-num-seqs")
@@ -427,7 +434,8 @@ func TestTheSequenceCapDoesNotBindBeforeTheKVCacheDoes(t *testing.T) {
 // The engine needs 160 MiB of /dev/shm for one worker and a container's default is 64 MiB.
 //
 // Observed directly: without this mount the engine core dies during startup with "Insufficient space in
-// /dev/shm: 160 MiB required, 64 MiB free". The Pod would restart forever and no arm would ever run.
+// /dev/shm: 160 MiB required, 64 MiB free".
+// The Pod would restart forever and no arm would ever run.
 func TestSharedMemoryIsMountedLargeEnoughForTheEngine(t *testing.T) {
 	d := loadVLLMDeployment(t)
 	c := vllmContainer(t, d)
@@ -500,19 +508,20 @@ func TestEngineImageIsPinnedByDigest(t *testing.T) {
 //
 // The two had drifted, and nothing could see it. terraform-aws-modules/eks defaults to use_name_prefix, so
 // the map key "gpu_single" becomes a real node group called gpu_single-<random suffix>; both session scripts
-// printed the bare key. The operator's FIRST command of a paid session -- the scale-up -- would return
-// ResourceNotFoundException.
+// printed the bare key.
+// The operator's FIRST command of a paid session -- the scale-up -- would return ResourceNotFoundException.
 //
-// eks.tf now pins use_name_prefix = false and gives each group an explicit name. This test is what makes that
-// stay true: it fails if a script prints a name no node group declares, and it fails if the prefix behaviour
-// comes back.
+// eks.tf now pins use_name_prefix = false and gives each group an explicit name.
+// This test is what makes that stay true: it fails if a script prints a name no node group declares, and it
+// fails if the prefix behaviour comes back.
 func TestPrintedNodeGroupNamesExistInTerraform(t *testing.T) {
 	tf := readRepoFile(t, "infra/aws/cluster/eks.tf")
 
 	// Anchored to a whole line, because the unanchored form matched the COMMENT above the setting -- which
-	// quotes `use_name_prefix = false` while explaining it. Flipping the real setting to true then left this
-	// test green, and a guard a comment can satisfy is not a guard. Found by mutating the setting and watching
-	// nothing go red.
+	// quotes `use_name_prefix = false` while explaining it.
+	// Flipping the real setting to true then left this test green, and a guard a comment can satisfy is not a
+	// guard.
+	// Found by mutating the setting and watching nothing go red.
 	if !regexp.MustCompile(`(?m)^\s*use_name_prefix\s*=\s*false\s*$`).MatchString(tf) {
 		t.Fatal("eks.tf does not set use_name_prefix = false; node group names will carry a random suffix and every printed --nodegroup-name is wrong")
 	}
@@ -525,8 +534,9 @@ func TestPrintedNodeGroupNamesExistInTerraform(t *testing.T) {
 		t.Fatal("no explicit node group names found in eks.tf")
 	}
 
-	// Only the concrete names matter. A script printing a placeholder like <ng> is telling the operator to
-	// substitute, which is honest; a script printing gpu_single is making a claim about terraform.
+	// Only the concrete names matter.
+	// A script printing a placeholder like <ng> is telling the operator to substitute, which is honest; a
+	// script printing gpu_single is making a claim about terraform.
 	printed := regexp.MustCompile(`--nodegroup-name\s+([a-zA-Z0-9_-]+)`)
 	for _, script := range []string{"hack/m5b-gpu-session.sh", "hack/m5c-matrix.sh"} {
 		body := readRepoFile(t, script)
@@ -548,9 +558,10 @@ func TestPrintedNodeGroupNamesExistInTerraform(t *testing.T) {
 //
 // This is the sixth instance in this repository of one defect shape -- a value that must agree across call
 // sites, carried by hand, with nothing that fails when it drifts -- and it is the first that went red in CI
-// rather than being found by reading. The Makefile pinned 1.9.8 while both workflows pinned 1.16.0 and every
-// root declared `required_version = ">= 1.10"` for use_lockfile, so `make infra-validate` refused all three
-// roots with "Unsupported Terraform Core version" on a change that touched none of them.
+// rather than being found by reading.
+// The Makefile pinned 1.9.8 while both workflows pinned 1.16.0 and every root declared `required_version =
+// ">= 1.10"` for use_lockfile, so `make infra-validate` refused all three roots with "Unsupported Terraform
+// Core version" on a change that touched none of them.
 func TestTerraformVersionAgreesEverywhere(t *testing.T) {
 	mk := regexp.MustCompile(`(?m)^TERRAFORM_VERSION \?= ([0-9.]+)\s*$`).
 		FindStringSubmatch(readRepoFile(t, "Makefile"))
@@ -559,8 +570,8 @@ func TestTerraformVersionAgreesEverywhere(t *testing.T) {
 	}
 	pinned := mk[1]
 
-	// Every workflow that names a Terraform version has to name the same one. The list is derived rather than
-	// written down, so a new workflow is covered the day it is added.
+	// Every workflow that names a Terraform version has to name the same one.
+	// The list is derived rather than written down, so a new workflow is covered the day it is added.
 	found := 0
 	for _, wf := range []string{"infra.yml", "destroy.yml", "ci.yml"} {
 		path := filepath.Join(".github/workflows", wf)
@@ -662,13 +673,13 @@ func keysOf(m map[string]bool) []string {
 // TestRepetitionDefaultsAgreeAcrossTheSessionScripts binds the three scripts that each carry their own REPS
 // default.
 //
-// hack/gpu-session.sh defaulted to 4 and the two re-run scripts to 2. They do not read each other, so a
-// re-run bought half the repetitions the study was designed around -- silently, and in the direction that
-// weakens it: two independent reviews scored the design's power at 30% when n was 2 per cell and named the
-// run count as the binding limit.
+// hack/gpu-session.sh defaulted to 4 and the two re-run scripts to 2.
+// They do not read each other, so a re-run bought half the repetitions the study was designed around --
+// silently, and in the direction that weakens it: two independent reviews scored the design's power at 30%
+// when n was 2 per cell and named the run count as the binding limit.
 //
-// This is the same defect shape as a region default that agreed in one file and not the others. The fix is
-// not the number; it is that a disagreement now fails.
+// This is the same defect shape as a region default that agreed in one file and not the others.
+// The fix is not the number; it is that a disagreement now fails.
 func TestRepetitionDefaultsAgreeAcrossTheSessionScripts(t *testing.T) {
 	scripts := []string{"hack/gpu-session.sh", "hack/m5b-arms.sh", "hack/m5c-matrix.sh"}
 	// Anchored to a whole line so the explanatory comment above each assignment cannot satisfy the match --
@@ -698,9 +709,9 @@ func TestRepetitionDefaultsAgreeAcrossTheSessionScripts(t *testing.T) {
 // TestThePaidArmsScriptRequiresItsOwnProvenance binds the script to the check.
 //
 // RunManifest declared gatewaySHA and imageDigests for provenance and nothing ever set them: no flag accepted
-// them, no script passed them, every manifest left them empty. Adding the flags and the RequireProvenance
-// check does not fix that by itself -- the script has to pass one and ask for the other, and a script that
-// stopped doing either would leave every unit spec green.
+// them, no script passed them, every manifest left them empty.
+// Adding the flags and the RequireProvenance check does not fix that by itself -- the script has to pass one
+// and ask for the other, and a script that stopped doing either would leave every unit spec green.
 //
 // That is the same defect class as a Terraform variable no caller passed, and it has now appeared often
 // enough in this repository to be worth a test rather than a comment.
@@ -718,9 +729,9 @@ func TestThePaidArmsScriptRequiresItsOwnProvenance(t *testing.T) {
 		}
 	}
 
-	// The image it records must be the digest it resolved, not the tag it pushed under. A script that
-	// recorded GW_IMAGE straight after `docker tag` would satisfy the flag check above and record nothing
-	// durable, so the resolution step is asserted too.
+	// The image it records must be the digest it resolved, not the tag it pushed under.
+	// A script that recorded GW_IMAGE straight after `docker tag` would satisfy the flag check above and
+	// record nothing durable, so the resolution step is asserted too.
 	if !strings.Contains(body, "RepoDigests") {
 		t.Error("hack/m5b-arms.sh never resolves the pushed image to a digest; it would record a tag, which names whatever was pushed under it most recently")
 	}
@@ -732,13 +743,15 @@ func TestThePaidArmsScriptRequiresItsOwnProvenance(t *testing.T) {
 // TestCIPublishesEveryImageGitOpsDeploys binds the two halves of the supply chain.
 //
 // config/gateway/deployment.yaml carried `image: gateway:latest` and ci.yml built and pushed only the
-// operator. Argo CD would deploy a name nothing publishes and the Pod would sit in ImagePullBackOff, while
-// each paid session script built its own copy under a local tag -- so the component under test on two of the
-// four arms had no published build and no recorded identity.
+// operator.
+// Argo CD would deploy a name nothing publishes and the Pod would sit in ImagePullBackOff, while each paid
+// session script built its own copy under a local tag -- so the component under test on two of the four arms
+// had no published build and no recorded identity.
 //
-// The check is deliberately about the WIRING rather than the tag. `gateway:latest` is fine as a placeholder
-// once something replaces it: kustomize's image transform rewrites it to a digest in the same PR as the
-// operator's. What must not happen is the placeholder existing with no publisher.
+// The check is deliberately about the WIRING rather than the tag.
+// `gateway:latest` is fine as a placeholder once something replaces it: kustomize's image transform
+// rewrites it to a digest in the same PR as the operator's.
+// What must not happen is the placeholder existing with no publisher.
 func TestCIPublishesEveryImageGitOpsDeploys(t *testing.T) {
 	ci := readRepoFile(t, ".github/workflows/ci.yml")
 
@@ -752,8 +765,9 @@ func TestCIPublishesEveryImageGitOpsDeploys(t *testing.T) {
 		}
 	}
 
-	// The digest pin must land in the same commit as the operator's. Two PRs would let the cluster run a
-	// gateway from one commit against an operator from another, with nothing recording which pair was live.
+	// The digest pin must land in the same commit as the operator's.
+	// Two PRs would let the cluster run a gateway from one commit against an operator from another, with
+	// nothing recording which pair was live.
 	if !strings.Contains(ci, "config/manager/kustomization.yaml config/gateway/kustomization.yaml") {
 		t.Error("ci.yml does not stage both kustomizations in one commit; the operator and gateway digests could diverge")
 	}
@@ -770,17 +784,18 @@ func TestCIPublishesEveryImageGitOpsDeploys(t *testing.T) {
 //
 // `terraform plan` is not read-only on untrusted input: `init` fetches and executes providers and modules
 // named by the pull request's own configuration, inside a job holding an OIDC token for a role with
-// account-wide ReadOnlyAccess and decrypt on the Terraform state key. Two things keep that from being
-// reachable by anyone who can open a pull request, and both are one edit away from disappearing silently.
+// account-wide ReadOnlyAccess and decrypt on the Terraform state key.
+// Two things keep that from being reachable by anyone who can open a pull request, and both are one edit
+// away from disappearing silently.
 func TestCITrustBoundariesSurviveEditing(t *testing.T) {
 	infra := readRepoFile(t, ".github/workflows/infra.yml")
 
 	// 1. The plan job must refuse a pull request whose head is not this repository.
 	//
 	// For a `pull_request` event GitHub issues a token whose subject is the BASE repository's
-	// `repo:<owner>/<name>:pull_request` -- exactly what the plan role trusts. Without this check the only
-	// barrier is whether GitHub happens to issue `id-token: write` to fork workflows, which is a platform
-	// behaviour this repository would be depending on without stating it.
+	// `repo:<owner>/<name>:pull_request` -- exactly what the plan role trusts.
+	// Without this check the only barrier is whether GitHub happens to issue `id-token: write` to fork
+	// workflows, which is a platform behaviour this repository would be depending on without stating it.
 	if !strings.Contains(infra, "github.event.pull_request.head.repo.full_name == github.repository") {
 		t.Error("infra.yml does not restrict the credentialed plan job to same-repository pull requests; " +
 			"a fork PR could reach a role with account-wide ReadOnlyAccess and state-key decrypt")
@@ -793,7 +808,8 @@ func TestCITrustBoundariesSurviveEditing(t *testing.T) {
 	oidc := readRepoFile(t, "infra/aws/bootstrap/oidc.tf")
 	for _, key := range []string{"repository_id", "repository_owner_id"} {
 		want := "token.actions.githubusercontent.com:" + key
-		// Three roles, three trust policies. Two of three would be a silent hole in whichever was missed.
+		// Three roles, three trust policies.
+		// Two of three would be a silent hole in whichever was missed.
 		if n := strings.Count(oidc, want); n < 3 {
 			t.Errorf("oidc.tf pins %s in %d trust policies, expected 3 (plan, apply, image-push)", key, n)
 		}
@@ -803,20 +819,23 @@ func TestCITrustBoundariesSurviveEditing(t *testing.T) {
 // TestTheDeadlineIsSizedFromTheRepetitionCountRatherThanALiteral pins the two call sites together.
 //
 // hack/m5b-gpu-session.sh re-arms the deadline for the run it just measured, and to do that it needs the
-// number of replays. It carried the literal 16 -- four arms times the default four repetitions -- which is
-// correct only while that default is four and nobody sets REPS. At REPS=2 it asked for twice the deadline
-// the run needed; raised, it would have armed a deadline too short for the run it was sizing, and a session
-// cut by its own backstop is the failure the backstop exists to prevent.
+// number of replays.
+// It carried the literal 16 -- four arms times the default four repetitions -- which is correct only while
+// that default is four and nobody sets REPS.
+// At REPS=2 it asked for twice the deadline the run needed; raised, it would have armed a deadline too
+// short for the run it was sizing, and a session cut by its own backstop is the failure the backstop exists
+// to prevent.
 //
 // This is the same defect class as the Region repeated across five files, the quota that had to agree with
 // the offerings, and the Go version in the Makefile: a value carried by hand across two call sites with
-// nothing that fails when they disagree. It has now appeared often enough here to be worth a test each time
-// a new instance is closed.
+// nothing that fails when they disagree.
+// It has now appeared often enough here to be worth a test each time a new instance is closed.
 func TestTheDeadlineIsSizedFromTheRepetitionCountRatherThanALiteral(t *testing.T) {
 	session := readRepoFile(t, "hack/m5b-gpu-session.sh")
 
-	// The arms script computes `4 * REPS`. The session script must reach the same product, and the only way
-	// it can be right for every REPS is by reading REPS rather than a number.
+	// The arms script computes `4 * REPS`.
+	// The session script must reach the same product, and the only way it can be right for every REPS is by
+	// reading REPS rather than a number.
 	if !strings.Contains(session, "arms_reps=") {
 		t.Fatal("hack/m5b-gpu-session.sh does not derive a repetition count; the deadline it arms cannot track REPS")
 	}
@@ -829,9 +848,10 @@ func TestTheDeadlineIsSizedFromTheRepetitionCountRatherThanALiteral(t *testing.T
 	}
 
 	// The completions target is the other half of the replay length, and it was a literal 500 in both
-	// scripts. Lowering it in the harness to buy a shorter run -- the cheaper of the two ways to shorten a
-	// session, and the one a review recommended over cutting repetitions -- would otherwise leave the
-	// session sizing its deadline for the run it used to be.
+	// scripts.
+	// Lowering it in the harness to buy a shorter run -- the cheaper of the two ways to shorten a session,
+	// and the one a review recommended over cutting repetitions -- would otherwise leave the session
+	// sizing its deadline for the run it used to be.
 	if !strings.Contains(session, "arms_target=") {
 		t.Fatal("hack/m5b-gpu-session.sh does not derive the per-replay completion target; the deadline it arms cannot track a change to it")
 	}
@@ -842,11 +862,12 @@ func TestTheDeadlineIsSizedFromTheRepetitionCountRatherThanALiteral(t *testing.T
 
 // TestTheDeadlineCeilingAdmitsTheShippedDesign keeps a cost guard from refusing the thing it guards.
 //
-// MAX_TTL_MINUTES caps how long a session may buy. At four repetitions and the rate an A10G is expected to
-// give, the design asks for 358 minutes -- and the ceiling was 360, so a card measuring a few percent slow
-// would have been refused at the re-arming step with the engine already warm and paid for. That is the same
-// defect as hack/m5c-matrix.sh budgeting 456 minutes against its own 240-minute deadline: a guard that
-// cannot pass the configuration the repository ships.
+// MAX_TTL_MINUTES caps how long a session may buy.
+// At four repetitions and the rate an A10G is expected to give, the design asks for 358 minutes -- and the
+// ceiling was 360, so a card measuring a few percent slow would have been refused at the re-arming step
+// with the engine already warm and paid for.
+// That is the same defect as hack/m5c-matrix.sh budgeting 456 minutes against its own 240-minute deadline:
+// a guard that cannot pass the configuration the repository ships.
 func TestTheDeadlineCeilingAdmitsTheShippedDesign(t *testing.T) {
 	session := readRepoFile(t, "hack/m5b-gpu-session.sh")
 	m := regexp.MustCompile(`max_min="\$\{MAX_TTL_MINUTES:-(\d+)\}"`).FindStringSubmatch(session)
@@ -860,14 +881,15 @@ func TestTheDeadlineCeilingAdmitsTheShippedDesign(t *testing.T) {
 	// Checked at a rate BELOW the expectation, not at it.
 	//
 	// The first version of this test used 1.142/s, the estimate itself, and passed against the old ceiling
-	// of 360 -- the design asks for 358 there, so two minutes of slack was enough to satisfy it. That made
-	// the test agree with the defect it was written for: the estimate is an estimate, the rate is not known
-	// until the probe runs on the actual card, and a ceiling with two minutes of room is a ceiling that
-	// refuses as soon as the card is a few percent slower than guessed.
+	// of 360 -- the design asks for 358 there, so two minutes of slack was enough to satisfy it.
+	// That made the test agree with the defect it was written for: the estimate is an estimate, the rate is
+	// not known until the probe runs on the actual card, and a ceiling with two minutes of room is a
+	// ceiling that refuses as soon as the card is a few percent slower than guessed.
 	//
 	// So the requirement is that the ceiling still admits the design at 1.0/s, about twelve percent below
-	// the estimate. Below that the card is slow enough that stopping to reconsider is the right answer,
-	// which is what the ceiling is for.
+	// the estimate.
+	// Below that the card is slow enough that stopping to reconsider is the right answer, which is what
+	// the ceiling is for.
 	const slowRate = 1.0
 	replay := 500.0 / (slowRate / 2)
 	armsMin := int((16*(replay+180))/60) + 1
@@ -881,13 +903,15 @@ func TestTheDeadlineCeilingAdmitsTheShippedDesign(t *testing.T) {
 // TestTheDigestIsInTheTransformNotTheDeployment keeps two consumers of one manifest from fighting.
 //
 // config/manager/manager.yaml and config/gateway/deployment.yaml are read by two paths that need different
-// images. `make deploy` runs `kustomize edit set image controller=${IMG}`, so the kind path builds locally,
+// images.
+// `make deploy` runs `kustomize edit set image controller=${IMG}`, so the kind path builds locally,
 // side-loads, and overrides the pin; Argo CD builds the same directories untouched and must get the
 // published digest.
 //
-// Writing the ECR reference into the Deployment removed the name the transform matches on. The override
-// silently stopped applying, and every e2e run failed on a Pod that could not pull from a registry kind has
-// no credentials for -- a change that looked like pinning an image and was actually unpinning an override.
+// Writing the ECR reference into the Deployment removed the name the transform matches on.
+// The override silently stopped applying, and every e2e run failed on a Pod that could not pull from a
+// registry kind has no credentials for -- a change that looked like pinning an image and was actually
+// unpinning an override.
 func TestTheDigestIsInTheTransformNotTheDeployment(t *testing.T) {
 	for _, tc := range []struct{ manifest, kustomization, placeholder, name string }{
 		{"config/manager/manager.yaml", "config/manager/kustomization.yaml", "image: controller:latest", "controller"},
@@ -922,14 +946,15 @@ func TestTheDigestIsInTheTransformNotTheDeployment(t *testing.T) {
 // TestCRDApplicationsDoNotPrune keeps a rename from deleting a cluster's data.
 //
 // Deleting a CustomResourceDefinition is not a schema change: the API server removes every instance of it
-// in the same operation. An Argo Application that owns CRDs with prune enabled will therefore delete every
-// Workload, LocalQueue, ClusterQueue and ResourceFlavor -- or every InferenceDeployment, GPUQuotaPolicy and
-// NodeHealth -- when a file is renamed, a path stops rendering one of them, or the child is removed from
-// the root Application. A cascade finalizer on the Application makes that last one a two-stage version of
-// the same thing.
+// in the same operation.
+// An Argo Application that owns CRDs with prune enabled will therefore delete every Workload, LocalQueue,
+// ClusterQueue and ResourceFlavor -- or every InferenceDeployment, GPUQuotaPolicy and NodeHealth -- when a
+// file is renamed, a path stops rendering one of them, or the child is removed from the root Application.
+// A cascade finalizer on the Application makes that last one a two-stage version of the same thing.
 //
-// selfHeal is left on deliberately. Re-creating a definition someone deleted by hand is safe; removing one
-// because a file moved is not, and that is not a decision to make unattended.
+// selfHeal is left on deliberately.
+// Re-creating a definition someone deleted by hand is safe; removing one because a file moved is not, and
+// that is not a decision to make unattended.
 func TestCRDApplicationsDoNotPrune(t *testing.T) {
 	for _, app := range []string{"config/argocd/crds.yaml", "config/argocd/kueue.yaml"} {
 		body := readRepoFile(t, app)
@@ -945,8 +970,9 @@ func TestCRDApplicationsDoNotPrune(t *testing.T) {
 	}
 
 	// And the CRDs the operator cannot start without must be owned by config/, not by a test fixture.
-	// They lived under test/crd/kueue, which made tidying a fixture a production change. They now come with the
-	// controller, from the vendored release, and config/kueue-crds is the envtest and e2e fixture alone.
+	// They lived under test/crd/kueue, which made tidying a fixture a production change.
+	// They now come with the controller, from the vendored release, and config/kueue-crds is the envtest and
+	// e2e fixture alone.
 	kueue := readRepoFile(t, "config/argocd/kueue.yaml")
 	if !strings.Contains(kueue, "path: config/kueue-controller") {
 		t.Error("the Kueue Application does not source config/kueue-controller; a runtime dependency should not be served out of test/")
@@ -957,14 +983,15 @@ func TestCRDApplicationsDoNotPrune(t *testing.T) {
 //
 // config/kueue-crds is read as a directory of Kubernetes objects by three things at once: Argo CD renders
 // the path, the e2e suite runs `kubectl apply --server-side -f` on it, and envtest loads it through
-// CRDDirectoryPaths. All three take every .yaml in the directory and send it somewhere that expects an
-// object with a kind.
+// CRDDirectoryPaths.
+// All three take every .yaml in the directory and send it somewhere that expects an object with a kind.
 //
 // A kustomization.yaml was added here to describe the set, which is exactly the sort of thing that looks
-// like documentation and is not. The four CRDs applied and then the kustomization failed with
-// "error: resource mapping", and the e2e suite went red on a change that only moved files. Prose belongs in
-// a .md, which kubectl's directory expansion ignores -- verified, along with the fact that a stray .yaml
-// does not get ignored.
+// like documentation and is not.
+// The four CRDs applied and then the kustomization failed with "error: resource mapping", and the e2e suite
+// went red on a change that only moved files.
+// Prose belongs in a .md, which kubectl's directory expansion ignores -- verified, along with the fact that
+// a stray .yaml does not get ignored.
 func TestTheKueueCRDDirectoryHoldsOnlyCRDs(t *testing.T) {
 	const dir = "../../config/kueue-crds"
 	entries, err := os.ReadDir(dir)
@@ -991,9 +1018,9 @@ func TestTheKueueCRDDirectoryHoldsOnlyCRDs(t *testing.T) {
 
 // TestTheDevicePluginDoesNotNameDeviceIndices keeps a manifest from depending on which card it lands on.
 //
-// The daemonset set NVIDIA_VISIBLE_DEVICES to "0,1". The queuelab node is a g4dn.12xlarge with four cards,
-// so both indices exist there; g5.xlarge has one A10G, so index 1 does not, and the NVIDIA container
-// runtime refuses to create the container at all:
+// The daemonset set NVIDIA_VISIBLE_DEVICES to "0,1".
+// The queuelab node is a g4dn.12xlarge with four cards, so both indices exist there; g5.xlarge has one
+// A10G, so index 1 does not, and the NVIDIA container runtime refuses to create the container at all:
 //
 //	failed to generate CDI spec for mode "auto": failed to construct device spec generators:
 //	failed to get device handle from index: Invalid Argument
@@ -1003,8 +1030,9 @@ func TestTheKueueCRDDirectoryHoldsOnlyCRDs(t *testing.T) {
 // could not say why.
 //
 // A device plugin advertises whatever the node has, so an index list is the wrong shape on every node, not
-// just the ones where it happens to be short. This is the same defect as a Region or a node group name
-// written into one file: a value that depends on the machine, carried by hand.
+// just the ones where it happens to be short.
+// This is the same defect as a Region or a node group name written into one file: a value that depends on
+// the machine, carried by hand.
 func TestTheDevicePluginDoesNotNameDeviceIndices(t *testing.T) {
 	body := readRepoFile(t, "config/nvidia-device-plugin/daemonset.yaml")
 
@@ -1022,9 +1050,10 @@ func TestTheDevicePluginDoesNotNameDeviceIndices(t *testing.T) {
 
 // TestGPUNodeGroupsHoldTheEngine keeps the node disk large enough for what has to land on it.
 //
-// EKS defaults to 20 GiB when disk_size is unset, and nothing set it. The first paid session reached the
-// engine rollout and the node reported DiskPressure=True: kubelet evicted the vLLM Pod twice and left the
-// third Pending, and the session refused with the card already billing.
+// EKS defaults to 20 GiB when disk_size is unset, and nothing set it.
+// The first paid session reached the engine rollout and the node reported DiskPressure=True: kubelet
+// evicted the vLLM Pod twice and left the third Pending, and the session refused with the card already
+// billing.
 //
 // What must fit, measured rather than estimated -- the image pulled locally, the weights read from the
 // Hugging Face API:
@@ -1033,8 +1062,9 @@ func TestTheDevicePluginDoesNotNameDeviceIndices(t *testing.T) {
 //	Qwen2.5-3B weights     6.18 GiB
 //	AMI, kubelet, containerd, DCGM, device plugin   roughly 5 GiB
 //
-// The image alone exceeds the default. This pins a floor rather than the exact number, so raising it stays
-// easy and dropping it back to something that cannot hold the engine does not.
+// The image alone exceeds the default.
+// This pins a floor rather than the exact number, so raising it stays easy and dropping it back to
+// something that cannot hold the engine does not.
 func TestGPUNodeGroupsHoldTheEngine(t *testing.T) {
 	body := readRepoFile(t, "infra/aws/cluster/eks.tf")
 
@@ -1042,8 +1072,9 @@ func TestGPUNodeGroupsHoldTheEngine(t *testing.T) {
 	//
 	// The first version of this test read disk_size, and passed while the cluster kept the AMI default of
 	// 20 GiB: this module overrides disk_size to null whenever a custom launch template is used, which is
-	// the default, so terraform reported no change and the setting never reached a node. A test that reads
-	// the file rather than what the file does is exactly the shape it was written to catch.
+	// the default, so terraform reported no change and the setting never reached a node.
+	// A test that reads the file rather than what the file does is exactly the shape it was written to
+	// catch.
 	//
 	// Counting the group blocks was also tried and dropped: `gpu = {` appears inside each group's labels,
 	// so the pattern matched six times and failed against a correct file.
@@ -1069,10 +1100,11 @@ func TestGPUNodeGroupsHoldTheEngine(t *testing.T) {
 // TestEveryGeneratedTenantIsProvisioned pins the trace generator's tenant list to the paid run's tenant list.
 //
 // The two files have disagreed twice, and both times the run completed, reported, and passed its own checks.
-// The first paid run keyed two of the four tenants, so a quarter of every replay came back 401. The second
-// keyed all four but gave a GPUQuotaPolicy to only two, so the probe pair came back 403 and the report showed
-// their silence as "rejected=0" -- the absence of a measurement dressed as a result. Neither is visible from
-// inside either file; it takes reading both at once, which is what this does, without a cluster or a card.
+// The first paid run keyed two of the four tenants, so a quarter of every replay came back 401.
+// The second keyed all four but gave a GPUQuotaPolicy to only two, so the probe pair came back 403 and the
+// report showed their silence as "rejected=0" -- the absence of a measurement dressed as a result.
+// Neither is visible from inside either file; it takes reading both at once, which is what this does, without
+// a cluster or a card.
 func TestEveryGeneratedTenantIsProvisioned(t *testing.T) {
 	genSrc, err := os.ReadFile("../../cmd/benchharness/main.go")
 	if err != nil {
@@ -1083,10 +1115,11 @@ func TestEveryGeneratedTenantIsProvisioned(t *testing.T) {
 	// and PremiumTenant was the last literal to go.
 	//
 	// ⚠️ Resolving all four means `len(generated) < 4` can no longer detect a drifted pattern: the map is
-	// populated by this file rather than by reading the generator. So the drift check moved to what it was
-	// really about -- that the generator still ASSEMBLES four tenants. It is counted from the source by the
-	// `Tenant:` field of the TenantSpec literals, whatever each one's value is written as, and the count is
-	// asserted rather than the spelling.
+	// populated by this file rather than by reading the generator.
+	// So the drift check moved to what it was really about -- that the generator still ASSEMBLES four
+	// tenants.
+	// It is counted from the source by the `Tenant:` field of the TenantSpec literals, whatever each one's
+	// value is written as, and the count is asserted rather than the spelling.
 	generated := map[string]bool{
 		PremiumTenant: true, NoisyTenant: true, ProbeUnderTenant: true, ProbeOverTenant: true,
 	}
@@ -1127,8 +1160,8 @@ func TestEveryGeneratedTenantIsProvisioned(t *testing.T) {
 // TestTheRunnerDerivesItsApiKeysFromTheTenantList refuses a second hand-kept copy of the list.
 //
 // The check above compares the generator with TENANTS; it cannot see a --api-keys flag that was left behind
-// with its own literals, which is exactly the state the runner was in. A copy that agrees today is still the
-// shape that produced both failures.
+// with its own literals, which is exactly the state the runner was in.
+// A copy that agrees today is still the shape that produced both failures.
 func TestTheRunnerDerivesItsApiKeysFromTheTenantList(t *testing.T) {
 	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
 	if err != nil {
@@ -1146,12 +1179,15 @@ func TestTheRunnerDerivesItsApiKeysFromTheTenantList(t *testing.T) {
 
 // TestArmBCanAdmitTheTraceItIsGiven catches the degenerate cap without a trace, a cluster, or a card.
 //
-// A token bucket can never admit a request larger than its burst. The generator's noisy prompt is 40,000
-// chars, which estimates at 10,000 tokens -- the number is in the generator's own flag help -- and the
-// gateway's default burst is 8,192, a number in cmd/gateway. Both were written down; neither file had reason
-// to read the other. The runner passed a request rate of 1.568/s into a flag measured in tokens per second
-// and never set the burst at all, so arm B refused all 447 eligible requests in all four repetitions with
-// 413 and admitted nothing. It reported as a healthy arm. C/B then equalled C/R1, because B was R1.
+// A token bucket can never admit a request larger than its burst.
+// The generator's noisy prompt is 40,000 chars, which estimates at 10,000 tokens -- the number is in the
+// generator's own flag help -- and the gateway's default burst is 8,192, a number in cmd/gateway.
+// Both were written down; neither file had reason to read the other.
+// The runner passed a request rate of 1.568/s into a flag measured in tokens per second and never set the
+// burst at all, so arm B refused all 447 eligible requests in all four repetitions with 413 and admitted
+// nothing.
+// It reported as a healthy arm.
+// C/B then equalled C/R1, because B was R1.
 func TestArmBCanAdmitTheTraceItIsGiven(t *testing.T) {
 	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
 	if err != nil {
@@ -1199,8 +1235,8 @@ func TestArmBCanAdmitTheTraceItIsGiven(t *testing.T) {
 		t.Errorf("STATIC_RATE is %d tokens/sec, which cannot admit even one %d-token prompt per minute; that is a request rate in a flag measured in tokens", rate, est)
 	}
 
-	// Both flags must reach the gateway. The last run set one and inherited the other from a default that
-	// happened to be fatal.
+	// Both flags must reach the gateway.
+	// The last run set one and inherited the other from a default that happened to be fatal.
 	for _, flag := range []string{"-admission-static-rate=${STATIC_RATE}", "-admission-static-burst=${STATIC_BURST}"} {
 		if !strings.Contains(string(runner), flag) {
 			t.Errorf("the runner does not pass %s; cmd/gateway's defaults exist only as placeholders and one of them silently made arm B degenerate", flag)
@@ -1208,11 +1244,13 @@ func TestArmBCanAdmitTheTraceItIsGiven(t *testing.T) {
 	}
 
 	// The checks above are necessary and nowhere near sufficient: a pair can clear every one of them and
-	// still admit half of what C admits, which is what the first attempt at this tuning did. Only simulating
-	// the bucket against the trace answers the question the design spec asks, so the runner has to do it.
+	// still admit half of what C admits, which is what the first attempt at this tuning did.
+	// Only simulating the bucket against the trace answers the question the design spec asks, so the runner
+	// has to do it.
 	// Matched on the invocation rather than the bare name: the first version of this check looked for
 	// "sim-cap" anywhere, and the comment and failure message that mention it kept the check green with the
-	// call deleted. A guard that cannot fire is the defect this whole file exists to catch.
+	// call deleted.
+	// A guard that cannot fire is the defect this whole file exists to catch.
 	if !strings.Contains(string(runner), `"$WORK/benchharness" sim-cap`) || !strings.Contains(string(runner), `-target-admitted-fraction "$PILOT_ADMITTED_FRACTION"`) {
 		t.Error("the runner does not simulate arm B's bucket against the trace it generated; a rate and burst that pass a units check can still be nowhere near C's admitted-work fraction, and nothing else would notice before the card time was spent")
 	}
@@ -1221,10 +1259,10 @@ func TestArmBCanAdmitTheTraceItIsGiven(t *testing.T) {
 // TestTheMirrorListsAgree keeps the ECR mirror map in one shape across the three files that hold it.
 //
 // The mirror exists because a fresh GPU node's pulls cross the NAT gateway at $0.059/GB, which came to $5.43
-// over three paid sessions -- the largest line on the bill, larger than every instance-hour combined. It only
-// helps for images it actually covers, and it covers them only if the Terraform that creates the repositories,
-// the script that fills them, and the manifests that name the images all mean the same thing. Three files
-// holding one list is the shape that has already cost this project two paid runs.
+// over three paid sessions -- the largest line on the bill, larger than every instance-hour combined.
+// It only helps for images it actually covers, and it covers them only if the Terraform that creates the
+// repositories, the script that fills them, and the manifests that name the images all mean the same thing.
+// Three files holding one list is the shape that has already cost this project two paid runs.
 func TestTheMirrorListsAgree(t *testing.T) {
 	read := func(rel string) string {
 		b, err := os.ReadFile(filepath.Join("..", "..", rel))
@@ -1286,9 +1324,10 @@ func TestTheMirrorListsAgree(t *testing.T) {
 // TestTheArmOrderIsBalanced keeps arm and position from being confounded again.
 //
 // Every block ran R1, off, static-cap, kv-aware in that order, so R1 was always measured first on a cold
-// engine and kv-aware always last on one that had been serving for an hour. Any drift across a block lands
-// on the arms in a fixed pattern and cannot be told apart from the effect being measured -- and unlike a
-// missing counter, no amount of extra instrumentation removes it afterwards.
+// engine and kv-aware always last on one that had been serving for an hour.
+// Any drift across a block lands on the arms in a fixed pattern and cannot be told apart from the effect
+// being measured -- and unlike a missing counter, no amount of extra instrumentation removes it
+// afterwards.
 //
 // This runs the runner's own armsForBlock rather than re-deriving the rotation, so the property is checked
 // on the code that will actually order the run.
@@ -1342,9 +1381,9 @@ func TestTheArmOrderIsBalanced(t *testing.T) {
 // TestTheEngineAndModelAreReadFromTheCluster refuses a literal that reads as the authority.
 //
 // Both were assigned literals at the top of the runner and then overwritten by cluster-derived values two
-// hundred lines later, so the literals were dead code in the position a reader trusts. The model name being
-// wrong in exactly this way cost one paid run: gen-trace defaulted to a stub name and the gateway answered
-// 404 to 907 of every 999 requests for three hours.
+// hundred lines later, so the literals were dead code in the position a reader trusts.
+// The model name being wrong in exactly this way cost one paid run: gen-trace defaulted to a stub name and
+// the gateway answered 404 to 907 of every 999 requests for three hours.
 func TestTheEngineAndModelAreReadFromTheCluster(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
 	if err != nil {
@@ -1363,10 +1402,10 @@ func TestTheEngineAndModelAreReadFromTheCluster(t *testing.T) {
 
 // TestTheTraceIsStampedWithExactTokens keeps the run from scoring its own criterion in the wrong units.
 //
-// The design defines the admission-match criterion over the served tokenizer's input-token count. Three paid
-// runs scored it over ceil(chars/4) instead, which this repository's calibration measures at 36 percent low
-// on a 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured) -- so what was reported was a proxy
-// nobody had pre-registered, and nothing said so.
+// The design defines the admission-match criterion over the served tokenizer's input-token count.
+// Three paid runs scored it over ceil(chars/4) instead, which this repository's calibration measures at 36 percent low on a 200-character prompt and 30
+// percent high on a 40,000-character one (10,000 estimated against 7,695 measured) -- so what was reported was a proxy nobody had pre-registered, and
+// nothing said so.
 func TestTheTraceIsStampedWithExactTokens(t *testing.T) {
 	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
 	if err != nil {
@@ -1386,13 +1425,16 @@ func TestTheTraceIsStampedWithExactTokens(t *testing.T) {
 // TestTheGuardArmRecordsWhatItSaw keeps the one arm under test from running blind to its own inputs.
 //
 // A request records WHY it was admitted, which separates a guard that could not see from one that saw a calm
-// backend. It does not record how calm. "not_engaged" at a cache usage of 0.10 and at 0.83 against a 0.85
-// threshold are the same string and opposite conclusions: the first says the load never created the pressure
-// the experiment is about, the second says the threshold sits past where the damage happens.
+// backend.
+// It does not record how calm.
+// "not_engaged" at a cache usage of 0.10 and at 0.83 against a 0.85 threshold are the same string and
+// opposite conclusions: the first says the load never created the pressure the experiment is about, the
+// second says the threshold sits past where the damage happens.
 //
 // The last paid run returned C/R1 = 83.747 with the guard refusing 15.3 percent of eligible traffic, and its
-// evidence cannot tell those apart. That is the question the next run exists to answer, so the arm that has
-// a pressure reading has to record it.
+// evidence cannot tell those apart.
+// That is the question the next run exists to answer, so the arm that has a pressure reading has to record
+// it.
 func TestTheGuardArmRecordsWhatItSaw(t *testing.T) {
 	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
 	if err != nil {
@@ -1416,18 +1458,21 @@ func TestTheGuardArmRecordsWhatItSaw(t *testing.T) {
 
 // TestTheRunRecordsHowTheEngineWasConfigured keeps a run from being unable to explain itself later.
 //
-// The 2026-09-03 evidence records the engine's image digest and nothing else about its configuration. When
-// the premium tail turned out to be a staircase of one concurrent long prefill per step, the question became
-// what batch token budget vLLM had actually resolved -- and whether a 7,695-token prompt ran as one
-// scheduler step or several. The evidence could not say. The run was over and the cluster was gone.
+// The 2026-09-03 evidence records the engine's image digest and nothing else about its configuration.
+// When the premium tail turned out to be a staircase of one concurrent long prefill per step, the question
+// became what batch token budget vLLM had actually resolved -- and whether a 7,695-token prompt ran as one
+// scheduler step or several.
+// The evidence could not say.
+// The run was over and the cluster was gone.
 //
 // Reading the pinned release's source settled it afterwards (the budget resolves to 2,048, so the prefill was
 // chunked and the blocking is the scheduler's FCFS ordering rather than an indivisible step), which is
 // exactly the point: that answer came from source and arithmetic, not from the run, and a differently
 // configured engine would have left the same silence.
 //
-// A digest names the code. It does not name the flags, and it certainly does not name the defaults the
-// engine filled in for the flags nobody passed, which is the part that mattered.
+// A digest names the code.
+// It does not name the flags, and it certainly does not name the defaults the engine filled in for the
+// flags nobody passed, which is the part that mattered.
 func TestTheRunRecordsHowTheEngineWasConfigured(t *testing.T) {
 	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
 	if err != nil {
@@ -1437,7 +1482,8 @@ func TestTheRunRecordsHowTheEngineWasConfigured(t *testing.T) {
 	if !strings.Contains(src, "engine-config.txt") {
 		t.Fatal("the runner does not record the engine's configuration into the evidence; a run that behaves unexpectedly will not be able to say what it was told to do")
 	}
-	// Both halves: what we asked for, and what the engine decided. The defaults are the interesting part.
+	// Both halves: what we asked for, and what the engine decided.
+	// The defaults are the interesting part.
 	if !strings.Contains(src, "containers[0].args") {
 		t.Error("the evidence does not capture the engine's argv, so a flag changed between runs would leave no trace")
 	}
@@ -1448,10 +1494,10 @@ func TestTheRunRecordsHowTheEngineWasConfigured(t *testing.T) {
 
 // TestTheMicrotestMeasuresTheEngineTheArmsMeasured pins the microtest to the same engine and model.
 //
-// The microtest exists to explain the arms' result, so it has to run the engine the arms ran. A digest or a
-// model name typed into the runner would let it answer a question about a different scheduler while looking
-// like it answered this one -- and a model name defaulted rather than read cost one paid run three hours,
-// asking a Qwen engine for a model no deployment served.
+// The microtest exists to explain the arms' result, so it has to run the engine the arms ran.
+// A digest or a model name typed into the runner would let it answer a question about a different scheduler
+// while looking like it answered this one -- and a model name defaulted rather than read cost one paid run
+// three hours, asking a Qwen engine for a model no deployment served.
 func TestTheMicrotestMeasuresTheEngineTheArmsMeasured(t *testing.T) {
 	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-scheduler-microtest.sh"))
 	if err != nil {
@@ -1504,8 +1550,9 @@ func TestTheMicrotestMeasuresTheEngineTheArmsMeasured(t *testing.T) {
 // The runner already derives the API key secret, the --api-keys flag and each GPUQuotaPolicy from one
 // TENANTS array, because four hand-kept copies drifted twice: the first paid run had two of four tenants in
 // the secret and answered a quarter of every replay with 401, the second gave two of them no policy and
-// answered their probes with 403. A priority map would fail more quietly than either -- a tenant missing
-// from it does not error, it silently sends no priority field and replays the control.
+// answered their probes with 403.
+// A priority map would fail more quietly than either -- a tenant missing from it does not error, it
+// silently sends no priority field and replays the control.
 func TestThePriorityMapIsDerivedFromTheOneTenantList(t *testing.T) {
 	runner := readRepoFile(t, "hack/m5b-arms.sh")
 	loop := sliceBetween(t, runner, `for entry in "${TENANTS[@]}"; do`, "\ndone")
@@ -1527,10 +1574,10 @@ func TestThePriorityMapIsDerivedFromTheOneTenantList(t *testing.T) {
 
 // TestThePriorityArmRefusesAnFCFSEngine fixes the failure that would be invisible in the evidence.
 //
-// vLLM accepts and ignores the per-request priority field under its default fcfs policy. Every request is
-// served, every row looks healthy, and the treatment arm reproduces the control exactly -- which would be
-// read as "priority does not help", the most expensive wrong conclusion available here. The runner must
-// check the engine's own startup log, not the flags it believes it passed.
+// vLLM accepts and ignores the per-request priority field under its default fcfs policy.
+// Every request is served, every row looks healthy, and the treatment arm reproduces the control exactly
+// -- which would be read as "priority does not help", the most expensive wrong conclusion available here.
+// The runner must check the engine's own startup log, not the flags it believes it passed.
 func TestThePriorityArmRefusesAnFCFSEngine(t *testing.T) {
 	runner := readRepoFile(t, "hack/m5b-arms.sh")
 	guard := sliceBetween(t, runner, `if [ "${PRIORITIES:-0}" = "1" ]; then`, "fi\n")
@@ -1544,7 +1591,8 @@ func TestThePriorityArmRefusesAnFCFSEngine(t *testing.T) {
 	//
 	// Asserting that a guard exists is how a guard that never fires passes review: an earlier version of
 	// this test checked only that the block mentioned the config file and called fail, and a mangled grep
-	// expression sailed through it. A guard is verified by feeding it the input it is supposed to reject.
+	// expression sailed through it.
+	// A guard is verified by feeding it the input it is supposed to reject.
 	pattern := regexp.MustCompile(`grep -qiE? "([^"]+)"`).FindStringSubmatch(guard)
 	if pattern == nil {
 		t.Fatalf("the priority guard has no grep pattern to test:\n%s", guard)
@@ -1552,15 +1600,17 @@ func TestThePriorityArmRefusesAnFCFSEngine(t *testing.T) {
 
 	// The cases are the engine's OWN OUTPUT, not a rendering of it anybody typed.
 	//
-	// This is the second time this test has been rewritten, and the first rewrite is why. It ran the
-	// runner's real pattern -- the right mechanism -- against two lines invented for the occasion:
+	// This is the second time this test has been rewritten, and the first rewrite is why.
+	// It ran the runner's real pattern -- the right mechanism -- against two lines invented for the
+	// occasion:
 	//
 	//     scheduling_policy='priority', max_num_batched_tokens=512
 	//
-	// described in a comment as one of "the forms vLLM has printed it". vLLM has never printed that. It
-	// writes a Python dict with a colon, 'scheduling_policy': 'priority', so the pattern under test could
-	// not match a single line the engine emits, and the test said it could. Running the real pattern
-	// against fabricated input is the same defect as not running it at all, one level deeper.
+	// described in a comment as one of "the forms vLLM has printed it". vLLM has never printed that.
+	// It writes a Python dict with a colon, 'scheduling_policy': 'priority', so the pattern under test
+	// could not match a single line the engine emits, and the test said it could.
+	// Running the real pattern against fabricated input is the same defect as not running it at all, one
+	// level deeper.
 	//
 	// So the input is a fixture captured from the paid 2026-09-04 microtest, and every cell in it is
 	// exercised: the three priority cells must match and the three fcfs cells must not.
@@ -1581,8 +1631,8 @@ func TestThePriorityArmRefusesAnFCFSEngine(t *testing.T) {
 	}
 
 	// The deployment argv is the other half of engine-config.txt, and it is a real form: the runner
-	// records it with kubectl jsonpath over the container args. Both spellings are covered because a
-	// manifest may use either.
+	// records it with kubectl jsonpath over the container args.
+	// Both spellings are covered because a manifest may use either.
 	for _, tc := range []struct {
 		name   string
 		config string
@@ -1617,8 +1667,9 @@ type startupCell struct {
 // parseStartupFixture reads the verbatim vLLM startup lines captured from the paid microtest.
 //
 // The fixture exists so that a guard against the engine's configuration is tested against what the
-// engine writes. Its header records the image, the model and the run it came from, because a fixture
-// whose provenance is unknown is only a slower way of inventing input.
+// engine writes.
+// Its header records the image, the model and the run it came from, because a fixture whose
+// provenance is unknown is only a slower way of inventing input.
 func parseStartupFixture(t *testing.T) []startupCell {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join("testdata", "vllm_startup_lines.txt"))

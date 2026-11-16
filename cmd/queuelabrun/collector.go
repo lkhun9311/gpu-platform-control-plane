@@ -58,8 +58,9 @@ type pendingEvent struct {
 }
 
 // collector observes the four GVRs through continuous streams and drives the fail-closed LedgerBuilder,
-// resolving each object to its trace job by the UID chain and classifying it. It is the live half of the
-// runner; the pure builder, classifier, join, and adapter are the reviewed units it composes.
+// resolving each object to its trace job by the UID chain and classifying it.
+// It is the live half of the runner; the pure builder, classifier, join, and adapter are the reviewed
+// units it composes.
 type collector struct {
 	c     client.WithWatch
 	ns    string
@@ -79,8 +80,9 @@ type collector struct {
 	//
 	// It is filled from this collector's own watch rather than a live lookup, because by the time a run is
 	// reconstructed its Pods are gone -- and a live lookup would resolve nothing, or resolve a name that has
-	// since been reused. It is the half of the device observation that the exporter is not allowed to supply:
-	// DCGM says which card and which NAME, and this says which object that name was.
+	// since been reused.
+	// It is the half of the device observation that the exporter is not allowed to supply: DCGM says which
+	// card and which NAME, and this says which object that name was.
 	devicePods queuelab.PodRegistry
 
 	// streams is this run's view of the cluster, one per watched kind, and is written only by start and read
@@ -98,9 +100,10 @@ type collector struct {
 // kindStream pairs a stream with the kind name its events are classified under.
 //
 // The kind cannot be recovered from the stream: startWatchStream is handed a list constructor and keeps no
-// name of its own. Without it every diagnostic below would say "a stream ended" for four different views of
-// the run, and the operator could not tell a lost Pod watch — which loses readiness and termination — from a
-// lost Workload watch, which loses admission and preemption.
+// name of its own.
+// Without it every diagnostic below would say "a stream ended" for four different views of the run, and the
+// operator could not tell a lost Pod watch — which loses readiness and termination — from a lost Workload
+// watch, which loses admission and preemption.
 type kindStream struct {
 	kind   string
 	stream *watchStream
@@ -109,8 +112,9 @@ type kindStream struct {
 // newAnchoredBuilder returns a ledger builder that can date its events in wall-clock terms.
 //
 // The anchor is the run's own t0, so every event's WallUnixNanos is that instant plus the event's monotonic
-// offset. Sampling the wall clock at each observation instead would let two events land out of order in the
-// very field meant to date them.
+// offset.
+// Sampling the wall clock at each observation instead would let two events land out of order in the very
+// field meant to date them.
 func newAnchoredBuilder(t0 time.Time) *queuelab.LedgerBuilder {
 	b := queuelab.NewLedgerBuilder()
 	b.AnchorWallClock(t0)
@@ -147,11 +151,11 @@ func (col *collector) horizonNs() int64 { return col.deadline.Sub(col.t0).Nanose
 // watchedKinds is the set of views one run opens, and it is hoisted out of start's body so that the record's
 // own completeness check and the loop that opens the streams cannot name different sets.
 //
-// The lift changes no decision: same kinds, same order, same list constructors. What it buys is that
-// observationContinuous can ask whether a persisted observation covers every kind this build watches rather
-// than counting to a number written down twice — and a build that later adds a fifth view gets a record that
-// refuses to read four streams as a complete observation, instead of quietly narrowing what "continuous"
-// means.
+// The lift changes no decision: same kinds, same order, same list constructors.
+// What it buys is that observationContinuous can ask whether a persisted observation covers every kind this
+// build watches rather than counting to a number written down twice — and a build that later adds a fifth
+// view gets a record that refuses to read four streams as a complete observation, instead of quietly
+// narrowing what "continuous" means.
 func watchedKinds() []struct {
 	kind    string
 	newList func() client.ObjectList
@@ -170,14 +174,16 @@ func watchedKinds() []struct {
 // start opens one continuous stream per watched kind and consumes each into the ledger.
 //
 // A stream is a baseline List plus a watch resuming from exactly that list's resource version, and the
-// difference from the loop this replaces is the whole point of the change. That loop called Watch with no
-// resource version, so it began at "now": everything the apiserver had already recorded between this run
-// creating its namespace and the watch being accepted was invisible, and every reconnect — it re-established
-// from "now" again — opened another hole of the same kind. A run could miss an admission, a readiness, a
-// preemption or a termination and still reach the disposition that says the checks passed.
+// difference from the loop this replaces is the whole point of the change.
+// That loop called Watch with no resource version, so it began at "now": everything the apiserver had
+// already recorded between this run creating its namespace and the watch being accepted was invisible, and
+// every reconnect — it re-established from "now" again — opened another hole of the same kind.
+// A run could miss an admission, a readiness, a preemption or a termination and still reach the disposition
+// that says the checks passed.
 //
 // It returns an error rather than logging one because nothing downstream can compensate for a view that was
-// never opened. The caller must refuse the run before it submits work it cannot observe.
+// never opened.
+// The caller must refuse the run before it submits work it cannot observe.
 func (col *collector) start(ctx context.Context) error {
 	for _, k := range watchedKinds() {
 		s, err := startWatchStream(ctx, col.c, namespaceScope(col.ns), k.newList)
@@ -196,19 +202,21 @@ func (col *collector) start(ctx context.Context) error {
 			// the namespace is ever cleared by hand, so that is the ordinary rerun), or another actor working
 			// inside a name this run believes it owns.
 			//
-			// Feeding them in as events would be worse than dropping them, not better. The trace job names are
-			// fixed by the protocol, so a previous attempt's objects carry the SAME names this run is about to
-			// use; ResolveTraceJobs would attribute a dead run's Pods to this run's jobs, at an elapsed time of
-			// roughly zero, and the reconstruction would measure one run's latency against another's work. And
-			// dropping them silently is the defect this whole change exists to remove — the ledger would then
-			// describe a namespace it had only half observed.
+			// Feeding them in as events would be worse than dropping them, not better.
+			// The trace job names are fixed by the protocol, so a previous attempt's objects carry the SAME
+			// names this run is about to use; ResolveTraceJobs would attribute a dead run's Pods to this run's
+			// jobs, at an elapsed time of roughly zero, and the reconstruction would measure one run's latency
+			// against another's work.
+			// And dropping them silently is the defect this whole change exists to remove — the ledger would
+			// then describe a namespace it had only half observed.
 			//
 			// So the run is refused, at the cheapest possible moment: nothing has been submitted, no GPU time
 			// has been spent, and the operator is told which kind is occupied and by how many objects.
 			//
-			// The ledger is desynced as well as the error returned, because the two do different jobs. The error
-			// is what stops run(); the builder is the object that decides whether a number may be printed at
-			// all, and a caller that mishandled the error must still not be able to get one out of it.
+			// The ledger is desynced as well as the error returned, because the two do different jobs.
+			// The error is what stops run(); the builder is the object that decides whether a number may be
+			// printed at all, and a caller that mishandled the error must still not be able to get one out of
+			// it.
 			col.desync(fmt.Sprintf("the %s baseline in %s held %d object(s) this run did not create", k.kind, col.ns, n))
 			col.abort()
 			return fmt.Errorf("the %s baseline in %s already holds %d object(s); this run created that namespace, "+
@@ -222,9 +230,10 @@ func (col *collector) start(ctx context.Context) error {
 
 // abort ends every stream this collector opened and joins whatever was already consuming them.
 //
-// It exists for start's failure paths alone. The ordinary shutdown cancels the observation context instead,
-// so the endings read as cancellations; here the caller is refusing the run outright, and an ending marked
-// Stopped is what stops consume from recording a desync for a stream nobody was still relying on.
+// It exists for start's failure paths alone.
+// The ordinary shutdown cancels the observation context instead, so the endings read as cancellations; here
+// the caller is refusing the run outright, and an ending marked Stopped is what stops consume from
+// recording a desync for a stream nobody was still relying on.
 func (col *collector) abort() {
 	for _, ks := range col.streams {
 		ks.stream.Stop()
@@ -242,10 +251,11 @@ func (col *collector) abort() {
 // It is NOT sized against slack in the horizon, because there is none to spend. horizonSec adds
 // startupMarginSec on top of the protocol's own timing, and spine.go allocates that 20 seconds to three
 // SEQUENTIAL Ready waits (a1, victim, owner); a run that spent 15 of them here would leave 5 for all three
-// and would very likely miss its last barrier. What makes that acceptable is the direction such a run fails
-// in: a barrier that is not met before the horizon desyncs the ledger, and a desynced run publishes no
-// number. Truncation is therefore loud and self-reporting, while the failure this budget exists to catch — a
-// watch that never establishes while the run submits and observes nothing — used to be silent.
+// and would very likely miss its last barrier.
+// What makes that acceptable is the direction such a run fails in: a barrier that is not met before the
+// horizon desyncs the ledger, and a desynced run publishes no number.
+// Truncation is therefore loud and self-reporting, while the failure this budget exists to catch — a watch
+// that never establishes while the run submits and observes nothing — used to be silent.
 //
 // Fifteen seconds is several hundred times what four List+Watch pairs cost against a healthy apiserver, so in
 // practice the budget is never approached; it is a bound on an infrastructure failure, not a latency target.
@@ -258,13 +268,14 @@ const establishBudget = 15 * time.Second
 // The timer is deliberately NOT a deadline on the streams' own context, and startWatchStream's doc comment
 // names why: a context bounded here is handed to the streams as well, so every later stream death would read
 // as Cancelled — the caller's own shutdown signature — and a run that stopped observing thirty seconds in
-// would be reported as an orderly one. The budget therefore lives in this select, and the streams keep the
-// run's context.
+// would be reported as an orderly one.
+// The budget therefore lives in this select, and the streams keep the run's context.
 //
 // The End() arm is the other half, and it is not defensive padding: a stream can fail permanently BEFORE it
 // ever establishes anything (a wrapped Forbidden is the case this package has reproduced), and
-// startWatchStream has already returned a nil error by then. A bare receive on Established() would sit out the
-// whole budget on a stream that is already dead, and then report a timeout rather than the cause.
+// startWatchStream has already returned a nil error by then.
+// A bare receive on Established() would sit out the whole budget on a stream that is already dead, and then
+// report a timeout rather than the cause.
 //
 // A stream that established and then died before this loop reached it can take either arm, and both refuse:
 // this one reports the ending, and the other lets consume record the desync a moment later.
@@ -302,10 +313,12 @@ func endText(e streamEnd) string {
 // streamEvidence is what one stream established and how it ended, in the spelling the run record persists.
 //
 // The ending is carried as the three RAW facts streamEnd holds rather than as a verdict computed here, and
-// that is the point rather than laziness. The reading of those facts is one-sided — streamEnd's own comment
-// spells out why Cancelled or Stopped can never prove an ending was orderly — and the record's validity block
-// is where that asymmetry is applied, once. A "lost" bool decided at this end would put the same rule in two
-// places, and the copy a reader could check would not be the copy that decided.
+// that is the point rather than laziness.
+// The reading of those facts is one-sided — streamEnd's own comment spells out why Cancelled or Stopped can
+// never prove an ending was orderly — and the record's validity block is where that asymmetry is applied,
+// once.
+// A "lost" bool decided at this end would put the same rule in two places, and the copy a reader could check
+// would not be the copy that decided.
 type streamEvidence struct {
 	Kind string `json:"kind"`
 	// BaselineResourceVersion is the point this stream's watch resumed from, and it is the field that makes
@@ -313,19 +326,21 @@ type streamEvidence struct {
 	// neither is a point a later gap could be measured against.
 	BaselineResourceVersion string `json:"baselineResourceVersion"`
 	// BaselineObjects is what the initial List found, and on any run that got as far as submitting it is 0 —
-	// start above refuses a non-empty baseline outright. It is persisted anyway because the refusal is the
-	// record worth having: it says how much of somebody else's work was standing in a namespace this run had
-	// just created, which nothing else in the document would afterwards say.
+	// start above refuses a non-empty baseline outright.
+	// It is persisted anyway because the refusal is the record worth having: it says how much of somebody
+	// else's work was standing in a namespace this run had just created, which nothing else in the document
+	// would afterwards say.
 	BaselineObjects int `json:"baselineObjects"`
 	// Ended says End() had closed when this was captured, and it is recorded rather than assumed.
 	//
-	// It is not always true, which is the point. Every stream that has a CONSUMER is joined before run()
-	// returns — col.abort on the start failures, cancel plus col.wait on every other — but start refuses a
-	// non-empty baseline before it consumes that stream, so on that one path a stream is stopped and never
-	// joined and its ending may still be being written when this is sampled. A zero streamEnd is
-	// byte-identical to an ending with neither flag set, which is the shape that reads as a LOST stream, so
-	// without this field that refusal would persist as "the view died under us" about a view that was merely
-	// still shutting down.
+	// It is not always true, which is the point.
+	// Every stream that has a CONSUMER is joined before run() returns — col.abort on the start failures,
+	// cancel plus col.wait on every other — but start refuses a non-empty baseline before it consumes that
+	// stream, so on that one path a stream is stopped and never joined and its ending may still be being
+	// written when this is sampled.
+	// A zero streamEnd is byte-identical to an ending with neither flag set, which is the shape that reads
+	// as a LOST stream, so without this field that refusal would persist as "the view died under us" about a
+	// view that was merely still shutting down.
 	Ended     bool `json:"ended"`
 	Cancelled bool `json:"cancelled"`
 	Stopped   bool `json:"stopped"`
@@ -339,21 +354,22 @@ type streamEvidence struct {
 // It is the last of the three gates' evidence to reach the record, and the one a reader can least
 // reconstruct: qualification describes a machine and the window describes a Node, both of which an operator
 // could go and look at afterwards, while a stream's baseline and its ending exist only for as long as the
-// process does. Without this block a stored record cannot distinguish a complete observation from a truncated
-// one, which is the single property the continuity gate exists to establish.
+// process does.
+// Without this block a stored record cannot distinguish a complete observation from a truncated one, which is
+// the single property the continuity gate exists to establish.
 //
 // It is written into the record directly rather than through a second projection type, for qualification's
 // reason: every field here is a string, a bool or an int, so nothing encodes asymmetrically and nothing is an
 // iota whose declaration order would become a wire format.
 type observationEvidence struct {
 	Namespace string `json:"namespace"`
-	// HorizonNs is the denominator for EstablishedNs. Establishment is spent INSIDE the window (see
-	// establishBudget), so "four seconds" means nothing to a later reader without the window it came out of,
-	// and the horizon appears nowhere else in the record.
+	// HorizonNs is the denominator for EstablishedNs.
+	// Establishment is spent INSIDE the window (see establishBudget), so "four seconds" means nothing to a
+	// later reader without the window it came out of, and the horizon appears nowhere else in the record.
 	HorizonNs int64 `json:"horizonNs"`
-	// Established says every stream accepted a watch before anything was submitted. A false one is the
-	// strongest thing this block says: the run either never opened its streams or gave up waiting for them,
-	// and nothing it observed afterwards covers the interval it was supposed to.
+	// Established says every stream accepted a watch before anything was submitted.
+	// A false one is the strongest thing this block says: the run either never opened its streams or gave
+	// up waiting for them, and nothing it observed afterwards covers the interval it was supposed to.
 	Established       bool             `json:"established"`
 	EstablishedNs     int64            `json:"establishedNs"`
 	EstablishBudgetNs int64            `json:"establishBudgetNs"`
@@ -364,8 +380,9 @@ type observationEvidence struct {
 //
 // Ended() is only final once a stream's End() has closed, so this SAMPLES End() rather than assuming it: see
 // streamEvidence.Ended for the one path where a stream reaches here unjoined, and for why persisting its zero
-// ending would invent a loss. Nothing here reads the builder or changes any decision — the ledger's verdict
-// was taken long before this runs, and this is a projection of what the streams already were.
+// ending would invent a loss.
+// Nothing here reads the builder or changes any decision — the ledger's verdict was taken long before this
+// runs, and this is a projection of what the streams already were.
 func (col *collector) evidence(established bool, establishedIn time.Duration) *observationEvidence {
 	ev := &observationEvidence{
 		Namespace:         col.ns,
@@ -404,11 +421,12 @@ func (col *collector) wait() { col.wg.Wait() }
 //
 // LedgerBuilder has no locking of its own — invalid, events, lastEvent and ready are plain fields — and the
 // four stream consumers call Observe through flush under this mutex for the whole run, as well as calling
-// this from their own goroutines when their stream ends badly. Calling Desync
-// directly from the main goroutine is therefore a data race on the single field that decides whether the run
-// is allowed to produce a number at all, which is the one thing this package may not get wrong. The lock
-// belongs here rather than inside internal/queuelab because mu already serialises every other access to the
-// builder, and a second, independent mutex would only make that ownership ambiguous.
+// this from their own goroutines when their stream ends badly.
+// Calling Desync directly from the main goroutine is therefore a data race on the single field that decides
+// whether the run is allowed to produce a number at all, which is the one thing this package may not get
+// wrong.
+// The lock belongs here rather than inside internal/queuelab because mu already serialises every other
+// access to the builder, and a second, independent mutex would only make that ownership ambiguous.
 func (col *collector) desync(reason string) {
 	col.mu.Lock()
 	defer col.mu.Unlock()
@@ -417,12 +435,13 @@ func (col *collector) desync(reason string) {
 
 // consume folds one stream's events into the ledger and decides what that stream's ending means.
 //
-// The ending is the half that matters. An apiserver timeout no longer reaches here at all — the stream's
-// RetryWatcher resumes from the last delivered resource version and the gap is closed by the server, which is
-// what the old loop's comment claimed to do by re-listing and never did — so a stream that stops delivering
-// has stopped for a reason no reconnection can repair, and the events in the gap are lost rather than
-// delayed. The only endings this may accept are therefore the two the caller itself caused: the observation
-// context cancelled at the horizon, and an explicit Stop.
+// The ending is the half that matters.
+// An apiserver timeout no longer reaches here at all — the stream's RetryWatcher resumes from the last
+// delivered resource version and the gap is closed by the server, which is what the old loop's comment
+// claimed to do by re-listing and never did — so a stream that stops delivering has stopped for a reason no
+// reconnection can repair, and the events in the gap are lost rather than delayed.
+// The only endings this may accept are therefore the two the caller itself caused: the observation context
+// cancelled at the horizon, and an explicit Stop.
 //
 // LastStatus condemns the run even alongside those two, per streamEnd's own asymmetry: a forwarded terminal
 // status is a loss the stream actually witnessed, while a Cancelled or Stopped flag only says the caller
@@ -431,11 +450,12 @@ func (col *collector) consume(kind string, s *watchStream) {
 	col.wg.Go(func() {
 		for ev := range s.ResultChan() {
 			if ev.Type == watch.Error {
-				// No verdict is taken here, and that is deliberate rather than an omission. RetryWatcher forwards
-				// NOTHING for the errors it intends to retry — a 504, a 500, an unrecognised status all reconnect
-				// in silence — so an Error that arrives here is one it has already given up on, and forward has
-				// already recorded the Status as the ending's evidence. Judging it twice would put the run's
-				// validity in two places that could disagree; the ending below is the one that decides.
+				// No verdict is taken here, and that is deliberate rather than an omission.
+				// RetryWatcher forwards NOTHING for the errors it intends to retry — a 504, a 500, an
+				// unrecognised status all reconnect in silence — so an Error that arrives here is one it has
+				// already given up on, and forward has already recorded the Status as the ending's evidence.
+				// Judging it twice would put the run's validity in two places that could disagree; the ending
+				// below is the one that decides.
 				continue
 			}
 			obj, ok := ev.Object.(client.Object)
@@ -516,25 +536,29 @@ func (col *collector) flush() {
 // exists and the audit could not be moved anywhere it would still be sound.
 //
 // What it did: after each watch re-establishment, list Pods and mark any previously-Ready Pod that was no
-// longer present as vanished, so a stop missed during the gap between the two watches was caught. Three
-// things were wrong with it and only one was fixable here. It ran for Pods alone, so a Workload admitted and
-// preempted inside the same gap left no trace at all. Its own List failure returned silently, turning "the
-// gap could not be audited" into "the gap is fine" — the defect this task names. And it ran INSIDE the live
-// watch loop, so it could mark a Pod vanished while a terminal event for that Pod was still in flight.
+// longer present as vanished, so a stop missed during the gap between the two watches was caught.
+// Three things were wrong with it and only one was fixable here.
+// It ran for Pods alone, so a Workload admitted and preempted inside the same gap left no trace at all.
+// Its own List failure returned silently, turning "the gap could not be audited" into "the gap is fine" —
+// the defect this task names.
+// And it ran INSIDE the live watch loop, so it could mark a Pod vanished while a terminal event for that Pod
+// was still in flight.
 //
 // What replaces it is not a better audit but the removal of the thing being audited: the streams resume from
 // the last delivered resource version, so an apiserver timeout is closed by the server with no gap to inspect,
-// and any ending a resume cannot repair now invalidates the run outright in consume. There is nothing left
-// for a relist to discover that the ledger does not already know.
+// and any ending a resume cannot repair now invalidates the run outright in consume.
+// There is nothing left for a relist to discover that the ledger does not already know.
 //
 // It is deliberately not re-sited as a final List after the streams end, which is what watchStream.Ended's
-// doc suggests an adopter might do. That check would run AFTER the horizon, and everything after the horizon
-// is censored by design: a Pod that was Ready at the horizon and terminated a second later is not a missed
-// stop, it is an event outside the observation window, and marking it vanished would invalidate perfectly
-// good runs for doing exactly what the protocol expects. The same doc's other suggestion — comparing the last
-// delivered resource version against a final list's — does not survive contact with a real cluster either:
-// a list's resource version is the store's current position and advances on writes anywhere in the cluster,
-// so it is above the last delivered one on every healthy run and proves nothing.
+// doc suggests an adopter might do.
+// That check would run AFTER the horizon, and everything after the horizon is censored by design: a Pod that
+// was Ready at the horizon and terminated a second later is not a missed stop, it is an event outside the
+// observation window, and marking it vanished would invalidate perfectly good runs for doing exactly what the
+// protocol expects.
+// The same doc's other suggestion — comparing the last delivered resource version against a final list's —
+// does not survive contact with a real cluster either: a list's resource version is the store's current
+// position and advances on writes anywhere in the cluster, so it is above the last delivered one on every
+// healthy run and proves nothing.
 
 // submit creates the MLTrainingJob and records the Submitted event from the create response (not a watch),
 // so the offered-work clock cannot be observed after admission.
@@ -587,9 +611,10 @@ var errUnknownBarrier = errors.New("unknown barrier kind")
 //
 // The distinction is the point: a barrier waits for an object to APPEAR, so the ordinary failure while it
 // waits is a NotFound (already folded into "not met" by phaseIs) and every transient API error is worth
-// retrying. But an authorization failure, a kind the cluster or the scheme does not know, and a barrier this
-// tool cannot evaluate are all states that will still hold at the deadline, and polling them until the
-// horizon expires spends the entire run to report an infrastructure failure as "barrier not met".
+// retrying.
+// But an authorization failure, a kind the cluster or the scheme does not know, and a barrier this tool
+// cannot evaluate are all states that will still hold at the deadline, and polling them until the horizon
+// expires spends the entire run to report an infrastructure failure as "barrier not met".
 //
 // NotFound is deliberately NOT terminal: it is indistinguishable from an object that has not been created
 // yet, which is exactly what a barrier exists to wait for.
@@ -621,11 +646,11 @@ func waitBarrier(ctx context.Context, c client.Client, ns string, b queuelab.Bar
 		if err == nil {
 			// A check that completed and simply found the barrier unmet clears the carried error, and the
 			// comment above says why without having said so: the error is kept for a barrier that was failing
-			// "right up to the deadline". Without this line it is kept for one that failed ONCE, minutes
-			// earlier, and then polled cleanly until the horizon — and the refusal then tells an operator "the
-			// last check failed: <error>" about a check that succeeded, sending them after a connectivity
-			// problem that resolved itself. The message has to be true of the last check, which is what it
-			// claims to describe.
+			// "right up to the deadline".
+			// Without this line it is kept for one that failed ONCE, minutes earlier, and then polled cleanly
+			// until the horizon — and the refusal then tells an operator "the last check failed: <error>"
+			// about a check that succeeded, sending them after a connectivity problem that resolved itself.
+			// The message has to be true of the last check, which is what it claims to describe.
 			lastErr = nil
 		}
 		if err != nil {
@@ -674,10 +699,11 @@ func barrierHolds(ctx context.Context, c client.Client, ns string, b queuelab.Ba
 	case queuelab.BarrierPending:
 		return phaseIs(ctx, c, ns, b.Job, "Pending")
 	case queuelab.BarrierFlavorUsage:
-		// Still >=, and deliberately so despite the contract's word "equals". Usage is sampled by polling, so
-		// an exact match can be stepped over between two reads and the barrier would then wait out its whole
-		// deadline on a run that had already reached the state. The contract wording is corrected to say
-		// "reaches" rather than "equals"; the threshold is what was always meant.
+		// Still >=, and deliberately so despite the contract's word "equals".
+		// Usage is sampled by polling, so an exact match can be stepped over between two reads and the
+		// barrier would then wait out its whole deadline on a run that had already reached the state.
+		// The contract wording is corrected to say "reaches" rather than "equals"; the threshold is what was
+		// always meant.
 		n, err := flavorUsage(ctx, c, queuelab.FlavorName(col.runID))
 		return n >= int64(b.Count), err
 	case queuelab.BarrierDelayFromReady:
@@ -707,11 +733,13 @@ func phaseIs(ctx context.Context, c client.Client, ns, name, want string) (bool,
 // flavorUsage returns the GPU total Kueue reports as used against this run's ResourceFlavor.
 //
 // This barrier's contract is that the flavor's OBSERVED usage reached Count, which is what establishes that
-// borrowing took effect before the next step is submitted. The implementation used to sum the declared
-// Spec.GPUCount of MLTrainingJobs this operator had marked Running — three steps removed from the claim:
-// it read our own phase field rather than Kueue's accounting, it counted what a job ASKED for rather than
-// what was charged, and it summed a whole namespace rather than one flavor. Every one of those can hold
-// while Kueue has admitted nothing, and this barrier exists precisely to decide that question.
+// borrowing took effect before the next step is submitted.
+// The implementation used to sum the declared Spec.GPUCount of MLTrainingJobs this operator had marked
+// Running — three steps removed from the claim: it read our own phase field rather than Kueue's accounting,
+// it counted what a job ASKED for rather than what was charged, and it summed a whole namespace rather than
+// one flavor.
+// Every one of those can hold while Kueue has admitted nothing, and this barrier exists precisely to decide
+// that question.
 //
 // Reading the ClusterQueue's status is the observation the contract already promised.
 func flavorUsage(ctx context.Context, c client.Client, flavor string) (int64, error) {
@@ -739,11 +767,13 @@ func flavorUsage(ctx context.Context, c client.Client, flavor string) (int64, er
 func submit(ctx context.Context, c client.Client, col *collector, arm queuelab.Arm,
 	row queuelab.TrainingTraceRow, ns string) error {
 	// The arm decides two things about a row -- the termination contract and the duty cycle -- and both are
-	// per row rather than per arm because the treatment is the VICTIM's behaviour. Rendering the whole arm
-	// under one of them would change all three manifests when exactly one is meant to differ.
+	// per row rather than per arm because the treatment is the VICTIM's behaviour.
+	// Rendering the whole arm under one of them would change all three manifests when exactly one is meant
+	// to differ.
 	//
-	// Resolved in ONE call on purpose. This used to apply them separately, and dropping the duty line
-	// compiled, rendered the other arm's workload under this arm's label, and no test noticed.
+	// Resolved in ONE call on purpose.
+	// This used to apply them separately, and dropping the duty line compiled, rendered the other
+	// arm's workload under this arm's label, and no test noticed.
 	mltj, err := queuelab.RenderForArm(arm, row, ns)
 	if err != nil {
 		return err
@@ -768,18 +798,20 @@ func ensureNamespace(ctx context.Context, c client.Client, ns, txID string) erro
 	err := c.Create(ctx, created)
 	if err == nil {
 		// What went into the Create body is a REQUEST; recoverTargets decides ownership by what the cluster
-		// actually stored. A mutating webhook or a namespace label policy that drops labels it does not
-		// recognise makes those two different, and then this run's own namespace reads foreign at teardown:
-		// nothing of ours is in the residue, so the worker is released — label and NoSchedule taint off — over
-		// a namespace this run created and may still be running GPU Pods in.
+		// actually stored.
+		// A mutating webhook or a namespace label policy that drops labels it does not recognise makes those
+		// two different, and then this run's own namespace reads foreign at teardown: nothing of ours is in
+		// the residue, so the worker is released — label and NoSchedule taint off — over a namespace this run
+		// created and may still be running GPU Pods in.
 		//
-		// No second Get is needed to see it. The typed client posts the object and decodes the RESPONSE, which
-		// is the persisted object, back into the very pointer it was given, having zeroed that pointer first
-		// (controller-runtime's targetZeroingDecoder) — so what stands here after Create is what admission
-		// stored, not what we sent, and a stale label cannot survive by having merged with the response.
+		// No second Get is needed to see it.
+		// The typed client posts the object and decodes the RESPONSE, which is the persisted object, back into
+		// the very pointer it was given, having zeroed that pointer first (controller-runtime's
+		// targetZeroingDecoder) — so what stands here after Create is what admission stored, not what we sent,
+		// and a stale label cannot survive by having merged with the response.
 		// Measured on this module's pinned versions against a stub apiserver, for a dropped label, a replaced
-		// label map and a rewritten value alike. A Get would only add a round trip and a window for the answer
-		// to change between the two reads.
+		// label map and a rewritten value alike.
+		// A Get would only add a round trip and a window for the answer to change between the two reads.
 		if got := created.Labels[queuelab.TxLabel]; got != txID {
 			return deleteUnstamped(ctx, c, created, fmt.Errorf(
 				"namespace %s was created but the cluster stored it under stamp %q, not this run's %q; "+
@@ -795,8 +827,9 @@ func ensureNamespace(ctx context.Context, c client.Client, ns, txID string) erro
 	// alone, so the same name is exactly what a reused run id or a crashed previous attempt leaves behind.
 	//
 	// A delete landing between the Create above and this Get turns AlreadyExists into NotFound here and
-	// fails this run closed with a slightly misleading "could not be read" rather than a clean retry. Fine:
-	// the alternative is silently proceeding on an ownership question this read could not actually answer.
+	// fails this run closed with a slightly misleading "could not be read" rather than a clean retry.
+	// Fine: the alternative is silently proceeding on an ownership question this read could not actually
+	// answer.
 	var existing corev1.Namespace
 	if gerr := c.Get(ctx, client.ObjectKey{Name: ns}, &existing); gerr != nil {
 		return fmt.Errorf("namespace %s exists but could not be read to check ownership: %w", ns, gerr)
@@ -812,36 +845,41 @@ func ensureNamespace(ctx context.Context, c client.Client, ns, txID string) erro
 //
 // Refusing without deleting would not close anything: the namespace would still be there, still unstamped,
 // still unclaimable by any teardown this run or a later one performs, and the worker release that follows a
-// residue of nothing-but-foreign would be as wrong as before — the hole would only be announced. Deleting it
-// leaves the cluster as this run found it, which is what makes that release correct rather than accidentally
-// correct.
+// residue of nothing-but-foreign would be as wrong as before — the hole would only be announced.
+// Deleting it leaves the cluster as this run found it, which is what makes that release correct rather than
+// accidentally correct.
 //
-// This is safe precisely here and nowhere else. A nil from Create is the apiserver reporting that THIS request
-// created the object — client-go never retries a write on a transport error (rest.Request's own
-// isErrRetryableFunc returns false for anything but GET), so a nil cannot be a second POST's view of an object
-// someone else made — and run() creates nothing inside the namespace until applyFixtures, which is the very
-// next call. So there is nothing in there to destroy.
+// This is safe precisely here and nowhere else.
+// A nil from Create is the apiserver reporting that THIS request created the object — client-go never retries
+// a write on a transport error (rest.Request's own isErrRetryableFunc returns false for anything but GET), so
+// a nil cannot be a second POST's view of an object someone else made — and run() creates nothing inside the
+// namespace until applyFixtures, which is the very next call.
+// So there is nothing in there to destroy.
 //
-// What it does NOT do is wait. A namespace delete is asynchronous, so on a real cluster the deferred teardown
-// that follows still finds the name held by a terminating, unstamped object and records it as foreign residue
-// — under a stderr line saying nothing this run created is still on the cluster, which is still not literally
-// true. The difference this makes is the one that matters: the worker release that follows is now correct
-// rather than accidentally correct, because the namespace being reported is empty and on its way out instead
-// of live and holding GPU Pods. Measured through run() both ways: with the delete settling at once there is no
-// residue at all, and with it lingering the residue is one foreign namespace and the worker is released.
+// What it does NOT do is wait.
+// A namespace delete is asynchronous, so on a real cluster the deferred teardown that follows still finds the
+// name held by a terminating, unstamped object and records it as foreign residue — under a stderr line saying
+// nothing this run created is still on the cluster, which is still not literally true.
+// The difference this makes is the one that matters: the worker release that follows is now correct rather
+// than accidentally correct, because the namespace being reported is empty and on its way out instead of live
+// and holding GPU Pods.
+// Measured through run() both ways: with the delete settling at once there is no residue at all, and with it
+// lingering the residue is one foreign namespace and the worker is released.
 //
 // The UID precondition is the same one every delete in teardown_apply.go carries, for the same reason: between
 // the Create and this Delete another actor can remove the name and recreate it, and an unconditioned
-// delete-by-name would destroy that replacement instead. The UID comes from the Create response, so it is the
-// object this call made and nothing else; an empty one would make the apiserver refuse the delete rather than
-// widen it to the name, which is the direction to fail in.
+// delete-by-name would destroy that replacement instead.
+// The UID comes from the Create response, so it is the object this call made and nothing else; an empty one
+// would make the apiserver refuse the delete rather than widen it to the name, which is the direction to fail
+// in.
 func deleteUnstamped(ctx context.Context, c client.Client, created *corev1.Namespace, cause error) error {
 	uid := created.GetUID()
 	derr := c.Delete(ctx, &corev1.Namespace{Name: created.GetName()},
 		client.Preconditions{UID: &uid})
-	// NotFound is the state this function exists to reach, by someone else's hand. Anything else is a namespace
-	// left on the cluster under no stamp any teardown can recognise, and that must never reach the caller as
-	// the ordinary "the stamp did not land" refusal — it is the one outcome here that needs a pair of hands.
+	// NotFound is the state this function exists to reach, by someone else's hand.
+	// Anything else is a namespace left on the cluster under no stamp any teardown can recognise, and that must
+	// never reach the caller as the ordinary "the stamp did not land" refusal — it is the one outcome here that
+	// needs a pair of hands.
 	if derr != nil && !apierrors.IsNotFound(derr) {
 		return fmt.Errorf("%w; and it could not be deleted: %w — it is on the cluster under no stamp this run's "+
 			"teardown can recognise and has to be removed by hand", cause, derr)
@@ -852,9 +890,10 @@ func deleteUnstamped(ctx context.Context, c client.Client, created *corev1.Names
 // applyFixtures creates the run's Kueue fixtures, first checking that a cluster-scoped ResourceFlavor left
 // behind by an earlier run under this run id (only the namespace is ever cleaned up by hand) was built for
 // the same policy variant this arm requires, so a reused run id cannot silently execute under a different
-// arm's mechanism. That check is about the VARIANT a name was built for; createOwned below is a separate
-// question about which TRANSACTION created the name, and both must hold before an existing object is
-// treated as this run's own.
+// arm's mechanism.
+// That check is about the VARIANT a name was built for; createOwned below is a separate question about
+// which TRANSACTION created the name, and both must hold before an existing object is treated as this
+// run's own.
 func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet, wantVariant, txID string) error {
 	var existing kueuev1beta2.ResourceFlavor
 	err := c.Get(ctx, client.ObjectKey{Name: fs.Flavor.GetName()}, &existing)
@@ -891,11 +930,12 @@ func createOwned(ctx context.Context, c client.Client, o client.Object, txID str
 	if err == nil {
 		// A successful Create is not proof the stamp landed. controller-runtime decodes the apiserver's
 		// response back into o, so what stands in o now is what admission stored — the same reason
-		// ensureNamespace checks its own object here rather than issuing a second read. An admission plugin
-		// that dropped or rewrote TxLabel would leave an object no teardown of this run can recognise as ours,
-		// and the run would go on to measure inside it.
+		// ensureNamespace checks its own object here rather than issuing a second read.
+		// An admission plugin that dropped or rewrote TxLabel would leave an object no teardown of this run
+		// can recognise as ours, and the run would go on to measure inside it.
 		//
-		// A re-read would answer the same question for the cost of another round trip. This does not need one.
+		// A re-read would answer the same question for the cost of another round trip.
+		// This does not need one.
 		if got := o.GetLabels()[queuelab.TxLabel]; got != txID {
 			return deleteUnstampedObject(ctx, c, o, fmt.Errorf(
 				"%T %s/%s was created carrying transaction %q rather than this run's %q; an object this "+
@@ -918,8 +958,9 @@ func createOwned(ctx context.Context, c client.Client, o client.Object, txID str
 	}
 	// A delete landing between the Create above and this Get (another actor removing the very object we
 	// just failed to create) turns AlreadyExists into NotFound here and fails this run closed with a
-	// slightly misleading "could not be read" rather than a clean retry. Fine: the alternative is silently
-	// proceeding on an ownership question this read could not actually answer.
+	// slightly misleading "could not be read" rather than a clean retry.
+	// Fine: the alternative is silently proceeding on an ownership question this read could not actually
+	// answer.
 	if gerr := c.Get(ctx, client.ObjectKey{Namespace: o.GetNamespace(), Name: o.GetName()}, existing); gerr != nil {
 		return fmt.Errorf("exists but could not be read to check ownership: %w", gerr)
 	}
@@ -927,10 +968,12 @@ func createOwned(ctx context.Context, c client.Client, o client.Object, txID str
 		return fmt.Errorf("already exists under transaction %q, not this run's %q; "+
 			"clear it before rerunning rather than running inside another attempt's object", got, txID)
 	}
-	// Same transaction is not the same object. The label says who created it; it says nothing about WHAT was
-	// created, and what was created is the mechanism this lab exists to measure. A ClusterQueue adopted here
-	// with a different reclaimWithinCohort would let the run report an arm it never executed — the exact
-	// failure the variant precheck guards for ResourceFlavors, generalised to the specs that carry the knob.
+	// Same transaction is not the same object.
+	// The label says who created it; it says nothing about WHAT was created, and what was created is the
+	// mechanism this lab exists to measure.
+	// A ClusterQueue adopted here with a different reclaimWithinCohort would let the run report an arm it
+	// never executed — the exact failure the variant precheck guards for ResourceFlavors, generalised to the
+	// specs that carry the knob.
 	if merr := sameMechanism(o, existing); merr != nil {
 		return fmt.Errorf("already exists under this transaction but %w; clear it before rerunning rather than "+
 			"measuring a mechanism this arm did not declare", merr)
@@ -949,9 +992,9 @@ func deleteUnstampedObject(ctx context.Context, c client.Client, created client.
 		return fmt.Errorf("%w; and it could not be prepared for deletion", cause)
 	}
 	derr := c.Delete(ctx, stub, client.Preconditions{UID: &uid})
-	// NotFound is the state this function exists to reach, by someone else's hand. Anything else leaves an
-	// object on the cluster under no stamp any teardown can recognise, which needs a pair of hands rather
-	// than the ordinary "the stamp did not land" refusal.
+	// NotFound is the state this function exists to reach, by someone else's hand.
+	// Anything else leaves an object on the cluster under no stamp any teardown can recognise, which needs
+	// a pair of hands rather than the ordinary "the stamp did not land" refusal.
 	if derr != nil && !apierrors.IsNotFound(derr) {
 		return fmt.Errorf("%w; and it could not be deleted: %w — it is on the cluster under no stamp this run's "+
 			"teardown can recognise and has to be removed by hand", cause, derr)
@@ -962,14 +1005,15 @@ func deleteUnstampedObject(ctx context.Context, c client.Client, created client.
 // sameMechanism reports whether an adopted object still implements the experiment this arm declared.
 //
 // Not whole-spec equality: the apiserver defaults and mutates fields the experiment does not care about, and
-// comparing everything would refuse every adoption for reasons unrelated to what is being measured. What is
-// compared is every field that DEFINES the experiment, enumerated explicitly so that adding a study forces a
-// decision about its knob rather than silently inheriting an incomplete check.
+// comparing everything would refuse every adoption for reasons unrelated to what is being measured.
+// What is compared is every field that DEFINES the experiment, enumerated explicitly so that adding a study
+// forces a decision about its knob rather than silently inheriting an incomplete check.
 //
-// The first version compared only the reclaim study's knob and the cohort. It therefore let a StrictFIFO
-// queue satisfy a BestEffortFIFO arm — the exact contamination it existed to prevent, for the OTHER of the
-// two studies, whose one varied knob is queueingStrategy. A check that covers one study's mechanism and not
-// the other's is worse than none, because it reads as coverage.
+// The first version compared only the reclaim study's knob and the cohort.
+// It therefore let a StrictFIFO queue satisfy a BestEffortFIFO arm — the exact contamination it existed to
+// prevent, for the OTHER of the two studies, whose one varied knob is queueingStrategy.
+// A check that covers one study's mechanism and not the other's is worse than none, because it reads as
+// coverage.
 func sameMechanism(want, got client.Object) error {
 	switch w := want.(type) {
 	case *kueuev1beta2.ClusterQueue:
@@ -1013,13 +1057,16 @@ func sameMechanism(want, got client.Object) error {
 // arms measure: the storage class.
 //
 // Falling through to the default nil would have been the silent case this function's own doc comment warns
-// about. A claim left by an earlier attempt under the SAME transaction carries the class that attempt was
-// given, so an operator who reran with a different -state-class would adopt the old volume and record the
-// result as the new class's. The arms exist to contrast a restored file against a fresh one, and whether
-// the file survives at all is the class's behaviour.
+// about.
+// A claim left by an earlier attempt under the SAME transaction carries the class that attempt was given,
+// so an operator who reran with a different -state-class would adopt the old volume and record the result
+// as the new class's.
+// The arms exist to contrast a restored file against a fresh one, and whether the file survives at all is
+// the class's behaviour.
 //
-// Size and access mode are deliberately not compared. The file is one short line, so no size this lab would
-// ever request can change the reading, and the access mode cannot either while parallelism is pinned to 1.
+// Size and access mode are deliberately not compared.
+// The file is one short line, so no size this lab would ever request can change the reading, and the access
+// mode cannot either while parallelism is pinned to 1.
 // Comparing them would refuse adoptions for reasons the measurement does not depend on.
 func sameStateClaim(w, g *corev1.PersistentVolumeClaim) error {
 	// Compared through a helper rather than as pointers because nil and a pointer to "" are different values
@@ -1049,8 +1096,8 @@ func sameClusterQueue(w, g *kueuev1beta2.ClusterQueue) error {
 			g.Spec.QueueingStrategy, w.Spec.QueueingStrategy)
 	}
 	// The reclaim study's one varied knob, plus the in-queue policy that decides whether a waiting workload
-	// can displace a running one. Both are preemption behaviour; a run adopting either from another arm
-	// measures that arm.
+	// can displace a running one.
+	// Both are preemption behaviour; a run adopting either from another arm measures that arm.
 	wp, gp := w.Spec.Preemption, g.Spec.Preemption
 	if (wp == nil) != (gp == nil) {
 		return fmt.Errorf("one of the two has no preemption policy at all")
@@ -1064,9 +1111,10 @@ func sameClusterQueue(w, g *kueuev1beta2.ClusterQueue) error {
 			return fmt.Errorf("its withinClusterQueue is %q, not the %q this arm declared",
 				gp.WithinClusterQueue, wp.WithinClusterQueue)
 		}
-		// The third preemption knob. It decides whether a workload may preempt in order to keep BORROWING
-		// rather than to fit inside its own nominal quota, which is a distinct behaviour from the two above
-		// and the one the reclaim study's cohort arrangement exists to exercise.
+		// The third preemption knob.
+		// It decides whether a workload may preempt in order to keep BORROWING rather than to fit inside
+		// its own nominal quota, which is a distinct behaviour from the two above and the one the reclaim
+		// study's cohort arrangement exists to exercise.
 		if borrowPolicy(wp.BorrowWithinCohort) != borrowPolicy(gp.BorrowWithinCohort) {
 			return fmt.Errorf("its borrowWithinCohort policy is %q, not the %q this arm declared",
 				borrowPolicy(gp.BorrowWithinCohort), borrowPolicy(wp.BorrowWithinCohort))
@@ -1078,9 +1126,9 @@ func sameClusterQueue(w, g *kueuev1beta2.ClusterQueue) error {
 		return fmt.Errorf("its stopPolicy is %q, not the %q this arm declared",
 			stopPolicy(g.Spec.StopPolicy), stopPolicy(w.Spec.StopPolicy))
 	}
-	// The fixture declares an empty selector, meaning every namespace may submit to this queue. A selector
-	// that is absent or narrowed can exclude this run's own namespace, and Kueue reports that by simply not
-	// admitting: the arm would measure a queue nothing reached.
+	// The fixture declares an empty selector, meaning every namespace may submit to this queue.
+	// A selector that is absent or narrowed can exclude this run's own namespace, and Kueue reports that by
+	// simply not admitting: the arm would measure a queue nothing reached.
 	if selectsAllNamespaces(w) != selectsAllNamespaces(g) {
 		return fmt.Errorf("it admits from %s, where this arm declared %s",
 			admittedNamespaceScope(g), admittedNamespaceScope(w))
@@ -1095,8 +1143,9 @@ func sameClusterQueue(w, g *kueuev1beta2.ClusterQueue) error {
 	if w.Spec.CohortName != g.Spec.CohortName {
 		return fmt.Errorf("it belongs to cohort %q, not %q", g.Spec.CohortName, w.Spec.CohortName)
 	}
-	// Quota is capacity, and capacity decides whether borrowing was ever possible. A queue adopted with a
-	// different nominal quota changes what the run is able to observe before any policy applies.
+	// Quota is capacity, and capacity decides whether borrowing was ever possible.
+	// A queue adopted with a different nominal quota changes what the run is able to observe before any
+	// policy applies.
 	if err := sameQuota(w.Spec.ResourceGroups, g.Spec.ResourceGroups); err != nil {
 		return err
 	}
@@ -1106,8 +1155,9 @@ func sameClusterQueue(w, g *kueuev1beta2.ClusterQueue) error {
 // The four helpers below render an optional policy field as a single comparable string.
 //
 // Each of these is a pointer or a nested struct where "unset" and "set to the zero value" are different
-// facts, and comparing the pointers directly would compare addresses. Rendering both sides through the same
-// function is also what puts the same spelling in the comparison and in the error message.
+// facts, and comparing the pointers directly would compare addresses.
+// Rendering both sides through the same function is also what puts the same spelling in the comparison and
+// in the error message.
 func stopPolicy(p *kueuev1beta2.StopPolicy) string {
 	if p == nil {
 		return "None"
@@ -1130,8 +1180,9 @@ func fungibility(f *kueuev1beta2.FlavorFungibility) string {
 }
 
 // selectsAllNamespaces reports whether the queue's selector matches every namespace, which is what an empty
-// (but present) selector means. A nil selector matches NOTHING, so the two are opposites rather than
-// variations, and the distinction is the whole reason this is not a nil check.
+// (but present) selector means.
+// A nil selector matches NOTHING, so the two are opposites rather than variations, and the distinction is
+// the whole reason this is not a nil check.
 func selectsAllNamespaces(cq *kueuev1beta2.ClusterQueue) bool {
 	s := cq.Spec.NamespaceSelector
 	return s != nil && len(s.MatchLabels) == 0 && len(s.MatchExpressions) == 0
@@ -1185,8 +1236,9 @@ func sameQuota(want, got []kueuev1beta2.ResourceGroup) error {
 // sameFlavor compares the fields that isolate one run's workloads onto its own dedicated node.
 //
 // The variant label on a flavor says which arm it was BUILT for and nothing about whether its isolation is
-// intact. A flavor adopted without its node selector, taint or toleration lets this run's pods land beside
-// another run's, which contaminates every timing the run then reports.
+// intact.
+// A flavor adopted without its node selector, taint or toleration lets this run's pods land beside another
+// run's, which contaminates every timing the run then reports.
 func sameFlavor(w, g *kueuev1beta2.ResourceFlavor) error {
 	if !maps.Equal(w.Spec.NodeLabels, g.Spec.NodeLabels) {
 		return fmt.Errorf("its nodeLabels are %v, not the %v that pin this run to its own worker",

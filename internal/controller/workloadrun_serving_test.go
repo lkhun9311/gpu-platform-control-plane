@@ -25,8 +25,10 @@ import (
 
 // isServing decides whether a WorkloadRun's target is carrying work, and one of its branches cannot be reached
 // through the API at all: the target-kind enum admits only InferenceDeployment and NodeHealth, so an
-// unrecognised kind has no envtest path. Mutating that branch to return "serving" left the whole suite green,
-// which is the signature of a guard nothing tests. This calls the function directly instead.
+// unrecognised kind has no envtest path.
+// Mutating that branch to return "serving" left the whole suite green, which is the signature of a guard
+// nothing tests.
+// This calls the function directly instead.
 
 func targetWith(phase string, ready *int64) *unstructured.Unstructured {
 	status := map[string]any{}
@@ -65,9 +67,9 @@ func TestIsServingRequiresAReadyReplicaForInferenceDeployment(t *testing.T) {
 	}
 }
 
-// A phase that is not the healthy one is never serving, whatever the replica count says. A Degraded deployment
-// with replicas still counted as ready is the case that matters -- the rollout failed, and the run must see a
-// failure rather than health.
+// A phase that is not the healthy one is never serving, whatever the replica count says.
+// A Degraded deployment with replicas still counted as ready is the case that matters -- the rollout failed,
+// and the run must see a failure rather than health.
 func TestIsServingNeedsTheHealthyPhaseFirst(t *testing.T) {
 	three := int64(3)
 	for _, kind := range []string{"InferenceDeployment", "NodeHealth"} {
@@ -84,7 +86,8 @@ func TestIsServingNeedsTheHealthyPhaseFirst(t *testing.T) {
 }
 
 // NodeHealth has no replica concept: its status carries a phase, a fault signal and conditions, so Ready is the
-// whole of the judgment. Requiring a replica count here would make every node run unhealthy forever.
+// whole of the judgment.
+// Requiring a replica count here would make every node run unhealthy forever.
 func TestIsServingAcceptsAReadyNodeHealth(t *testing.T) {
 	got, err := isServing("NodeHealth", "Ready", targetWith("Ready", nil))
 	if err != nil {
@@ -97,9 +100,10 @@ func TestIsServingAcceptsAReadyNodeHealth(t *testing.T) {
 
 // The branch no API path can reach.
 //
-// The kind enum admits two values today. A third added later without a rule here must NOT default to healthy:
-// a run would award Recovered for a target nobody taught this function to judge. So the default refuses, and
-// says which kind it does not know.
+// The kind enum admits two values today.
+// A third added later without a rule here must NOT default to healthy: a run would award Recovered for a
+// target nobody taught this function to judge.
+// So the default refuses, and says which kind it does not know.
 func TestIsServingRefusesAKindItHasNoRuleFor(t *testing.T) {
 	got, err := isServing("GpuSharingBenchmark", "Ready", targetWith("Ready", nil))
 	if err == nil {

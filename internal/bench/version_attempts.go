@@ -123,8 +123,10 @@ func (s *journalState) apply(r journalRecord) error {
 // applyFault closes the attempt the failed record belonged to as stopped, whichever of its records failed.
 //
 // A failed start whose line never reached the file names a block the journal has not seen: no cell ran, so only the
-// campaign stops. A failed end may be whole on disk with its durability unknown, so the attempt it ended is stopped
-// whatever status it gave. A failed archive names block 0 and reopens the ledger, since the archive is not established.
+// campaign stops.
+// A failed end may be whole on disk with its durability unknown, so the attempt it ended is stopped whatever status it
+// gave.
+// A failed archive names block 0 and reopens the ledger, since the archive is not established.
 func (s *journalState) applyFault(r journalRecord) error {
 	if r.Reason == "" {
 		return fmt.Errorf("fault record for block %d has no reason", r.Block)
@@ -368,8 +370,9 @@ type JournalRecovery struct {
 // RecoverAttemptJournal makes a journal left by a crash readable again, and records the open attempt as stopped.
 //
 // Stopped, not invalid: the registration replaces a block only for an established instrumentation, protocol or external
-// failure, and an interrupted runner establishes none of them. So the campaign ends there as an incomplete pilot, and the
-// interrupted block's manifests are cells of an attempted block that is not analysed.
+// failure, and an interrupted runner establishes none of them.
+// So the campaign ends there as an incomplete pilot, and the interrupted block's manifests are cells of an attempted
+// block that is not analysed.
 // The end is stamped at now, the recovery time, because that is the earliest time the attempt is known to have ended by.
 func RecoverAttemptJournal(path, campaign string, now time.Time) (JournalRecovery, error) {
 	s, tail, whole, err := readJournal(path, campaign)

@@ -23,14 +23,15 @@ import (
 
 // A request the engine never answered is not a request that carried the wrong length.
 //
-// WHY THIS FILE EXISTS, measured 2026-10-03. The first version of reading 4e had TWO buckets: counted, and
-// everything else. Re-scoring the ten-cell archive then came back uncomputable on the strength of ONE row of
-// 47,245 -- an HTTP 502 with errorKind "http", no response body and no engineInputTokens key at all. Nothing
-// was wrong with that run's load; a single request failed in transport, and a failed request cannot carry a
-// prompt-token count.
+// WHY THIS FILE EXISTS, measured 2026-10-03.
+// The first version of reading 4e had TWO buckets: counted, and everything else.
+// Re-scoring the ten-cell archive then came back uncomputable on the strength of ONE row of 47,245 -- an
+// HTTP 502 with errorKind "http", no response body and no engineInputTokens key at all.
+// Nothing was wrong with that run's load; a single request failed in transport, and a failed request cannot
+// carry a prompt-token count.
 //
-// Folding that in with a genuine accounting hole made a transport failure speak as an instrument failure. So
-// there are three buckets now, and this file pins the one the real archives cannot demonstrate: "answered
+// Folding that in with a genuine accounting hole made a transport failure speak as an instrument failure.
+// So there are three buckets now, and this file pins the one the real archives cannot demonstrate: "answered
 // but uncounted" is zero rows across all three of them, which is exactly why it needs a written fixture
 // rather than an archive.
 //
@@ -73,8 +74,9 @@ func TestTheDeclaredLoadGateSeparatesAFailedRequestFromAnAccountingHole(t *testi
 			wantDetail:   "No count was obtained for 1 request(s)",
 		},
 		{
-			// Many failures are still not a load disagreement. Whether a run that lost this much traffic is
-			// worth reading at all is reading 4's and 4b's question, and they ask it over the same rows.
+			// Many failures are still not a load disagreement.
+			// Whether a run that lost this much traffic is worth reading at all is reading 4's and 4b's
+			// question, and they ask it over the same rows.
 			//
 			// But the BOUND has to move with them: 412 unverified rows beside 23,970 scored ones is a
 			// different claim from one unverified row, and a pass that reads identically either way is the
@@ -85,8 +87,9 @@ func TestTheDeclaredLoadGateSeparatesAFailedRequestFromAnAccountingHole(t *testi
 			wantDetail:   "At most 412 of 24382 scored requests could therefore disagree",
 		},
 		{
-			// THIS one blocks. A 200 went through usage accounting and came back with no count, which is a
-			// hole in the instrument rather than a failed request.
+			// THIS one blocks.
+			// A 200 went through usage accounting and came back with no count, which is a hole in the
+			// instrument rather than a failed request.
 			name:              "one request was answered and still not counted",
 			answeredUncounted: map[string]int{PremiumTenant: 1},
 			notEvaluable:      true,
@@ -126,8 +129,9 @@ func TestTheDeclaredLoadGateSeparatesAFailedRequestFromAnAccountingHole(t *testi
 // A pass whose run lost requests says so, and narrows what it claims.
 //
 // "Every request carried the declared length" would be false: some requests got no answer, and nothing here
-// knows what they carried. The wording has to be "every request the engine ANSWERED", or the gate overstates
-// itself in exactly the way its own closing sentence warns against.
+// knows what they carried.
+// The wording has to be "every request the engine ANSWERED", or the gate overstates itself in exactly the
+// way its own closing sentence warns against.
 func TestAPassingDeclaredLoadGateDoesNotClaimTheRequestsThatFailed(t *testing.T) {
 	got := EvaluateDeclaredLoad([]ArmSummary{
 		declaredLoadArmWithFailures(ArmShared,
@@ -145,13 +149,15 @@ func TestAPassingDeclaredLoadGateDoesNotClaimTheRequestsThatFailed(t *testing.T)
 	if !strings.Contains(got.Detail, "not verified by this evidence") {
 		t.Errorf("the pass does not say that the failed requests are outside its claim:\n%s", got.Detail)
 	}
-	// The bound, not just the count. Three unverified rows out of 113 scored means the evidence permits a
-	// mismatch rate up to 3/113, and a reader who is given only "3 requests failed" has to work that out.
+	// The bound, not just the count.
+	// Three unverified rows out of 113 scored means the evidence permits a mismatch rate up to 3/113, and
+	// a reader who is given only "3 requests failed" has to work that out.
 	if !strings.Contains(got.Detail, "At most 3 of 113 scored requests could therefore disagree") {
 		t.Errorf("the pass does not state the bound the evidence permits:\n%s", got.Detail)
 	}
-	// And it must NOT describe what the engine did. A 502 is what the client obtained; the request may have
-	// reached the engine, been prefilled and measured, and lost its response on the way back.
+	// And it must NOT describe what the engine did.
+	// A 502 is what the client obtained; the request may have reached the engine, been prefilled and
+	// measured, and lost its response on the way back.
 	for _, overclaim := range []string{"had no opportunity", "the engine never received", "was not prefilled"} {
 		if strings.Contains(got.Detail, overclaim) {
 			t.Errorf("the detail says %q, which a failed response does not establish:\n%s",
@@ -165,8 +171,9 @@ func TestAPassingDeclaredLoadGateDoesNotClaimTheRequestsThatFailed(t *testing.T)
 // Found by an independent review of the diff, not by this test suite: the first version appended the bound
 // to every outcome, so 100 agreeing rows, 10 reported mismatches and one unanswered request printed "At most
 // 1 of 101 scored requests could therefore disagree" directly beside a FIRED verdict that had already found
-// ten of them. U/(agreed+U) is the evidence's maximum only when the unanswered rows are the ONLY unverified
-// category, and a number printed next to a refusal is read as a measurement of it.
+// ten of them.
+// U/(agreed+U) is the evidence's maximum only when the unanswered rows are the ONLY unverified category, and
+// a number printed next to a refusal is read as a measurement of it.
 func TestTheMismatchBoundIsPrintedOnlyWhereItHolds(t *testing.T) {
 	frozen := &FrozenTuple{PremiumInputTokens: 256, ContenderInputTokens: 8192}
 	const bound = "could therefore disagree"
@@ -177,8 +184,9 @@ func TestTheMismatchBoundIsPrintedOnlyWhereItHolds(t *testing.T) {
 		wantBound bool
 	}{
 		{
-			// The review's own example. A bound of 1/101 beside ten confirmed mismatches is worse than no
-			// bound at all: it reads as "almost everything checked out".
+			// The review's own example.
+			// A bound of 1/101 beside ten confirmed mismatches is worse than no bound at all: it reads as
+			// "almost everything checked out".
 			name: "a reported mismatch beside an unanswered request",
 			arm: declaredLoadArmWithFailures(ArmShared,
 				map[string]map[int]int{PremiumTenant: {256: 100, 512: 10}},
@@ -233,18 +241,20 @@ func TestTheMismatchBoundIsPrintedOnlyWhereItHolds(t *testing.T) {
 
 // A negative count is classified as a broken value, and classified BEFORE the response status is read.
 //
-// WHY THIS TEST EXISTS, measured 2026-10-03. Two mutations of the negative handling left the whole suite
-// GREEN: deleting the classification entirely, and moving it behind the status check. Both passed because
-// every other test in this file hands EvaluateDeclaredLoad a pre-built ArmSummary and so never runs
-// tallyEngineInputTokens at all.
+// WHY THIS TEST EXISTS, measured 2026-10-03.
+// Two mutations of the negative handling left the whole suite GREEN: deleting the classification
+// entirely, and moving it behind the status check.
+// Both passed because every other test in this file hands EvaluateDeclaredLoad a pre-built ArmSummary and
+// so never runs tallyEngineInputTokens at all.
 //
 // That is the same defect I had just written a note to myself about, repeated within the hour: a fixture
-// that starts after the aggregation cannot test the aggregation. The only cure is to feed RawRow through
-// Summarize and assert on which bucket the row landed in.
+// that starts after the aggregation cannot test the aggregation.
+// The only cure is to feed RawRow through Summarize and assert on which bucket the row landed in.
 //
-// The ORDER matters on its own. A negative on a failed row is still a broken value, and the failed-row
-// bucket is the one that does not block -- so classifying by status first would file the nonsense under the
-// verdict that lets a run through.
+// The ORDER matters on its own.
+// A negative on a failed row is still a broken value, and the failed-row bucket is the one that does not
+// block -- so classifying by status first would file the nonsense under the verdict that lets a run
+// through.
 func TestANegativeCountIsABrokenValueWhateverTheResponseWas(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -256,8 +266,9 @@ func TestANegativeCountIsABrokenValueWhateverTheResponseWas(t *testing.T) {
 			row:  RawRow{HTTPStatus: httpStatusOK, EngineInputTokens: -1, OutputTokens: 16},
 		},
 		{
-			// The case the two green mutations both got wrong. Reordering sends this to the unanswered
-			// bucket, where it stops blocking and the run proceeds on a trace whose recorder is broken.
+			// The case the two green mutations both got wrong.
+			// Reordering sends this to the unanswered bucket, where it stops blocking and the run
+			// proceeds on a trace whose recorder is broken.
 			name: "a negative on a failed response",
 			row:  RawRow{HTTPStatus: 502, ErrorKind: "http", EngineInputTokens: -4096},
 		},
@@ -305,7 +316,8 @@ func TestANegativeCountIsABrokenValueWhateverTheResponseWas(t *testing.T) {
 //
 // Suggested by the external review as the conservation check the per-bucket tests cannot do: a mutation that
 // drops a row, or files it twice, changes no single bucket's meaning but silently narrows the population the
-// gate scores. Disposition.Offered is the independent count to hold them against.
+// gate scores.
+// Disposition.Offered is the independent count to hold them against.
 func TestTheFourTokenBucketsAccountForEveryOfferedRow(t *testing.T) {
 	rows := []RawRow{
 		{HTTPStatus: httpStatusOK, EngineInputTokens: 256, OutputTokens: 16},
@@ -346,9 +358,11 @@ func TestTheFourTokenBucketsAccountForEveryOfferedRow(t *testing.T) {
 // Routing the two silences by the error kind rather than by the response would reclassify the next kind.
 //
 // errKindTimeout and errKindRejected are named constants; the ten-cell archive's failure carried "http",
-// which is in neither. A predicate that listed kinds would have put that row in the accounting-hole bucket
-// by omission, which is how the first version of this gate behaved. The response status is the fact that
-// decides it, and this pins that a NAMED kind and an unnamed one land in the same place.
+// which is in neither.
+// A predicate that listed kinds would have put that row in the accounting-hole bucket by omission, which
+// is how the first version of this gate behaved.
+// The response status is the fact that decides it, and this pins that a NAMED kind and an unnamed one land
+// in the same place.
 func TestAnyUnsuccessfulResponseCountsAsUnanswered(t *testing.T) {
 	for _, tc := range []struct {
 		name string

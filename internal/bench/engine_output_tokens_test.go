@@ -11,13 +11,15 @@ import (
 
 // TestEngineOutputTokensComeFromUsageNotFromFrameCount closes the most attractive way to be wrong.
 //
-// OutputTokens counts SSE frames that carried content, one per frame. That equals the token count only
-// while the server emits one token per frame, and nothing in the protocol promises it. A server that
-// batched two tokens into a frame would halve every throughput figure, every tenant share and every
-// inter-token time this harness reports, while the GPU did exactly the same work -- and every number would
-// still look plausible, which is the failure this project exists to avoid.
+// OutputTokens counts SSE frames that carried content, one per frame.
+// That equals the token count only while the server emits one token per frame, and nothing in the protocol
+// promises it.
+// A server that batched two tokens into a frame would halve every throughput figure, every tenant share
+// and every inter-token time this harness reports, while the GPU did exactly the same work -- and every
+// number would still look plausible, which is the failure this project exists to avoid.
 //
-// The request already asks for usage. The engine's own count was arriving and being thrown away.
+// The request already asks for usage.
+// The engine's own count was arriving and being thrown away.
 func TestEngineOutputTokensComeFromUsageNotFromFrameCount(t *testing.T) {
 	// Three content frames carrying six tokens between them, then the usage chunk vLLM sends last.
 	body := "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n" +

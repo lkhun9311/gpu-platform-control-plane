@@ -36,8 +36,9 @@ import (
 )
 
 // The registered requirement for the resume arms' claim is that the run STATES which storage class it asks
-// for. A renderer with a default would meet the letter of "the claim is created" and none of the point: a
-// claim with no storageClassName takes the cluster's by omission, and that class is what decides whether a
+// for.
+// A renderer with a default would meet the letter of "the claim is created" and none of the point: a claim
+// with no storageClassName takes the cluster's by omission, and that class is what decides whether a
 // replacement Pod reads its predecessor's file or waits on a volume that never binds.
 //
 // Mutation that turns this red: give StateClaim any fallback for an empty class.
@@ -102,10 +103,10 @@ func TestStateClaimIsWhatTheJobMountsAndTheRunOwns(t *testing.T) {
 	}
 }
 
-// The study and variant labels say which QUOTA mechanism an object implements. The claim implements none of
-// it, so stamping it with a variant would put a claim about preemption policy on an object that has nothing
-// to do with preemption — and would make a variant precheck over labels answer for an object it cannot
-// describe.
+// The study and variant labels say which QUOTA mechanism an object implements.
+// The claim implements none of it, so stamping it with a variant would put a claim about preemption policy
+// on an object that has nothing to do with preemption — and would make a variant precheck over labels
+// answer for an object it cannot describe.
 //
 // Mutation that turns this red: build the claim's labels with labLabels.
 func TestStateClaimDoesNotClaimAQuotaMechanism(t *testing.T) {
@@ -196,10 +197,10 @@ func TestRenderMLTrainingJobTerminationContract(t *testing.T) {
 		t.Fatalf("render honoring: %v", err)
 	}
 
-	// The arms must differ by EXACTLY ONE element, and that is the property the whole contrast rests on. A
-	// second difference — a different script, a different duration, a different interpreter — would make the
-	// measured gap attributable to something other than the termination contract, which is the one thing this
-	// study varies.
+	// The arms must differ by EXACTLY ONE element, and that is the property the whole contrast rests on.
+	// A second difference — a different script, a different duration, a different interpreter — would make
+	// the measured gap attributable to something other than the termination contract, which is the one thing
+	// this study varies.
 	if len(ignoring.Spec.Command) != len(honoring.Spec.Command) {
 		t.Fatalf("the arms have different command lengths: %d and %d",
 			len(ignoring.Spec.Command), len(honoring.Spec.Command))
@@ -219,10 +220,12 @@ func TestRenderMLTrainingJobTerminationContract(t *testing.T) {
 			ignoring.Spec.Command[4], honoring.Spec.Command[4])
 	}
 
-	// The ignoring arm must install NOTHING. The reason the old `sh -c "sleep N"` ignored SIGTERM was never
-	// the command: PID 1 has its default signal dispositions dropped by the kernel, so a process registering
-	// no handler is a process that ignores. An explicit SIG_IGN would ignore for a different reason than the
-	// form it replaces, and the two arms would then differ in mechanism as well as in label.
+	// The ignoring arm must install NOTHING.
+	// The reason the old `sh -c "sleep N"` ignored SIGTERM was never the command: PID 1 has its default
+	// signal dispositions dropped by the kernel, so a process registering no handler is a process that
+	// ignores.
+	// An explicit SIG_IGN would ignore for a different reason than the form it replaces, and the two arms
+	// would then differ in mechanism as well as in label.
 	script := honoring.Spec.Command[2]
 	if strings.Contains(script, "SIG_IGN") {
 		t.Fatalf("the workload installs SIG_IGN; the ignoring arm must ignore because PID 1 has no handler, " +
@@ -235,9 +238,10 @@ func TestRenderMLTrainingJobTerminationContract(t *testing.T) {
 	// Progress is what turns occupancy from an assumption into evidence: a workload that computed nothing
 	// reports iters=0 rather than being indistinguishable from one that saturated the device.
 	//
-	// The PERIODIC emit is asserted separately from the final ones, and the ignoring arm is why. It is killed
-	// by SIGKILL at the end of the grace period, and SIGKILL cannot be handled — so no final line is ever
-	// printed for it, and the last periodic line is the only progress evidence that arm leaves behind.
+	// The PERIODIC emit is asserted separately from the final ones, and the ignoring arm is why.
+	// It is killed by SIGKILL at the end of the grace period, and SIGKILL cannot be handled — so no final
+	// line is ever printed for it, and the last periodic line is the only progress evidence that arm leaves
+	// behind.
 	// Checking for "iters=" alone passes on a script whose loop reports nothing, because the two exit lines
 	// carry the same substring; that mutation survived until this assertion existed.
 	//
@@ -278,8 +282,9 @@ func TestRenderMLTrainingJobTerminationContract(t *testing.T) {
 // The exported renderer must refuse an unknown contract rather than take the process down with it.
 //
 // It is exported and takes the contract from its caller, so an invalid value is caller input, not an
-// impossible internal state. It used to panic, which in a measurement binary loses the whole run over an
-// argument the function could simply have rejected.
+// impossible internal state.
+// It used to panic, which in a measurement binary loses the whole run over an argument the function
+// could simply have rejected.
 //
 // Mutation that turns this red: restore the panic in sleeperCommand's default branch.
 func TestRenderRefusesAnUnknownContract(t *testing.T) {
@@ -306,19 +311,23 @@ func TestRenderRefusesAnUnknownContract(t *testing.T) {
 
 // The shipped script is EXECUTED here, and nothing else in this repository can do what this test does.
 //
-// workloadScript is a Python program carried as a Go string. Every other check on it is textual: they assert
-// that certain substrings are present, which a program with a syntax error on line 40 satisfies perfectly.
+// workloadScript is a Python program carried as a Go string.
+// Every other check on it is textual: they assert that certain substrings are present, which a program with
+// a syntax error on line 40 satisfies perfectly.
 // Such a program fails at container start, every row of the trace fails to run, and the first place anyone
 // finds out is the cluster -- on the GPU node, with the meter running.
 //
 // It asserts the REPORT rather than the count, because the report is the contract between this file and
-// provenance.go. Those two agree by convention today: the workload writes "iters=N kind=K dev=D" and the
-// parser expects it. A convention with no test is a convention that breaks on the next edit to either side,
-// silently, into a run whose workload provenance is "unreported".
+// provenance.go.
+// Those two agree by convention today: the workload writes "iters=N kind=K dev=D" and the parser expects
+// it.
+// A convention with no test is a convention that breaks on the next edit to either side, silently, into a
+// run whose workload provenance is "unreported".
 //
-// The kind is not asserted to be the fallback. A developer machine with a GPU would take the device path and
-// a test demanding cpu-float would fail there for being RIGHT -- so what is asserted is that the pair parses
-// and the two sides agree, which holds on either kind of host.
+// The kind is not asserted to be the fallback.
+// A developer machine with a GPU would take the device path and a test demanding cpu-float would fail there
+// for being RIGHT -- so what is asserted is that the pair parses and the two sides agree, which holds on
+// either kind of host.
 func TestTheShippedWorkloadActuallyRunsAndReportsWhatTheParserExpects(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -331,7 +340,8 @@ func TestTheShippedWorkloadActuallyRunsAndReportsWhatTheParserExpects(t *testing
 		t.Fatalf("render: %v", err)
 	}
 	// The command is run exactly as the Pod would run it, argv and all, rather than by re-deriving the script
-	// here. A test that rebuilt the arguments would keep passing after the renderer stopped producing them.
+	// here.
+	// A test that rebuilt the arguments would keep passing after the renderer stopped producing them.
 	if job.Spec.Command[0] != "python3" {
 		t.Fatalf("the rendered command does not start python3: %v", job.Spec.Command)
 	}
@@ -374,8 +384,8 @@ func TestTheShippedWorkloadActuallyRunsAndReportsWhatTheParserExpects(t *testing
 //
 // Running it is the only way to know the handler is installed at all: the textual check beside this one sees
 // "sys.exit(143)" in a script that never reaches signal.signal, and so does a script that installs the
-// handler after a device-context creation that takes half a second on a cold card. That second case is not
-// hypothetical -- the handler was moved above the device path for exactly it.
+// handler after a device-context creation that takes half a second on a cold card.
+// That second case is not hypothetical -- the handler was moved above the device path for exactly it.
 func TestTheHonoringArmActuallyExitsOnSIGTERM(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -419,14 +429,17 @@ func TestTheHonoringArmActuallyExitsOnSIGTERM(t *testing.T) {
 // TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts closes the loop oracle.go was written for.
 //
 // oracle.go predicts a value; this checks that the workload actually REPORTS that value, in a form the parser
-// reads back exactly. Three things have to line up for a resumed attempt to be checkable, and each of them
-// has failed in this repository's history in some form: the workload must emit the number, the parser must
-// accept the wider message, and the text must round-trip a float64 without rounding.
+// reads back exactly.
+// Three things have to line up for a resumed attempt to be checkable, and each of them has failed in this
+// repository's history in some form: the workload must emit the number, the parser must accept the wider
+// message, and the text must round-trip a float64 without rounding.
 //
-// The last one is not hypothetical. The workload spells duty with %g, and %g does not round-trip — an
-// accumulator written that way would arrive as 1.00501 and fail an exact comparison for a reason that has
-// nothing to do with the work the run did. That is why this asserts equality rather than closeness: the
-// comparison oracle.go performs is exact, so anything weaker here would pass while the real check could not.
+// The last one is not hypothetical.
+// The workload spells duty with %g, and %g does not round-trip — an accumulator written that way would
+// arrive as 1.00501 and fail an exact comparison for a reason that has nothing to do with the work the run
+// did.
+// That is why this asserts equality rather than closeness: the comparison oracle.go performs is exact, so
+// anything weaker here would pass while the real check could not.
 func TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -456,8 +469,9 @@ func TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts(t *testing.T) {
 		t.Fatalf("the shipped workload reported no accumulator, so nothing it does can be checked: %q", final)
 	}
 	// The device path never touches the accumulator, so on a host with a working driver the value is the seed
-	// and predicting it would prove nothing. Skipping is the honest outcome: the oracle is scoped to the CPU
-	// path by the pre-registration, and a developer machine with a GPU must not fail this for being right.
+	// and predicting it would prove nothing.
+	// Skipping is the honest outcome: the oracle is scoped to the CPU path by the pre-registration, and a
+	// developer machine with a GPU must not fail this for being right.
 	if kind != KindCPUFloat {
 		t.Skipf("this host took the %s path (dev=%s), where the accumulator is not advanced", kind, device)
 	}
@@ -483,13 +497,14 @@ func TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts(t *testing.T) {
 // TestAPreemptedWorkloadReportsAPairTheOracleAccepts covers the path the natural-completion spec cannot.
 //
 // A review found this and it was the defect that mattered most: msg() read the LIVE accumulator, so a SIGTERM
-// arriving inside the 50,000-step inner loop published an x that had advanced past the n beside it. An
-// ordinary honoured preemption — the event this whole experiment exists to measure — then failed the oracle
-// while having executed perfectly. Measured before the fix at iters=1562 with acc=2475.3193917678645 against
-// a prediction of 2465.1294838925710.
+// arriving inside the 50,000-step inner loop published an x that had advanced past the n beside it.
+// An ordinary honoured preemption — the event this whole experiment exists to measure — then failed the
+// oracle while having executed perfectly.
+// Measured before the fix at iters=1562 with acc=2475.3193917678645 against a prediction of
+// 2465.1294838925710.
 //
-// The fix is a snapshot taken at the iteration boundary, so n and acc are always the same instant. This test
-// is what keeps it: reverting `acc=x` in msg() to the live variable turns it red.
+// The fix is a snapshot taken at the iteration boundary, so n and acc are always the same instant.
+// This test is what keeps it: reverting `acc=x` in msg() to the live variable turns it red.
 func TestAPreemptedWorkloadReportsAPairTheOracleAccepts(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -509,7 +524,8 @@ func TestAPreemptedWorkloadReportsAPairTheOracleAccepts(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	// Long enough that the loop is mid-iteration rather than at a boundary, which is the case that used to
-	// fail. A duration of 30 s means the run cannot finish on its own first.
+	// fail.
+	// A duration of 30 s means the run cannot finish on its own first.
 	time.Sleep(2 * time.Second)
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("signal: %v", err)
@@ -561,12 +577,14 @@ func lastLine(s string) string {
 // The four argv spellings this package renders must be the ones the shipped script compares against.
 //
 // The script embeds them as LITERALS -- `sys.argv[2]=="honor"` and `sys.argv[5]=="resume"` -- so a Go
-// constant edited on its own drifts from the Python side with nothing failing to compile. The failure is
-// silent in the worst direction: a renamed argResume would render a token the workload does not recognise,
-// the victim would start from zero, and the run would report a resume arm that resumed nothing.
+// constant edited on its own drifts from the Python side with nothing failing to compile.
+// The failure is silent in the worst direction: a renamed argResume would render a token the workload does
+// not recognise, the victim would start from zero, and the run would report a resume arm that resumed
+// nothing.
 //
 // This test exists because the comment above those constants claimed a test held them together and named one
-// that was never written. The claim is now true.
+// that was never written.
+// The claim is now true.
 //
 // argIgnore and argFresh are complements rather than literals in the script -- anything that is not the
 // positive token means the other arm -- so they are checked for being DISTINCT from their partner, which is
@@ -611,9 +629,9 @@ func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
 	// The same binding for the token that says the driver was never reached for.
 	//
 	// It is the conclusion the resume arms rest on: a checkpointing workload skips cuda() entirely, and
-	// "did not try" has to be distinguishable from "tried and was refused". A rename on the Python side
-	// would turn it into an unknown status with nothing failing to compile, which is the whole reason it is
-	// a constant rather than a literal in two places.
+	// "did not try" has to be distinguishable from "tried and was refused".
+	// A rename on the Python side would turn it into an unknown status with nothing failing to compile,
+	// which is the whole reason it is a constant rather than a literal in two places.
 	if !strings.Contains(workloadScript, `dev="`+DeviceNotAttempted+`"`) {
 		t.Fatalf("the workload script never sets dev=%q, so a workload that never reached the driver reports "+
 			"something this package does not classify", DeviceNotAttempted)
@@ -627,8 +645,9 @@ func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
 // The same binding for the checkpoint-write tokens, and the stakes are higher than for the device ones.
 //
 // An unknown save status does not degrade the reading, it destroys the message: ReportFromMessage refuses
-// the whole sentence, so the iteration count and the accumulator go with it. A rename on either side would
-// therefore turn every run of these arms into a record with no work in it at all.
+// the whole sentence, so the iteration count and the accumulator go with it.
+// A rename on either side would therefore turn every run of these arms into a record with no work in it at
+// all.
 //
 // Mutation that turns this red: change any of the three spellings on either side of the boundary.
 func TestTheWorkloadEmitsTheSaveTokensThisPackageParses(t *testing.T) {
@@ -644,10 +663,11 @@ func TestTheWorkloadEmitsTheSaveTokensThisPackageParses(t *testing.T) {
 	// The status must be at POSITION SEVEN, which is not the same claim as being last.
 	//
 	// This assertion used to require the message to END with `saved=%s`, and its comment said the status must be
-	// the last field. The reasoning was half right: the parser reads by position, so `saved=` must be the
-	// seventh token -- but "last" was never the property being protected, and treating it as one made the
-	// assertion false the moment the timing fields were appended after it. What breaks ReportFromMessage is a
-	// REORDER, not a longer message, so the order is what this pins.
+	// the last field.
+	// The reasoning was half right: the parser reads by position, so `saved=` must be the seventh token -- but
+	// "last" was never the property being protected, and treating it as one made the assertion false the moment
+	// the timing fields were appended after it.
+	// What breaks ReportFromMessage is a REORDER, not a longer message, so the order is what this pins.
 	//
 	// Mutation that turns this red: swap any two of the seven, or insert a field among them.
 	for i, want := range []string{"iters=%d", "kind=%s", "dev=%s", "duty=%g", "acc=%.17g", "resumed=%d", "saved=%s"} {
@@ -707,7 +727,8 @@ func TestADeclaredDutyReachesTheWorkload(t *testing.T) {
 // TestAnImpossibleDutyIsRefusedRatherThanClamped is the measurement rule applied to a knob.
 //
 // Clamping 1.5 to 1.0 would let a trace ask for something it did not get while the record reported the value
-// it asked for. A refused trace is a trace nobody ran; a clamped one is a wrong number.
+// it asked for.
+// A refused trace is a trace nobody ran; a clamped one is a wrong number.
 func TestAnImpossibleDutyIsRefusedRatherThanClamped(t *testing.T) {
 	for _, d := range []DutyCycle{-1, 1.5, 2} {
 		if _, err := sleeperCommand(30, HonorsSIGTERM, d, "", false); err == nil {
@@ -724,18 +745,21 @@ func TestAnImpossibleDutyIsRefusedRatherThanClamped(t *testing.T) {
 // TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself runs the embedded script and reads back the idle it reports.
 //
 // The knob is only worth having if it changes what the workload does, and the two tests above check the
-// spelling rather than the behaviour: a script that read the argument and ignored it would pass both. This runs
-// the real embedded source and compares the fraction of its window it reports spending in time.sleep against
-// the fraction the declared duty leaves idle.
+// spelling rather than the behaviour: a script that read the argument and ignored it would pass both.
+// This runs the real embedded source and compares the fraction of its window it reports spending in time.sleep
+// against the fraction the declared duty leaves idle.
 //
-// It used to compare iteration counts across three runs, and that was a flake rather than a guard. Iterations per
-// second differ between a run that never rests and one that rests half the time, and differ again with whatever
-// else the host is running, so a busy CI runner pushed half/full past the cutoff with nothing wrong. The sleep is
-// measured in wall time around the call, so contention moves it by scheduling latency, not by a ratio.
+// It used to compare iteration counts across three runs, and that was a flake rather than a guard.
+// Iterations per second differ between a run that never rests and one that rests half the time, and differ again
+// with whatever else the host is running, so a busy CI runner pushed half/full past the cutoff with nothing
+// wrong.
+// The sleep is measured in wall time around the call, so contention moves it by scheduling latency, not by a
+// ratio.
 //
-// NOR IS IT A CPU-PATH TEST, whatever the fallback in its name once suggested. It inherits the ambient
-// environment, so on a host carrying libcuda.so.1 the workload takes the DEVICE path and this measures that
-// instead. The window opens before the device probe, which is why the band below is wider on the low side.
+// NOR IS IT A CPU-PATH TEST, whatever the fallback in its name once suggested.
+// It inherits the ambient environment, so on a host carrying libcuda.so.1 the workload takes the DEVICE
+// path and this measures that instead.
+// The window opens before the device probe, which is why the band below is wider on the low side.
 //
 // Mutation that turns it red: replace the workload's time.sleep with pass, a workload that reads the duty and
 // discards it.
@@ -786,8 +810,9 @@ func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
 
 // TestAnArmsDutyReachesTheRenderedCommand is the step between a mapping and a manifest.
 //
-// DutyFor can be right while nothing applies it. The command is what the container runs and what the
-// termination canary fingerprints, so this checks the value arrives there for each arm and each row.
+// DutyFor can be right while nothing applies it.
+// The command is what the container runs and what the termination canary fingerprints, so this
+// checks the value arrives there for each arm and each row.
 func contractArg(c TerminationContract) string {
 	if c == HonorsSIGTERM {
 		return argHonor
@@ -815,8 +840,9 @@ func TestAnArmsDutyReachesTheRenderedCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s/%s: %v", tc.arm, tc.row, err)
 		}
-		// Rendered through RenderForArm, which is what the run path calls. Rendering with the pieces the
-		// test resolved itself would check that this test can assemble an arm, not that the run path does.
+		// Rendered through RenderForArm, which is what the run path calls.
+		// Rendering with the pieces the test resolved itself would check that this test can assemble an
+		// arm, not that the run path does.
 		job, err := RenderForArm(tc.arm, TrainingTraceRow{
 			Index: 1, Name: tc.row, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60,
 		}, "ns")
@@ -838,14 +864,15 @@ func TestAnArmsDutyReachesTheRenderedCommand(t *testing.T) {
 
 // TestTheWorkloadDoesNotShareItsPeriodWithTheSampler holds the two files together.
 //
-// The workload's duty cycle has a period, and the exporter collects on one too. When they were equal a
-// quarter-duty victim executing 22,093 real kernels was reported as working in zero of 104 samples: a
-// sample landing in the idle part of the cycle landed there every time, because two processes at the same
-// frequency do not drift through each other's phase.
+// The workload's duty cycle has a period, and the exporter collects on one too.
+// When they were equal a quarter-duty victim executing 22,093 real kernels was reported as working in
+// zero of 104 samples: a sample landing in the idle part of the cycle landed there every time, because
+// two processes at the same frequency do not drift through each other's phase.
 //
 // A comment in each file cannot hold that, because the two values live in different files and neither edit
-// looks wrong beside the other. This reads the exporter's manifest and refuses a workload period that
-// divides into it or is divided by it.
+// looks wrong beside the other.
+// This reads the exporter's manifest and refuses a workload period that divides into it or is divided by
+// it.
 func TestTheWorkloadDoesNotShareItsPeriodWithTheSampler(t *testing.T) {
 	m := regexp.MustCompile(`(?m)^PERIOD=([0-9.]+)$`).FindStringSubmatch(workloadScript)
 	if m == nil {
@@ -871,8 +898,9 @@ func TestTheWorkloadDoesNotShareItsPeriodWithTheSampler(t *testing.T) {
 	}
 	sampler := float64(ms) / 1000
 
-	// Equal is the case that was measured. Integer multiples in either direction are the same trap: the
-	// phase still repeats, it just takes longer to come round.
+	// Equal is the case that was measured.
+	// Integer multiples in either direction are the same trap: the phase still repeats, it just takes
+	// longer to come round.
 	ratio := period / sampler
 	if math.Abs(ratio-math.Round(ratio)) < 0.05 || math.Abs(1/ratio-math.Round(1/ratio)) < 0.05 {
 		t.Errorf("the workload's period is %gs and the exporter collects every %gs, a ratio of %.3f; the "+
@@ -884,9 +912,9 @@ func TestTheWorkloadDoesNotShareItsPeriodWithTheSampler(t *testing.T) {
 // The resume pair renders one mechanism with one difference.
 //
 // Counted rather than described: the two commands are compared element by element and the number of
-// differences is the assertion. The page registering these arms says the restore is the only axis, so a
-// second difference -- a path, a claim, a duty, a contract -- would make any measured gap carry two changes
-// and belong to neither.
+// differences is the assertion.
+// The page registering these arms says the restore is the only axis, so a second difference -- a path, a
+// claim, a duty, a contract -- would make any measured gap carry two changes and belong to neither.
 //
 // Mutations that turn this red: give the arms different paths or claims; drop the volume from either arm;
 // or render the state path without the volume, which would save progress into the container filesystem and

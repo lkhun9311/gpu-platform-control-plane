@@ -31,8 +31,9 @@ import (
 //
 // Nothing pinned this path before. repP99 was read by no test, armEvidence's internals by no test, and the
 // refusals' repetition numbers by no test -- so the arrays could be appended in --raw argument order, the
-// wrong repetitions compared, and every suite stayed green. The third 2026-09-30 amendment forbids exactly
-// that inference: pairing is "recorded rather than inferred from two arrays having equal length".
+// wrong repetitions compared, and every suite stayed green.
+// The third 2026-09-30 amendment forbids exactly that inference: pairing is "recorded rather than inferred
+// from two arrays having equal length".
 //
 // The identity is read as raw-<arm>-<repetition>.jsonl with the arm taken from the ROWS, because 22 arm
 // names in this repository contain hyphens and raw-mbt-1024-priority-1.jsonl cannot otherwise be split.
@@ -57,8 +58,9 @@ func TestAFileWithNoRepetitionNumberIsRefused(t *testing.T) {
 // A name whose arm disagrees with the rows is refused, rather than being split on a guess.
 //
 // This is the case that makes reading the arm from the rows load-bearing: the file says "shared" and every
-// row says "R1". Splitting the filename on the last hyphen would have produced arm "raw-shared" or
-// repetition "1" for the wrong arm, and either way the block would be paired against the wrong one.
+// row says "R1".
+// Splitting the filename on the last hyphen would have produced arm "raw-shared" or repetition "1" for the
+// wrong arm, and either way the block would be paired against the wrong one.
 func TestAFileWhoseNameDisagreesWithItsRowsIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	p := writeRepetition(t, dir, "raw-shared-1.jsonl", "R1", 200, 100, 150, 0)
@@ -74,9 +76,10 @@ func TestAFileWhoseNameDisagreesWithItsRowsIsRefused(t *testing.T) {
 
 // The same (arm, repetition) from two directories is refused -- the duplicate check spans the whole input.
 //
-// replayFrom catches a byte-identical copy by hashing send timestamps. It cannot catch two DIFFERENT
-// replays that both call themselves repetition 1, which is what globbing two run directories together
-// produces, and that pair would silently discard one of them from the comparison.
+// replayFrom catches a byte-identical copy by hashing send timestamps.
+// It cannot catch two DIFFERENT replays that both call themselves repetition 1, which is what
+// globbing two run directories together produces, and that pair would silently discard one of them
+// from the comparison.
 func TestTheSameRepetitionIdentityFromTwoDirectoriesIsRefused(t *testing.T) {
 	root := t.TempDir()
 	a := filepath.Join(root, "run-a")
@@ -119,9 +122,10 @@ func TestTheSameRepetitionIdentityFromTwoDirectoriesIsRefused(t *testing.T) {
 
 // writeMatrixRepetition writes one M5-c repetition: the sharing matrix's study, its arms, one contender.
 //
-// writeRepetition cannot serve these tests. It leaves Study empty, which CanonicalStudyID reads as the
-// M5-b gateway experiment -- whose registry admits R1, off, static-cap and kv-aware and refuses `shared`
-// before any pairing is reached. The registered estimand is M5-c's object, so its tests need M5-c rows.
+// writeRepetition cannot serve these tests.
+// It leaves Study empty, which CanonicalStudyID reads as the M5-b gateway experiment -- whose registry
+// admits R1, off, static-cap and kv-aware and refuses `shared` before any pairing is reached.
+// The registered estimand is M5-c's object, so its tests need M5-c rows.
 func writeMatrixRepetition(t *testing.T, dir, arm string, rep int, ttftMs float64) string {
 	t.Helper()
 	path := filepath.Join(dir, fmt.Sprintf("raw-%s-%d.jsonl", arm, rep))
@@ -145,9 +149,10 @@ func writeMatrixRepetition(t *testing.T, dir, arm string, rep int, ttftMs float6
 		write(bench.RawRow{
 			Index: i, Arm: arm, Tenant: bench.PremiumTenant, HTTPStatus: 200,
 			SendUnixNanos: send, FirstTokenUnixNanos: first, EndUnixNanos: first + 20_000_000,
-			// EngineInputTokens is what reading 4e holds against the frozen premium count of 256. These rows
-			// mean to be a run that carried the declared load, so they say what the engine reported; a zero
-			// here describes a run with no usage accounting, which the gate refuses to call verified.
+			// EngineInputTokens is what reading 4e holds against the frozen premium count of 256.
+			// These rows mean to be a run that carried the declared load, so they say what the engine
+			// reported; a zero here describes a run with no usage accounting, which the gate refuses to call
+			// verified.
 			EstInputTokens: 294, ExactInputTokens: 256, EngineInputTokens: 256, OutputTokens: 16,
 			Study: bench.StudySharingMatrix, TraceChecksum: "t", LongThreshold: 4096, MatchTolerance: 0.05,
 		})
@@ -171,8 +176,9 @@ func writeMatrixRepetition(t *testing.T, dir, arm string, rep int, ttftMs float6
 
 // Equally many repetitions is not the same as the same repetitions: {1,2} against {1,3} is refused.
 //
-// This is the case the amendment singles out. Both arms carry two blocks, so every length check passes,
-// and zipping them compares R1's repetition 2 against shared's repetition 3.
+// This is the case the amendment singles out.
+// Both arms carry two blocks, so every length check passes, and zipping them compares R1's repetition 2
+// against shared's repetition 3.
 func TestTwoArmsWithDifferentIdentitySetsAreRefused(t *testing.T) {
 	dir := t.TempDir()
 	paths := []string{
@@ -201,8 +207,9 @@ func TestTwoArmsWithDifferentIdentitySetsAreRefused(t *testing.T) {
 // Shuffling one arm's --raw order must change NOTHING, because the pairing is by identity.
 //
 // This is the test the closing condition of the defect record originally got backwards: it said shuffling
-// must go RED. Under a correct fix shuffling is invisible, and what must go red is restoring the positional
-// append -- which the mutation recorded beside this file checks.
+// must go RED.
+// Under a correct fix shuffling is invisible, and what must go red is restoring the positional append --
+// which the mutation recorded beside this file checks.
 //
 // Comparing the whole report rather than the ratio alone is deliberate: each arm's median is computed from
 // its own values and is order-invariant either way, so a test that read only the point estimate would pass
@@ -231,7 +238,8 @@ func TestShufflingOneArmsRawOrderChangesNothing(t *testing.T) {
 		}
 		return out
 	}
-	// Sorted, then with one arm reversed. The identities are the same set either way.
+	// Sorted, then with one arm reversed.
+	// The identities are the same set either way.
 	sortedOrder := []string{}
 	for rep := 1; rep <= 3; rep++ {
 		sortedOrder = append(sortedOrder, filepath.Join(dir, fmt.Sprintf("raw-%s-%d.jsonl", bench.ArmR1, rep)))
@@ -242,8 +250,9 @@ func TestShufflingOneArmsRawOrderChangesNothing(t *testing.T) {
 	for rep := 1; rep <= 3; rep++ {
 		sortedOrder = append(sortedOrder, filepath.Join(dir, fmt.Sprintf("raw-%s-%d.jsonl", bench.ArmTimeSlicing, rep)))
 	}
-	// `shared` repetition 1 and 3 swap places. Under positional pairing that moves which R1 block each one
-	// is compared with; under identity pairing nothing moves.
+	// `shared` repetition 1 and 3 swap places.
+	// Under positional pairing that moves which R1 block each one is compared with; under identity pairing
+	// nothing moves.
 	shuffled := append([]string(nil), sortedOrder...)
 	shuffled[3], shuffled[5] = shuffled[5], shuffled[3]
 
@@ -255,12 +264,13 @@ func TestShufflingOneArmsRawOrderChangesNothing(t *testing.T) {
 
 // The repetition a refusal NAMES is the recorded one, not the position in the argument list.
 //
-// An operator reads this at the end of a paid session and goes looking for the file. While the number was
-// the slice index, "repetition 1" meant "the second file --raw listed for this arm", which is
-// raw-R1-3.jsonl whenever the glob was not sorted.
+// An operator reads this at the end of a paid session and goes looking for the file.
+// While the number was the slice index, "repetition 1" meant "the second file --raw listed for this arm",
+// which is raw-R1-3.jsonl whenever the glob was not sorted.
 func TestARefusalNamesTheRecordedRepetitionNotThePosition(t *testing.T) {
 	dir := t.TempDir()
-	// R1's repetition 2 is the short one. Listed LAST, its index would be 1 and its identity 2.
+	// R1's repetition 2 is the short one.
+	// Listed LAST, its index would be 1 and its identity 2.
 	short := writeRepetition(t, dir, "raw-R1-2.jsonl", "R1", 120, 100, 120, 0)
 	long := writeRepetition(t, dir, "raw-R1-1.jsonl", "R1", 200, 100, 200, 0)
 

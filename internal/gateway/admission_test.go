@@ -103,8 +103,9 @@ var _ = Describe("staticCapAdmitter", func() {
 	})
 
 	// This spec used to build the admitter with burst 0 and send a 4096-token request, which is not an
-	// exhausted bucket at all: 4096 > 0 is the case AllowN refuses forever regardless of time. It asserted the
-	// transient reason while exercising the permanent one, so the two were never distinguished anywhere.
+	// exhausted bucket at all: 4096 > 0 is the case AllowN refuses forever regardless of time.
+	// It asserted the transient reason while exercising the permanent one, so the two were never distinguished
+	// anywhere.
 	//
 	// A bucket is exhausted by DRAINING it, which needs a burst the request can actually fit in.
 	It("rejects a standard-long request once the bucket is exhausted", func() {
@@ -119,8 +120,9 @@ var _ = Describe("staticCapAdmitter", func() {
 		Expect(reason).To(Equal(reasonInputRateLimit))
 	})
 
-	// The case the spec above was accidentally covering, now named. AllowN cannot admit n > burst at any time,
-	// so reporting it as input_rate_limit told the caller to wait for capacity that will never arrive.
+	// The case the spec above was accidentally covering, now named.
+	// AllowN cannot admit n > burst at any time, so reporting it as input_rate_limit told the caller to wait
+	// for capacity that will never arrive.
 	//
 	// Mutation that turns this red: delete the burst pre-check from Admit.
 	It("rejects a request larger than the bucket will ever hold, with a terminal reason", func() {

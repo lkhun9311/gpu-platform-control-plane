@@ -32,8 +32,9 @@ var responsesCutShort = promauto.With(metrics.Registry).NewCounterVec(prometheus
 // cutShortCause runs proxy and reports why the response it was streaming ended early, or "" when it did not.
 // Only http.ErrAbortHandler is caught; any other panic is a bug and continues to unwind.
 // The idle bound cancels only the attempt, never the client's own context, so an idle cut is not mistaken for a client
-// that left. It is checked first for the rarer case of a client leaving after the bound already fired, where the
-// bound is what ended the stream.
+// that left.
+// It is checked first for the rarer case of a client leaving after the bound already fired, where the bound is what
+// ended the stream.
 func cutShortCause(proxy func(), client context.Context, idleExpired *atomic.Bool) (cause string) {
 	defer func() {
 		p := recover()

@@ -41,8 +41,9 @@ type GPUFaultFlags struct {
 	EvictWorkloads bool
 }
 
-// Bind registers the flags. The defaults are the registration's (docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md):
-// a 1 s scrape matching the exporter's 1 s collection, a 0.8 s timeout, and stale after 5 s.
+// Bind registers the flags.
+// The defaults are the registration's (docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md): a 1 s scrape matching the
+// exporter's 1 s collection, a 0.8 s timeout, and stale after 5 s.
 func (f *GPUFaultFlags) Bind(fs *flag.FlagSet) {
 	fs.StringVar(&f.Source, "gpu-fault-source", "",
 		`Where GPU fault signals come from: "" (off) or "dcgm" (scrape each node's DCGM exporter).`)

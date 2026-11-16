@@ -17,14 +17,16 @@ import (
 // These specs pin what the API accepts but cannot act on.
 //
 // The reconciler writes the Job's pod template ONCE, on create, because a batch/v1 Job's template is
-// immutable afterwards. That is the right thing for the reconciler to do, and it leaves a gap above it: an
-// edit to a template-derived field is accepted by the apiserver, survives a reconcile that reports no error,
-// and changes nothing. The user is told the write succeeded, which it did — the API stored it — while the
-// thing they were trying to change is untouched.
+// immutable afterwards.
+// That is the right thing for the reconciler to do, and it leaves a gap above it: an edit to a
+// template-derived field is accepted by the apiserver, survives a reconcile that reports no error, and
+// changes nothing.
+// The user is told the write succeeded, which it did — the API stored it — while the thing they were trying
+// to change is untouched.
 //
-// A silent no-op is worse than a rejection here. These specs exist to hold that gap still and describe it
-// precisely, so a validating webhook can be built against measured behaviour rather than an assumption
-// about it.
+// A silent no-op is worse than a rejection here.
+// These specs exist to hold that gap still and describe it precisely, so a validating webhook can be
+// built against measured behaviour rather than an assumption about it.
 var _ = Describe("MLTrainingJob fields the controller cannot re-apply", func() {
 	const ns = "default"
 
@@ -66,7 +68,8 @@ var _ = Describe("MLTrainingJob fields the controller cannot re-apply", func() {
 		var mltj platformv1.MLTrainingJob
 		Expect(k8sClient.Get(ctx, key, &mltj)).To(Succeed())
 		mltj.Spec.Image = "trainer:v2"
-		// The apiserver stores it. Nothing at this layer objects, which is the gap.
+		// The apiserver stores it.
+		// Nothing at this layer objects, which is the gap.
 		Expect(k8sClient.Update(ctx, &mltj)).To(Succeed())
 
 		By("reconciling, which reports success")

@@ -88,7 +88,8 @@ func TestCompareRefusesADifferenceInsideTheFloor(t *testing.T) {
 }
 
 // The floor is the WORST among contributors, because that run's coarseness is inside every difference it
-// contributes to. Taking the best would let one well-resolved run launder a poorly-resolved one.
+// contributes to.
+// Taking the best would let one well-resolved run launder a poorly-resolved one.
 func TestComparePoolsTheCoarsestFloor(t *testing.T) {
 	c, err := compareRecords([]runRecord{
 		cmpRec("a1", "A-honor", "self-completing", "2026-08-19T05:00:00Z", 41.0, 100*int64(time.Millisecond)),
@@ -184,9 +185,10 @@ func TestCompareRefusesRatherThanSilentlyDropping(t *testing.T) {
 	// Two schemas are two sets of rules, and decoding both is not the same as comparing them.
 	//
 	// A review found this open: decodeRunRecord accepts a narrow set of older schemas so the committed
-	// evidence stays readable, which is a decision about reading ONE document. Nothing asked the other
-	// question, so a schema-19 run and a schema-20 run could land in one comparison — and 20 is the version
-	// that added the work check, so one arm would carry a verdict the other cannot have.
+	// evidence stays readable, which is a decision about reading ONE document.
+	// Nothing asked the other question, so a schema-19 run and a schema-20 run could land in one comparison
+	// — and 20 is the version that added the work check, so one arm would carry a verdict the other cannot
+	// have.
 	older := cmpRec("o1", "A-ignore", "self-completing", "2026-08-19T05:05:00Z", 51.5, int64(time.Second))
 	older.SchemaVersion = recordSchemaVersion - 1
 	if _, err := compareRecords([]runRecord{good, older}); err == nil {
@@ -213,7 +215,8 @@ func TestRenderComparisonLeadsWithWhatItDoesNotEstablish(t *testing.T) {
 }
 
 // A comparison over runs that observed no device must say the GPU-seconds are reservation, on the same
-// screen as the numbers. Without it the headline reads as a statement about hardware nothing touched.
+// screen as the numbers.
+// Without it the headline reads as a statement about hardware nothing touched.
 func TestCompareStatesThatNoDeviceWasObserved(t *testing.T) {
 	c, err := compareRecords([]runRecord{
 		cmpRec("a1", "A-honor", "self-completing", "2026-08-19T05:00:00Z", 41.0, int64(time.Second)),
@@ -252,9 +255,9 @@ func withOwnerWait(r runRecord, seconds float64) runRecord {
 	return r
 }
 
-// The number a reclaim promise is judged on. The lab measured it from the first run and never carried it out
-// of the reconstruction, so answering "how long did the owner wait" meant parsing the ledger by hand -- the
-// state this tool exists to end.
+// The number a reclaim promise is judged on.
+// The lab measured it from the first run and never carried it out of the reconstruction, so answering "how
+// long did the owner wait" meant parsing the ledger by hand -- the state this tool exists to end.
 func TestCompareReportsWhatTheQuotaOwnerWaited(t *testing.T) {
 	c, err := compareRecords([]runRecord{
 		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T00:57:03Z", 21.336, 1878*int64(time.Millisecond)), 2.740),
@@ -315,8 +318,9 @@ func TestCompareRefusesToAverageAwayAnOwnerThatNeverReturned(t *testing.T) {
 }
 
 // The check that decides whether the real-GPU session has a baseline at all, with its own positive control
-// beside it. A test that only ever reports "no response" would prove nothing, so both arms are asserted: the
-// honouring one must come back inside the floor and the ignoring one must come back outside it.
+// beside it.
+// A test that only ever reports "no response" would prove nothing, so both arms are asserted: the honouring
+// one must come back inside the floor and the ignoring one must come back outside it.
 func TestDoseSensitivitySeparatesABaselineFromAQuantityTheDoseDetermines(t *testing.T) {
 	honor := []runRecord{
 		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T02:42:43Z", 21.349, 1876*int64(time.Millisecond)), 2.729),
@@ -335,8 +339,9 @@ func TestDoseSensitivitySeparatesABaselineFromAQuantityTheDoseDetermines(t *test
 		t.Fatalf("a negative result was stated as proof of no response: %s", d.Statement)
 	}
 
-	// Positive control. In the ignoring arm the owner's wait IS the dose-dependent quantity -- what the victim
-	// had left, bounded by grace -- so a check that could not see this one respond could not see anything.
+	// Positive control.
+	// In the ignoring arm the owner's wait IS the dose-dependent quantity -- what the victim had left, bounded
+	// by grace -- so a check that could not see this one respond could not see anything.
 	ignore := []runRecord{
 		withOwnerWait(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-20T02:45:05Z", 51.262, 1938*int64(time.Millisecond)), 30.846),
 		withOwnerWait(cmpRec("gi2", "A-ignore", "grace-bounded", "2026-08-20T02:50:20Z", 51.233, 1000*int64(time.Millisecond)), 30.891),
@@ -355,8 +360,9 @@ func TestDoseSensitivitySeparatesABaselineFromAQuantityTheDoseDetermines(t *test
 	}
 }
 
-// Holding the arm fixed is the whole method. Pooling arms would measure the arm difference and report it as a
-// dose response, which is exactly the confusion the GPU session's baseline must not inherit.
+// Holding the arm fixed is the whole method.
+// Pooling arms would measure the arm difference and report it as a dose response, which is exactly the
+// confusion the GPU session's baseline must not inherit.
 func TestDoseSensitivityRefusesToPoolArms(t *testing.T) {
 	mixed := []runRecord{
 		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T02:42:43Z", 21.3, int64(time.Second)), 2.729),
@@ -398,7 +404,8 @@ func TestTheDifferenceFloorIsTheSumOfBothArms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compare: %v", err)
 	}
-	// 3 s of difference against two 2 s arms. Under the larger-of-the-two rule this resolved; it must not.
+	// 3 s of difference against two 2 s arms.
+	// Under the larger-of-the-two rule this resolved; it must not.
 	if findingFor(t, c, "wastedGPUSeconds").Resolved {
 		t.Fatal("a 3 s difference resolved against two arms each bounded at 2 s; the error budget is 4 s")
 	}
@@ -416,7 +423,8 @@ func TestTheDifferenceFloorIsTheSumOfBothArms(t *testing.T) {
 }
 
 // A mean over the runs whose owner came back omits the slow tail, and the tail is exactly what a reader
-// worried about an arm wants to see. The figures stay; the verdict does not.
+// worried about an arm wants to see.
+// The figures stay; the verdict does not.
 func TestASurvivorMeanIsNeverResolved(t *testing.T) {
 	c, err := compareRecords([]runRecord{
 		withOwnerWait(cmpRec("a1", "A-honor", "self-completing", "2026-08-20T05:00:00Z", 41.0, int64(time.Second)), 2.5),
@@ -437,7 +445,8 @@ func TestASurvivorMeanIsNeverResolved(t *testing.T) {
 }
 
 // The dose check refuses a regime that did not restore its owner every time, rather than reporting a mean
-// with a known direction of bias. It licenses a baseline for a session nobody can re-run cheaply.
+// with a known direction of bias.
+// It licenses a baseline for a session nobody can re-run cheaply.
 func TestDoseSensitivityRefusesASurvivorMean(t *testing.T) {
 	recs := []runRecord{
 		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.7),
@@ -493,9 +502,9 @@ func nodeRec(r runRecord, node string) runRecord {
 	return r
 }
 
-// The last hand-typed number in this lab, as an artifact. It refuses more than the comparisons do, because a
-// baseline is quoted long after its runs are gone by someone who will not re-derive it — which is exactly
-// what happened to the figure this replaces.
+// The last hand-typed number in this lab, as an artifact.
+// It refuses more than the comparisons do, because a baseline is quoted long after its runs are gone by
+// someone who will not re-derive it — which is exactly what happened to the figure this replaces.
 func TestBaselineNamesEverythingBehindIt(t *testing.T) {
 	recs := []runRecord{
 		nodeRec(withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, 1876*int64(time.Millisecond)), 2.729), "platform-worker"),
@@ -550,7 +559,8 @@ func TestBaselineRefusesARunThatNeverRestoredItsOwner(t *testing.T) {
 }
 
 // The node is the factor "one cluster, one pinned worker" left unqualified on every figure this lab has
-// produced. Varying it requires holding the dose fixed, or a node difference gets published as a dose one.
+// produced.
+// Varying it requires holding the dose fixed, or a node difference gets published as a dose one.
 func TestNodeSensitivityHoldsTheDoseFixed(t *testing.T) {
 	varied := []runRecord{
 		nodeRec(withOwnerWait(cmpRec("a", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.7), "platform-worker"),
@@ -636,13 +646,14 @@ func holdSecondsOf(r runRecord) int {
 // The lab's central claim, tested on the quantity the claim is about.
 //
 // The honouring arm is a CONTROL rather than a subtrahend: its hold is near zero, which is what shows the
-// interval contains no scheduling or container start. Nothing is subtracted from anything.
+// interval contains no scheduling or container start.
+// Nothing is subtracted from anything.
 //
 // Mutation that turns this red: subtract the control from the prediction, or take the declared dose instead
 // of the achieved one.
 func TestTheModelPredictsTheDeviceHoldFromOneRule(t *testing.T) {
-	// Achieved doses overrun their declared 20 and 40 by 1.2 s, as every recorded run does. Remaining service
-	// is then 38.8 (grace binds, hold 30) and 18.8 (service binds, hold 18.8).
+	// Achieved doses overrun their declared 20 and 40 by 1.2 s, as every recorded run does.
+	// Remaining service is then 38.8 (grace binds, hold 30) and 18.8 (service binds, hold 18.8).
 	recs := []runRecord{
 		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
 		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 30.050),
@@ -671,9 +682,10 @@ func TestTheModelPredictsTheDeviceHoldFromOneRule(t *testing.T) {
 	if got := byDose["self-completing"].AchievedDoseSeconds; got < 41 || got > 41.2 {
 		t.Fatalf("achieved dose = %v, want the measured 41.1 rather than the declared 40", got)
 	}
-	// The observed hold is the raw measurement. Nothing is subtracted from it -- the control exists to show
-	// the interval contains no platform work, not to correct it, and an earlier version of this check
-	// subtracted a term it had borrowed from the other arm.
+	// The observed hold is the raw measurement.
+	// Nothing is subtracted from it -- the control exists to show the interval contains no platform work,
+	// not to correct it, and an earlier version of this check subtracted a term it had borrowed from the
+	// other arm.
 	if got := byDose["grace-bounded"].ObservedSeconds; got < 30.04 || got > 30.06 {
 		t.Fatalf("observed hold = %v, want the raw 30.050; something was subtracted from it", got)
 	}
@@ -684,8 +696,9 @@ func TestTheModelPredictsTheDeviceHoldFromOneRule(t *testing.T) {
 	}
 }
 
-// The contrast is the only part of the check that tests the model's kink. Anything common to both regimes
-// cancels in it, so a rule that happened to fit both levels by coincidence cannot fit their difference.
+// The contrast is the only part of the check that tests the model's kink.
+// Anything common to both regimes cancels in it, so a rule that happened to fit both levels by
+// coincidence cannot fit their difference.
 func TestTheModelTestsTheContrastBetweenRegimes(t *testing.T) {
 	recs := []runRecord{
 		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
@@ -713,7 +726,8 @@ func TestTheModelTestsTheContrastBetweenRegimes(t *testing.T) {
 	}
 }
 
-// And it can fail. A refutation nobody can trigger is not one.
+// And it can fail.
+// A refutation nobody can trigger is not one.
 func TestTheModelCanBeRefuted(t *testing.T) {
 	recs := []runRecord{
 		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
@@ -752,17 +766,19 @@ func TestTheModelClaimsConsistencyRatherThanValidation(t *testing.T) {
 	}
 	// The two retractions a review forced, each defended here so the statement cannot slide back.
 	//
-	// The control is a few tens of milliseconds against a floor of seconds, so it is UNRESOLVED. The
-	// statement used to say it "shows the interval contains no platform work", which is exactly the
-	// inversion resolution.go exists to prevent: "the harness cannot see this" printed as "the harness
-	// measured this". The whole model chain rests on that one figure.
+	// The control is a few tens of milliseconds against a floor of seconds, so it is UNRESOLVED.
+	// The statement used to say it "shows the interval contains no platform work", which is exactly
+	// the inversion resolution.go exists to prevent: "the harness cannot see this" printed as "the
+	// harness measured this".
+	// The whole model chain rests on that one figure.
 	if !strings.Contains(m.Statement, "unresolved") {
 		t.Fatalf("the control is printed without saying it is below the floor, so a reader takes a number "+
 			"this harness cannot resolve as a measured near-zero: %s", m.Statement)
 	}
 	// And the self-completing cell's prediction is built from its own achieved dose, so its residual reduces
-	// to an instrumentation offset -- every term of the rule cancels out of it. A statement that presents it
-	// as a test of min(remaining service, grace) is claiming a cell that cannot refute anything.
+	// to an instrumentation offset -- every term of the rule cancels out of it.
+	// A statement that presents it as a test of min(remaining service, grace) is claiming a cell that cannot
+	// refute anything.
 	if !strings.Contains(m.Statement, "instrumentation offset") {
 		t.Fatalf("the statement presents the self-completing cell as a test of the rule, when its prediction "+
 			"is built from the same run's own timings: %s", m.Statement)
@@ -772,9 +788,10 @@ func TestTheModelClaimsConsistencyRatherThanValidation(t *testing.T) {
 // The hold's endpoints are arrival times from two watches, so pooling nodes pools two collectors' delivery
 // behaviour into an interval whose entire value is that it is quiet.
 func TestTheModelRefusesToPoolNodes(t *testing.T) {
-	// A complete set, so the ONLY thing wrong is the node. An earlier version of this test used a single
-	// regime and passed on the "needs both dose regimes" refusal instead -- it asserted that an error came
-	// back without checking which one, and a mutation removing the node guard survived it.
+	// A complete set, so the ONLY thing wrong is the node.
+	// An earlier version of this test used a single regime and passed on the "needs both dose regimes"
+	// refusal instead -- it asserted that an error came back without checking which one, and a mutation
+	// removing the node guard survived it.
 	one := []runRecord{
 		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
 		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 30.050),
@@ -799,7 +816,8 @@ func TestTheModelRefusesToPoolNodes(t *testing.T) {
 // reason the contrast is computed: a rule fitted to two levels by coincidence cannot also fit their gap.
 func TestTheContrastFailsWhereTheLevelsPass(t *testing.T) {
 	// Each level is 1.4 s off its prediction -- inside the ~3 s floor -- but in OPPOSITE directions, so the
-	// contrast is 2.8 s out. Widen it until it clears the floor while each level stays within.
+	// contrast is 2.8 s out.
+	// Widen it until it clears the floor while each level stays within.
 	recs := []runRecord{
 		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
 		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 32.9),
@@ -826,8 +844,9 @@ func TestTheContrastFailsWhereTheLevelsPass(t *testing.T) {
 }
 
 // The statement's spread is in milliseconds and the field is in seconds, which is exactly the kind of unit
-// slip that ships. It shipped once: a 930 ms spread printed as "a spread of 1 ms" in the sentence a reader
-// quotes, beside the correct figure in the line below it.
+// slip that ships.
+// It shipped once: a 930 ms spread printed as "a spread of 1 ms" in the sentence a reader quotes, beside
+// the correct figure in the line below it.
 func TestBaselineStatementReportsTheSpreadInMilliseconds(t *testing.T) {
 	recs := []runRecord{
 		nodeRec(withOwnerWait(cmpRec("h1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 1.688), "platform-worker"),
@@ -860,9 +879,9 @@ func stampedHoldRec(r runRecord, doseSeconds, arrivalHold, stampHold float64) ru
 	return r
 }
 
-// Two readings of one interval that describe different intervals mean neither can be published. The check was
-// promised in a comment beside the second reading and performed nowhere, so a clock step would have corrupted
-// it in silence.
+// Two readings of one interval that describe different intervals mean neither can be published.
+// The check was promised in a comment beside the second reading and performed nowhere, so a clock step would
+// have corrupted it in silence.
 //
 // Mutation that turns this red: drop the ClocksDisagree call, or widen the tolerance without bound.
 func TestARunWhoseTwoClocksDisagreeIsRefused(t *testing.T) {
@@ -876,8 +895,8 @@ func TestARunWhoseTwoClocksDisagreeIsRefused(t *testing.T) {
 		t.Fatalf("readings agreeing within truncation must pass, or this tests nothing: %v", err)
 	}
 
-	// The stamps now say the hold was twelve seconds while the arrivals say thirty. Truncation cannot span
-	// that, so the two instruments are describing different intervals.
+	// The stamps now say the hold was twelve seconds while the arrivals say thirty.
+	// Truncation cannot span that, so the two instruments are describing different intervals.
 	disagree := append([]runRecord{}, agree...)
 	disagree[1] = stampedHoldRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0),
 		21.2, 30.050, 12)
@@ -891,9 +910,10 @@ func TestARunWhoseTwoClocksDisagreeIsRefused(t *testing.T) {
 }
 
 // "The hold is read on two clocks" has to mean two readings EXIST, not merely that two agree when both
-// happen to be present. A run carrying one reading has an arrival figure checked against nothing, and
-// ClocksDisagree answers "no disagreement" for it — the honest answer to the question it was asked, and the
-// wrong basis for admitting the run.
+// happen to be present.
+// A run carrying one reading has an arrival figure checked against nothing, and ClocksDisagree answers "no
+// disagreement" for it — the honest answer to the question it was asked, and the wrong basis for admitting
+// the run.
 //
 // Mutation that turns this red: drop the DeviceHoldStampNs nil check and rely on ClocksDisagree alone.
 func TestARunReadOnOneClockIsRefused(t *testing.T) {
@@ -930,9 +950,10 @@ func TestARunReadOnOneClockIsRefused(t *testing.T) {
 // The resolution rule applies to the baseline too, and it did not until a hostile review found the asymmetry.
 //
 // The model check refuses to read the honouring arm's 0.041 s hold as a measured near-zero because it sits
-// under the floor. The baseline printed a mean under ITS floor as though it were measured -- and a baseline
-// is exactly the figure a later session differences against, so an unresolved one propagates into a
-// comparison nobody can support.
+// under the floor.
+// The baseline printed a mean under ITS floor as though it were measured -- and a baseline is exactly the
+// figure a later session differences against, so an unresolved one propagates into a comparison nobody can
+// support.
 func TestTheBaselineAppliesTheResolutionRuleToItself(t *testing.T) {
 	b := baseline{
 		Arm: "A-honor", N: 4,
@@ -975,9 +996,9 @@ func TestDispersionIsJudgedAgainstTheFloorRatherThanTheMean(t *testing.T) {
 //
 // Every other comparison in this file checked it and this one did not, which an independent review found.
 // It is the comparison carrying the headline: if the regimes were run in blocks rather than alternating,
-// anything that drifted over the session lands entirely on one of them and arrives as the kink. The
-// committed set IS interleaved, so the warning correctly stays silent there -- which is exactly why the
-// omission survived.
+// anything that drifted over the session lands entirely on one of them and arrives as the kink.
+// The committed set IS interleaved, so the warning correctly stays silent there -- which is exactly why
+// the omission survived.
 func TestTheModelCheckSaysWhenTheRegimesWereNotInterleaved(t *testing.T) {
 	blocked := modelCheck{
 		Interleaved:     false,
@@ -995,10 +1016,11 @@ func TestTheModelCheckSaysWhenTheRegimesWereNotInterleaved(t *testing.T) {
 			"the runs where it matters:\n%s", got)
 	}
 
-	// And the flag has to be COMPUTED from the runs, not merely rendered. The first version of this test
-	// built modelCheck structs by hand, so hardcoding Interleaved = true in checkModel passed it -- the
-	// renderer was proven correct about a field nothing derived. That is the same shape as a helper that is
-	// correct while its caller never calls it, which this repository has been bitten by more than once.
+	// And the flag has to be COMPUTED from the runs, not merely rendered.
+	// The first version of this test built modelCheck structs by hand, so hardcoding Interleaved = true in
+	// checkModel passed it -- the renderer was proven correct about a field nothing derived.
+	// That is the same shape as a helper that is correct while its caller never calls it, which this
+	// repository has been bitten by more than once.
 	//
 	// Same four runs both times; only the ORDER they were started in differs.
 	alternating := []runRecord{
@@ -1036,9 +1058,9 @@ func withDuty(r runRecord, duty float64) runRecord {
 
 // TestAnArmWhoseRunsIdledDifferentlyIsRefused is the dose guard's rule applied to the duty.
 //
-// An arm is one experiment. Averaging a run that computed throughout with one that held its card idle for
-// three quarters of its service produces a mean describing neither, and that mean is what every finding is
-// built on.
+// An arm is one experiment.
+// Averaging a run that computed throughout with one that held its card idle for three quarters of its
+// service produces a mean describing neither, and that mean is what every finding is built on.
 func TestAnArmWhoseRunsIdledDifferentlyIsRefused(t *testing.T) {
 	_, err := compareRecords([]runRecord{
 		withDuty(cmpRec("r001", "A-honor", "grace-bounded", "2026-09-06T05:45:57Z", 41.0, int64(time.Second)), 1),
@@ -1057,9 +1079,9 @@ func TestAnArmWhoseRunsIdledDifferentlyIsRefused(t *testing.T) {
 
 // TestARecordFromBeforeTheAxisIsNotTheSameAsOneThatMeasuredFullDuty keeps two different facts apart.
 //
-// An absent duty is a run whose workload could only compute continuously. A reported 1.0 is a run that
-// measured and said so. Folding them into one arm would average a run this build can vouch for with one that
-// predates the axis.
+// An absent duty is a run whose workload could only compute continuously.
+// A reported 1.0 is a run that measured and said so.
+// Folding them into one arm would average a run this build can vouch for with one that predates the axis.
 func TestARecordFromBeforeTheAxisIsNotTheSameAsOneThatMeasuredFullDuty(t *testing.T) {
 	_, err := compareRecords([]runRecord{
 		withDuty(cmpRec("r001", "A-honor", "grace-bounded", "2026-09-06T05:45:57Z", 41.0, int64(time.Second)), 1),
@@ -1076,9 +1098,9 @@ func TestARecordFromBeforeTheAxisIsNotTheSameAsOneThatMeasuredFullDuty(t *testin
 
 // TestArmsThatIdledDifferentlyAreReportedRatherThanRefused is the other half of the rule.
 //
-// Varying the duty BETWEEN arms is the experiment reading 2 exists for, so it must be allowed. What it must
-// not be is silent: a reader scanning two waste figures will attribute their difference to the thing the arms
-// are named for.
+// Varying the duty BETWEEN arms is the experiment reading 2 exists for, so it must be allowed.
+// What it must not be is silent: a reader scanning two waste figures will attribute their difference to the
+// thing the arms are named for.
 func TestArmsThatIdledDifferentlyAreReportedRatherThanRefused(t *testing.T) {
 	c, err := compareRecords([]runRecord{
 		withDuty(cmpRec("r001", "full", "grace-bounded", "2026-09-06T05:45:57Z", 41.0, int64(time.Second)), 1),

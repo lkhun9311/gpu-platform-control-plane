@@ -39,18 +39,21 @@ const (
 	//
 	// It is a default rather than a constant because the right cadence depends on what is being watched: a
 	// recovery that takes two seconds is invisible to a five-second poll, and a run recorded that way says
-	// the platform never left its healthy state. That is not a small inaccuracy -- it is the trail reporting
-	// a constant, which is what this whole type exists to stop.
+	// the platform never left its healthy state.
+	// That is not a small inaccuracy -- it is the trail reporting a constant, which is what this whole type
+	// exists to stop.
 	workloadRunPoll = 5 * time.Second
 	// workloadRunMaxGapPolls is how many missed looks make a hole rather than a hiccup.
 	//
 	// A single missed reconcile is ordinary -- a leader election, a slow apiserver -- and refusing on it
-	// would make the type useless. Three consecutive is a controller that was not running, and a verdict
-	// computed across that is a claim about a window nobody watched.
+	// would make the type useless.
+	// Three consecutive is a controller that was not running, and a verdict computed across that is a
+	// claim about a window nobody watched.
 	//
 	// It is a multiple of the POLL rather than a duration, so tightening the cadence tightens the tolerance
-	// with it. A fixed tolerance beside a configurable poll would silently accept three-second holes in a
-	// run that looks every second.
+	// with it.
+	// A fixed tolerance beside a configurable poll would silently accept three-second holes in a run that
+	// looks every second.
 	workloadRunMaxGapPolls = 3
 	// workloadRunHealthyPhase is the phase both watchable kinds use for "serving normally".
 	//
@@ -62,9 +65,10 @@ const (
 
 // WorkloadRunReconciler assembles the evidence trail for one injected failure.
 //
-// It does NOT inject anything. The scenarios are shell scripts (hack/chaos-*.sh) that a human runs, and
-// keeping the injection out of the controller keeps the recorder honest: a component that both causes the
-// failure and judges the recovery can always be accused of having judged its own work.
+// It does NOT inject anything.
+// The scenarios are shell scripts (hack/chaos-*.sh) that a human runs, and keeping the injection out of
+// the controller keeps the recorder honest: a component that both causes the failure and judges the
+// recovery can always be accused of having judged its own work.
 type WorkloadRunReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -111,8 +115,9 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Terminal states are terminal. A run that has been refused is not retried into a pass, and one that
-	// completed is not re-judged against a target that has moved on since.
+	// Terminal states are terminal.
+	// A run that has been refused is not retried into a pass, and one that completed is not re-judged
+	// against a target that has moved on since.
 	switch run.Status.Phase {
 	case platformv1.WorkloadRunComplete, platformv1.WorkloadRunRefused:
 		return ctrl.Result{}, nil
@@ -120,9 +125,9 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	now := r.now()
 
-	// The expectation must not move under the observation. Editing the spec mid-window would leave a trail
-	// assembled against one deadline and judged against another, which is the post-hoc move every other
-	// gate in this repository exists to prevent.
+	// The expectation must not move under the observation.
+	// Editing the spec mid-window would leave a trail assembled against one deadline and judged against
+	// another, which is the post-hoc move every other gate in this repository exists to prevent.
 	if run.Status.Phase == platformv1.WorkloadRunObserving && run.Status.ObservedGeneration != run.Generation {
 		return r.refuse(ctx, &run, fmt.Sprintf(
 			"the spec changed during the window (generation %d observed, %d now): the trail was assembled "+
@@ -138,8 +143,9 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if run.Status.Phase == "" || run.Status.Phase == platformv1.WorkloadRunPending {
 		if !found {
-			// Refused rather than failed. A target that was never there is not a platform that did not
-			// recover, and the two must be distinguishable from the record alone.
+			// Refused rather than failed.
+			// A target that was never there is not a platform that did not recover, and the two must
+			// be distinguishable from the record alone.
 			return r.refuse(ctx, &run, fmt.Sprintf(
 				"target %s %q does not exist, so there is nothing this run could be evidence about",
 				run.Spec.Target.Kind, targetKey(run.Spec.Target)))
@@ -205,8 +211,8 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Nothing was ever observed to fail, so there is no recovery to judge.
 	//
 	// Refused rather than Recovered, because a pass here would be the strongest possible claim resting on
-	// the weakest possible evidence: the scenario was injected and the platform's own phase never moved. The
-	// honest reading is that the run did not see the failure -- the injection missed, or the outage was
+	// the weakest possible evidence: the scenario was injected and the platform's own phase never moved.
+	// The honest reading is that the run did not see the failure -- the injection missed, or the outage was
 	// shorter than the poll -- and both send an operator somewhere a false pass would not.
 	if !run.Status.ObservedUnhealthy {
 		return r.refuse(ctx, &run, fmt.Sprintf(
@@ -247,10 +253,11 @@ func (r *WorkloadRunReconciler) record(run *platformv1.WorkloadRun, now time.Tim
 	// healthy is `serving`, not `state == "Ready"`, and the difference is a hole a cold review walked through.
 	//
 	// An InferenceDeployment scaled to zero reports phase Ready on purpose -- an intentional zero-replica state
-	// IS ready (inferencedeployment_controller.go:310, reason ScaledToZero). So editing the target's
-	// spec.replicas to 0 mid-run, which needs no status-write permission, made this recorder see health,
-	// credit a recovery, and award Recovered to a run whose target had stopped serving entirely. The ledger
-	// then preserved that false recovery faithfully.
+	// IS ready (inferencedeployment_controller.go:310, reason ScaledToZero).
+	// So editing the target's spec.replicas to 0 mid-run, which needs no status-write permission, made this
+	// recorder see health, credit a recovery, and award Recovered to a run whose target had stopped serving
+	// entirely.
+	// The ledger then preserved that false recovery faithfully.
 	//
 	// state stays verbatim because the API forbids normalising it: "a controller that rewrote the target's own
 	// vocabulary would be summarising". healthy sits beside it as this controller's reading, which is exactly
@@ -275,10 +282,10 @@ func (r *WorkloadRunReconciler) record(run *platformv1.WorkloadRun, now time.Tim
 	}
 	// A recovery is a return to health AFTER something was observed to fail, and the distinction is not
 	// pedantic: the target is healthy when a run starts, so crediting the first healthy observation makes
-	// every run recover at second zero -- including one whose target never came back. The first end-to-end
-	// run against a real cluster reported exactly that, verdict Recovered at 0s, while its own trail showed
-	// the failure arriving ten seconds later. envtest missed it because those specs start the target
-	// already degraded, which is the one shape where the two readings agree.
+	// every run recover at second zero -- including one whose target never came back.
+	// The first end-to-end run against a real cluster reported exactly that, verdict Recovered at 0s, while
+	// its own trail showed the failure arriving ten seconds later. envtest missed it because those specs
+	// start the target already degraded, which is the one shape where the two readings agree.
 	if !healthy {
 		run.Status.ObservedUnhealthy = true
 		return
@@ -295,11 +302,13 @@ func (r *WorkloadRunReconciler) refuse(ctx context.Context, run *platformv1.Work
 	run.Status.Reason = why
 	// No verdict is cleared here, and there used to be a line that did with a comment explaining why.
 	//
-	// It was unreachable. A verdict is only ever set in the Complete branch, which is terminal, so there is
-	// no path on which a refusal follows one -- the clear could not fire and the comment claimed a
-	// protection that did not exist. A mutation that deleted the line failed nothing, which is how it was
-	// found. The property it claimed is still worth holding, and the test holds it directly: a refused run
-	// carries no verdict.
+	// It was unreachable.
+	// A verdict is only ever set in the Complete branch, which is terminal, so there is no path on which a
+	// refusal follows one -- the clear could not fire and the comment claimed a protection that did not
+	// exist.
+	// A mutation that deleted the line failed nothing, which is how it was found.
+	// The property it claimed is still worth holding, and the test holds it directly: a refused run carries
+	// no verdict.
 	run.Status.ObservedGeneration = run.Generation
 	if err := r.Status().Update(ctx, run); err != nil {
 		return ctrl.Result{}, err
@@ -310,7 +319,8 @@ func (r *WorkloadRunReconciler) refuse(ctx context.Context, run *platformv1.Work
 
 // isServing reports whether the target is actually carrying work, given the phase it reported.
 //
-// A phase of Ready is necessary and not sufficient. The kinds differ in what else has to hold:
+// A phase of Ready is necessary and not sufficient.
+// The kinds differ in what else has to hold:
 //
 //   - InferenceDeployment: Ready is also the phase of a deliberate scale-to-zero, so serving additionally
 //     requires a ready replica. status.readyReplicas is copied from the Deployment every reconcile
@@ -319,9 +329,9 @@ func (r *WorkloadRunReconciler) refuse(ctx context.Context, run *platformv1.Work
 //   - NodeHealth: there is no replica concept -- the status carries a phase, a fault signal and conditions --
 //     so Ready is the whole of it.
 //
-// An unrecognised kind is NOT serving. The enum admits only these two today, but a kind added later without a
-// rule here would otherwise be read as healthy by default, and a run would award Recovered for a target
-// nobody taught this function to judge.
+// An unrecognised kind is NOT serving.
+// The enum admits only these two today, but a kind added later without a rule here would otherwise be read as
+// healthy by default, and a run would award Recovered for a target nobody taught this function to judge.
 func isServing(kind, phase string, u *unstructured.Unstructured) (bool, error) {
 	if phase != workloadRunHealthyPhase {
 		return false, nil
@@ -353,8 +363,8 @@ func isServing(kind, phase string, u *unstructured.Unstructured) (bool, error) {
 // observeTarget reads the target's phase verbatim, and separately judges whether it is serving.
 //
 // Unstructured on purpose: the two watchable kinds report a phase in the same place and this reads that
-// place, rather than importing both types and teaching this controller their internals. What it must NOT
-// do is normalise -- the target's own vocabulary is what goes in the trail.
+// place, rather than importing both types and teaching this controller their internals.
+// What it must NOT do is normalise -- the target's own vocabulary is what goes in the trail.
 func (r *WorkloadRunReconciler) observeTarget(ctx context.Context, run *platformv1.WorkloadRun) (targetObservation, error) {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{
@@ -375,8 +385,8 @@ func (r *WorkloadRunReconciler) observeTarget(ctx context.Context, run *platform
 		return seen, fmt.Errorf("read %s %q status.phase: %w", run.Spec.Target.Kind, key, err)
 	}
 	if !ok || phase == "" {
-		// A target that has not reported yet is a real state and is recorded as one. Treating it as absent
-		// would refuse every run that starts before its target's first reconcile.
+		// A target that has not reported yet is a real state and is recorded as one.
+		// Treating it as absent would refuse every run that starts before its target's first reconcile.
 		seen.state = "NoPhase"
 		return seen, nil
 	}

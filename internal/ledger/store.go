@@ -17,17 +17,18 @@ limitations under the License.
 // Package ledger stores the operations ledger: durable evidence of what the platform did, outliving the
 // cluster that produced it.
 //
-// Design of record: docs/superpowers/specs/2026-09-27-operations-ledger-slice-one-design.md. Slice 1 writes
-// two of the six tables docs/07 lists, workload_runs and operation_events, and deliberately leaves the other
-// four absent rather than stubbed.
+// Design of record: docs/superpowers/specs/2026-09-27-operations-ledger-slice-one-design.md.
+// Slice 1 writes two of the six tables docs/07 lists, workload_runs and operation_events, and deliberately
+// leaves the other four absent rather than stubbed.
 //
-// The ledger is a PROJECTION and never a source of truth. Scheduling and quota are decided by the Kubernetes
-// resources and the controllers; nothing here may acquire a vote on them, which is why no package under
-// internal/controller imports this one.
+// The ledger is a PROJECTION and never a source of truth.
+// Scheduling and quota are decided by the Kubernetes resources and the controllers; nothing here may acquire
+// a vote on them, which is why no package under internal/controller imports this one.
 //
 // The driver is modernc.org/sqlite rather than a cgo binding because Dockerfile:22 builds with
-// CGO_ENABLED=0. That is a constraint discovered at container-build time rather than by go test, so it is
-// written down here: the comparison between drivers was never open.
+// CGO_ENABLED=0.
+// That is a constraint discovered at container-build time rather than by go test, so it is written down
+// here: the comparison between drivers was never open.
 package ledger
 
 import (
@@ -46,14 +47,15 @@ import (
 // schemaVersion is the schema this binary understands.
 //
 // A database at a HIGHER version was written by a newer binary whose columns this one does not know, so
-// reading it would answer questions about a shape it cannot see. Both directions are refused by name rather
-// than tolerated.
+// reading it would answer questions about a shape it cannot see.
+// Both directions are refused by name rather than tolerated.
 const schemaVersion = 1
 
 // migration is one schema step, applied with its version record in a single transaction.
 //
 // Recording the version separately from the DDL it describes would leave a database that has the tables and
-// denies having them, or claims a version whose tables never arrived. Both read as a working ledger.
+// denies having them, or claims a version whose tables never arrived.
+// Both read as a working ledger.
 //
 // tables is what the step promises to have created, so version() can check the claim rather than trust it.
 type migration struct {
@@ -65,18 +67,19 @@ type migration struct {
 // migrations are applied in order, and are append-only ONCE SHIPPED.
 //
 // Editing an applied migration would leave a developer whose database is already at that version keeping the
-// old shape while the file says otherwise, with nothing reporting the divergence. Version 1 below was revised
-// after a cold review and before it was ever committed, which is the only window in which revising it is
-// honest.
+// old shape while the file says otherwise, with nothing reporting the divergence.
+// Version 1 below was revised after a cold review and before it was ever committed, which is the only window
+// in which revising it is honest.
 var migrations = []migration{
 	{
 		version: 1,
 		tables:  []string{"schema_migrations", "workload_runs", "operation_events"},
 		stmts: []string{
 			// STRICT constrains storage CLASSES and nothing else: it stops a string landing in an integer
-			// column, and it permits healthy=17, a negative offset and an empty required string. Those are
-			// semantics, so they are CHECK constraints below. Claiming STRICT covers them was the kind of
-			// overstatement this repository exists to catch, and a review caught it here.
+			// column, and it permits healthy=17, a negative offset and an empty required string.
+			// Those are semantics, so they are CHECK constraints below.
+			// Claiming STRICT covers them was the kind of overstatement this repository exists to catch,
+			// and a review caught it here.
 			`CREATE TABLE schema_migrations (
 				version               INTEGER PRIMARY KEY,
 				applied_at_unix_nanos INTEGER NOT NULL,
@@ -88,21 +91,23 @@ var migrations = []migration{
 			// updates it instead of appending a second account of it.
 			//
 			// target_namespace is NOT NULL because the API represents cluster scope as the EMPTY STRING
-			// (api/v1/workloadrun_types.go:80), not as absence. A nullable column here would invent a third
-			// state the source of truth does not have.
+			// (api/v1/workloadrun_types.go:80), not as absence.
+			// A nullable column here would invent a third state the source of truth does not have.
 			//
 			// started_at_unix_nanos IS nullable, because a run that never reached Observing has no start.
 			// Note what that does NOT mean: a run can acquire a start and later be Refused -- the gap check
 			// at internal/controller/workloadrun_controller.go:160 refuses a trail with a hole in it -- so a
-			// Refused run may well have one. Storing 0 for the absent case would read as the epoch: a run
-			// that began in 1970 rather than one that never began.
+			// Refused run may well have one.
+			// Storing 0 for the absent case would read as the epoch: a run that began in 1970 rather than
+			// one that never began.
 			//
-			// projected_at_unix_nanos is named for what it is. An observed_at would invite a reader to treat
-			// it as the time something happened, and the number would support that reading while being false.
+			// projected_at_unix_nanos is named for what it is.
+			// An observed_at would invite a reader to treat it as the time something happened, and the number
+			// would support that reading while being false.
 			//
-			// The phase and verdict vocabularies are pinned here on purpose. A value the API cannot produce
-			// is not evidence, so an unknown one must stop the projection loudly rather than be stored and
-			// read back later as though something had reported it.
+			// The phase and verdict vocabularies are pinned here on purpose.
+			// A value the API cannot produce is not evidence, so an unknown one must stop the projection
+			// loudly rather than be stored and read back later as though something had reported it.
 			`CREATE TABLE workload_runs (
 				uid                     TEXT NOT NULL PRIMARY KEY,
 				namespace               TEXT NOT NULL,
@@ -136,17 +141,18 @@ var migrations = []migration{
 
 			// The identity is the observation's POSITION in the trail, not its (second, state) pair.
 			//
-			// The pair is not unique. The controller truncates elapsed time to whole seconds
+			// The pair is not unique.
+			// The controller truncates elapsed time to whole seconds
 			// (internal/controller/workloadrun_controller.go:230) and appends on every state change (:234),
-			// so Ready@0 -> Degraded@0 -> Ready@0 is a legal trail whose first and third entries collide. A
-			// key on the pair would either abort the projection or drop the later transition, and a projector
-			// counting that drop as "already present" would report a LOSS as a successful replay.
+			// so Ready@0 -> Degraded@0 -> Ready@0 is a legal trail whose first and third entries collide.
+			// A key on the pair would either abort the projection or drop the later transition, and a
+			// projector counting that drop as "already present" would report a LOSS as a successful replay.
 			//
 			// The ordinal is meaningful rather than incidental: the API defines status.observations as "the
 			// trail, in the order they were seen" (api/v1/workloadrun_types.go:189).
 			//
-			// elapsed_seconds stays the timing authority for reading the trail. It is simply not unique
-			// enough to be the identity.
+			// elapsed_seconds stays the timing authority for reading the trail.
+			// It is simply not unique enough to be the identity.
 			`CREATE TABLE operation_events (
 				object_uid      TEXT NOT NULL,
 				ordinal         INTEGER NOT NULL,
@@ -172,8 +178,9 @@ type Store struct {
 
 // Open opens the ledger for writing, creating and migrating it if necessary.
 //
-// This is the projector's entry point. Creating on demand is right for a writer and wrong for a reader, which
-// is why OpenForRead exists separately rather than as a flag on this one.
+// This is the projector's entry point.
+// Creating on demand is right for a writer and wrong for a reader, which is why OpenForRead exists separately
+// rather than as a flag on this one.
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -189,13 +196,14 @@ func Open(path string) (*Store, error) {
 
 // OpenForRead opens an existing ledger read-only, and refuses when there is nothing trustworthy to read.
 //
-// A missing file is refused rather than reported as an empty ledger. "No runs are recorded" and "the
-// recording could not be read" are different facts, and a reader shown the first when the second is true has
-// been told something false about their own system.
+// A missing file is refused rather than reported as an empty ledger.
+// "No runs are recorded" and "the recording could not be read" are different facts, and a reader shown the
+// first when the second is true has been told something false about their own system.
 //
-// A version other than this binary's is refused in BOTH directions. Higher means columns this binary cannot
-// see. Lower means a migration is pending, which is an actionable error rather than proof that today's
-// queries are valid against yesterday's shape.
+// A version other than this binary's is refused in BOTH directions.
+// Higher means columns this binary cannot see.
+// Lower means a migration is pending, which is an actionable error rather than proof that today's queries
+// are valid against yesterday's shape.
 func OpenForRead(path string) (*Store, error) {
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -244,18 +252,20 @@ func (s *Store) tableExists(name string) (bool, error) {
 
 // version reports the highest applied migration, or 0 for a ledger with no schema yet.
 //
-// It VALIDATES rather than reports. MAX(version) alone accepted a database that claims version 1 while
-// operation_events had been dropped, and a history of {1,3} with 2 never applied -- both of which read as a
-// healthy ledger and would have been queried as one. A version number is a claim about shape, so it is
-// checked against the shape.
+// It VALIDATES rather than reports.
+// MAX(version) alone accepted a database that claims version 1 while operation_events had been dropped, and
+// a history of {1,3} with 2 never applied -- both of which read as a healthy ledger and would have been
+// queried as one.
+// A version number is a claim about shape, so it is checked against the shape.
 func (s *Store) version() (int, error) {
 	present, err := s.tableExists("schema_migrations")
 	if err != nil {
 		return 0, err
 	}
 	if !present {
-		// No migration record at all. That is version 0 only if the schema really is absent; if the tables
-		// are there, the ledger has a shape it denies having, which must not be read as a fresh install.
+		// No migration record at all.
+		// That is version 0 only if the schema really is absent; if the tables are there, the ledger has a
+		// shape it denies having, which must not be read as a fresh install.
 		for _, m := range migrations {
 			for _, t := range m.tables {
 				if t == "schema_migrations" {

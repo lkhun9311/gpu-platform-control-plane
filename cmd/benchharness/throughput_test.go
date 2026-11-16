@@ -21,12 +21,14 @@ import (
 // printing wrong by a factor of three.
 //
 // Summarize sees pooled rows and cannot know how they were split, so its span -- max(end) minus min(send)
-// -- covers the washout pauses between repetitions, during which the arm sent nothing. On the paid
-// 2026-09-03 evidence that reported 14.1 output tokens per second for an arm that actually sustained 46.4.
+// -- covers the washout pauses between repetitions, during which the arm sent nothing.
+// On the paid 2026-09-03 evidence that reported 14.1 output tokens per second for an arm that actually
+// sustained 46.4.
 //
 // The number was not merely imprecise: it was small enough that all four arms looked alike, which is
-// exactly the comparison this metric exists to make. So the split is applied where it is known, and this
-// test injects the fault by placing a washout an order of magnitude longer than the work either side of it.
+// exactly the comparison this metric exists to make.
+// So the split is applied where it is known, and this test injects the fault by placing a washout an order
+// of magnitude longer than the work either side of it.
 func TestPooledRepetitionsDoNotChargeTheArmForTheWashout(t *testing.T) {
 	const (
 		sec      = int64(1_000_000_000)
@@ -34,8 +36,9 @@ func TestPooledRepetitionsDoNotChargeTheArmForTheWashout(t *testing.T) {
 		washSecs = 100
 	)
 	dir := t.TempDir()
-	// Two repetitions of two seconds each, separated by a hundred-second washout. Ten tokens per
-	// repetition over two seconds is five tokens per second; charged for the washout it would be 0.19.
+	// Two repetitions of two seconds each, separated by a hundred-second washout.
+	// Ten tokens per repetition over two seconds is five tokens per second; charged for the washout it
+	// would be 0.19.
 	var paths []string
 	for rep, start := range []int64{0, int64(repSecs+washSecs) * sec} {
 		rows := make([]bench.RawRow, 0, 2)
@@ -77,7 +80,8 @@ func TestPooledRepetitionsDoNotChargeTheArmForTheWashout(t *testing.T) {
 	if s.OutputTokens != 20 {
 		t.Fatalf("output tokens = %d, want 20", s.OutputTokens)
 	}
-	// Each repetition spans from its first send to its last end: 2 seconds. Two of them is 4.
+	// Each repetition spans from its first send to its last end: 2 seconds.
+	// Two of them is 4.
 	if math.Abs(s.ActiveSeconds-4) > 0.001 {
 		t.Fatalf("active seconds = %.3f, want 4 (the two repetitions, not the %d-second washout between them)",
 			s.ActiveSeconds, washSecs)
@@ -92,8 +96,8 @@ func TestPooledRepetitionsDoNotChargeTheArmForTheWashout(t *testing.T) {
 //
 // The priority field is the one axis the paid microtest showed moving the premium tail, and it is a single
 // JSON key: a arm that loses it between the flag and the request body is indistinguishable from the control
-// in every artifact the run produces. So the assertion is made against the bytes a server received, not
-// against the sender's own state.
+// in every artifact the run produces.
+// So the assertion is made against the bytes a server received, not against the sender's own state.
 func TestReplayPutsThePriorityOnTheWire(t *testing.T) {
 	var mu sync.Mutex
 	seen := map[string]json.RawMessage{}
@@ -137,8 +141,8 @@ func TestReplayPutsThePriorityOnTheWire(t *testing.T) {
 // TestReplayWithoutPrioritiesOmitsTheField keeps the control arm a control.
 //
 // A zero-valued int would serialise as "priority": 0, which is vLLM's MOST urgent value -- so an
-// unconfigured control arm would silently ship the strongest possible treatment to every tenant. The field
-// must be absent, not zero.
+// unconfigured control arm would silently ship the strongest possible treatment to every tenant.
+// The field must be absent, not zero.
 func TestReplayWithoutPrioritiesOmitsTheField(t *testing.T) {
 	var mu sync.Mutex
 	var bodies []string

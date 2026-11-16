@@ -38,19 +38,20 @@ func healthyArm(name string, ttftP99, tpotP99 float64, contenderTokens int64) Ar
 		OutputTokens: 50_000 + contenderTokens,
 		// ActiveSeconds is set because reading 1's price is the PREMIUM tenant's tokens per second, which is
 		// derived from per-tenant tokens and the arm's own sending time rather than read off the arm's
-		// aggregate rate. An arm without it has no premium throughput to report.
+		// aggregate rate.
+		// An arm without it has no premium throughput to report.
 		ActiveSeconds:   1000,
 		TTFTMsP99:       ttftP99,
 		TailSampleSize:  3000,
 		RepetitionCount: 3,
 		// MinRepetitionTail is set, and leaving it at zero was a latent trap rather than a harmless gap.
 		//
-		// EvaluateChecks and RegisteredEstimandFor both refuse on `RepetitionCount > 0 &&
-		// MinRepetitionTail < MinTailSamples`, so a fixture that declares three repetitions and a thinnest
-		// repetition of zero describes a run those paths reject. The readings these tests exercise today do
-		// not consult it, which is why 48 uses passed with it unset -- and why moving reading 4 to the
-		// registered estimand would have turned "fires" into "not evaluable" across the file for a reason
-		// that has nothing to do with contention.
+		// EvaluateChecks and RegisteredEstimandFor both refuse on `RepetitionCount > 0 && MinRepetitionTail
+		// < MinTailSamples`, so a fixture that declares three repetitions and a thinnest repetition of zero
+		// describes a run those paths reject.
+		// The readings these tests exercise today do not consult it, which is why 48 uses passed with it
+		// unset -- and why moving reading 4 to the registered estimand would have turned "fires" into "not
+		// evaluable" across the file for a reason that has nothing to do with contention.
 		MinRepetitionTail:     1000,
 		RepetitionTTFTMsP99:   []float64{ttftP99 - 1, ttftP99, ttftP99 + 1},
 		OutputTokensPerSecond: 40,
@@ -101,9 +102,10 @@ func idsOf(res SharingResult) []string {
 // THE ORDERING TRAP, and it is the reason reading 1 has a third clause.
 //
 // Reading 2's condition -- meets both bars AND starves the contender -- was a strict subset of reading 1's
-// two-clause form. With "the first that fires is the answer", an arm that bought its tail by refusing the
-// other tenant's work would have been reported as the deliverable and reading 2 would never have been
-// reached. The pre-registration was corrected before any card was rented; this is what holds the correction.
+// two-clause form.
+// With "the first that fires is the answer", an arm that bought its tail by refusing the other tenant's work
+// would have been reported as the deliverable and reading 2 would never have been reached.
+// The pre-registration was corrected before any card was rented; this is what holds the correction.
 func TestAnArmThatBuysItsTailByStarvingTheContenderIsNegativeNotPositive(t *testing.T) {
 	m := healthyMatrix()
 	// Meets both bars, and takes the contender's work to do it: a fifth of the control's output, and the
@@ -138,18 +140,20 @@ func TestAnArmThatBuysItsTailByStarvingTheContenderIsNegativeNotPositive(t *test
 // The same arm, losing the same share to timeouts rather than refusal, is not reading 2 -- and not reading
 // 1 either.
 //
-// AMENDED 2026-09-12. This test used to require reading 1 to fire POSITIVE here, on the argument that work
-// which was not refused was "merely delayed". A cold review took the second half of that apart: the ledger
-// says 180 of the contender's 300 requests never came back, and a request that timed out was not served
-// late, it was not served. Calling that delay and then crediting the arm with a POSITIVE is the one way a
-// calm premium tail can be manufactured -- the tail is quiet because the load the arm was supposed to be
-// protected FROM evaporated. Reading 1's own detail line would have printed the collapsed contender share
-// as though it were the price of the protection.
+// AMENDED 2026-09-12.
+// This test used to require reading 1 to fire POSITIVE here, on the argument that work which was not
+// refused was "merely delayed".
+// A cold review took the second half of that apart: the ledger says 180 of the contender's 300 requests
+// never came back, and a request that timed out was not served late, it was not served.
+// Calling that delay and then crediting the arm with a POSITIVE is the one way a calm premium tail can be
+// manufactured -- the tail is quiet because the load the arm was supposed to be protected FROM evaporated.
+// Reading 1's own detail line would have printed the collapsed contender share as though it were the price
+// of the protection.
 //
 // The first half of the original argument stands and is what this test still holds: a share that fell
 // without rejections is NOT starvation, because the pre-registration says starvation has to be shown in
-// the ledger rather than inferred from a smaller number. The correction is that the remaining outcome is
-// "this arm cannot be scored", not "this arm wins".
+// the ledger rather than inferred from a smaller number.
+// The correction is that the remaining outcome is "this arm cannot be scored", not "this arm wins".
 func TestAContenderThatTimedOutRatherThanBeingRefusedIsNeitherStarvedNorProtected(t *testing.T) {
 	m := healthyMatrix()
 	lost := healthyArm(ArmTimeSlicing, 100, 20, 5_000)
@@ -178,9 +182,9 @@ func TestAContenderThatTimedOutRatherThanBeingRefusedIsNeitherStarvedNorProtecte
 
 // An arm whose premium requests ALL timed out must not clear the bars with a zero tail.
 //
-// percentile() returns 0 for an empty slice, so 0/67.3 clears a 2x bar and 0 clears a 1.25x one. The
-// price-of-protection evaluator records this as the worst wrong number it could print: the arm that starved
-// the protected tenant completely reported as the one that protected it.
+// percentile() returns 0 for an empty slice, so 0/67.3 clears a 2x bar and 0 clears a 1.25x one.
+// The price-of-protection evaluator records this as the worst wrong number it could print: the arm that
+// starved the protected tenant completely reported as the one that protected it.
 func TestAnArmWithNoPremiumTailIsNotScoredAgainstTheBars(t *testing.T) {
 	m := healthyMatrix()
 	collapsed := healthyArm(ArmTimeSlicing, 0, 0, 38_000)
@@ -322,10 +326,11 @@ func TestReadingThreeFiresWhenNoArmBeatsTheControlsOwnSpread(t *testing.T) {
 // One repetition means there is no spread, and the readings that compare against one must decline.
 func TestTheSpreadReadingsDeclineAtOneRepetition(t *testing.T) {
 	m := healthyMatrix()
-	// EVERY arm at one repetition, not only the control. Reading 4b now refuses a matrix whose arms were
-	// repeated unequally, because pooling two instances against a spread measured over three weights
-	// instance variation differently by arm -- so a fixture that changed the control alone was describing a
-	// run that would be refused before these readings were reached.
+	// EVERY arm at one repetition, not only the control.
+	// Reading 4b now refuses a matrix whose arms were repeated unequally, because pooling two instances
+	// against a spread measured over three weights instance variation differently by arm -- so a fixture
+	// that changed the control alone was describing a run that would be refused before these readings were
+	// reached.
 	one := func(s *ArmSummary) { s.RepetitionCount = 1; s.RepetitionTTFTMsP99 = s.RepetitionTTFTMsP99[:1] }
 	one(&m.R1)
 	one(&m.Shared)
@@ -371,10 +376,10 @@ func TestAnExactTieGoesToTimeSlicing(t *testing.T) {
 func TestReadingOneReportsWhatTheProtectionCost(t *testing.T) {
 	m := healthyMatrix()
 	won := healthyArm(ArmTimeSlicing, 100, 20, 38_000)
-	// The same premium tokens over twice the time: half R1's premium throughput. The arm's AGGREGATE rate is
-	// deliberately left high, because reporting that instead of the premium tenant's is the defect this
-	// test pins -- an arm serving premium at half speed while a contender fills the gap reads as 1.00 if the
-	// aggregate is used.
+	// The same premium tokens over twice the time: half R1's premium throughput.
+	// The arm's AGGREGATE rate is deliberately left high, because reporting that instead of the premium
+	// tenant's is the defect this test pins -- an arm serving premium at half speed while a contender fills
+	// the gap reads as 1.00 if the aggregate is used.
 	won.ActiveSeconds = 2000
 	won.OutputTokensPerSecond = 999
 	m.Sharing = []ArmSummary{won}
@@ -402,9 +407,10 @@ func TestNoReadingFiringIsReportedAsAGapRatherThanAnAnswer(t *testing.T) {
 	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
 	out := FormatSharingMatrix(res)
 
-	// ASSERTED, not logged. This block used to t.Logf an unexpected answer and then look for the substring
-	// "INVALID", which appears in reading NAMES whether or not one fired -- so it would have accepted an
-	// invented answer while claiming to test that none was invented.
+	// ASSERTED, not logged.
+	// This block used to t.Logf an unexpected answer and then look for the substring "INVALID", which
+	// appears in reading NAMES whether or not one fired -- so it would have accepted an invented answer
+	// while claiming to test that none was invented.
 	for _, r := range res.Readings {
 		if r.ID == "1" && r.Fired {
 			t.Errorf("reading 1 fired on an arm whose tail is a lower bound rather than a p99: %s", r.Detail)
@@ -424,12 +430,13 @@ func TestNoReadingFiringIsReportedAsAGapRatherThanAnAnswer(t *testing.T) {
 //
 // This is the same defect as a missing TTFT and it hides better, because reading 4b does not catch it:
 // TailSampleSize counts completions and can be well over the floor while every stream broke after its first
-// token, leaving TPOTMsP99ByTenant without an entry. The ratio is then 0/17.8, which clears a 1.25x bar the
-// way an empty tail clears a 2x one -- so the arm whose streams all died would be scored as the one that
-// kept them alive.
+// token, leaving TPOTMsP99ByTenant without an entry.
+// The ratio is then 0/17.8, which clears a 1.25x bar the way an empty tail clears a 2x one -- so the arm
+// whose streams all died would be scored as the one that kept them alive.
 //
 // It exists because removing the arm's own numerators from the computable check left every other test in
-// this file green. A guard nothing exercises is a guard that will be deleted by someone tidying up.
+// this file green.
+// A guard nothing exercises is a guard that will be deleted by someone tidying up.
 func TestAnArmWithNoPremiumTPOTIsNotScoredAgainstTheStreamBar(t *testing.T) {
 	m := healthyMatrix()
 	broken := healthyArm(ArmTimeSlicing, 100, 0, 38_000)
@@ -456,10 +463,12 @@ func TestAnArmWithNoPremiumTPOTIsNotScoredAgainstTheStreamBar(t *testing.T) {
 // Reading 2 asks about the contender's OUTPUT, not its share of an arm's total.
 //
 // The two come apart exactly when the split costs both tenants alike, and a share ratio then reports that
-// nothing was lost. This is the case an independent review raised, with its numbers: a control producing
-// 60k premium and 40k contender against an arm producing 30k and 20k has given the contender half as much
-// work, while its share is 40 percent in both. Scored as a share the arm reports 1.00, reading 2 never
-// fires, and reading 1 calls an arm that discarded half the contender's work the deliverable.
+// nothing was lost.
+// This is the case an independent review raised, with its numbers: a control producing 60k premium and
+// 40k contender against an arm producing 30k and 20k has given the contender half as much work, while its
+// share is 40 percent in both.
+// Scored as a share the arm reports 1.00, reading 2 never fires, and reading 1 calls an arm that
+// discarded half the contender's work the deliverable.
 func TestTheContenderIsMeasuredByItsOutputAndNotItsShare(t *testing.T) {
 	m := healthyMatrix()
 	m.Shared = healthyArm(ArmShared, 1400, 80, 40_000)
@@ -530,10 +539,11 @@ func TestACensoredBaselineIsNotDividedBy(t *testing.T) {
 
 			res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
 
-			// Reading 1 must not fire POSITIVE. WHICH guard stops it is deliberately not asserted: a thin R1
-			// is caught by reading 4b, which declares the whole run invalid and short-circuits, while a
-			// censored R1 is caught by the scoring precondition further down. Both are correct and pinning
-			// one of them would fail the day the other became responsible.
+			// Reading 1 must not fire POSITIVE.
+			// WHICH guard stops it is deliberately not asserted: a thin R1 is caught by reading 4b, which
+			// declares the whole run invalid and short-circuits, while a censored R1 is caught by the
+			// scoring precondition further down.
+			// Both are correct and pinning one of them would fail the day the other became responsible.
 			for _, r := range res.Readings {
 				if r.ID == "1" && r.Fired {
 					t.Errorf("reading 1 fired POSITIVE against an R1 that is %s. Every bar is a ratio "+
@@ -564,11 +574,12 @@ func TestARecordedRefusalIsWhatMakesFourCReachable(t *testing.T) {
 
 // The STREAM bar is a bar, and nothing was holding it.
 //
-// Reading 1 gates on two: the tail at 2x R1 and the stream at 1.25x. A mutation battery relaxing
-// m5cTPOTBar from 1.25 to 100 broke no test in this file, which means an arm whose inter-token time was
-// fifty times the baseline's could have been reported as the deliverable. TPOT is the half of the answer a
-// first-token metric cannot see -- a topology that protects the first token and wrecks the stream after it
-// passes every TTFT check there is -- and this study's own report header says so.
+// Reading 1 gates on two: the tail at 2x R1 and the stream at 1.25x.
+// A mutation battery relaxing m5cTPOTBar from 1.25 to 100 broke no test in this file, which means an arm
+// whose inter-token time was fifty times the baseline's could have been reported as the deliverable.
+// TPOT is the half of the answer a first-token metric cannot see -- a topology that protects the first
+// token and wrecks the stream after it passes every TTFT check there is -- and this study's own report
+// header says so.
 func TestAnArmThatWrecksTheStreamDoesNotFireTheDeliverable(t *testing.T) {
 	m := healthyMatrix()
 	// A perfect tail, and a stream ten times R1's 17.8 ms.
@@ -605,13 +616,15 @@ func TestAnArmThatMissesTheTailBarDoesNotFireTheDeliverable(t *testing.T) {
 // Reading 2 requires BOTH bars, and relaxing it to the tail alone broke no test until this one.
 //
 // The page's words are "if a sharing arm meets both bars while the contender's completed output falls
-// below 75%". An arm that starves the contender while missing the stream bar has not bought protection at
-// all, so calling it "protects only by starving" would credit it with a tail it did not deliver. That arm
-// is reading 5's: a real improvement that does not reach the bar.
+// below 75%".
+// An arm that starves the contender while missing the stream bar has not bought protection at all, so
+// calling it "protects only by starving" would credit it with a tail it did not deliver.
+// That arm is reading 5's: a real improvement that does not reach the bar.
 //
 // The gate is duplicated -- reading 2 and reading 5 both ask whether an arm met both bars -- and a mutation
 // battery that replaced only the first occurrence reported reading 5 as unprotected when it was reading 2
-// that had no test. Both sites are pinned now.
+// that had no test.
+// Both sites are pinned now.
 func TestReadingTwoNeedsBothBarsAndNotTheTailAlone(t *testing.T) {
 	m := healthyMatrix()
 	// Tail well inside 2x, stream ten times R1's, and the contender's work refused.
@@ -636,10 +649,11 @@ func TestReadingTwoNeedsBothBarsAndNotTheTailAlone(t *testing.T) {
 // Tokens that arrived on a stream which then broke are not completed output.
 //
 // The sender keeps HTTPStatus at 200 for a broken stream because its headers arrived, so the partial tokens
-// land in OutputTokensByTenant. An arm that completes half the contender's responses and breaks the other
-// half after fifteen of sixteen tokens then looks like 97 percent of the control's output instead of 50,
-// reading 2 never fires, and reading 1 calls it the deliverable. The scenario and its numbers are an
-// independent review's.
+// land in OutputTokensByTenant.
+// An arm that completes half the contender's responses and breaks the other half after fifteen of sixteen
+// tokens then looks like 97 percent of the control's output instead of 50, reading 2 never fires, and
+// reading 1 calls it the deliverable.
+// The scenario and its numbers are an independent review's.
 func TestBrokenStreamsDoNotCountAsCompletedOutput(t *testing.T) {
 	m := healthyMatrix()
 	m.Shared = healthyArm(ArmShared, 1400, 80, 6_400)
@@ -668,9 +682,10 @@ func TestBrokenStreamsDoNotCountAsCompletedOutput(t *testing.T) {
 
 // A contender whose requests failed in transport was not refused service, and must not read as starvation.
 //
-// Failed counts transport and mid-stream breaks. A backend whose connections fail produces hundreds while
-// the premium tenant stays healthy, which is broken delivery. The pre-registration's word is "refused", and
-// admission is what refuses.
+// Failed counts transport and mid-stream breaks.
+// A backend whose connections fail produces hundreds while the premium tenant stays healthy, which is
+// broken delivery.
+// The pre-registration's word is "refused", and admission is what refuses.
 func TestTransportFailureIsNotRefusal(t *testing.T) {
 	m := healthyMatrix()
 	arm := healthyArm(ArmTimeSlicing, 100, 20, 5_000)
@@ -731,17 +746,17 @@ func TestTheWinnerIsChosenByThroughputAndNotVolume(t *testing.T) {
 // Pooling adds repetitions together, so one unusable block disappears into two healthy ones.
 //
 // An arm of 3000, 3000 and 50 premium completions clears the hundred-sample floor with 6050 pooled, while
-// the third block's "p99" is that block's maximum. The table prints reps=3 and a healthy pooled count and
-// nothing says a paid block was unusable. MinRepetitionTail is carried on the summary for exactly this
-// question and no reading was asking it.
+// the third block's "p99" is that block's maximum.
+// The table prints reps=3 and a healthy pooled count and nothing says a paid block was unusable.
+// MinRepetitionTail is carried on the summary for exactly this question and no reading was asking it.
 func TestOneThinRepetitionIsNotHiddenByPooling(t *testing.T) {
 	m := healthyMatrix()
 	arm := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
 	arm.TailSampleSize = 6050
 	arm.RepetitionCount = 3
-	// The per-repetition counts travel in the MAP now. MinRepetitionTail cannot tell a measured zero from a
-	// field nobody attached, and the floor needs that distinction: a repetition that completed nothing is
-	// the case it most exists for.
+	// The per-repetition counts travel in the MAP now.
+	// MinRepetitionTail cannot tell a measured zero from a field nobody attached, and the floor needs that
+	// distinction: a repetition that completed nothing is the case it most exists for.
 	arm.MinRepetitionTail = 50
 	arm.MinRepetitionCompletedByTenant = map[string]int{PremiumTenant: 50, NoisyTenant: 250}
 	m.Sharing = []ArmSummary{arm}
@@ -761,10 +776,10 @@ func TestOneThinRepetitionIsNotHiddenByPooling(t *testing.T) {
 
 // Arms repeated a different number of times are not comparable, and the report would not say so.
 //
-// The confirmatory run is three separate single-repetition sessions pooled at report time. An arm that lost
-// a session is pooled from two while the others come from three, and reading 3's threshold is the control's
-// spread across those repetitions -- so instance variation ends up weighted differently by arm while the
-// output looks like an ordinary verdict.
+// The confirmatory run is three separate single-repetition sessions pooled at report time.
+// An arm that lost a session is pooled from two while the others come from three, and reading 3's threshold
+// is the control's spread across those repetitions -- so instance variation ends up weighted differently by
+// arm while the output looks like an ordinary verdict.
 func TestArmsRepeatedUnequallyAreRefused(t *testing.T) {
 	m := healthyMatrix()
 	lost := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
@@ -787,10 +802,11 @@ func TestArmsRepeatedUnequallyAreRefused(t *testing.T) {
 // A refused MPS arm must not take the answer away from a time-slicing arm that fired.
 //
 // Reading 4c's own name ends "INVALID for that arm", and the evaluator's comment says a refused arm says
-// nothing about the arm beside it. The answer was still chosen as "the first reading that fired" over a
-// list where 4c sits ahead of readings 1, 2, 3 and 5, so 4c won every time it fired. This is not a corner
-// case for this study: MPS has already been measured failing to engage on this AMI, so the expected shape
-// of a run is a refused MPS arm and a scored time-slicing one.
+// nothing about the arm beside it.
+// The answer was still chosen as "the first reading that fired" over a list where 4c sits ahead of
+// readings 1, 2, 3 and 5, so 4c won every time it fired.
+// This is not a corner case for this study: MPS has already been measured failing to engage on this AMI,
+// so the expected shape of a run is a refused MPS arm and a scored time-slicing one.
 func TestARefusedArmDoesNotTakeTheAnswerFromAnArmThatWasMeasured(t *testing.T) {
 	m := healthyMatrix()
 	// Time-slicing clears both bars; MPS never engaged and the runner recorded why.
@@ -816,11 +832,12 @@ func TestARefusedArmDoesNotTakeTheAnswerFromAnArmThatWasMeasured(t *testing.T) {
 
 // An arm whose contender work went missing without being refused must not fire reading 1.
 //
-// The premium tail is supposed to be protected FROM the contender's load. An arm that lost half of that
-// load to timeouts shows a calm premium tail for the one reason that is not protection, and neither of the
-// two existing exclusions caught it: `starved` needs rejections in the ledger and there are none, and
-// `starvationUnknown` needs the ledger to be missing and it is present. Reading 1 fired POSITIVE and
-// printed the collapsed contender share in its own detail line, as though it were the price.
+// The premium tail is supposed to be protected FROM the contender's load.
+// An arm that lost half of that load to timeouts shows a calm premium tail for the one reason that is not
+// protection, and neither of the two existing exclusions caught it: `starved` needs rejections in the
+// ledger and there are none, and `starvationUnknown` needs the ledger to be missing and it is present.
+// Reading 1 fired POSITIVE and printed the collapsed contender share in its own detail line, as though it
+// were the price.
 func TestAnArmThatLostTheContendersWorkWithoutRefusingItCannotBePositive(t *testing.T) {
 	m := healthyMatrix()
 	broken := healthyArm(ArmTimeSlicing, 100, 20, 38_000)
@@ -846,9 +863,10 @@ func TestAnArmThatLostTheContendersWorkWithoutRefusingItCannotBePositive(t *test
 // A control whose tail is censored must not let reading 4 diagnose a load that was too LOW.
 //
 // Censor enough slow requests and the p99 of the survivors is small, the ratio falls under 5x, and the
-// reading that means "raise the load" fires on a control that was drowning. It also short-circuited 4b,
-// the reading that would have said the opposite -- so the run's one instruction to its successor was to
-// add load. Reading 4 now refuses, and 4b is reached.
+// reading that means "raise the load" fires on a control that was drowning.
+// It also short-circuited 4b, the reading that would have said the opposite -- so the run's one
+// instruction to its successor was to add load.
+// Reading 4 now refuses, and 4b is reached.
 func TestACensoredControlCannotBeReadAsTooLittleLoad(t *testing.T) {
 	m := healthyMatrix()
 	m.Shared.Censored = true
@@ -873,8 +891,9 @@ func TestACensoredControlCannotBeReadAsTooLittleLoad(t *testing.T) {
 // An arm that lost the contender's work may not carry ANY reading, not merely reading 1.
 //
 // The first version of contenderLost was consulted in exactly one place, and an independent review
-// reproduced both halves of what that left open. Reading 5's eligibility and its veto, and reading 2's
-// "met both bars" set, all still asked only `computable && ttftOK && tpotOK`.
+// reproduced both halves of what that left open.
+// Reading 5's eligibility and its veto, and reading 2's "met both bars" set, all still asked only
+// `computable && ttftOK && tpotOK`.
 func TestAnArmThatLostTheContendersWorkCarriesNoReadingAtAll(t *testing.T) {
 	broken := func(ttft, tpot float64) ArmSummary {
 		a := healthyArm(ArmTimeSlicing, ttft, tpot, 38_000)
@@ -915,9 +934,10 @@ func TestAnArmThatLostTheContendersWorkCarriesNoReadingAtAll(t *testing.T) {
 		if two.Fired {
 			t.Errorf("reading 2 fired on an arm whose contender work went missing rather than being refused: %s", two.Detail)
 		}
-		// The exact sentence reading 2 ends on when nothing starved. The first version of this assertion
-		// looked for "kept the contender", which appears only in a source comment and never in output -- a
-		// check that could not fail, in a test about a fix that was itself incomplete.
+		// The exact sentence reading 2 ends on when nothing starved.
+		// The first version of this assertion looked for "kept the contender", which appears only in a
+		// source comment and never in output -- a check that could not fail, in a test about a fix that
+		// was itself incomplete.
 		if strings.Contains(two.Detail, "kept "+NoisyTenant+"'s work") {
 			t.Errorf("reading 2 reports that every arm meeting both bars kept the contender's work; this one "+
 				"completed 140 of 300 with none rejected: %s", two.Detail)
@@ -929,18 +949,21 @@ func TestAnArmThatLostTheContendersWorkCarriesNoReadingAtAll(t *testing.T) {
 //
 // Reproduced by an independent review against the committed binary: 400 offered, 200 completed, 100
 // REJECTED and 100 TIMED OUT fired reading 2 and printed "refused work, not merely late work" over a
-// ledger in which refusals explain half the loss. The test that allowed it compared rejected REQUESTS
-// against missing OUTPUT share and doubled one side to make the units meet.
+// ledger in which refusals explain half the loss.
+// The test that allowed it compared rejected REQUESTS against missing OUTPUT share and doubled one
+// side to make the units meet.
 //
 // The two flags now partition one fact: the contender lost work, and either the refusals account for it or
-// they do not. Nothing falls between them.
+// they do not.
+// Nothing falls between them.
 func TestRefusalsMustAccountForTheWholeLossBeforeItIsCalledStarvation(t *testing.T) {
 	// The contender keeps HALF the control's output (20,000 of 40,000), and that number is chosen so the
-	// OLD rule fires and the new one does not. At 100 of 400 rejected the old test read
-	// refusedFraction*2 = 0.50 against a missing output share of 0.50 and called it starvation. A first
-	// version of this fixture used a fifth of the control's output, where the old rule declined anyway --
-	// so the test passed against the defect it was written for, which is the third blind check written in
-	// this session and the reason each one is now mutated before it is believed.
+	// OLD rule fires and the new one does not.
+	// At 100 of 400 rejected the old test read refusedFraction*2 = 0.50 against a missing output share of
+	// 0.50 and called it starvation.
+	// A first version of this fixture used a fifth of the control's output, where the old rule declined
+	// anyway -- so the test passed against the defect it was written for, which is the third blind check
+	// written in this session and the reason each one is now mutated before it is believed.
 	arm := func(rejected, timedOut int) ArmSummary {
 		a := healthyArm(ArmTimeSlicing, 100, 20, 20_000) // meets both bars, contender share halved
 		a.DispositionByTenant = map[string]Disposition{
@@ -980,11 +1003,13 @@ func TestRefusalsMustAccountForTheWholeLossBeforeItIsCalledStarvation(t *testing
 //
 // Reproduced by an independent review against the committed binary: repetitions of 140, 140 and 50
 // contender completions, each offered 140, clear a hundred-completion floor at 330 pooled and fire reading
-// 1 POSITIVE. The pooled completion fraction is 78.6%, above the 0.75 bar, so `contenderLost` does not
-// catch it either -- both guards were reading the total while the unusable block sat inside it.
+// 1 POSITIVE.
+// The pooled completion fraction is 78.6%, above the 0.75 bar, so `contenderLost` does not catch it either
+// -- both guards were reading the total while the unusable block sat inside it.
 //
-// The premium tenant has had a per-repetition check since defect 36. The contender never did, and the next
-// run is the first to use more than one repetition, which is what makes this live rather than theoretical.
+// The premium tenant has had a per-repetition check since defect 36.
+// The contender never did, and the next run is the first to use more than one repetition, which is what
+// makes this live rather than theoretical.
 func TestTheContendersFloorAppliesToEveryRepetition(t *testing.T) {
 	m := healthyMatrix()
 	arm := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
@@ -1013,9 +1038,9 @@ func TestTheContendersFloorAppliesToEveryRepetition(t *testing.T) {
 // A repetition that completed NOTHING is below the floor, and the exemption that let it through is gone.
 //
 // The premium check read `MinRepetitionTail > 0 && MinRepetitionTail < 100`, so zero -- the worst case a
-// floor exists for -- was the one value it waved through. The exemption was really guarding against a field
-// nobody had attached; the per-tenant map carries that distinction explicitly, so the exemption is not
-// needed and the zero is caught.
+// floor exists for -- was the one value it waved through.
+// The exemption was really guarding against a field nobody had attached; the per-tenant map carries that
+// distinction explicitly, so the exemption is not needed and the zero is caught.
 func TestARepetitionThatCompletedNothingIsBelowTheFloor(t *testing.T) {
 	m := healthyMatrix()
 	arm := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
@@ -1044,9 +1069,10 @@ func TestARepetitionThatCompletedNothingIsBelowTheFloor(t *testing.T) {
 // A censored REPETITION must disqualify the arm even when the pool looks clean.
 //
 // Censoring is a fraction and pooling averages it: a repetition that lost 1.50% of its premium requests
-// sits beside two clean ones as 0.75% of the pool, under the 1% bar. A review reproduced it on the eighth
-// pilot's own rows -- mark the second control repetition's 70 slowest premium responses timed out, and
-// reading 5 fires on a censored control while both completion floors pass.
+// sits beside two clean ones as 0.75% of the pool, under the 1% bar.
+// A review reproduced it on the eighth pilot's own rows -- mark the second control repetition's 70
+// slowest premium responses timed out, and reading 5 fires on a censored control while both completion
+// floors pass.
 func TestACensoredRepetitionDisqualifiesTheArmThePoolCallsClean(t *testing.T) {
 	t.Run("the control", func(t *testing.T) {
 		m := healthyMatrix()
@@ -1059,9 +1085,10 @@ func TestACensoredRepetitionDisqualifiesTheArmThePoolCallsClean(t *testing.T) {
 		if !four.NotEvaluable {
 			t.Errorf("reading 4 read a control with a censored repetition as though its tail were exact: %s", four.Detail)
 		}
-		// And nothing below the gate is scored at all. A gate that cannot be computed stops the evaluation,
-		// so the right assertion is that readings 1 and 5 are ABSENT rather than present and silent -- the
-		// first version of this test asked for the latter and failed on its own fixture.
+		// And nothing below the gate is scored at all.
+		// A gate that cannot be computed stops the evaluation, so the right assertion is that readings 1
+		// and 5 are ABSENT rather than present and silent -- the first version of this test asked for the
+		// latter and failed on its own fixture.
 		for _, id := range idsOf(res) {
 			if id == "1" || id == "5" {
 				t.Errorf("reading %s was scored under a gate that could not be computed", id)
@@ -1101,10 +1128,12 @@ func TestACensoredRepetitionDisqualifiesTheArmThePoolCallsClean(t *testing.T) {
 // An arm refused PART WAY through must not invalidate the run before 4c can exempt it.
 //
 // At one repetition a refused arm carried no evidence, so excluding it from scoring happened by itself and
-// the evaluator said so. At two it can complete repetition 1 and be refused at repetition 2 — real rows and
-// a recorded refusal. Reading 4b's equal-repetitions check then sees 1 against the others' 2, fires, and
-// calls the WHOLE RUN invalid, which is the opposite of what 4c exists to say. MPS has failed to engage on
-// this AMI three times, so this is the expected shape of the next run and not a corner.
+// the evaluator said so.
+// At two it can complete repetition 1 and be refused at repetition 2 — real rows and a recorded refusal.
+// Reading 4b's equal-repetitions check then sees 1 against the others' 2, fires, and calls the WHOLE RUN
+// invalid, which is the opposite of what 4c exists to say.
+// MPS has failed to engage on this AMI three times, so this is the expected shape of the next run and not a
+// corner.
 func TestAnArmRefusedPartWayThroughDoesNotInvalidateTheOthers(t *testing.T) {
 	m := healthyMatrix()
 	twoReps := func(s ArmSummary) ArmSummary {
@@ -1141,10 +1170,11 @@ func TestAnArmRefusedPartWayThroughDoesNotInvalidateTheOthers(t *testing.T) {
 
 // A missing baseline or control is an INVALID run, and it used to exit zero.
 //
-// Every reading divides by R1 or compares against `shared`. With either absent the gates came back
-// NotEvaluable one at a time, nothing fired, the answer was blank — and the exit status, which turns on a
-// FIRED gate, stayed zero. The paid runner calls `benchharness report ... || fail`, so it would have
-// accepted a session whose baseline never ran.
+// Every reading divides by R1 or compares against `shared`.
+// With either absent the gates came back NotEvaluable one at a time, nothing fired, the answer was blank
+// — and the exit status, which turns on a FIRED gate, stayed zero.
+// The paid runner calls `benchharness report ... || fail`, so it would have accepted a session whose
+// baseline never ran.
 func TestAMissingBaselineOrControlIsAnInvalidRun(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -1181,14 +1211,16 @@ func TestAMissingBaselineOrControlIsAnInvalidRun(t *testing.T) {
 
 // Reading 5 must report the contender's LEDGER, not a verdict derived from a threshold.
 //
-// A starved arm stays computable on purpose: that is reading 2's finding. But reading 2 requires BOTH bars,
-// so an arm that refuses contender work, improves the tail and misses one bar lands here — where the
-// sentence said only "a real improvement that does not reach the bar" and never mentioned the refusals.
+// A starved arm stays computable on purpose: that is reading 2's finding.
+// But reading 2 requires BOTH bars, so an arm that refuses contender work, improves the tail and misses one
+// bar lands here — where the sentence said only "a real improvement that does not reach the bar" and never
+// mentioned the refusals.
 //
 // The first fix hung the sentence on the `starved` FLAG, and a review took that apart too: refusing 20 of
 // 139 requests leaves the flag false, so the line then claimed "with the contender's work intact" over a
-// ledger recording twenty refusals. A threshold is the wrong thing to hang a factual sentence on. The
-// counts are reported; whether they amount to starvation is reading 2's judgement, made elsewhere.
+// ledger recording twenty refusals.
+// A threshold is the wrong thing to hang a factual sentence on.
+// The counts are reported; whether they amount to starvation is reading 2's judgement, made elsewhere.
 func TestReadingFiveReportsTheContendersLedgerRatherThanAVerdict(t *testing.T) {
 	fire := func(t *testing.T, d Disposition) PoPReading {
 		t.Helper()
@@ -1233,11 +1265,12 @@ func TestReadingFiveReportsTheContendersLedgerRatherThanAVerdict(t *testing.T) {
 
 // A repetition that served only part of its contender load is unscorable, even when the counts clear.
 //
-// A count and a fraction are different questions and the floor only asked the first. Repetitions of 100/139
-// and 139/139 both clear a hundred completions while the first lost 28% of what it was offered, and an arm
-// whose contention arrived that unevenly is not comparable with one where it did not. The control is held
-// to it too: every ratio in this study is measured against `shared`, so a control that lost a third of its
-// contender load is a weakened denominator wearing a full one's name.
+// A count and a fraction are different questions and the floor only asked the first.
+// Repetitions of 100/139 and 139/139 both clear a hundred completions while the first lost 28% of what it
+// was offered, and an arm whose contention arrived that unevenly is not comparable with one where it did
+// not.
+// The control is held to it too: every ratio in this study is measured against `shared`, so a control that
+// lost a third of its contender load is a weakened denominator wearing a full one's name.
 func TestARepetitionThatServedPartOfItsContenderLoadIsUnscorable(t *testing.T) {
 	t.Run("a sharing arm", func(t *testing.T) {
 		m := healthyMatrix()
@@ -1289,13 +1322,14 @@ func TestARepetitionThatServedPartOfItsContenderLoadIsUnscorable(t *testing.T) {
 //
 // The 2026-09-10 design spec's "Going forward" section says the NEXT run of this study reads reading 4 as
 // the median of the per-repetition p99s, computed by RegisteredEstimandFor, because the third amendment
-// already chose that estimand for interferenceRatio. The scorer still divides POOLED p99s
-// (sharing_matrix.go), and the spec says so rather than hiding it.
+// already chose that estimand for interferenceRatio.
+// The scorer still divides POOLED p99s (sharing_matrix.go), and the spec says so rather than hiding it.
 //
 // This fixture is where the two aggregations disagree across the 5x threshold, so it pins today's behaviour
-// before the swap: four repetitions at 400 ms and one at 1000 ms give a pooled p99 of 1000 against R1's
-// 100 -- 10.0x, no firing -- while the median of the per-repetition p99s is 400 against 100, which is 4.0x
-// and fires. Measured both ways rather than reasoned about.
+// before the swap: four repetitions at 400 ms and one at 1000 ms give a pooled p99 of 1000 against R1's 100
+// -- 10.0x, no firing -- while the median of the per-repetition p99s is 400 against 100, which is 4.0x and
+// fires.
+// Measured both ways rather than reasoned about.
 //
 // When reading 4 moves to the registered estimand this test must be inverted deliberately, not quietly: it
 // is the one place that records which quantity the gate divides.
@@ -1333,9 +1367,10 @@ func TestReadingFourSeparatesPooledFromPerRepetitionMedian(t *testing.T) {
 	// INVERTED on 2026-10-02, deliberately, when reading 4 moved to the registered estimand.
 	//
 	// Until then this asserted the opposite: the scorer divided pooled p99s, 10.000 is not under the 5x bar,
-	// and the reading did not fire. The test said in its failure message that inverting it was the correct
-	// response to a deliberate change and that the design spec's amendment had to say so -- both were done
-	// in the same commit, so the direction of this assertion is the record of which quantity the gate uses.
+	// and the reading did not fire.
+	// The test said in its failure message that inverting it was the correct response to a deliberate change
+	// and that the design spec's amendment had to say so -- both were done in the same commit, so the
+	// direction of this assertion is the record of which quantity the gate uses.
 	if !four.Fired {
 		t.Errorf("reading 4 did not fire at a per-repetition median ratio of %.3f against the %.2fx bar."+
 			" If it has gone back to dividing pooled p99s (%.3f, which is NOT under the bar), the gate and"+
@@ -1356,12 +1391,13 @@ func TestReadingFourSeparatesPooledFromPerRepetitionMedian(t *testing.T) {
 //
 // The registered ratio is the quotient of two medians ROUNDED to integer milliseconds -- the convention the
 // third 2026-09-30 amendment froze so that a reader dividing the two published integers reproduces the
-// published ratio. Every other fixture in this file uses whole milliseconds, where rounding is a no-op, so
-// none of them can tell the registered ratio from the unrounded one.
+// published ratio.
+// Every other fixture in this file uses whole milliseconds, where rounding is a no-op, so none of them can
+// tell the registered ratio from the unrounded one.
 //
 // Here the two disagree across the 5x bar: medians of 100.49 and 501.0 give 4.986 unrounded, which is under
-// the bar and would fire, and 501/100 = 5.010 rounded, which is not and does not. Reading 4 must use the
-// rounded pair.
+// the bar and would fire, and 501/100 = 5.010 rounded, which is not and does not.
+// Reading 4 must use the rounded pair.
 func TestReadingFourUsesTheRoundedMediansAcrossTheBar(t *testing.T) {
 	arm := func(name string, reps []float64) ArmSummary {
 		s := healthyArm(name, reps[len(reps)-1], 20, 40_000)
@@ -1395,9 +1431,10 @@ func TestReadingFourUsesTheRoundedMediansAcrossTheBar(t *testing.T) {
 	if four.NotEvaluable {
 		t.Fatalf("reading 4 refused this fixture rather than scoring it: %s", four.Detail)
 	}
-	// The rounded ratio is 5.010, NOT under the bar, so reading 4 must not fire. If it does, the scorer is
-	// dividing unrounded medians and the gate disagrees with the published interferenceRatio by a hair --
-	// exactly the kind of disagreement the amendment's rounding convention exists to remove.
+	// The rounded ratio is 5.010, NOT under the bar, so reading 4 must not fire.
+	// If it does, the scorer is dividing unrounded medians and the gate disagrees with the published
+	// interferenceRatio by a hair -- exactly the kind of disagreement the amendment's rounding convention
+	// exists to remove.
 	if four.Fired {
 		t.Errorf("reading 4 fired: the rounded ratio is %.3f (%d/%d) which is NOT under the %.2fx bar, so"+
 			" the scorer is using the unrounded %.6f instead: %s",
@@ -1408,9 +1445,9 @@ func TestReadingFourUsesTheRoundedMediansAcrossTheBar(t *testing.T) {
 // TestReadingFourRefusesWithAReasonRatherThanReadingLowContention pins the NotEvaluable path.
 //
 // A reading that cannot be computed must not report "the load made no contention" -- that sentence sends the
-// next paid run to RAISE a load that may already be drowning the control. The ladder runs reading 4b past an
-// uncomputable gate precisely so the opposite diagnosis stays available, and this asserts both halves: the
-// reason travels, and 4b still gets to speak.
+// next paid run to RAISE a load that may already be drowning the control.
+// The ladder runs reading 4b past an uncomputable gate precisely so the opposite diagnosis stays available,
+// and this asserts both halves: the reason travels, and 4b still gets to speak.
 func TestReadingFourRefusesWithAReasonRatherThanReadingLowContention(t *testing.T) {
 	m := healthyMatrix()
 	// A thin repetition: RegisteredEstimandFor refuses on MinRepetitionTail below MinTailSamples.
@@ -1446,14 +1483,15 @@ func TestReadingFourRefusesWithAReasonRatherThanReadingLowContention(t *testing.
 // TestReadingFourDividesTheAggregationSummarizeProduces closes the last gap an external review named.
 //
 // The control test above hands reading 4 an ArmSummary whose TTFTMsP99 field was SET by the fixture, so it
-// pins which field the scorer divides and not which aggregation produced it. Here the summaries come from
-// Summarize over real request rows, one call per repetition block plus one over the pooled rows, so the two
-// numbers are computed the way a paid run computes them.
+// pins which field the scorer divides and not which aggregation produced it.
+// Here the summaries come from Summarize over real request rows, one call per repetition block plus one
+// over the pooled rows, so the two numbers are computed the way a paid run computes them.
 //
-// R1 is five blocks at 100 ms. `shared` is four blocks at 400 ms and one at 1000 ms, and the asymmetry is
-// what separates the aggregations: the pooled nearest-rank p99 over all five blocks is 1000 (the slow block
-// occupies a fifth of the sample, far above the top 1%), while the median of the five per-repetition p99s
-// is 400. So pooled gives 10.000 and the registered estimand gives 4.000, one on each side of the 5x bar.
+// R1 is five blocks at 100 ms.
+// `shared` is four blocks at 400 ms and one at 1000 ms, and the asymmetry is what separates the
+// aggregations: the pooled nearest-rank p99 over all five blocks is 1000 (the slow block occupies a fifth
+// of the sample, far above the top 1%), while the median of the five per-repetition p99s is 400.
+// So pooled gives 10.000 and the registered estimand gives 4.000, one on each side of the 5x bar.
 //
 // Verified by enumeration before this test was written, at 120, 200 and 400 rows per block: every size gives
 // the same pair.
@@ -1509,7 +1547,8 @@ func TestReadingFourDividesTheAggregationSummarizeProduces(t *testing.T) {
 	if four.NotEvaluable {
 		t.Fatalf("reading 4 refused summaries built from real rows: %s", four.Detail)
 	}
-	// 4.000 is under the 5x bar, so it fires. Dividing the pooled 10.000 would not.
+	// 4.000 is under the 5x bar, so it fires.
+	// Dividing the pooled 10.000 would not.
 	if !four.Fired {
 		t.Errorf("reading 4 did not fire at a median ratio of 4.000; if it divided the pooled 10.000 the"+
 			" gate is reading the aggregation Summarize pools rather than the registered one: %s", four.Detail)

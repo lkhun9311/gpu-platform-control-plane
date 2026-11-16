@@ -8,14 +8,17 @@ import (
 // A Study is one pre-registered experiment: the arms it admits, and the order a report prints them in.
 //
 // Arm names used to live in one closed map shared by every experiment this repository runs, which was
-// fine while there was one experiment. It stops being fine the moment a second one wants a name the
-// first already used. M5-b's "off" was the gateway with its admission guard disabled. The
-// price-of-protection run's control is the engine at its own default batch budget with no gateway in
-// the path at all. Those are different conditions that would produce comparable-looking rows, and the
+// fine while there was one experiment.
+// It stops being fine the moment a second one wants a name the first already used.
+// M5-b's "off" was the gateway with its admission guard disabled.
+// The price-of-protection run's control is the engine at its own default batch budget with no gateway
+// in the path at all.
+// Those are different conditions that would produce comparable-looking rows, and the
 // pre-registration's own wording invites the confusion by calling the new control "off" as well.
 //
 // So an arm belongs to a study, the study travels with the evidence, and a report refuses to pool rows
-// from two of them. Guarding by name would only work until someone picked a name that collided.
+// from two of them.
+// Guarding by name would only work until someone picked a name that collided.
 type Study struct {
 	// ID is the immutable identifier raw evidence carries.
 	//
@@ -24,38 +27,40 @@ type Study struct {
 	ID string
 	// Arms are the canonical arm names, in the order a report prints them.
 	//
-	// Order is a property of the study rather than of the names. The price-of-protection sweep wants
-	// its isolated ceiling and its control first and its eight cells after, which no sort of those
-	// strings produces.
+	// Order is a property of the study rather than of the names.
+	// The price-of-protection sweep wants its isolated ceiling and its control first and its eight
+	// cells after, which no sort of those strings produces.
 	Arms []string
 	// Arrivals is the arrival model the study's pre-registration fixed, or empty where none was registered.
 	//
 	// Two ladders can carry the same arm names, criterion and rungs and differ only in how their traces were
-	// generated, and nothing in a trace file says which. So the model is recorded here, gen-trace refuses
-	// flags of the other model for a study that declares one, and hack/m5c-matrix.sh asks this registry
-	// rather than keeping a second copy of the answer in a shell variable.
+	// generated, and nothing in a trace file says which.
+	// So the model is recorded here, gen-trace refuses flags of the other model for a study that declares
+	// one, and hack/m5c-matrix.sh asks this registry rather than keeping a second copy of the answer in a
+	// shell variable.
 	Arrivals ArrivalModel
 
 	// Frozen is the load tuple the study's pre-registration fixed, or nil where none was frozen.
 	//
 	// Recorded here for the reason Arrivals is: the registration says these five values are frozen and
 	// nothing in the runner compared them, so a paid run could offer any load and file it under this study.
-	// Measured on 2026-10-02: four frozen quantities passed the pre-purchase plan check unchanged
-	// (premium 200, contender 40000, timeout 30000, caps 8/4), and the CR path enforced only the two
-	// lengths -- timeoutMs and both caps came straight from the CR with no comparison at all.
+	// Measured on 2026-10-02: four frozen quantities passed the pre-purchase plan check unchanged (premium
+	// 200, contender 40000, timeout 30000, caps 8/4), and the CR path enforced only the two lengths --
+	// timeoutMs and both caps came straight from the CR with no comparison at all.
 	//
-	// The CHARACTERS are stored, not the token counts they were resolved from. Resolving at run time would
-	// mean the frozen value follows whatever the resolution table last returned, which is the opposite of
-	// freezing: the registration's promise is "the resolved characters are now frozen rather than whatever
-	// the resolver last returned". FrozenTuple.Drift compares the two and reports the difference instead.
+	// The CHARACTERS are stored, not the token counts they were resolved from.
+	// Resolving at run time would mean the frozen value follows whatever the resolution table last
+	// returned, which is the opposite of freezing: the registration's promise is "the resolved characters
+	// are now frozen rather than whatever the resolver last returned".
+	// FrozenTuple.Drift compares the two and reports the difference instead.
 	Frozen *FrozenTuple
 
 	// FixesOutputAtCap says every request of the study must produce exactly its output cap.
 	//
 	// The prospective-admission pilot needs it so that a short completion is a failure rather than output
 	// silently deleted (design page, "Load"); gen-trace sets each row's MinOutputTokens to its cap, which
-	// the trace's checksum then covers. It is a study property rather than a flag, so a trace of that study
-	// cannot be generated without it.
+	// the trace's checksum then covers.
+	// It is a study property rather than a flag, so a trace of that study cannot be generated without it.
 	FixesOutputAtCap bool
 
 	// RecordsReplayTiming makes the replay stamp its origin and each request's return on every row, and refuse
@@ -67,9 +72,9 @@ type Study struct {
 	// replay refuses any connection mode but pooled.
 	//
 	// A derived pool differs between a block's arms: the isolation arm's trace has no contenders, so at the
-	// pilot's rates it gets about 278 idle connections against the others' 293. The pilot compares its arms'
-	// sender configurations and refuses a difference (design page, build item 26), so its pool is one number
-	// for every arm, at least the open-loop ceiling of rate × timeout.
+	// pilot's rates it gets about 278 idle connections against the others' 293.
+	// The pilot compares its arms' sender configurations and refuses a difference (design page, build item
+	// 26), so its pool is one number for every arm, at least the open-loop ceiling of rate × timeout.
 	SenderPoolSize int
 
 	// FrozenExactTokens maps each prompt length the study sends, in characters, to the engine's own input-token
@@ -81,39 +86,43 @@ type Study struct {
 	// MinRepetitions is the fewest repetitions per arm this study's registration permits, or 0 where it
 	// registered none.
 	//
-	// WHY A STUDY AND NOT A CONSTANT. The CRD's own floor is five and api/v1 states its reason in the field
-	// comment: "At least five: a p99 from three repetitions is noise, and the report is a median-of-runs
-	// WITH A BOOTSTRAP INTERVAL rather than a best run." That reason is about the report's shape. A study
-	// that publishes no interval does not inherit it, and forcing five on an exploratory question buys cells
-	// to support a statistic the registration refuses to present. Measured 2026-10-04: at the 11.61 min/cell
-	// mean, the 2026-10-03 registration's design needs 16 cells at two repetitions and 40 at five, and 40
-	// cells is 464.4 minutes against a 280-minute window -- so the floor decides whether the question can be
-	// asked at all, which is exactly the kind of decision that belongs in a registration rather than in a
-	// shared constant.
+	// WHY A STUDY AND NOT A CONSTANT.
+	// The CRD's own floor is five and api/v1 states its reason in the field comment: "At least five: a p99
+	// from three repetitions is noise, and the report is a median-of-runs WITH A BOOTSTRAP INTERVAL rather
+	// than a best run." That reason is about the report's shape.
+	// A study that publishes no interval does not inherit it, and forcing five on an exploratory question
+	// buys cells to support a statistic the registration refuses to present.
+	// Measured 2026-10-04: at the 11.61 min/cell mean, the 2026-10-03 registration's design needs 16 cells
+	// at two repetitions and 40 at five, and 40 cells is 464.4 minutes against a 280-minute window -- so the
+	// floor decides whether the question can be asked at all, which is exactly the kind of decision that
+	// belongs in a registration rather than in a shared constant.
 	//
 	// The shell has NO floor of its own (`REPS="${REPS:-4}"`), and hack/m5c-gpu-session.sh's own comment says
 	// "a pilot is REPS=1 and a confirmatory run is REPS=3" while the CRD demands five. internal/bench/plan.go
-	// already records that disagreement in a comment. This field is where it stops being a disagreement: the
-	// number comes from the study the evidence is filed under, one place, named.
+	// already records that disagreement in a comment.
+	// This field is where it stops being a disagreement: the number comes from the study the evidence is
+	// filed under, one place, named.
 	MinRepetitions int
 
 	// PublishesInterval says whether this study's registration presents an interval on its estimand.
 	//
 	// It is the companion of MinRepetitions rather than a duplicate of it, because the two can disagree and
 	// the disagreement is the bug worth refusing: a study that publishes an interval while permitting two
-	// repetitions would print bounds that are just its two observations. Measured 2026-10-04, calling the
-	// three interval functions with two values: BootstrapCI returned Lo=3998.000 Hi=4001.000 and
-	// PairedRatioCI returned Lo=22.8629 Hi=22.9770, both with an EMPTY InvalidReason -- each refuses only at
-	// n==1. A two-point bootstrap has four distinct resamples, so those bounds are the observations
-	// themselves, which the 2026-10-03 registration distinguishes in its own words: "the spread of a row is
-	// an OBSERVED RANGE and not an interval".
+	// repetitions would print bounds that are just its two observations.
+	// Measured 2026-10-04, calling the three interval functions with two values: BootstrapCI returned
+	// Lo=3998.000 Hi=4001.000 and PairedRatioCI returned Lo=22.8629 Hi=22.9770, both with an EMPTY
+	// InvalidReason -- each refuses only at n==1.
+	// A two-point bootstrap has four distinct resamples, so those bounds are the observations themselves,
+	// which the 2026-10-03 registration distinguishes in its own words: "the spread of a row is an OBSERVED
+	// RANGE and not an interval".
 	//
-	// ⚠️ It does NOT today gate a publication path, and saying so is the point. FormatRegisteredEstimand
-	// prints "No interval is published; see the seventh amendment" and RegisteredEstimand.RatioCI is computed
-	// and never rendered; the one interval that does reach a report, Checks.IncrementalRatioCI, belongs to the
-	// M5-b gateway study and its arms rather than to repetitions. So this field records what each
-	// registration promises and lets a refusal compare the two numbers. A future path that renders an
-	// interval has to read it; a path that renders none cannot be made correct by it.
+	// ⚠️ It does NOT today gate a publication path, and saying so is the point.
+	// FormatRegisteredEstimand prints "No interval is published; see the seventh amendment" and
+	// RegisteredEstimand.RatioCI is computed and never rendered; the one interval that does reach a report,
+	// Checks.IncrementalRatioCI, belongs to the M5-b gateway study and its arms rather than to repetitions.
+	// So this field records what each registration promises and lets a refusal compare the two numbers.
+	// A future path that renders an interval has to read it; a path that renders none cannot be made correct
+	// by it.
 	PublishesInterval bool
 
 	// TracesVaryByRepetition says each repetition replays its own trace, generated from its own seed.
@@ -122,8 +131,9 @@ type Study struct {
 	// repetitions measured the engine on one draw of the arrival process and said nothing about the draw.
 	// The model-first registration of that date showed why that matters at low contending load: whether a
 	// trace's p99 is 70 ms or 600 ms depends on whether two latency-critical arrivals landed inside one
-	// best-effort prefill. A study with this set is refused if two repetitions of an arm share a trace, and
-	// its baseline and contended arm are paired by repetition on the latency-critical schedule instead.
+	// best-effort prefill.
+	// A study with this set is refused if two repetitions of an arm share a trace, and its baseline and
+	// contended arm are paired by repetition on the latency-critical schedule instead.
 	TracesVaryByRepetition bool
 
 	// PrefixLoad is a shared-prefix study's registered load, nil for every other study.
@@ -195,8 +205,9 @@ func OutputCountForStudy(id string) OutputCountContract {
 
 // FrozenTuple is the five load quantities a pre-registration can freeze.
 //
-// Five, not four. The output caps are two fields and counting them as one is how a check gets written for
-// four of them -- named here so the count is in the type rather than in prose.
+// Five, not four.
+// The output caps are two fields and counting them as one is how a check gets written for four of them --
+// named here so the count is in the type rather than in prose.
 type FrozenTuple struct {
 	// PremiumPromptChars and ContenderPromptChars are CHARACTERS, as the generator is configured.
 	PremiumPromptChars   int
@@ -212,8 +223,9 @@ type FrozenTuple struct {
 
 // Drift names a frozen length whose declared token count no longer resolves to it, or "".
 //
-// This does NOT update anything. A table that has moved under a frozen registration is a fact a reader has
-// to be told, and silently adopting the new number would retire the registration without saying so.
+// This does NOT update anything.
+// A table that has moved under a frozen registration is a fact a reader has to be told, and silently
+// adopting the new number would retire the registration without saying so.
 func (f FrozenTuple) Drift() string {
 	for _, c := range []struct {
 		side   string
@@ -262,7 +274,8 @@ const (
 	// StudyPriceOfProtection is the engine-configuration sweep pre-registered in
 	// docs/superpowers/specs/2026-09-05-the-price-of-protection.md.
 	//
-	// No gateway is in the path. The factors are vLLM's batch budget and its scheduling policy.
+	// No gateway is in the path.
+	// The factors are vLLM's batch budget and its scheduling policy.
 	StudyPriceOfProtection = "price-of-protection-2026-09-05"
 	// StudySharingMatrix is the M5-c topology matrix pre-registered in
 	// docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md.
@@ -271,8 +284,9 @@ const (
 	// tell them apart. hack/m5c-matrix.sh used to replay every arm as "off" -- the admission vocabulary's
 	// name for a disabled guard -- because that was the only arm name the harness would accept for it, and
 	// it then had to ship a README telling readers never to run `benchharness report` over the evidence,
-	// since pooling would collapse three topologies into one row. Evidence that has to arrive with a warning
-	// against using the tool that reads it is evidence one step from being read wrong.
+	// since pooling would collapse three topologies into one row.
+	// Evidence that has to arrive with a warning against using the tool that reads it is evidence one step
+	// from being read wrong.
 	StudySharingMatrix = "sharing-matrix-2026-09-10"
 	// StudyThroughputLadder is the capacity ladder pre-registered in
 	// docs/superpowers/specs/2026-09-13-what-the-split-costs-in-throughput.md.
@@ -280,57 +294,62 @@ const (
 	// It measures the same two topologies as StudySharingMatrix at four offered premium loads, and it is a
 	// separate study rather than more repetitions of that one for a reason worth stating: repetitions of the
 	// sharing matrix are POOLED, and pooling two different offered loads into one arm summary would produce
-	// a p99 for a load that was never offered. Its arm names carry the rung for the same reason -- see
-	// ThroughputLadderArm.
+	// a p99 for a load that was never offered.
+	// Its arm names carry the rung for the same reason -- see ThroughputLadderArm.
 	StudyThroughputLadder = "throughput-ladder-2026-09-13"
 	// StudyThroughputLadderDown is the second capacity ladder, pre-registered in
 	// docs/superpowers/specs/2026-09-13-the-ladder-has-to-search-downward.md.
 	//
 	// Same arms, same criterion, same readings, different RUNGS: the first ladder climbed from the load the
 	// sharing matrix answered, and both topologies already missed the target there by a factor of seven, so
-	// it could return nothing but "no qualified operating point at or above the bottom rung". This one places
-	// its rungs BELOW that load.
+	// it could return nothing but "no qualified operating point at or above the bottom rung".
+	// This one places its rungs BELOW that load.
 	//
 	// A separate study rather than new rungs on the old one for the reason the old one's arm names carry
 	// their rung: rung01 means a different offered load in each, and evidence that pooled them would report a
-	// p99 for a load nobody offered. The trace-identity refusal would also catch it, but a refusal is not the
-	// same as a reader being able to tell two experiments apart.
+	// p99 for a load nobody offered.
+	// The trace-identity refusal would also catch it, but a refusal is not the same as a reader being able to
+	// tell two experiments apart.
 	StudyThroughputLadderDown = "throughput-ladder-down-2026-09-13"
 	// StudyThroughputLadderIndependent is the downward ladder's rungs re-registered under independent
 	// arrivals, in docs/superpowers/specs/2026-09-15-a-ladder-whose-contender-holds-still.md.
 	//
 	// The down ladder solved a contender weight for every rung to hold 139 offers, and the count held while the
-	// contender's SCHEDULE changed at every rung, so a rung-to-rung comparison moved two things at once. Here
-	// the contender's rows are byte-identical at every rung. It is a separate study because its rung01 trace is
-	// not the down ladder's rung01 trace, and pooling the two would report a p99 over two contender schedules.
+	// contender's SCHEDULE changed at every rung, so a rung-to-rung comparison moved two things at once.
+	// Here the contender's rows are byte-identical at every rung.
+	// It is a separate study because its rung01 trace is not the down ladder's rung01 trace, and pooling the
+	// two would report a p99 over two contender schedules.
 	StudyThroughputLadderIndependent = "throughput-ladder-independent-2026-09-15"
 	// StudyTailCrossingShortLC and StudyTailCrossingLongLC are the two input levels pre-registered in
 	// docs/superpowers/specs/2026-10-03-where-the-latency-sensitive-tail-crosses-each-multiple-exploratory.md.
 	//
 	// TWO STUDIES AND NOT TWO ARMS, for the reason the three ladders give: Study.Frozen is one tuple per
 	// study, so a single study cannot declare two latency-critical prompt lengths, and reading 4e holds the
-	// engine's reported input-token count against exactly one declared value. Pooling the two levels into
-	// one study would also produce a p99 over two prompt lengths -- a statistic for a condition that was
-	// never offered, which is the defect the down ladder was split off to avoid.
+	// engine's reported input-token count against exactly one declared value.
+	// Pooling the two levels into one study would also produce a p99 over two prompt lengths -- a statistic
+	// for a condition that was never offered, which is the defect the down ladder was split off to avoid.
 	//
 	// The short level repeats StudySharingMatrix's frozen latency-critical length rather than inventing one,
-	// so the two levels differ in that length and in nothing else. Both inherit TimeoutMs 60000: the
-	// registration's item 8 records why, and that the inheritance may censor the long level's tail and make
-	// the estimand refuse -- a registered outcome of that page, not a defect to work around here.
+	// so the two levels differ in that length and in nothing else.
+	// Both inherit TimeoutMs 60000: the registration's item 8 records why, and that the inheritance may
+	// censor the long level's tail and make the estimand refuse -- a registered outcome of that page, not a
+	// defect to work around here.
 	//
 	// The arrival model IS registered, as independent, and the reason is the design rather than the code.
 	// docs/superpowers/specs/2026-10-04-is-length-a-separate-term-in-the-placement-rule-model-first.md
 	// replaced the 2026-10-03 design: the latency-critical rate is held and the best-effort rate swept, and a
-	// weighted mix draws both tenants from one stream, so every BE level would also have moved the LC
-	// arrival times. Independent arrivals keep a repetition's LC schedule identical at every BE level and in
-	// the baseline. Until that page, this comment recorded the field as deliberately unset.
+	// weighted mix draws both tenants from one stream, so every BE level would also have moved the LC arrival
+	// times.
+	// Independent arrivals keep a repetition's LC schedule identical at every BE level and in the baseline.
+	// Until that page, this comment recorded the field as deliberately unset.
 	StudyTailCrossingShortLC = "tail-crossing-lc256-2026-10-04"
 	StudyTailCrossingLongLC  = "tail-crossing-lc8192-2026-10-04"
 	// StudyTailCrossingMidLC is a third input level, 2,048 tokens, registered on 2026-10-05 after the first
 	// two were measured, as the out-of-sample test of their result: that the best-effort load a latency-
 	// critical tenant tolerates is set by the contender's prefill time and the tenant's own isolated tail,
-	// with no separate term for its length. Its curve is predicted by the model and committed before any
-	// cell is bought; see the 2026-10-04 model-first registration's amendment of that date.
+	// with no separate term for its length.
+	// Its curve is predicted by the model and committed before any cell is bought; see the 2026-10-04
+	// model-first registration's amendment of that date.
 	StudyTailCrossingMidLC = "tail-crossing-lc2048-2026-10-05"
 	// StudyInstrumentValidation is the instrument check registered in
 	// docs/superpowers/specs/2026-10-05-can-the-stock-engine-time-an-iteration-instrument-validation.md.
@@ -374,36 +393,40 @@ const (
 	StudyProspectivePilot = "prospective-pilot-2026-10-08"
 
 	// StudyAdmissionDiagnostic is the diagnostic of the engine's per-step prefill cap with the gateway's
-	// serial-prefill hold, docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v25". It
-	// shares the pilot's load, lengths, engine and capture, and adds the hold, cap and hold-cap arms.
+	// serial-prefill hold, docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v25".
+	// It shares the pilot's load, lengths, engine and capture, and adds the hold, cap and hold-cap arms.
 	StudyAdmissionDiagnostic = "admission-diagnostic-2026-10-10"
 
 	// StudyHoldCapProductTransfer replays the diagnostic's three traces through the product path on EKS: an
 	// InferenceDeployment switched between admission Off and HoldCap,
-	// docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md. Its arms are the product's mode names,
-	// not the lab's, because the product's Off binds no priority and the lab's off did.
+	// docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md.
+	// Its arms are the product's mode names, not the lab's, because the product's Off binds no priority and the lab's
+	// off did.
 	StudyHoldCapProductTransfer = "holdcap-product-transfer-2026-10-15"
 
 	// StudyHoldCapProductTransferR2 is the same registration run again on a gateway that drops idle backend
-	// connections before the engine's keep-alive does. A study of its own so its rows can never be pooled with the
-	// first run's, whose verdict stands; same design document, section "Run 2".
+	// connections before the engine's keep-alive does.
+	// A study of its own so its rows can never be pooled with the first run's, whose verdict stands; same design
+	// document, section "Run 2".
 	StudyHoldCapProductTransferR2 = "holdcap-product-transfer-r2-2026-10-15"
 
 	// StudyHoldCapProductTransferBoundOff is the same registration on a product whose Off binds the tenant's tier on a
-	// rendered engine (#365), as the lab's off did; same design document, section "Run 3". Its own ID because the Off it
-	// compares against is a different treatment from the first two runs'.
+	// rendered engine (#365), as the lab's off did; same design document, section "Run 3".
+	// Its own ID because the Off it compares against is a different treatment from the first two runs'.
 	StudyHoldCapProductTransferBoundOff = "holdcap-product-transfer-bound-off-2026-10-21"
 
 	// StudyAdmissionFrontier is v26: hold-cap against a frozen frontier of fixed spacings, each judged on the card by
 	// the owner's contender limits, docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md,
-	// "v26". It shares the diagnostic's load, lengths, engine and capture; its controls are the gateway's
-	// fixed-spacing mode at four spacings, all capped at 384 as hold-cap is.
+	// "v26".
+	// It shares the diagnostic's load, lengths, engine and capture; its controls are the gateway's fixed-spacing mode
+	// at four spacings, all capped at 384 as hold-cap is.
 	StudyAdmissionFrontier = "admission-frontier-2026-10-10"
 
 	// StudyLengthCalibration is v27's calibration stage: off and hold-cap at three contender prompt lengths on one
 	// card, measuring the capped prefill and hold-cap's contender cost before the robustness study is bought,
-	// docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v27". Its frozen tuple carries
-	// the reference length; the short and long arms replay 31,894 and 42,579 characters instead.
+	// docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v27".
+	// Its frozen tuple carries the reference length; the short and long arms replay 31,894 and 42,579 characters
+	// instead.
 	StudyLengthCalibration = "admission-length-calibration-2026-10-10"
 
 	// StudyLengthRobustness is v27's main study: off, cap-only, hold-cap, the 1,740 ms fixed spacing and the
@@ -431,9 +454,10 @@ const (
 	// StudyMPSCapability is the one-cell capability session of
 	// docs/superpowers/specs/2026-09-25-can-mps-engage-on-this-card-at-all.md, as its 2026-10-24 amendment freezes it.
 	//
-	// It is not the sharing matrix's mps arm bought alone. Its replay is at 2 requests a second rather than the matrix's,
-	// and it answers whether MPS engages, not what the split costs, so a row of it pooled into a sharing report would
-	// report a latency for a load that study never offered.
+	// It is not the sharing matrix's mps arm bought alone.
+	// Its replay is at 2 requests a second rather than the matrix's, and it answers whether MPS engages, not what the
+	// split costs, so a row of it pooled into a sharing report would report a latency for a load that study never
+	// offered.
 	StudyMPSCapability = "mps-capability-2026-10-24"
 	// StudyVersionAsync is the A/B/C engine-version and async-scheduling comparison pre-registered in
 	// docs/superpowers/specs/2026-11-15-vllm-version-async-study-design.md.
@@ -528,8 +552,9 @@ const PremiumTenant = "premium-1"
 // NoisyTenant is the contending tenant whose work the positive readings require to survive.
 //
 // It was spelled as a literal in the trace builder and nowhere else, which was fine while nothing read it
-// back. The price-of-protection readings compare this tenant's output share against the control's, so the
-// name is now load-bearing in two places and belongs beside PremiumTenant for the reason stated above it.
+// back.
+// The price-of-protection readings compare this tenant's output share against the control's, so the name
+// is now load-bearing in two places and belongs beside PremiumTenant for the reason stated above it.
 const NoisyTenant = "standard-noisy"
 
 // ArmR1 is the isolated premium baseline every study measures as its ceiling.
@@ -555,16 +580,17 @@ const (
 // ArmDefaultFCFS is the price-of-protection control: the engine at its own default batch budget under
 // first-come-first-served, which is what an operator who configures nothing gets.
 //
-// It is NOT named "off" even though the pre-registration's readings use that word for it. M5-b's "off"
-// arm ran through a gateway, and giving the two the same name would make raw evidence from a
-// no-gateway run indistinguishable from evidence that crossed a proxy hop.
+// It is NOT named "off" even though the pre-registration's readings use that word for it.
+// M5-b's "off" arm ran through a gateway, and giving the two the same name would make raw evidence
+// from a no-gateway run indistinguishable from evidence that crossed a proxy hop.
 const ArmDefaultFCFS = "default-fcfs"
 
 // priceOfProtectionArms generates the sweep's arm names from the factors rather than listing them.
 //
 // A hand-written list of ten strings is a fifth copy of the factor definitions, and this repository has
-// already paid twice for hand-kept lists drifting apart. The budget is zero-padded so that lexical
-// order is numeric order: b256 would sort after b1024 and put the table in an order no reader expects.
+// already paid twice for hand-kept lists drifting apart.
+// The budget is zero-padded so that lexical order is numeric order: b256 would sort after b1024 and put
+// the table in an order no reader expects.
 func priceOfProtectionArms() []string {
 	arms := make([]string, 0, 2+len(priceOfProtectionBudgets)*len(priceOfProtectionPolicies))
 	arms = append(arms, ArmR1, ArmDefaultFCFS)
@@ -587,10 +613,11 @@ func PriceOfProtectionArm(budget int, policy string) string {
 
 // ThroughputLadderArm is the canonical name of one cell of the capacity ladder: one topology at one rung.
 //
-// The rung is IN THE ARM NAME, and that is the point rather than a convenience. An arm summary pools every
-// row carrying its name, so two rungs sharing an arm name would be averaged into a p99 for an offered load
-// that was never offered -- a plausible wrong number of exactly the class this repository's rules put above
-// every other failure. Making the rung part of the identity makes that pooling unrepresentable.
+// The rung is IN THE ARM NAME, and that is the point rather than a convenience.
+// An arm summary pools every row carrying its name, so two rungs sharing an arm name would be averaged into
+// a p99 for an offered load that was never offered -- a plausible wrong number of exactly the class this
+// repository's rules put above every other failure.
+// Making the rung part of the identity makes that pooling unrepresentable.
 //
 // Zero-padded so that lexical order is numeric order, which is what the report's arm column is sorted by.
 func ThroughputLadderArm(rung int, topology string) string {
@@ -600,8 +627,9 @@ func ThroughputLadderArm(rung int, topology string) string {
 // TailCrossingArm is the canonical name of the tail-crossing studies' contended arm at one best-effort level.
 //
 // The level is in the name for the reason the ladder's rung is: an arm summary pools every row carrying its
-// name, and two BE rates under one name would be a p99 for a load nobody offered. The RATE a level stands
-// for lives in the runner and the registration, not here, exactly as the ladder's rung parameters do.
+// name, and two BE rates under one name would be a p99 for a load nobody offered.
+// The RATE a level stands for lives in the runner and the registration, not here, exactly as the ladder's
+// rung parameters do.
 func TailCrossingArm(level int) string {
 	return fmt.Sprintf("be%02d-%s", level, ArmShared)
 }
@@ -635,9 +663,10 @@ func tailCrossingArms() []string {
 //
 // It exists because "is this R1" was spelled as a literal string comparison in two places that decide
 // something load-bearing: gen-trace filters the contending tenant out of the baseline's trace, and the
-// trace-identity check exempts the baseline because its row count legitimately differs. The ladder's
-// baseline is called rung04-R1, so both would have looked straight past it -- producing a "baseline" that
-// carried the contender, and a refusal that the traces disagree. Neither would have announced itself.
+// trace-identity check exempts the baseline because its row count legitimately differs.
+// The ladder's baseline is called rung04-R1, so both would have looked straight past it -- producing a
+// "baseline" that carried the contender, and a refusal that the traces disagree.
+// Neither would have announced itself.
 //
 // Asking a function rather than comparing a literal is what makes a third study's baseline work by
 // construction instead of by somebody remembering these two call sites.
@@ -651,13 +680,14 @@ func IsIsolatedBaseline(arm string) bool {
 
 // ArmComparisonGroup names the set of arms an arm is compared against.
 //
-// Every study but one offers a single load, so all its arms are one group and the name is empty. The
-// capacity ladder offers a different load per rung by design, so its group is the rung: the two topologies
-// of rung 1 must replay the same trace as each other and must NOT replay rung 2's -- a ladder whose rungs
-// agreed would be four measurements of one load.
+// Every study but one offers a single load, so all its arms are one group and the name is empty.
+// The capacity ladder offers a different load per rung by design, so its group is the rung: the two
+// topologies of rung 1 must replay the same trace as each other and must NOT replay rung 2's -- a ladder
+// whose rungs agreed would be four measurements of one load.
 //
 // The report's trace-identity refusal is written against one group and was correct for every study that
-// existed when it was written. It refused the ladder's own evidence the first time the ladder ran.
+// existed when it was written.
+// It refused the ladder's own evidence the first time the ladder ran.
 func ArmComparisonGroup(arm string) string {
 	if rung, _, ok := parseLadderArmName(arm); ok {
 		return fmt.Sprintf("rung%02d", rung)
@@ -676,16 +706,16 @@ func ArmComparisonGroup(arm string) string {
 // throughputLadderRungs is how many rungs the pre-registration lists.
 //
 // The rung PARAMETERS -- the arrival rate and the tenant weights -- live in the runner and in the
-// pre-registration, not here: this package scores evidence and never generates load. What it needs is only
-// how many names to admit.
+// pre-registration, not here: this package scores evidence and never generates load.
+// What it needs is only how many names to admit.
 const throughputLadderRungs = 4
 
 // throughputLadderArms generates the ladder's arm names from the rungs rather than listing sixteen strings.
 //
-// Every rung admits both topologies and the isolated baseline, even though R1 is bought at ONE rung. Which
-// rung that is depends on where the stopping rule fires, which is not known until the run happens, and a
-// registry that admitted R1 at only one rung would have to be edited once the ladder chose -- an edit to the
-// instrument after seeing data, which is the thing the pre-registration exists to prevent.
+// Every rung admits both topologies and the isolated baseline, even though R1 is bought at ONE rung.
+// Which rung that is depends on where the stopping rule fires, which is not known until the run happens, and
+// a registry that admitted R1 at only one rung would have to be edited once the ladder chose -- an edit to
+// the instrument after seeing data, which is the thing the pre-registration exists to prevent.
 func throughputLadderArms() []string {
 	arms := make([]string, 0, throughputLadderRungs*3)
 	for rung := 1; rung <= throughputLadderRungs; rung++ {
@@ -700,27 +730,31 @@ func throughputLadderArms() []string {
 // studies is the registry every arm name is validated against.
 //
 // MinRepetitions and PublishesInterval are left UNSET where a registration fixed no repetition floor, and
-// that is a value rather than an omission: zero means "this registration does not say", the way a nil
-// Frozen means "this registration froze no load". A refusal reading zero must decline to judge rather than
-// treat it as a floor of none -- the same distinction FrozenTuple draws, and the reason an empty expectation
-// is never a pass anywhere else in this package.
+// that is a value rather than an omission: zero means "this registration does not say", the way a nil Frozen
+// means "this registration froze no load".
+// A refusal reading zero must decline to judge rather than treat it as a floor of none -- the same
+// distinction FrozenTuple draws, and the reason an empty expectation is never a pass anywhere else in this
+// package.
 var studies = map[string]Study{
 	StudyM5BGateway: {
 		ID:   StudyM5BGateway,
 		Arms: []string{ArmR1, "off", "static-cap", "kv-aware"},
 		// Five, and it is the one study here whose interval actually reaches a printed report:
-		// Checks.IncrementalRatioCI is rendered by FormatReport with the gate reading `Hi < 1.0`. Its own
-		// amendment fixes the resample count and seed as M5BIncrementalResamples and M5BIncrementalSeed.
+		// Checks.IncrementalRatioCI is rendered by FormatReport with the gate reading `Hi < 1.0`.
+		// Its own amendment fixes the resample count and seed as M5BIncrementalResamples and
+		// M5BIncrementalSeed.
 		MinRepetitions:    5,
 		PublishesInterval: true,
 	},
 	StudyPriceOfProtection: {
 		ID:   StudyPriceOfProtection,
 		Arms: priceOfProtectionArms(),
-		// Deliberately unset. Its reading 3 compares an improvement against the CONTROL'S observed spread
-		// rather than against an interval, and price_of_protection.go says so in its own words -- "by a
-		// bootstrap over four blocks being read as a 95% interval. The range is what it claims to be." A
-		// floor invented here would be this file asserting something that sweep's registration does not.
+		// Deliberately unset.
+		// Its reading 3 compares an improvement against the CONTROL'S observed spread rather than against
+		// an interval, and price_of_protection.go says so in its own words -- "by a bootstrap over four
+		// blocks being read as a 95% interval.
+		// The range is what it claims to be." A floor invented here would be this file asserting
+		// something that sweep's registration does not.
 	},
 	StudySharingMatrix: {
 		ID:   StudySharingMatrix,
@@ -728,7 +762,8 @@ var studies = map[string]Study{
 		// The seventh amendment's "What is frozen, from here", as data.
 		//
 		// docs/superpowers/specs/2026-07-04-gpusharingbenchmark-crd-design.md froze these five on
-		// 2026-10-01. The characters are the values that amendment recorded, not a fresh lookup: see
+		// 2026-10-01.
+		// The characters are the values that amendment recorded, not a fresh lookup: see
 		// Study.Frozen on why resolving them here would unfreeze them.
 		Frozen: &FrozenTuple{
 			PremiumPromptChars:    1174,
@@ -745,16 +780,19 @@ var studies = map[string]Study{
 		//
 		// ⚠️ That interval is COMPUTED AND NOT PRINTED: FormatRegisteredEstimand renders B, C and R and then
 		// says "No interval is published; see the seventh amendment", leaving RegisteredEstimand.RatioCI
-		// unrendered. So this records the registration's promise, not today's output. Writing false here
-		// would make the two fields agree by denying what the amendment fixed.
+		// unrendered.
+		// So this records the registration's promise, not today's output.
+		// Writing false here would make the two fields agree by denying what the amendment fixed.
 		MinRepetitions:    5,
 		PublishesInterval: true,
 	},
-	// The two input levels. The isolated baseline and the shared engine at each BE level, and nothing else,
-	// because the registration's D3 sizes this question for the shared engine against the isolated baseline
-	// and drops the split topologies: a study that admitted arms it does not buy would let a run file
-	// evidence under a condition nobody registered. The shared engine is one arm per BE level since the
-	// 2026-10-04 model-first page made the BE rate a factor; see TailCrossingArm.
+	// The two input levels.
+	// The isolated baseline and the shared engine at each BE level, and nothing else, because the
+	// registration's D3 sizes this question for the shared engine against the isolated baseline and drops
+	// the split topologies: a study that admitted arms it does not buy would let a run file evidence under
+	// a condition nobody registered.
+	// The shared engine is one arm per BE level since the 2026-10-04 model-first page made the BE rate a
+	// factor; see TailCrossingArm.
 	//
 	// Both tuples are resolved pairs the table already carries -- 256 -> 1,174 and 8,192 -> 42,579 -- so
 	// FrozenTuple.Drift has something to compare and neither level drifts the moment it is entered.
@@ -771,20 +809,22 @@ var studies = map[string]Study{
 			PremiumOutputTokens:   64,
 			ContenderOutputTokens: 16,
 		},
-		// TWO, and no interval. Decided 2026-10-04 and dated here because the choice is part of the
-		// registration rather than a tuning knob: the 2026-10-03 page's D3 says "2 repetitions is an
-		// exploratory compromise, not a precision claim -- this page registers no interval and may not
-		// present one", and its section 4 says "Repetition-to-repetition variation and estimator uncertainty
-		// remain, and this page registers no interval."
+		// TWO, and no interval.
+		// Decided 2026-10-04 and dated here because the choice is part of the registration rather than a
+		// tuning knob: the 2026-10-03 page's D3 says "2 repetitions is an exploratory compromise, not a
+		// precision claim -- this page registers no interval and may not present one", and its section 4
+		// says "Repetition-to-repetition variation and estimator uncertainty remain, and this page registers
+		// no interval."
 		//
-		// The pair must be read together. Two repetitions is permitted BECAUSE no interval is presented; a
-		// later edit raising PublishesInterval to true without raising this number would publish bounds that
-		// are the two observations, which is what the refusal comparing these fields exists to stop.
+		// The pair must be read together.
+		// Two repetitions is permitted BECAUSE no interval is presented; a later edit raising
+		// PublishesInterval to true without raising this number would publish bounds that are the two
+		// observations, which is what the refusal comparing these fields exists to stop.
 		//
 		// What two repetitions does NOT weaken is the per-cell sample: MinTailSamples is a floor on COMPLETED
-		// REQUESTS and is unchanged here, and RegisteredEstimandFor applies it per repetition as well. The
-		// even-count median convention is already pinned -- hack/test/check-published-spreads.sh carries a
-		// two-repetition fixture whose 10.000 and 13.387 must average to 11.6935.
+		// REQUESTS and is unchanged here, and RegisteredEstimandFor applies it per repetition as well.
+		// The even-count median convention is already pinned -- hack/test/check-published-spreads.sh carries
+		// a two-repetition fixture whose 10.000 and 13.387 must average to 11.6935.
 		MinRepetitions:    2,
 		PublishesInterval: false,
 		// Superseded on 2026-10-04 by the model-first registration, whose replication is independent
@@ -792,7 +832,8 @@ var studies = map[string]Study{
 		TracesVaryByRepetition: true,
 	},
 	// The long level: the latency-critical tenant carries the SAME per-request length as the contender, which
-	// is the contrast this page registers. It is not a claim that a scheduling mechanism changes there.
+	// is the contrast this page registers.
+	// It is not a claim that a scheduling mechanism changes there.
 	StudyTailCrossingLongLC: {
 		ID:       StudyTailCrossingLongLC,
 		Arms:     tailCrossingArms(),
@@ -893,7 +934,8 @@ var studies = map[string]Study{
 			ContenderOutputTokens: 16,
 		},
 		// Three blocks per stage, as the scope fixes: the main endpoint pools three, and pooling is not linear in
-		// the number of blocks. No interval is published, since the pilot judges nothing.
+		// the number of blocks.
+		// No interval is published, since the pilot judges nothing.
 		MinRepetitions:      3,
 		FixesOutputAtCap:    true,
 		RecordsReplayTiming: true,
@@ -1162,9 +1204,10 @@ var studies = map[string]Study{
 // CanonicalStudyID resolves an identifier as recorded to the identifier it means.
 //
 // Evidence written before the study field existed carries an empty string, and LookupStudy already reads
-// that as the gateway experiment. Comparisons have to use the SAME normalization, or a file labelled
-// "m5b-gateway-v1" and an unlabelled file from the same experiment are refused as different studies --
-// which is what happened, because the pooling check compared the raw strings.
+// that as the gateway experiment.
+// Comparisons have to use the SAME normalization, or a file labelled "m5b-gateway-v1" and an unlabelled
+// file from the same experiment are refused as different studies -- which is what happened, because the
+// pooling check compared the raw strings.
 func CanonicalStudyID(id string) string {
 	if id == "" {
 		return StudyM5BGateway
@@ -1190,10 +1233,11 @@ func KnownStudyIDs() []string {
 	//
 	// The hand-written version said it was a list "because a refusal message whose order changes between
 	// runs is a refusal message that cannot be tested", which is a real requirement and the wrong fix for
-	// it. Sorting satisfies it too, and a hand-kept copy of the registry does not stay a copy: registering
-	// the sharing matrix left this returning two of three studies, so the refusal for a mistyped study ID
-	// would have listed the alternatives and omitted the one the operator was reaching for. This repository
-	// has paid twice for hand-kept lists drifting from what they list.
+	// it.
+	// Sorting satisfies it too, and a hand-kept copy of the registry does not stay a copy: registering the
+	// sharing matrix left this returning two of three studies, so the refusal for a mistyped study ID would
+	// have listed the alternatives and omitted the one the operator was reaching for.
+	// This repository has paid twice for hand-kept lists drifting from what they list.
 	ids := make([]string, 0, len(studies))
 	for id := range studies {
 		ids = append(ids, id)
@@ -1211,8 +1255,9 @@ func (s Study) Admits(arm string) bool {
 //
 // It was the literal 12, which fitted M5-b's four names and silently misaligned anything longer --
 // "mbt-0512-priority" is 17 characters and would have pushed every column after it out of line in the
-// one table a reader actually looks at. Derived from the registry so that adding a study cannot break
-// the report by a mechanism nobody thinks to check.
+// one table a reader actually looks at.
+// Derived from the registry so that adding a study cannot break the report by a mechanism nobody
+// thinks to check.
 var ArmColumnWidth = widestArmName()
 
 func widestArmName() int {

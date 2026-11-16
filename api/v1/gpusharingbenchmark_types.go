@@ -25,10 +25,11 @@ import (
 // The design of record is docs/superpowers/specs/2026-07-04-gpusharingbenchmark-crd-design.md, and the field
 // names, units and validation rules here follow it rather than restating it.
 //
-// The spec carries the protocol, not just the parameters. Several of the rules below exist because a
-// plausible-looking run that breaks them produces a tail-latency number that is wrong in a direction nobody
-// notices: retries repair the tail, a closed-loop client hides the queueing delay it is meant to measure, and
-// a p99 from too few requests or too few repetitions is noise wearing a decimal point.
+// The spec carries the protocol, not just the parameters.
+// Several of the rules below exist because a plausible-looking run that breaks them produces a tail-latency
+// number that is wrong in a direction nobody notices: retries repair the tail, a closed-loop client hides the
+// queueing delay it is meant to measure, and a p99 from too few requests or too few repetitions is noise
+// wearing a decimal point.
 type GpuSharingBenchmarkSpec struct {
 	// gpuClass is the GPU class the experiment runs on (e.g. "a10g").
 	//
@@ -113,13 +114,15 @@ type BenchmarkWorkload struct {
 	// qps is the arrival rate as a positive plain decimal string (e.g. "2.0", "0.01").
 	//
 	// A string rather than a float: the value appears verbatim in the report, and a float would print back
-	// differently than it was written. The cost of that choice is that the spelling is part of the
-	// experiment's identity -- "2" and "2.00" name the same rate and are different values to the
-	// immutability rule -- which is accepted deliberately and is why the grammar is narrow.
+	// differently than it was written.
+	// The cost of that choice is that the spelling is part of the experiment's identity -- "2" and "2.00"
+	// name the same rate and are different values to the immutability rule -- which is accepted
+	// deliberately and is why the grammar is narrow.
 	//
 	// The pattern admits only digits with at most one decimal point, and the second rule refuses every
-	// spelling of zero. Without them the field was an unrestricted string: "", " 2.0", "NaN", "-1", "2e0",
-	// "0" and "abc" were all accepted, measured against a real apiserver.
+	// spelling of zero.
+	// Without them the field was an unrestricted string: "", " 2.0", "NaN", "-1", "2e0", "0" and "abc"
+	// were all accepted, measured against a real apiserver.
 	//
 	// Zero is refused rather than read as "this side is off". The control condition is the harness running
 	// the baseline with the contender disabled; the registered rate describes the active condition, and a
@@ -138,9 +141,9 @@ type BenchmarkWorkload struct {
 	// outputTokens is the requested generation CEILING per request, not a guaranteed length.
 	//
 	// The load generator sends it as the engine's max_tokens, which is an upper bound: a response that hits a
-	// stop condition earlier is shorter, and nothing makes the engine emit this many. So a run whose
-	// responses average well under this value has not violated the protocol, and a reading that assumed this
-	// many tokens per response would be wrong about the work the card did.
+	// stop condition earlier is shorter, and nothing makes the engine emit this many.
+	// So a run whose responses average well under this value has not violated the protocol, and a reading
+	// that assumed this many tokens per response would be wrong about the work the card did.
 	//
 	// This comment said "the generation length per request" until 2026-09-30, which is a promise the sender
 	// does not keep -- and field comments are copied into the generated CRD description, so it was a promise
@@ -192,13 +195,15 @@ type LoadSpec struct {
 
 // GpuSharingBenchmarkStatus is the observed state.
 //
-// result is absent until a real-GPU run writes it. There are deliberately no placeholder numbers: a reader who
-// finds a ratio here must be able to trust that hardware produced it.
+// result is absent until a real-GPU run writes it.
+// There are deliberately no placeholder numbers: a reader who finds a ratio here must be able to trust that
+// hardware produced it.
 //
-// The completion invariant is enforced here rather than left to prose. Before this rule, a status update
-// carrying nothing but phase: Completed was accepted, so the type's own documentation ("Completed requires
-// result.reportUri") was a claim the schema did not make. It refuses a completion with no result, no URI or
-// an empty URI. It does not and cannot say the report exists or that its number is right.
+// The completion invariant is enforced here rather than left to prose.
+// Before this rule, a status update carrying nothing but phase: Completed was accepted, so the type's own
+// documentation ("Completed requires result.reportUri") was a claim the schema did not make.
+// It refuses a completion with no result, no URI or an empty URI.
+// It does not and cannot say the report exists or that its number is right.
 // Emptiness is tested with size(...) > 0 rather than by comparing against an empty string literal.
 //
 // Go's doc-comment reformatting turns a pair of ASCII apostrophes in a comment into a single closing curly
@@ -268,14 +273,15 @@ type BenchmarkResult struct {
 	// interferenceRatioCI95 is the nominal bootstrap 95% interval for interferenceRatio, e.g. "1.82-2.31".
 	//
 	// This is the primary reported object of the experiment, fixed by the design spec third amendment of
-	// 2026-09-30 before any result existed that could influence the choice. The baseline is measured rather
-	// than known, so an interval on the colocated tail alone cannot bound the relative interference the
-	// benchmark exists to report.
+	// 2026-09-30 before any result existed that could influence the choice.
+	// The baseline is measured rather than known, so an interval on the colocated tail alone cannot bound
+	// the relative interference the benchmark exists to report.
 	//
 	// It comes from a PAIRED repetition bootstrap: complete (baseline, colocated) repetition blocks are
 	// resampled with replacement, both medians and their ratio recomputed, and the 2.5th and 97.5th
-	// percentiles taken. Pairing is by the repetition identity the run schedule records, never inferred from
-	// two arrays having equal length.
+	// percentiles taken.
+	// Pairing is by the repetition identity the run schedule records, never inferred from two arrays having
+	// equal length.
 	//
 	// NOMINAL, and the word is load-bearing. Five repetitions are enough to compute this interval and not
 	// enough to establish 95% coverage, and more bootstrap draws do not create more repetitions. The report

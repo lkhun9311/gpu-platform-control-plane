@@ -164,9 +164,9 @@ type arrivalFlags struct {
 // rather than ignored, because a caller who passed both has two loads on the page and obeying one silently is
 // how a trace ends up with an arrival process nobody stated.
 //
-// All three rates are required once one is passed. Defaulting --probe-rate to zero would silently drop the
-// probes that make the guard threshold load-bearing, and defaulting it to anything else would offer a load
-// nobody derived.
+// All three rates are required once one is passed.
+// Defaulting --probe-rate to zero would silently drop the probes that make the guard threshold
+// load-bearing, and defaulting it to anything else would offer a load nobody derived.
 func traceTenants(f arrivalFlags) ([]bench.TenantSpec, float64, error) {
 	rated := f.passed["premium-rate"] || f.passed["noisy-rate"] || f.passed["probe-rate"]
 	if rated {
@@ -262,13 +262,14 @@ func studyTraces(args []string) error {
 // studyFrozenTuple prints the five load quantities a study's pre-registration froze, as shell assignments.
 //
 // It exists so hack/m5c-matrix.sh compares the load it is about to offer against the registration instead of
-// holding a second copy of those numbers. Measured on 2026-10-02: every one of the four frozen quantities
-// could be overridden on the command line and the pre-purchase plan check passed unchanged, and the 15-cell
-// run of 2026-10-02 met the frozen premium length only because it inherited the script's default.
+// holding a second copy of those numbers.
+// Measured on 2026-10-02: every one of the four frozen quantities could be overridden on the command line
+// and the pre-purchase plan check passed unchanged, and the 15-cell run of 2026-10-02 met the frozen premium
+// length only because it inherited the script's default.
 //
-// A study that froze nothing is a REFUSAL rather than empty output. Printing nothing would let a caller that
-// forgot to check the exit status read "no constraints" out of silence, which is the failure this whole
-// command exists to stop one layer up.
+// A study that froze nothing is a REFUSAL rather than empty output.
+// Printing nothing would let a caller that forgot to check the exit status read "no constraints" out of
+// silence, which is the failure this whole command exists to stop one layer up.
 //
 // Drift is reported and not repaired: if the resolution table no longer resolves the frozen token counts to
 // the frozen characters, the registration and the table disagree and a human has to date an amendment.
@@ -302,34 +303,38 @@ func genTrace(args []string) error {
 	fs := flag.NewFlagSet("gen-trace", flag.ExitOnError)
 	seed := fs.Int64("seed", 1, "trace generator seed")
 	durationMs := fs.Int64("duration-ms", 60_000, "trace duration in ms")
-	// 20/s is calibrated for hack/m5b-harness-dryrun.sh, whose stub backend costs nothing to serve. It is
-	// NOT a value a GPU can take: see hack/m5b-vllm-sizing.md, where sustaining half of it in contender
-	// traffic works out to 7.3x a T4's theoretical peak. Set it from the ceiling derived there.
+	// 20/s is calibrated for hack/m5b-harness-dryrun.sh, whose stub backend costs nothing to serve.
+	// It is NOT a value a GPU can take: see hack/m5b-vllm-sizing.md, where sustaining half of it in
+	// contender traffic works out to 7.3x a T4's theoretical peak.
+	// Set it from the ceiling derived there.
 	rate := fs.Float64("rate", 20, "mean total arrival rate per second (stub-calibrated; see hack/m5b-vllm-sizing.md before a GPU run)")
 	premiumChars := fs.Int("premium-prompt-chars", 200, "premium tenant prompt length in chars")
 	// The old help here said ">= 4x the guard threshold" and that was wrong: ceil(40000/4) is 10,000 against
-	// a 4,096 threshold, which is 2.44x. Corrected rather than restated, since the margin is the reason the
-	// contender population is unambiguously eligible and a wrong multiple invites someone to shrink it.
+	// a 4,096 threshold, which is 2.44x.
+	// Corrected rather than restated, since the margin is the reason the contender population is
+	// unambiguously eligible and a wrong multiple invites someone to shrink it.
 	noisyChars := fs.Int("noisy-prompt-chars", 40_000, "noisy tenant prompt length in chars (estimates at 10,000 tokens, 2.44x the 4,096 guard threshold)")
 	// The output caps, which were literals in traceTenants until 2026-10-01.
 	//
 	// They default to what every pre-CR trace in the evidence was generated with, so an un-flagged call
-	// produces the same trace it always did. A compiled plan passes the CR's values instead.
+	// produces the same trace it always did.
+	// A compiled plan passes the CR's values instead.
 	premiumOut := fs.Int("premium-output-tokens", bench.FixedPremiumMaxOutputTokens, "premium tenant max_tokens cap")
 	noisyOut := fs.Int("noisy-output-tokens", bench.FixedNoisyMaxOutputTokens, "noisy tenant max_tokens cap")
 	premiumWeight := fs.Float64("premium-weight", 1, "premium tenant arrival share")
 	noisyWeight := fs.Float64("noisy-weight", 1, "noisy tenant arrival share")
 	// Meant to be small, and 0.1 is NOT small the way this comment used to claim.
 	//
-	// These are a probe population rather than a load driver, and each carries about 3,171 real tokens. The
-	// comment here said a large share would move the pressure the arms are supposed to differ under, and
-	// then left a default that does exactly that: measured on the 2026-09-07 price-of-protection pilot, the
-	// two probe tenants at 0.1 each carried 78% of the engine's prefill capacity between them, against the
-	// protected tenant's 5%. A weight is a share of the total arrival rate, so what it costs the engine
-	// depends on the prompt behind it, and 0.1 of a 3,171-token prompt is not 0.1 of the load.
+	// These are a probe population rather than a load driver, and each carries about 3,171 real tokens.
+	// The comment here said a large share would move the pressure the arms are supposed to differ under,
+	// and then left a default that does exactly that: measured on the 2026-09-07 price-of-protection pilot,
+	// the two probe tenants at 0.1 each carried 78% of the engine's prefill capacity between them, against
+	// the protected tenant's 5%.
+	// A weight is a share of the total arrival rate, so what it costs the engine depends on the prompt
+	// behind it, and 0.1 of a 3,171-token prompt is not 0.1 of the load.
 	//
-	// Left at 0.1 because lowering it silently would change every existing caller's trace. Set it from the
-	// engine's measured prefill capacity, as
+	// Left at 0.1 because lowering it silently would change every existing caller's trace.
+	// Set it from the engine's measured prefill capacity, as
 	// docs/superpowers/specs/2026-09-08-the-load-needs-an-upper-gate.md derives.
 	probeWeight := fs.Float64("probe-weight", 0.1, "arrival share of EACH threshold-probe tenant; 0 disables them (see the comment: 0.1 is not a small load)")
 	probeUnderChars := fs.Int("probe-under-chars", bench.ProbeUnderChars, "probe prompt scoring just BELOW the guard threshold")
@@ -337,8 +342,9 @@ func genTrace(args []string) error {
 	// Per-tenant rates select the independent-arrivals model, where a tenant's schedule depends on its own rate alone.
 	//
 	// Under the weights above, raising the premium share redraws every gap, so the M5-c ladder held the
-	// contender's COUNT fixed and still handed each rung a different contender schedule. See
-	// bench.TenantSpec.RatePerSec, and traceTenants for why these refuse to be mixed with the weights.
+	// contender's COUNT fixed and still handed each rung a different contender schedule.
+	// See bench.TenantSpec.RatePerSec, and traceTenants for why these refuse to be mixed with the
+	// weights.
 	premiumRate := fs.Float64("premium-rate", 0, "premium tenant's own arrival rate per second; passing any rate replaces --rate and the weights")
 	noisyRate := fs.Float64("noisy-rate", 0, "noisy tenant's own arrival rate per second")
 	probeRate := fs.Float64("probe-rate", 0, "arrival rate per second of EACH threshold-probe tenant; required with the other rates, 0 disables them")
@@ -356,8 +362,9 @@ func genTrace(args []string) error {
 	//
 	// RunManifest has declared gatewaySHA and imageDigests since it was written and nothing ever filled them:
 	// no flag accepted them, no script passed them, and every manifest this repository has produced left them
-	// empty. A paid run's numbers belong to a build, and after the cluster is gone the record is the only
-	// place that association can live.
+	// empty.
+	// A paid run's numbers belong to a build, and after the cluster is gone the record is the only place that
+	// association can live.
 	//
 	// The image flags take `name@sha256:...` references. replay -require-provenance refuses a tag, because a
 	// tag names whatever was pushed under it most recently.
@@ -365,13 +372,15 @@ func genTrace(args []string) error {
 	// The tokenizer revision, which was the third field declared for provenance and never filled.
 	//
 	// RunManifest.TokenizerRev has said it records the tokenizer and chat-template revision since it was
-	// written, and nothing set it: no flag, no script, no manifest. The repair that added --gateway-sha and
-	// the image flags did not include it, so it stayed the one provenance field with no way in.
+	// written, and nothing set it: no flag, no script, no manifest.
+	// The repair that added --gateway-sha and the image flags did not include it, so it stayed the one
+	// provenance field with no way in.
 	//
-	// It matters more than it looks. The design scores admitted work over the SERVED tokenizer count, and the
-	// calibration that relates characters to tokens was measured against one specific tokenizer. Without the
-	// revision, a number cannot be tied to the tokenizer that produced it -- and the calibration file claimed
-	// to have been measured "at the recorded revision" while no revision was recorded anywhere.
+	// It matters more than it looks.
+	// The design scores admitted work over the SERVED tokenizer count, and the calibration that relates
+	// characters to tokens was measured against one specific tokenizer.
+	// Without the revision, a number cannot be tied to the tokenizer that produced it -- and the calibration
+	// file claimed to have been measured "at the recorded revision" while no revision was recorded anywhere.
 	tokenizerRev := fs.String("tokenizer-rev", "",
 		"revision of the served model whose tokenizer the estimate was calibrated against (40 lowercase hex)")
 	gatewayImage := fs.String("gateway-image", "", "digest-pinned gateway image reference (name@sha256:...)")
@@ -425,18 +434,20 @@ func genTrace(args []string) error {
 	//
 	// Without them the trace does not test the threshold at all: the contender estimates at 10,000 tokens and
 	// premium at 50, so ANY threshold between 51 and 10,000 produces identical behaviour in every arm, and the
-	// number the guard is configured with is decorative. These two make it load-bearing. The gateway scores
-	// (chars+3)/4, so 16,380 characters score 4,095 and pass while 16,384 score 4,096 and are rejected -- one
-	// real token apart, opposite decisions.
+	// number the guard is configured with is decorative.
+	// These two make it load-bearing.
+	// The gateway scores (chars+3)/4, so 16,380 characters score 4,095 and pass while 16,384 score 4,096 and
+	// are rejected -- one real token apart, opposite decisions.
 	//
 	// They also walk into the false-positive band the calibration measured: both prompts carry about 3,171
 	// real tokens against a threshold of 4,096, so the rejected one is rejected on an over-estimate of 29
-	// percent. That band was measurable before and unreachable; now the run reports how often it fires.
+	// percent.
+	// That band was measurable before and unreachable; now the run reports how often it fires.
 	//
-	// IsNoisy is true for both, and it is not a claim that they are contenders. The field's operational
-	// meaning is "not the victim whose tail is the primary endpoint" -- it gates exactly two things, the
-	// tail's population and R1's filter, and a probe tenant belongs in neither. Marking them false would put
-	// borderline traffic inside the p99 the whole experiment is judged on.
+	// IsNoisy is true for both, and it is not a claim that they are contenders.
+	// The field's operational meaning is "not the victim whose tail is the primary endpoint" -- it gates
+	// exactly two things, the tail's population and R1's filter, and a probe tenant belongs in neither.
+	// Marking them false would put borderline traffic inside the p99 the whole experiment is judged on.
 	passed := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { passed[f.Name] = true })
 	tenants, totalRate, err := traceTenants(arrivalFlags{
@@ -581,8 +592,9 @@ func writeTraceAndManifest(rows []bench.TraceRow, o traceOutputs, maxOutputToken
 		//
 		//   read trace file hack/run-x/hack/run-x/trace-R1-1.jsonl: no such file or directory
 		//
-		// The paid run failed on its first replay because of it. Storing the path the loader expects keeps
-		// the manifest movable, which is the point of recording a checksum beside it.
+		// The paid run failed on its first replay because of it.
+		// Storing the path the loader expects keeps the manifest movable, which is the point of recording
+		// a checksum beside it.
 		TracePath:     traceRefFor(o.manifestOut, o.traceOut),
 		TraceChecksum: bench.Checksum(traceBytes),
 		Model:         o.model,
@@ -630,14 +642,16 @@ func replay(args []string) error {
 	// The pool mode is a flag rather than a constant so the cost of pooling at all stays measurable.
 	//
 	// "legacy" reproduces the client this sender replaced, which used http.DefaultTransport and its two idle
-	// connections per host. It exists for a before/after comparison and for nothing else; a run that reports
-	// latency should always use the derived pool. The name written here used to be "go-default", which the
-	// flag has never accepted, so an operator copying it out of this rationale got "unknown sender mode".
+	// connections per host.
+	// It exists for a before/after comparison and for nothing else; a run that reports latency should always
+	// use the derived pool.
+	// The name written here used to be "go-default", which the flag has never accepted, so an operator
+	// copying it out of this rationale got "unknown sender mode".
 	// The paid path's counterpart to -require-device.
 	//
 	// Opt-in rather than always-on: a kind run against a stub has no build worth pinning, and demanding one
-	// from every free run would push an operator toward inventing a value. Where the record has to outlive
-	// the cluster, it is required.
+	// from every free run would push an operator toward inventing a value.
+	// Where the record has to outlive the cluster, it is required.
 	requireExactTokens := fs.Bool("require-exact-tokens", false,
 		"refuse a trace whose rows carry no measured input-token count, before sending any request")
 	requireProvenance := fs.Bool("require-provenance", false,
@@ -645,8 +659,8 @@ func replay(args []string) error {
 	// The axis the paid evidence showed actually works, exposed so an arm can carry it.
 	//
 	// vLLM's priority scheduler reads a per-request field, and the microtest measured it moving the premium
-	// tail where every backend-telemetry signal the gateway could see did not. Without this flag the runner
-	// can only test admission, which is the axis that failed.
+	// tail where every backend-telemetry signal the gateway could see did not.
+	// Without this flag the runner can only test admission, which is the axis that failed.
 	priorities := fs.String("priorities", "",
 		"comma-separated tenant=priority pairs sent with each request (lower is more urgent); "+
 			"requires the engine to run with --scheduling-policy=priority")
@@ -681,9 +695,10 @@ func replay(args []string) error {
 		//
 		// A trace can be freshly checksummed and still carry no measured input-token counts -- that is exactly
 		// what the old workflow produced, because the replay loop regenerated the trace after the stamping
-		// step. The manifest is then internally consistent and the evidence it yields cannot be scored against
-		// the admission-match criterion, which is defined over the served tokenizer's own count. Discovering
-		// that in the report costs a paid run; discovering it here costs nothing.
+		// step.
+		// The manifest is then internally consistent and the evidence it yields cannot be scored against the
+		// admission-match criterion, which is defined over the served tokenizer's own count.
+		// Discovering that in the report costs a paid run; discovering it here costs nothing.
 		if unstamped := countUnstamped(rows); unstamped > 0 {
 			return fmt.Errorf("%d of %d rows in %s carry no measured input-token count and -require-exact-tokens was set, so nothing was sent: prepare the traces with prepare-traces (which stamps before it checksums) rather than replaying a trace whose evidence cannot be scored against the admission-match criterion",
 				unstamped, len(rows), m.TracePath)
@@ -863,20 +878,20 @@ func ladderPlanCheck(args []string) error {
 // ladderVerdictStop is the exit code that tells the runner to stop climbing.
 //
 // A distinct code rather than a non-zero, because the runner must tell "both topologies breached, which is
-// what we were climbing to find" apart from "something went wrong". The first is the successful end of a
-// ladder and the second must not be mistaken for it.
+// what we were climbing to find" apart from "something went wrong".
+// The first is the successful end of a ladder and the second must not be mistaken for it.
 const ladderVerdictStop = 10
 
 // ladderVerdict answers the one question the runner asks between rungs: climb again, or stop here?
 //
-// It exists so that the stopping rule lives in the same package as the criterion it applies. The
-// alternative was a shell script reading a p99 out of a table and comparing it to a threshold written down
-// twice -- and a threshold written down twice is a threshold that will eventually differ, in the direction
-// whoever edits it wants.
+// It exists so that the stopping rule lives in the same package as the criterion it applies.
+// The alternative was a shell script reading a p99 out of a table and comparing it to a threshold written
+// down twice -- and a threshold written down twice is a threshold that will eventually differ, in the
+// direction whoever edits it wants.
 //
-// It prints one line as well as setting an exit code. The line is what the runner asserts on, so a change
-// to either alone is caught rather than silently obeyed.
-// mpsCapabilityVerdict prints the MPS capability session's one outcome from its bar journal.
+// It prints one line as well as setting an exit code.
+// The line is what the runner asserts on, so a change to either alone is caught rather than silently
+// obeyed. mpsCapabilityVerdict prints the MPS capability session's one outcome from its bar journal.
 //
 // A journal it cannot read prints MPS: UNREADABLE and exits non-zero, so the session cannot mistake a recorder fault
 // for any of the four registered outcomes.
@@ -989,8 +1004,8 @@ func ladderVerdict(args []string) error {
 	// The SAME evidence refusal the report applies, before a purchase decision is made on the evidence.
 	//
 	// It was absent here, so a rung whose two cells replayed different traces -- which `report` refuses with
-	// a non-zero exit -- produced LADDER: CONTINUE and bought the next rung. The cheap decision accepted
-	// evidence the expensive one would throw away.
+	// a non-zero exit -- produced LADDER: CONTINUE and bought the next rung.
+	// The cheap decision accepted evidence the expensive one would throw away.
 	if terr := e.refuseIfTracesDisagree(); terr != nil {
 		fmt.Println("LADDER: INVALID")
 		return fmt.Errorf("rung %d cannot be scored: %w", *rung, terr)
@@ -1006,8 +1021,9 @@ func ladderVerdict(args []string) error {
 		}
 	}
 	// An INCOMPLETE requested rung is not a stopping point, and the caller cannot tell the two apart from a
-	// boolean. Asking about a rung whose pair is not in the evidence used to print STOP and exit 10, which
-	// the runner acts on by ending the climb -- a missing cell reported as a registered result.
+	// boolean.
+	// Asking about a rung whose pair is not in the evidence used to print STOP and exit 10, which the
+	// runner acts on by ending the climb -- a missing cell reported as a registered result.
 	if !bench.LadderRungComplete(res, *rung) {
 		fmt.Println("LADDER: INVALID")
 		return fmt.Errorf("rung %d is not complete in this evidence, so there is no verdict to give: both contended topologies must be present and scorable", *rung)
@@ -1034,8 +1050,9 @@ func report(args []string) error {
 	// A machine-readable copy, because the paid raw evidence is gitignored and 7 MB.
 	//
 	// A number quoted in a write-up whose source is not in the repository is a number nobody can re-derive,
-	// and every overclaim this project has had to withdraw took that shape. This file is what a spec's table
-	// is checked against, so the derivation runs from the report code rather than from a hand copy.
+	// and every overclaim this project has had to withdraw took that shape.
+	// This file is what a spec's table is checked against, so the derivation runs from the report code
+	// rather than from a hand copy.
 	jsonOut := fs.String("json-out", "", "machine-readable per-arm summary to write alongside the report")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -1058,27 +1075,31 @@ func report(args []string) error {
 	// Name the arms that are absent, because the refusal downstream cannot.
 	//
 	// summ is a map, so a missing arm yields the zero ArmSummary, whose TailSampleSize is 0, and
-	// EvaluateChecks disqualifies the comparison on exactly that. The refusal therefore WORKS -- a session cut
-	// short by a reclaimed node or an aborted run cannot be reported as a result. Two independent reviews
-	// asserted the opposite, and reading this path is what settled it.
+	// EvaluateChecks disqualifies the comparison on exactly that.
+	// The refusal therefore WORKS -- a session cut short by a reclaimed node or an aborted run cannot be
+	// reported as a result.
+	// Two independent reviews asserted the opposite, and reading this path is what settled it.
 	//
-	// What the refusal cannot do is say WHICH arm. Its message interpolates s.Arm, which on a zero value is the
-	// empty string, so the operator reads "arm  completed no premium requests" and has to work out from the
-	// record directory what is missing. That is a bad minute to spend at the end of a paid session, and it is
-	// the difference between a gate that stops you and a gate that tells you what to re-run.
+	// What the refusal cannot do is say WHICH arm.
+	// Its message interpolates s.Arm, which on a zero value is the empty string, so the operator reads "arm
+	// completed no premium requests" and has to work out from the record directory what is missing.
+	// That is a bad minute to spend at the end of a paid session, and it is the difference between a gate that
+	// stops you and a gate that tells you what to re-run.
 	// The three checks below are M5-b's pre-registered comparison, and they name M5-b's arms.
 	//
 	// Running them for another experiment asked for static-cap and kv-aware, found neither, and reported
-	// the run disqualified -- a verdict about arms the experiment never had. Another study's readings are
-	// its own, so until they are implemented the report prints that study's tables and says plainly that
-	// it evaluated no criteria, rather than failing it against somebody else's.
+	// the run disqualified -- a verdict about arms the experiment never had.
+	// Another study's readings are its own, so until they are implemented the report prints that study's
+	// tables and says plainly that it evaluated no criteria, rather than failing it against somebody
+	// else's.
 	// The registered estimand's two arms must carry the SAME repetition identities, not merely as many.
 	//
 	// FormatReport prints B, C and R from summaries alone (internal/bench/report.go), and the slices it
 	// divides are per-arm: equal lengths are all ComputeRegisteredEstimand can check, because a []float64
-	// cannot say which repetition each value came from. So {1,2} against {1,3} would be published as a
-	// paired ratio of two repetitions that were never the same block. The identities live here, in the
-	// evidence, which is why the check is here and not in the formatter.
+	// cannot say which repetition each value came from.
+	// So {1,2} against {1,3} would be published as a paired ratio of two repetitions that were never the
+	// same block.
+	// The identities live here, in the evidence, which is why the check is here and not in the formatter.
 	if len(e.reps[bench.ArmR1]) > 0 && len(e.reps[bench.ArmShared]) > 0 {
 		if _, _, why := e.pairedRepetitions(bench.ArmR1, bench.ArmShared); why != "" {
 			return fmt.Errorf("the registered estimand pairs %s with %s by repetition identity, and %s;"+
@@ -1094,8 +1115,9 @@ func report(args []string) error {
 	// Concatenated rather than branched on, and that is not a style choice: adding `if why != ""` here took
 	// `report` from cyclomatic complexity 30 to 31 against a limit of 30 and `make lint` went red, measured.
 	// So the function returns the whole prefix including its label, or the empty string, and an empty string
-	// prepends nothing. The alternative was widening the gocyclo exemption this file already carries for
-	// run(), which buys the same line by raising the ceiling instead of spending less of it.
+	// prepends nothing.
+	// The alternative was widening the gocyclo exemption this file already carries for run(), which buys the
+	// same line by raising the ceiling instead of spending less of it.
 	//
 	// It is prepended to `text` rather than written to stderr so the warning lands in the file too -- a
 	// report read out of the archive months later carries its own premise.
@@ -1130,31 +1152,37 @@ func report(args []string) error {
 		fmt.Printf("wrote per-arm summaries to %s\n", *jsonOut)
 	}
 
-	// An INVALID run exits non-zero. A run that merely fails its checks does not.
+	// An INVALID run exits non-zero.
+	// A run that merely fails its checks does not.
 	//
-	// The distinction is the whole point. "Not all checks passed" is a scientific result -- the guard did not
-	// protect, and that is a finding worth recording. "Run invalid" means the evidence cannot answer the
-	// question at all, and the paid wrapper was treating the two identically: hack/m5b-arms.sh runs
+	// The distinction is the whole point.
+	// "Not all checks passed" is a scientific result -- the guard did not protect, and that is a finding
+	// worth recording.
+	// "Run invalid" means the evidence cannot answer the question at all, and the paid wrapper was treating
+	// the two identically: hack/m5b-arms.sh runs
 	//
 	//     benchharness report ... || fail "report"
 	//
 	// and this command returned 0 for both, so a session whose evidence had been disqualified printed a
-	// success line and moved on to the next arm. Every hole closed today -- the missing arm, the transport
-	// censoring, the absent interval, the thin repetition, the short recording -- reaches the operator through
-	// this exit code, and until now none of them did.
+	// success line and moved on to the next arm.
+	// Every hole closed today -- the missing arm, the transport censoring, the absent interval, the thin
+	// repetition, the short recording -- reaches the operator through this exit code, and until now none of
+	// them did.
 	//
 	// The report file is still written first, so the refusal is preserved as evidence rather than discarded.
 	//
-	// A study with no implemented readings reaches here with nil checks. It cannot be INVALID, because
-	// nothing evaluated it -- and it must not be reported as valid either. The exit code says only what this
-	// binary actually decided, and the report itself says the criteria were not evaluated.
+	// A study with no implemented readings reaches here with nil checks.
+	// It cannot be INVALID, because nothing evaluated it -- and it must not be reported as valid either.
+	// The exit code says only what this binary actually decided, and the report itself says the criteria
+	// were not evaluated.
 	if checks != nil && checks.Invalid {
 		return fmt.Errorf("run invalid: %s", checks.InvalidReason)
 	}
 	// The price-of-protection study reaches here with nil checks, so its INVALID readings used to exit 0 --
 	// and the paid runner calls this as `benchharness report ... || fail`, which is the whole reason the
-	// comment above says an invalid run exits non-zero. A run whose load made no contention, or whose load
-	// was too high to measure, printed its refusal and told the wrapper it had succeeded.
+	// comment above says an invalid run exits non-zero.
+	// A run whose load made no contention, or whose load was too high to measure, printed its refusal and
+	// told the wrapper it had succeeded.
 	// The sharing study's INVALID readings exit non-zero too, for the reason the price-of-protection block
 	// below gives: automation that writes `benchharness report ... || fail` would otherwise accept a run the
 	// readings had just declared unusable.
@@ -1174,9 +1202,10 @@ func report(args []string) error {
 	// on: a cell that could not be scored must stop the ladder, and a rung where both topologies BREACHED
 	// must not -- a breach is what the ladder is climbing to find.
 	//
-	// L5 is the same kind of result. "No qualified operating point at or above the bottom rung" is a
-	// finding about where the answer lies, not evidence that failed, and exiting non-zero for it would tell
-	// a wrapper that writes `benchharness report ... || fail` to discard a rung it paid for.
+	// L5 is the same kind of result.
+	// "No qualified operating point at or above the bottom rung" is a finding about where the answer lies,
+	// not evidence that failed, and exiting non-zero for it would tell a wrapper that writes `benchharness
+	// report ... || fail` to discard a rung it paid for.
 	if ladder != nil {
 		for _, r := range ladder.Readings {
 			if r.Fired && r.ID == "L0" {
@@ -1196,15 +1225,17 @@ func report(args []string) error {
 //
 // It exists because the six per-repetition structures below used to be six independent slices appended in
 // --raw ARGUMENT ORDER, and the third 2026-09-30 amendment pairs arms by the repetition identity the
-// schedule records rather than by position. Keeping them as separate slices made two failures possible:
-// pairing arm A's repetition 3 with arm B's repetition 1 because that is the order the shell happened to
-// glob, and -- if only one slice were converted to a map -- silently desynchronising the rest. One struct
-// per repetition makes "sort one and forget the others" impossible to express.
+// schedule records rather than by position.
+// Keeping them as separate slices made two failures possible: pairing arm A's repetition 3 with arm B's
+// repetition 1 because that is the order the shell happened to glob, and -- if only one slice were
+// converted to a map -- silently desynchronising the rest.
+// One struct per repetition makes "sort one and forget the others" impossible to express.
 //
 // repID is the number the runner wrote into the filename (hack/m5c-matrix.sh builds cells as
-// arm|arm|rep|... and names each raw file raw-<arm>-<rep>.jsonl). It is NOT derived from position, and the
-// arm half comes from the ROWS -- singleArm has already proven every row agrees on it -- so an arm name
-// containing hyphens (kv-aware, mbt-1024-priority, rung03-timeSlicing) cannot be mis-split.
+// arm|arm|rep|... and names each raw file raw-<arm>-<rep>.jsonl).
+// It is NOT derived from position, and the arm half comes from the ROWS -- singleArm has already proven
+// every row agrees on it -- so an arm name containing hyphens (kv-aware, mbt-1024-priority,
+// rung03-timeSlicing) cannot be mis-split.
 type repSummary struct {
 	repID   int
 	ttftP99 float64
@@ -1236,14 +1267,16 @@ type repSummary struct {
 type armEvidence struct {
 	// byArm is every arm's rows pooled, DERIVED from reps in repetition-identity order after loading.
 	//
-	// It used to be accumulated in --raw argument order beside reps. Deriving it means the pooled rows and
-	// the per-repetition blocks cannot disagree about which rows belong to the arm.
+	// It used to be accumulated in --raw argument order beside reps.
+	// Deriving it means the pooled rows and the per-repetition blocks cannot disagree about which rows
+	// belong to the arm.
 	//
 	// It is a derived COPY, not a no-copy view: the loop below appends `r.rows...` into a separate backing
-	// array, so each RawRow struct is stored twice -- once in its block and once here. The comment here
-	// claimed the rows were "stored once" and that this map held slices into reps' own array, and that was
-	// wrong. Strings and other references are shared, so the duplication is the struct storage rather than
-	// the payload, but it is duplication.
+	// array, so each RawRow struct is stored twice -- once in its block and once here.
+	// The comment here claimed the rows were "stored once" and that this map held slices into reps' own
+	// array, and that was wrong.
+	// Strings and other references are shared, so the duplication is the struct storage rather than the
+	// payload, but it is duplication.
 	byArm map[string][]bench.RawRow
 	// reps is each arm's repetitions under their recorded identities, sorted by repID once loading ends.
 	//
@@ -1255,22 +1288,25 @@ type armEvidence struct {
 	// repDone is each repetition's completed count per tenant: arm -> one map per repetition.
 	//
 	// repTail carries only the premium tenant's, so reading 4b's contender floor could be applied to the
-	// POOL and nothing else. An independent review reproduced what that allows: repetitions of 140, 140 and
-	// 50 contender completions, each offered 140, clear a hundred-completion floor at 330 pooled and fire
-	// reading 1 POSITIVE -- on a run containing one block the registration calls invalid.
+	// POOL and nothing else.
+	// An independent review reproduced what that allows: repetitions of 140, 140 and 50 contender
+	// completions, each offered 140, clear a hundred-completion floor at 330 pooled and fire reading 1
+	// POSITIVE -- on a run containing one block the registration calls invalid.
 	repDone map[string][]map[string]int
 	// replayFrom maps a replay's IDENTITY to the file that carried it, so the same replay cannot be
 	// counted twice as two repetitions.
 	//
-	// A repetition is supposed to be an independent measurement. Nothing stopped the same file being
-	// passed twice, or copied under a second name: both produced RepetitionCount=2, equal counts across
-	// arms, and a control whose repetition-to-repetition spread is EXACTLY ZERO -- which is the threshold
-	// readings 3 and 5 compare an improvement against. A review reproduced it by passing each of the eighth
-	// pilot's files twice, and reading 5 fired on single-repetition evidence.
+	// A repetition is supposed to be an independent measurement.
+	// Nothing stopped the same file being passed twice, or copied under a second name: both produced
+	// RepetitionCount=2, equal counts across arms, and a control whose repetition-to-repetition spread is
+	// EXACTLY ZERO -- which is the threshold readings 3 and 5 compare an improvement against.
+	// A review reproduced it by passing each of the eighth pilot's files twice, and reading 5 fired on
+	// single-repetition evidence.
 	//
-	// The identity is the arm plus every row's send timestamp. Two real replays of the same trace start at
-	// different nanoseconds; a copy is bit-identical. The trace checksum cannot do this job -- repetitions
-	// of one arm are SUPPOSED to share it, and the check beside this one refuses them when they do not.
+	// The identity is the arm plus every row's send timestamp.
+	// Two real replays of the same trace start at different nanoseconds; a copy is bit-identical.
+	// The trace checksum cannot do this job -- repetitions of one arm are SUPPOSED to share it, and the
+	// check beside this one refuses them when they do not.
 	replayFrom map[string]string
 	// repServed is each repetition's completed/offered per tenant, which the counts alone cannot express.
 	repServed map[string][]map[string]float64
@@ -1293,9 +1329,9 @@ type armEvidence struct {
 	// the file that established it, so a refusal can name both sides of the disagreement.
 	//
 	// studySeen is separate because the empty string is a legitimate value here -- it is what every raw
-	// file written before the study field existed carries. Using "" as the not-yet-set sentinel made
-	// unlabelled evidence silently adopt whatever study the next file named, which is the one mixing
-	// this check exists to prevent.
+	// file written before the study field existed carries.
+	// Using "" as the not-yet-set sentinel made unlabelled evidence silently adopt whatever study the
+	// next file named, which is the one mixing this check exists to prevent.
 	study string
 	// studyRecorded is what the file literally carried, kept alongside the normalized value so a refusal
 	// can say "unlabelled" instead of silently presenting old evidence as if it had named a study.
@@ -1313,12 +1349,13 @@ type armEvidence struct {
 // repIDFromPath reads the repetition identity the runner recorded in a raw file's name.
 //
 // The arm comes from the rows (already validated by singleArm) and is used as an exact prefix, so the
-// number is whatever follows it. That is what makes this unambiguous: 22 arm names in this repository
-// contain hyphens, and raw-mbt-1024-priority-1.jsonl cannot be split without knowing the arm.
+// number is whatever follows it.
+// That is what makes this unambiguous: 22 arm names in this repository contain hyphens, and
+// raw-mbt-1024-priority-1.jsonl cannot be split without knowing the arm.
 //
-// A name that does not match is REFUSED rather than falling back to position. A positional fallback for
-// unmarked files would leave the inference the amendment forbids -- pairing two arrays because they are the
-// same length -- alive for exactly the inputs whose identity is unknown.
+// A name that does not match is REFUSED rather than falling back to position.
+// A positional fallback for unmarked files would leave the inference the amendment forbids -- pairing two
+// arrays because they are the same length -- alive for exactly the inputs whose identity is unknown.
 func repIDFromPath(path, arm string) (int, error) {
 	base := filepath.Base(path)
 	want := "raw-" + arm + "-"
@@ -1379,7 +1416,8 @@ func singleStudy(path string, rows []bench.RawRow) (canonical, recorded string, 
 // treatmentOf renders the priorities a file's rows carried, as a stable string.
 //
 // Derived from the rows rather than from a flag the runner claims to have passed, because the point is to
-// describe what the requests actually carried. Sorted so the same treatment always renders identically.
+// describe what the requests actually carried.
+// Sorted so the same treatment always renders identically.
 func treatmentOf(rows []bench.RawRow) string {
 	seen := map[string]int{}
 	for _, r := range rows {
@@ -1405,9 +1443,9 @@ func treatmentOf(rows []bench.RawRow) string {
 // studyLabel renders a study for a refusal message, disclosing when the file did not name one.
 //
 // The comparison normalizes an empty study to the M5-b experiment, because unlabelled evidence IS that
-// experiment and refusing to pool it with evidence that says so would reject a legitimate comparison. The
-// message must not normalize as well: an operator reading "these are different experiments" needs to know
-// that one side was old evidence carrying no label, not a file naming a study they do not recognise.
+// experiment and refusing to pool it with evidence that says so would reject a legitimate comparison.
+// The message must not normalize as well: an operator reading "these are different experiments" needs to
+// know that one side was old evidence carrying no label, not a file naming a study they do not recognise.
 func studyLabel(canonical, recorded string) string {
 	if recorded == "" {
 		return canonical + " (unlabelled, predates the study field)"
@@ -1440,10 +1478,12 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		}
 		// Two studies in one report is not a comparison, it is a category error.
 		//
-		// Nothing else catches it. Arm names are not unique across studies, and the trace checksum does
-		// not stand in for study identity either: refuseIfTracesDisagree only inspects three hard-coded
-		// M5-b arm names and skips anything it does not recognise, so rows from a different experiment
-		// pass through it untouched. This is the check, and it runs before a single row is pooled.
+		// Nothing else catches it.
+		// Arm names are not unique across studies, and the trace checksum does not stand in for study
+		// identity either: refuseIfTracesDisagree only inspects three hard-coded M5-b arm names and
+		// skips anything it does not recognise, so rows from a different experiment pass through it
+		// untouched.
+		// This is the check, and it runs before a single row is pooled.
 		// EVERY row, not the first one.
 		//
 		// Reading rows[0] made the check defeatable by concatenation: a file whose first row is legacy and
@@ -1466,9 +1506,9 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		}
 
 		// EVERY row's arm and trace, for the reason every row's study is checked: a file is one arm of one
-		// experiment, and reading row zero made both defeatable by concatenation. An adversarial review
-		// appended one arm's rows to another's and watched the pooled p99 move from 1,694.7 ms to 1,179.3
-		// while the report exited 0.
+		// experiment, and reading row zero made both defeatable by concatenation.
+		// An adversarial review appended one arm's rows to another's and watched the pooled p99 move from
+		// 1,694.7 ms to 1,179.3 while the report exited 0.
 		arm, err := singleArm(path, rows)
 		if err != nil {
 			return nil, err
@@ -1477,9 +1517,10 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		//
 		// A typo in the study id used to fall through: LookupStudy misses, the arm order falls back to
 		// M5-b's, every ladder arm drops out of the table, and the report exits 0 saying only that it
-		// evaluated no criteria. Evidence whose experiment this binary does not know is evidence it cannot
-		// place, and "no criteria evaluated" is what it says about a study whose readings are not written --
-		// a different thing, and one a reader has no way to tell apart.
+		// evaluated no criteria.
+		// Evidence whose experiment this binary does not know is evidence it cannot place, and "no criteria
+		// evaluated" is what it says about a study whose readings are not written -- a different thing, and
+		// one a reader has no way to tell apart.
 		//
 		// Rows written before studies existed carry an empty id, which CanonicalStudyID maps to M5-b, so
 		// this refusal only bites an id that was actually wrong.
@@ -1490,9 +1531,10 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 				" another study's arm order would be a comparison nobody ran",
 				path, studyLabel(study, recorded), strings.Join(bench.KnownStudyIDs(), ", "))
 		}
-		// And the arm must be one the study admits. An unknown arm is not a row this report can place: it
-		// falls out of the study's order, out of contendedArms, and out of every reading that names arms --
-		// silently, because nothing downstream asks whether it belonged.
+		// And the arm must be one the study admits.
+		// An unknown arm is not a row this report can place: it falls out of the study's order, out of
+		// contendedArms, and out of every reading that names arms -- silently, because nothing downstream
+		// asks whether it belonged.
 		if !st.Admits(arm) {
 			return nil, fmt.Errorf("%s records arm %q, which study %s does not admit (%s);"+
 				" a report cannot place a row whose arm its own registry does not name",
@@ -1524,16 +1566,18 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		// The repetition's IDENTITY, read from the name the runner wrote, and refused if it is not there.
 		//
 		// This runs after the arm has been validated against every row, because the arm is the prefix this
-		// strips. Doing it earlier would mean splitting a hyphenated arm name by guesswork.
+		// strips.
+		// Doing it earlier would mean splitting a hyphenated arm name by guesswork.
 		repID, err := repIDFromPath(path, arm)
 		if err != nil {
 			return nil, err
 		}
 		// The same (arm, repetition) twice is refused across the WHOLE input set, not per directory.
 		//
-		// replayFrom above catches a byte-identical copy by hashing send timestamps. It cannot catch two
-		// DIFFERENT replays both calling themselves repetition 3 -- two run directories globbed together --
-		// and that pair would pair one of them against the other arm's repetition 3 while discarding which.
+		// replayFrom above catches a byte-identical copy by hashing send timestamps.
+		// It cannot catch two DIFFERENT replays both calling themselves repetition 3 -- two run directories
+		// globbed together -- and that pair would pair one of them against the other arm's repetition 3
+		// while discarding which.
 		repKey := arm + "/" + strconv.Itoa(repID)
 		if prev, dup := e.repFrom[repKey]; dup {
 			return nil, fmt.Errorf("%s and %s both record arm %s repetition %d;"+
@@ -1569,12 +1613,14 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		//
 		// This assigned, so loadArmEvidence kept only whichever file it read last and a repetition replayed
 		// from a different trace was invisible to refuseIfTracesDisagree -- the one check whose entire job is
-		// to prove the arms saw identical traffic. The trigger is a workflow this runner endorses: re-running
-		// one botched arm into the same output directory.
+		// to prove the arms saw identical traffic.
+		// The trigger is a workflow this runner endorses: re-running one botched arm into the same output
+		// directory.
 		//
 		// A study that registered a trace per repetition inverts the rule: two repetitions of one arm sharing
-		// a trace are the defect, because they are one draw of the arrival process counted twice. Every
-		// earlier repetition is compared, not the previous one, so a third repeating the first is caught.
+		// a trace are the defect, because they are one draw of the arrival process counted twice.
+		// Every earlier repetition is compared, not the previous one, so a third repeating the first is
+		// caught.
 		e.tracesVary = st.TracesVaryByRepetition
 		if st.TracesVaryByRepetition {
 			for _, earlier := range e.reps[arm][:len(e.reps[arm])-1] {
@@ -1595,9 +1641,9 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		// The treatment is part of an arm's identity, exactly like its trace and its tolerance.
 		//
 		// Without this, replaying one manifest twice -- once with --priorities and once without -- produced
-		// two files a report happily pooled as repetitions of the same condition. The bootstrap would then
-		// resample across a treated and an untreated run and report the interval as if one thing had been
-		// measured four times.
+		// two files a report happily pooled as repetitions of the same condition.
+		// The bootstrap would then resample across a treated and an untreated run and report the interval
+		// as if one thing had been measured four times.
 		treat := treatmentOf(rows)
 		if prev, ok := e.treatment[arm]; ok && prev != treat {
 			return nil, fmt.Errorf("arm %s has repetitions replayed under different priority treatments (%s and %s);"+
@@ -1609,12 +1655,14 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 
 	// The per-repetition structures are DERIVED from the identities, in identity order, once.
 	//
-	// They used to be appended in --raw argument order inside the loop above. Deriving them here instead is
-	// what makes the pairing the recorded one: position i in every one of these slices is repetition
-	// e.reps[arm][i].repID, for every arm, whatever order the caller listed the files in.
+	// They used to be appended in --raw argument order inside the loop above.
+	// Deriving them here instead is what makes the pairing the recorded one: position i in every one of
+	// these slices is repetition e.reps[arm][i].repID, for every arm, whatever order the caller listed the
+	// files in.
 	//
-	// All seven are rebuilt in the same pass deliberately. Converting one of them to a map and leaving the
-	// rest positional would pair correctly and then report the wrong repetition's row count beside it.
+	// All seven are rebuilt in the same pass deliberately.
+	// Converting one of them to a map and leaving the rest positional would pair correctly and then report
+	// the wrong repetition's row count beside it.
 	for arm := range e.reps {
 		sort.Slice(e.reps[arm], func(i, j int) bool { return e.reps[arm][i].repID < e.reps[arm][j].repID })
 		for _, r := range e.reps[arm] {
@@ -1655,10 +1703,12 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	// offers one load and one rung for the capacity ladder, which offers four.
 	//
 	// It was written as one group across all arms, and that is correct for every study that existed when it
-	// was written. The ladder broke it in the direction that matters: its rungs replay DIFFERENT traces on
-	// purpose -- that is what a rung is -- so the report refused the ladder's own evidence after the cells
-	// were bought. The first ladder rehearsal caught it on a free cluster; on a card it would have refused
-	// at the end of the session, with every cell paid for.
+	// was written.
+	// The ladder broke it in the direction that matters: its rungs replay DIFFERENT traces on purpose --
+	// that is what a rung is -- so the report refused the ladder's own evidence after the cells were
+	// bought.
+	// The first ladder rehearsal caught it on a free cluster; on a card it would have refused at the end of
+	// the session, with every cell paid for.
 	wantSum := map[string]string{}
 	wantSumFrom := map[string]string{}
 	for _, arm := range e.contendedArms() {
@@ -1682,15 +1732,17 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 
 	// The same trace must also have produced the same NUMBER of records.
 	//
-	// The checksum above proves the arms replayed identical traffic. It says nothing about whether the
-	// recording of that traffic finished, and the two are different questions with no shared symptom: a run
-	// cut off partway -- a reclaimed node, a killed port-forward, a resumed session, a short duration -- leaves
-	// every row it did write COMPLETE. Nothing is censored, no repetition is thin, the tail clears its floor,
-	// and the arm is simply shorter than the trace it claims to have replayed.
+	// The checksum above proves the arms replayed identical traffic.
+	// It says nothing about whether the recording of that traffic finished, and the two are different questions
+	// with no shared symptom: a run cut off partway -- a reclaimed node, a killed port-forward, a resumed
+	// session, a short duration -- leaves every row it did write COMPLETE.
+	// Nothing is censored, no repetition is thin, the tail clears its floor, and the arm is simply shorter than
+	// the trace it claims to have replayed.
 	//
-	// The direction is what makes this the worst of the set. Contention builds over a trace, so the requests
-	// that arrive late are the slow ones; dropping the tail of the recording drops exactly the evidence that
-	// would fail the arm. An adversarial review demonstrated it on this binary: complete evidence printed
+	// The direction is what makes this the worst of the set.
+	// Contention builds over a trace, so the requests that arrive late are the slow ones; dropping the tail
+	// of the recording drops exactly the evidence that would fail the arm.
+	// An adversarial review demonstrated it on this binary: complete evidence printed
 	//
 	//     absolute protection  C/R1 = 3.434  FAIL   ...  VERDICT: not all checks passed
 	//
@@ -1709,10 +1761,10 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	wantFrom := map[string]string{}
 	// The repetition this names is the RECORDED one, not the position in the argument list.
 	//
-	// An operator reads this refusal at the end of a paid session and goes looking for the file. While the
-	// number was the slice index, `repetition 1` meant "the second file --raw happened to list for this
-	// arm", which is raw-R1-3.jsonl whenever the glob was not in order -- a message that sends them to the
-	// wrong file is worse than one that gives no number.
+	// An operator reads this refusal at the end of a paid session and goes looking for the file.
+	// While the number was the slice index, `repetition 1` meant "the second file --raw happened to list
+	// for this arm", which is raw-R1-3.jsonl whenever the glob was not in order -- a message that sends
+	// them to the wrong file is worse than one that gives no number.
 	for _, arm := range contended {
 		g := comparisonGroup(arm)
 		for _, r := range e.reps[arm] {
@@ -1752,15 +1804,17 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 // refuseIfRepetitionsDisagree is refuseIfTracesDisagree for a study whose repetitions replay their own traces.
 //
 // What one shared trace guaranteed without a check now needs one: that the isolated baseline of repetition
-// r is the partner of the contended arm's repetition r. The baseline's trace is the contended trace with
-// the contender filtered out, so its checksum cannot be compared; its latency-critical SCHEDULE can, and is
-// the thing the pairing is for -- a baseline drawn from another seed would compare two different arrival
-// sequences and report their difference as interference.
+// r is the partner of the contended arm's repetition r.
+// The baseline's trace is the contended trace with the contender filtered out, so its checksum cannot be
+// compared; its latency-critical SCHEDULE can, and is the thing the pairing is for -- a baseline drawn from
+// another seed would compare two different arrival sequences and report their difference as interference.
 //
-// The same comparison is what catches a recording cut short. The per-arm path compares row counts between
-// contended arms that share a trace; in these studies each comparison group holds one contended arm, so
-// there is no sibling to compare against, and a check written for one would never run. A cut recording
-// drops latency-critical rows, so its schedule no longer matches its baseline's and it is refused here.
+// The same comparison is what catches a recording cut short.
+// The per-arm path compares row counts between contended arms that share a trace; in these studies each
+// comparison group holds one contended arm, so there is no sibling to compare against, and a check
+// written for one would never run.
+// A cut recording drops latency-critical rows, so its schedule no longer matches its baseline's and it is
+// refused here.
 func (e *armEvidence) refuseIfRepetitionsDisagree() error {
 	for _, arm := range e.contendedArms() {
 		for _, r := range e.reps[arm] {
@@ -1817,15 +1871,17 @@ func premiumSchedule(rows []bench.RawRow) []int64 {
 // interval the 2026-10-01 amendment specifies.
 //
 // It is pairedRepetitions' twin and shares its identity check: equal lengths are not a licence to zip, so
-// the ID sets themselves are compared. The difference is what it hands back -- whole blocks of rows rather
-// than each block's p99 -- because the amendment's replicate pools a drawn block's REQUESTS and recomputes
-// the pooled p99, which is not a function of the blocks' own p99s.
+// the ID sets themselves are compared.
+// The difference is what it hands back -- whole blocks of rows rather than each block's p99 -- because the
+// amendment's replicate pools a drawn block's REQUESTS and recomputes the pooled p99, which is not a
+// function of the blocks' own p99s.
 //
-// Censoring is refused here rather than in the estimator. A censored repetition makes that block's p99 a
-// lower bound, and a replicate that draws it reports a bound as a measurement. The old gate checked only
-// POOLED censoring (internal/bench/report.go reads ArmSummary.Censored), so a run at 0.49% pooled with one
-// repetition at 1.96% passed; under the amendment it does not, and that is a narrowing of accepted input
-// rather than a neutral change of estimator.
+// Censoring is refused here rather than in the estimator.
+// A censored repetition makes that block's p99 a lower bound, and a replicate that draws it reports a
+// bound as a measurement.
+// The old gate checked only POOLED censoring (internal/bench/report.go reads ArmSummary.Censored), so a
+// run at 0.49% pooled with one repetition at 1.96% passed; under the amendment it does not, and that is a
+// narrowing of accepted input rather than a neutral change of estimator.
 func (e *armEvidence) pairedBlocks(baseArm, contArm string) (base, cont [][]bench.RawRow, why string) {
 	b, c := e.reps[baseArm], e.reps[contArm]
 	if len(b) == 0 || len(c) == 0 {
@@ -1852,9 +1908,10 @@ func (e *armEvidence) pairedBlocks(baseArm, contArm string) (base, cont [][]benc
 		for _, r := range pair.reps {
 			if r.censored {
 				// "at least 1%", not "more than 1%": internal/bench/report.go sets Censored at `>= 0.01`,
-				// so exactly 1% is censored too. And the numerator is not every request that failed to
-				// complete -- requests shed by admission are excluded there, because a shed request is a
-				// decision the guard made rather than a tail this benchmark failed to measure.
+				// so exactly 1% is censored too.
+				// And the numerator is not every request that failed to complete -- requests shed by
+				// admission are excluded there, because a shed request is a decision the guard made
+				// rather than a tail this benchmark failed to measure.
 				return nil, nil, fmt.Sprintf("arm %s repetition %d is censored (at least 1%% of its premium"+
 					" requests ended in a timeout or another transport or stream error; requests shed by"+
 					" admission are not counted), so its p99 is a lower bound and any resample drawing it"+
@@ -1905,9 +1962,9 @@ func (e *armEvidence) pairedRepetitions(baseArm, contArm string) (base, cont []f
 // comparisonGroup names the set of arms an arm is compared against, which is what "one immutable trace"
 // has to hold within.
 //
-// Every study but one offers a single load, so every arm is in one group and the group name is empty. The
-// capacity ladder offers a different load per rung by design, so its group is the rung: rung01-shared and
-// rung01-timeSlicing must replay the same trace as each other and MUST NOT replay the same trace as
+// Every study but one offers a single load, so every arm is in one group and the group name is empty.
+// The capacity ladder offers a different load per rung by design, so its group is the rung: rung01-shared
+// and rung01-timeSlicing must replay the same trace as each other and MUST NOT replay the same trace as
 // rung02's cells -- a ladder whose rungs agreed would be four measurements of one load.
 func comparisonGroup(arm string) string { return bench.ArmComparisonGroup(arm) }
 
@@ -1928,8 +1985,9 @@ func (e *armEvidence) frozenMatchTolerance(fallback float64) float64 {
 // repetitionFloorPrefix is the labelled block repetitionFloorShortfall's sentence is printed in, or "".
 //
 // The label travels with the sentence so the caller needs no branch: an empty shortfall yields an empty
-// prefix, and prepending that to the report changes nothing. `report` sits at the cyclomatic limit, so one
-// `if` at the call site is the difference between a green lint and a red one -- measured at 31 against 30.
+// prefix, and prepending that to the report changes nothing.
+// `report` sits at the cyclomatic limit, so one `if` at the call site is the difference between a green
+// lint and a red one -- measured at 31 against 30.
 func (e *armEvidence) repetitionFloorPrefix(summaries []bench.ArmSummary) string {
 	why := e.repetitionFloorShortfall(summaries)
 	if why == "" {
@@ -1940,24 +1998,28 @@ func (e *armEvidence) repetitionFloorPrefix(summaries []bench.ArmSummary) string
 
 // repetitionFloorShortfall names every arm that carries fewer repetitions than its study registered, or "".
 //
-// WHY THIS IS NOT A REFUSAL. By the time a report runs, the cells are bought. Declining to print the tables
-// would leave the operator with paid evidence and no way to read it, which is worse than reading it with the
-// shortfall named -- so this returns a sentence the caller prints beside the tables, in the shape
-// RegisteredEstimandFor already uses: say why the registered object is not computable and let the
-// measurements stand. The estimand's own refusals still apply independently and are not duplicated here.
+// WHY THIS IS NOT A REFUSAL.
+// By the time a report runs, the cells are bought.
+// Declining to print the tables would leave the operator with paid evidence and no way to read it, which is
+// worse than reading it with the shortfall named -- so this returns a sentence the caller prints beside the
+// tables, in the shape RegisteredEstimandFor already uses: say why the registered object is not computable
+// and let the measurements stand.
+// The estimand's own refusals still apply independently and are not duplicated here.
 //
 // WHY A SEPARATE FUNCTION. summarize() has the study and the repetition counts in hand, and putting the
-// comparison there was the obvious place. It is also where `report` sits at cyclomatic complexity 30 against
-// a limit of 30 -- measured, with FormatReport, Summarize and EvaluateChecks at 30, 30 and 28 beside it --
-// so one more branch in any of them turns `make lint` red. That constraint is why this is its own function
-// rather than three lines inside the loop.
+// comparison there was the obvious place.
+// It is also where `report` sits at cyclomatic complexity 30 against a limit of 30 -- measured, with
+// FormatReport, Summarize and EvaluateChecks at 30, 30 and 28 beside it -- so one more branch in any of them
+// turns `make lint` red.
+// That constraint is why this is its own function rather than three lines inside the loop.
 //
 // A study that registered no floor reports nothing, and the comparison itself is what says so: zero means
 // the registration did not say, so `RepetitionCount < 0` is false for every arm and no sentence is produced.
 //
-// TWO GUARDS WERE REMOVED FROM HERE, and saying why is the point. The first version opened with
-// `if !ok || study.MinRepetitions == 0 { return "" }` and skipped arms whose `RepetitionCount == 0`, with
-// comments calling both of them important. Neither could ever act:
+// TWO GUARDS WERE REMOVED FROM HERE, and saying why is the point.
+// The first version opened with `if !ok || study.MinRepetitions == 0 { return "" }` and skipped arms
+// whose `RepetitionCount == 0`, with comments calling both of them important.
+// Neither could ever act:
 //
 //   - A zero floor already produces no sentence, because nothing is less than zero. The explicit return was
 //     a second spelling of the same answer.
@@ -1966,21 +2028,25 @@ func (e *armEvidence) repetitionFloorPrefix(summaries []bench.ArmSummary) string
 //     summary existing means repTail was appended to.
 //
 // Measured 2026-10-04: deleting both left the five floor tests and the whole package green, which is what
-// "unreachable" means operationally. A guard no input can reach is a guard no mutation can test, and this
-// repository has already shipped one of those; a comment asserting it matters is worse than its absence,
-// because the next reader preserves it.
+// "unreachable" means operationally.
+// A guard no input can reach is a guard no mutation can test, and this repository has already shipped one
+// of those; a comment asserting it matters is worse than its absence, because the next reader preserves
+// it.
 //
 // THE UNREGISTERED-STUDY BRANCH IS UNREACHABLE TOO, and it is kept rather than removed because its two
 // siblings keep it. loadArmEvidence refuses an unregistered id outright, and LookupStudy maps the empty id
 // to the gateway study, so nothing arrives here with ok false -- measured: replacing this branch with
-// `study, _ :=` left the whole package green. What decides its fate is consistency: contendedArms and
-// summarize both fall back to StudyM5BGateway at exactly this point, because every raw file written before
-// studies existed is M5-b's and a report has to keep reading them. Returning "" here instead would make
-// this the one function of the three that answers a different question about the same input.
+// `study, _ :=` left the whole package green.
+// What decides its fate is consistency: contendedArms and summarize both fall back to StudyM5BGateway at
+// exactly this point, because every raw file written before studies existed is M5-b's and a report has to
+// keep reading them.
+// Returning "" here instead would make this the one function of the three that answers a different
+// question about the same input.
 //
 // So it falls back the same way, which also gives the branch an observable effect: the gateway study
 // registers a floor of five, so evidence that somehow reached here unregistered is measured against that
-// rather than silently waived. That is what makes the branch testable at all.
+// rather than silently waived.
+// That is what makes the branch testable at all.
 func (e *armEvidence) repetitionFloorShortfall(summaries []bench.ArmSummary) string {
 	study, ok := bench.LookupStudy(e.study)
 	if !ok {
@@ -2041,9 +2107,10 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 			// Summarize sees pooled rows and cannot know how they were split, so the repetition shape is
 			// attached here where the split is known.
 			s.AnyRepetitionCensored = e.repCensored[arm]
-			// The worst fraction any repetition served, per tenant. A tenant absent from a repetition was
-			// offered nothing there, so that repetition says nothing about its fraction and is skipped --
-			// unlike the count, where absence means zero served.
+			// The worst fraction any repetition served, per tenant.
+			// A tenant absent from a repetition was offered nothing there, so that repetition says
+			// nothing about its fraction and is skipped -- unlike the count, where absence means zero
+			// served.
 			if reps := e.repServed[arm]; len(reps) > 0 {
 				s.WorstRepetitionServedFractionByTenant = map[string]float64{}
 				for _, served := range reps {
@@ -2126,9 +2193,9 @@ func (e *armEvidence) incrementalCI() bench.CI {
 	// The two arms are paired by the repetition identity the runner recorded, not by argument position.
 	//
 	// This read two slices appended in --raw order and zipped them, so shuffling one arm's files changed
-	// which repetitions were compared with no sign that anything had moved. Equal lengths were the only
-	// precondition, which is exactly the inference the third 2026-09-30 amendment forbids: {1,2} and {1,3}
-	// are both two repetitions.
+	// which repetitions were compared with no sign that anything had moved.
+	// Equal lengths were the only precondition, which is exactly the inference the third 2026-09-30
+	// amendment forbids: {1,2} and {1,3} are both two repetitions.
 	bb, cb, why := e.pairedBlocks("static-cap", "kv-aware")
 	b, c, _ := e.pairedRepetitions("static-cap", "kv-aware")
 	if why != "" {
@@ -2143,8 +2210,9 @@ func (e *armEvidence) incrementalCI() bench.CI {
 	}
 	if len(bb) == len(cb) && len(bb) > 0 {
 		// The amendment's interval: resample whole blocks and recompute the POOLED p99 ratio, which is the
-		// quantity the gate's point estimate already used. This was BootstrapCI over per-repetition ratios,
-		// whose statistic is their MEAN -- so one gate decided on two different estimands.
+		// quantity the gate's point estimate already used.
+		// This was BootstrapCI over per-repetition ratios, whose statistic is their MEAN -- so one gate
+		// decided on two different estimands.
 		incCI = bench.PairedBlockRatioCI("static-cap", bb, cb,
 			bench.M5BIncrementalResamples, bench.M5BIncrementalSeed, 0.05)
 		ratios := make([]float64, len(b))
@@ -2156,15 +2224,19 @@ func (e *armEvidence) incrementalCI() bench.CI {
 		// The scatter refusal is RETAINED across the 2026-10-01 amendment, and its justification did not
 		// move with the estimator: cmd/benchharness/power.go models the MEAN of per-repetition ratios, and
 		// MaxRatioScatter's own justification is stated against "this package's own BootstrapCI at four
-		// repetitions" (internal/bench/report.go). Neither describes the block bootstrap above.
+		// repetitions" (internal/bench/report.go).
+		// Neither describes the block bootstrap above.
 		//
 		// So the claim this refusal can carry is narrow: with everything else fixed, the set of runs that
 		// PASS with this rule is a subset of those that pass without it, which cannot raise the rate of a
-		// false PASS on one fixed experiment. That is the whole of it.
+		// false PASS on one fixed experiment.
+		// That is the whole of it.
 		//
 		// What it may NOT be called, and an earlier version of this comment did: a validity boundary for
-		// the new interval. A coefficient of variation above 0.15 does not make the paired-block interval
-		// invalid, and below it does not make its coverage 95%. Nothing has measured either.
+		// the new interval.
+		// A coefficient of variation above 0.15 does not make the paired-block interval invalid, and
+		// below it does not make its coverage 95%.
+		// Nothing has measured either.
 		//
 		// Removing it would change the acceptance conditions for evidence already collected, so it stays
 		// until a separate dated decision retires or replaces it.
@@ -2173,10 +2245,12 @@ func (e *armEvidence) incrementalCI() bench.CI {
 			// The message says what the rule DOES, not what it establishes about this interval.
 			//
 			// It used to assert that past this bound a percentile bootstrap "fires on no effect at all more
-			// often than its nominal 5 percent". That number was measured against the mean of
-			// per-repetition ratios -- the statistic the 2026-10-01 amendment replaced -- so presenting it
-			// as the reason this interval is refused carries the old evidence into a new claim. The comment
-			// above withdrew that wording and this string kept it, which left the withdrawal unfinished.
+			// often than its nominal 5 percent".
+			// That number was measured against the mean of per-repetition ratios -- the statistic the
+			// 2026-10-01 amendment replaced -- so presenting it as the reason this interval is refused
+			// carries the old evidence into a new claim.
+			// The comment above withdrew that wording and this string kept it, which left the withdrawal
+			// unfinished.
 			incCI.InvalidReason = fmt.Sprintf("the per-repetition C/B ratios scatter beyond a coefficient of variation of %.2f over %d values, which this study refuses provisionally rather than because the paired-block interval has been shown to misbehave there; the %.2f was placed between false-PASS rates measured for a different statistic (the mean of per-repetition ratios, cmd/benchharness/power.go) and no coverage has been measured for this one", bench.MaxRatioScatter, len(ratios), bench.MaxRatioScatter)
 		}
 	} else if why != "" && len(e.reps["static-cap"]) > 0 && len(e.reps["kv-aware"]) > 0 {
@@ -2187,8 +2261,10 @@ func (e *armEvidence) incrementalCI() bench.CI {
 		//
 		// It used to be the ONLY response to unequal repetitions, and it refused nothing -- the caller then
 		// passed the zero CI into EvaluateChecks, whose incremental gate reads `Hi < 1.0`, and 0.0 satisfies
-		// it. Truncation disarmed the strictest check in the design instead of tripping it. CI.Valid closes
-		// that; this line stays so the operator learns WHY the run was refused without reading the code.
+		// it.
+		// Truncation disarmed the strictest check in the design instead of tripping it.
+		// CI.Valid closes that; this line stays so the operator learns WHY the run was refused without
+		// reading the code.
 		fmt.Fprintf(os.Stderr, "warning: %s;"+
 			" no incremental CI will be computed and the comparison will be refused\n", why)
 	}
@@ -2197,21 +2273,23 @@ func (e *armEvidence) incrementalCI() bench.CI {
 
 // printPrompt writes the exact prompt text a trace row of the given length produces, and nothing else.
 //
-// It exists so a session can MEASURE with the bytes it will later SEND. The paid run derives its arrival
-// rate from one contender prefill against an idle engine, and a prefill's cost is in tokens rather than
-// characters -- so measuring with a stand-in payload measures the wrong thing. A run of one character is
-// the worst possible stand-in: a byte-pair tokenizer collapses 40,000 of them to about 5,000 tokens where
-// the corpus gives 7,695, so the card would look half again faster than it is and the derived rate would
-// oversubscribe it.
+// It exists so a session can MEASURE with the bytes it will later SEND.
+// The paid run derives its arrival rate from one contender prefill against an idle engine, and a
+// prefill's cost is in tokens rather than characters -- so measuring with a stand-in payload measures the
+// wrong thing.
+// A run of one character is the worst possible stand-in: a byte-pair tokenizer collapses 40,000 of them
+// to about 5,000 tokens where the corpus gives 7,695, so the card would look half again faster than it is
+// and the derived rate would oversubscribe it.
 func printPrompt(args []string) {
 	fs := flag.NewFlagSet("print-prompt", flag.ExitOnError)
 	chars := fs.Int("chars", 0, "prompt length in characters")
 	// The corpus hash, printed so a caller can record WHICH corpus its measurements were taken against.
 	//
 	// hack/resolve-input-lengths.sh needs it: every token count it measures depends on the corpus bytes, and
-	// its table said the corpus was recorded while recording only the tokenizer. Changing promptCorpus would
-	// then leave both copies of that table agreeing with each other and disagreeing with reality. Go owns the
-	// corpus and its hash, so Go prints it rather than a shell recomputing it from a copy.
+	// its table said the corpus was recorded while recording only the tokenizer.
+	// Changing promptCorpus would then leave both copies of that table agreeing with each other and
+	// disagreeing with reality.
+	// Go owns the corpus and its hash, so Go prints it rather than a shell recomputing it from a copy.
 	corpusSHA := fs.Bool("corpus-sha", false, "print the prompt corpus sha256 and exit, ignoring --chars")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
@@ -2230,9 +2308,9 @@ func printPrompt(args []string) {
 // evaluatePoP scores the price-of-protection readings, or returns nil when the arms they need are absent.
 //
 // R1 and the control are not optional: every reading is a ratio against one or the other, and a report that
-// quietly scored the cells against a missing baseline would produce ratios against zero. Saying so on stderr
-// and returning nil puts the run in the "criteria not evaluated" state, which the report already renders
-// honestly, rather than inventing a verdict.
+// quietly scored the cells against a missing baseline would produce ratios against zero.
+// Saying so on stderr and returning nil puts the run in the "criteria not evaluated" state, which the report
+// already renders honestly, rather than inventing a verdict.
 func evaluatePoP(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary) *bench.PoPResult {
 	r1, haveR1 := summ[bench.ArmR1]
 	control, haveControl := summ[bench.ArmDefaultFCFS]
@@ -2256,9 +2334,10 @@ func evaluatePoP(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary)
 //
 // Reading 4c is "the sharing mode did not engage", and it distinguishes a RECORDED refusal from an arm that
 // is merely absent -- because absence is equally consistent with an interruption or an operator running a
-// subset. Until this existed nothing populated that map outside the unit tests, so the one registered
-// outcome meant to identify an MPS engagement failure could never fire on evidence the runner produced: the
-// reason lived in evidence.log and `report` reads only raw files.
+// subset.
+// Until this existed nothing populated that map outside the unit tests, so the one registered outcome meant
+// to identify an MPS engagement failure could never fire on evidence the runner produced: the reason lived
+// in evidence.log and `report` reads only raw files.
 //
 // Discovered rather than passed, because a flag an operator must remember is a flag that is forgotten on the
 // run that needed it. hack/m5c-matrix.sh writes refused-<arm>.txt into the same directory as the raw files.
@@ -2299,21 +2378,21 @@ func refusalsBeside(rawFiles []string) map[string]string {
 // else's.
 //
 // It is one function rather than four branches inside report for a reason worth keeping: a fifth study adds
-// a case here and nothing else, and report's job stays "load, evaluate, format, decide the exit code". The
-// three checks the M5-b branch names are M5-b's pre-registered comparison. Running them for another
-// experiment asked for static-cap and kv-aware, found neither, and reported the run disqualified -- a
-// verdict about arms the experiment never had. A study whose readings are not implemented gets its tables
-// and a line on stderr saying plainly that no criteria were evaluated, rather than a failure against
-// somebody else's.
+// a case here and nothing else, and report's job stays "load, evaluate, format, decide the exit code".
+// The three checks the M5-b branch names are M5-b's pre-registered comparison.
+// Running them for another experiment asked for static-cap and kv-aware, found neither, and reported the
+// run disqualified -- a verdict about arms the experiment never had.
+// A study whose readings are not implemented gets its tables and a line on stderr saying plainly that no
+// criteria were evaluated, rather than a failure against somebody else's.
 func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary, summaries []bench.ArmSummary,
 	rawFiles []string, incCI bench.CI, matchTolerance float64,
 ) (*bench.Checks, *bench.PoPResult, *bench.SharingResult, *bench.LadderResult) {
 	switch bench.CanonicalStudyID(e.study) {
 	case bench.StudyM5BGateway:
 		// Name the arms that are absent, because the refusal downstream cannot: summ is a map, so a missing
-		// arm yields the zero ArmSummary and EvaluateChecks disqualifies on its zero TailSampleSize. The
-		// refusal WORKS; what it cannot do is say which arm, and that is a bad minute to spend at the end of
-		// a paid session.
+		// arm yields the zero ArmSummary and EvaluateChecks disqualifies on its zero TailSampleSize.
+		// The refusal WORKS; what it cannot do is say which arm, and that is a bad minute to spend at the
+		// end of a paid session.
 		var missing []string
 		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
 			if _, ok := summ[arm]; !ok {
@@ -2365,17 +2444,19 @@ func (e *armEvidence) tailCrossingReadings(summaries []bench.ArmSummary) string 
 // evaluateSharingMatrix sorts the M5-c evidence into the roles its readings speak about.
 //
 // R1 and `shared` are required, and their absence is a warning with no readings rather than readings
-// computed against a zero ArmSummary. R1 is the denominator of both bars and `shared` is the control every
-// improvement is measured from; a zero value for either would make every ratio meaningless in a way that
-// still prints a number, which is the failure this file's other evaluator was fixed for.
+// computed against a zero ArmSummary.
+// R1 is the denominator of both bars and `shared` is the control every improvement is measured from; a
+// zero value for either would make every ratio meaningless in a way that still prints a number, which is
+// the failure this file's other evaluator was fixed for.
 //
-// The sharing arms are taken as whatever else is present, rather than looked up by name. An operator running
-// ARMS="shared timeSlicing" gets a matrix with one sharing arm and readings that say so, instead of a
-// lookup miss reported as a mode that did not engage.
-// frozenOf returns the load tuple the named study's registration froze, or nil when it froze none.
+// The sharing arms are taken as whatever else is present, rather than looked up by name.
+// An operator running ARMS="shared timeSlicing" gets a matrix with one sharing arm and readings that say so,
+// instead of a lookup miss reported as a mode that did not engage. frozenOf returns the load tuple the named
+// study's registration froze, or nil when it froze none.
 //
 // nil rather than an error: a study with no frozen tuple is an ordinary case, and reading 4e reports it as
-// an uncomputable gate. Swallowing it here would be the silence this whole change is about.
+// an uncomputable gate.
+// Swallowing it here would be the silence this whole change is about.
 func frozenOf(study string) *bench.FrozenTuple {
 	s, ok := bench.LookupStudy(study)
 	if !ok {
@@ -2386,17 +2467,18 @@ func frozenOf(study string) *bench.FrozenTuple {
 
 // evaluateSharingMatrix scores the matrix and puts the declared-load gate in FRONT of every reading.
 //
-// The gate goes first because it is a premise, not a finding. Readings 4 and 4b ask whether the load created
-// contention; neither means anything if the load was not the one declared, and a reader meeting them first
-// would be reading answers about an unknown trace.
+// The gate goes first because it is a premise, not a finding.
+// Readings 4 and 4b ask whether the load created contention; neither means anything if the load was not the
+// one declared, and a reader meeting them first would be reading answers about an unknown trace.
 //
-// It is attached here rather than inside bench.EvaluateSharingMatrix for two reasons. The frozen tuple
-// belongs to the study and that evaluator takes no study. And this wrapper has both of its exits -- the
-// missing-baseline refusal and the scored result -- so prepending in one place makes the gate present on
-// BOTH, which is what stops it being a check that quietly disappears on the path where the evidence is
-// already in doubt.
+// It is attached here rather than inside bench.EvaluateSharingMatrix for two reasons.
+// The frozen tuple belongs to the study and that evaluator takes no study.
+// And this wrapper has both of its exits -- the missing-baseline refusal and the scored result -- so
+// prepending in one place makes the gate present on BOTH, which is what stops it being a check that
+// quietly disappears on the path where the evidence is already in doubt.
 //
-// The ANSWER is cleared when the gate speaks. A verdict printed beside a refusal is read as a verdict.
+// The ANSWER is cleared when the gate speaks.
+// A verdict printed beside a refusal is read as a verdict.
 func evaluateSharingMatrix(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary,
 	refused map[string]string, frozen *bench.FrozenTuple,
 ) *bench.SharingResult {
@@ -2413,9 +2495,9 @@ func sharingMatrixReadings(summ map[string]bench.ArmSummary, summaries []bench.A
 	// A missing baseline or control is REPORTED as an uncomputable gate, not returned as nil.
 	//
 	// Returning nil printed a warning to stderr and left `sharing` unset, so the verdict block never ran and
-	// `report` exited zero -- and the paid runner calls it as `benchharness report ... || fail`. The
-	// evaluator carries the same refusal for its own callers, and that one is unreachable from here because
-	// this function stops first: the fix belonged in both places and was put in only one.
+	// `report` exited zero -- and the paid runner calls it as `benchharness report ... || fail`.
+	// The evaluator carries the same refusal for its own callers, and that one is unreachable from here
+	// because this function stops first: the fix belonged in both places and was put in only one.
 	r1, haveR1 := summ[bench.ArmR1]
 	shared, haveShared := summ[bench.ArmShared]
 	if !haveR1 || !haveShared {
@@ -2454,11 +2536,13 @@ func armNames(summaries []bench.ArmSummary) []string {
 //
 // 4 and 4b invalidate the RUN: they say the trace, not the topology, is what has to change, and nothing
 // measured under them means anything. 4c invalidates ONE ARM -- its name ends "INVALID for that arm" --
-// and the arm beside it was still measured and still paid for. Name matching could not tell those apart,
-// so a refused MPS arm made `benchharness report ... || fail` reject a run whose time-slicing arm had
-// produced a result. That is the expected case for this study rather than a corner: MPS has already been
-// measured failing to engage on this AMI. The IDs are listed explicitly so an exit status turns on which
-// reading fired rather than on how it was worded.
+// and the arm beside it was still measured and still paid for.
+// Name matching could not tell those apart, so a refused MPS arm made `benchharness report ... || fail`
+// reject a run whose time-slicing arm had produced a result.
+// That is the expected case for this study rather than a corner: MPS has already been measured failing
+// to engage on this AMI.
+// The IDs are listed explicitly so an exit status turns on which reading fired rather than on how it was
+// worded.
 //
 // A named function rather than a condition inside report(), because a rule that was wrong once should be
 // reachable from a test, and inline in a command that wants files on disk it is not.
@@ -2469,18 +2553,19 @@ func sharingRunInvalid(res bench.SharingResult) error {
 		}
 		// A GATE that could not be computed is also not a run that stands.
 		//
-		// 4 and 4b are prerequisites: they ask whether the evidence can be assessed at all. When one of them
-		// comes back NotEvaluable the answer is "we could not tell", and this returned nil -- so a control
-		// whose premium tail is censored printed a report with no verdict, no answer and exit status zero,
-		// and `benchharness report ... || fail` accepted it as a successful run. Reproduced by an
-		// independent review with 2% premium timeouts in the control.
+		// 4 and 4b are prerequisites: they ask whether the evidence can be assessed at all.
+		// When one of them comes back NotEvaluable the answer is "we could not tell", and this returned nil
+		// -- so a control whose premium tail is censored printed a report with no verdict, no answer and
+		// exit status zero, and `benchharness report ... || fail` accepted it as a successful run.
+		// Reproduced by an independent review with 2% premium timeouts in the control.
 		//
-		// Only the GATES. A reading below them coming back NotEvaluable is an ordinary "no finding here".
+		// Only the GATES.
+		// A reading below them coming back NotEvaluable is an ordinary "no finding here".
 		//
-		// 4d is a gate too, and the newest one. It says the PLAN could not produce a verdict rather than
-		// that this evidence failed to: readings 1, 2, 3 and 5 stay in the list as ordinary non-findings,
-		// and 4d is what turns the exit status. Without it a run that evaluated nothing exited zero --
-		// 2026-10-01, ten cells and $1.44.
+		// 4d is a gate too, and the newest one.
+		// It says the PLAN could not produce a verdict rather than that this evidence failed to: readings
+		// 1, 2, 3 and 5 stay in the list as ordinary non-findings, and 4d is what turns the exit status.
+		// Without it a run that evaluated nothing exited zero -- 2026-10-01, ten cells and $1.44.
 		if r.NotEvaluable && (r.ID == "4" || r.ID == "4b" || r.ID == "4d" || r.ID == "4e") {
 			return fmt.Errorf("run invalid: reading %s could not be evaluated -- %s", r.ID, r.Detail)
 		}
@@ -2511,10 +2596,10 @@ func frozenTokenRefusal(rows []bench.TraceRow, study bench.Study, path string) e
 	return nil
 }
 
-// openLiveRowsIf opens the cell's live rows when the replay records timing, and returns nil otherwise. Each row is
-// appended durably as its request ends, so the evidence sidecar can carry it off the instance while the replay is
-// still running (design page, build item 8). Named live-raw-*, not raw-*.live.jsonl: every reader of raw-*.jsonl
-// would count it as a cell's rows.
+// openLiveRowsIf opens the cell's live rows when the replay records timing, and returns nil otherwise.
+// Each row is appended durably as its request ends, so the evidence sidecar can carry it off the instance while
+// the replay is still running (design page, build item 8).
+// Named live-raw-*, not raw-*.live.jsonl: every reader of raw-*.jsonl would count it as a cell's rows.
 func openLiveRowsIf(recordTiming bool, rawOut string) (*liveRows, error) {
 	if !recordTiming {
 		return nil, nil

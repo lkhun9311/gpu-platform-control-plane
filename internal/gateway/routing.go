@@ -39,8 +39,9 @@ const (
 	// HeaderRoutingMatch is "<matched>/<total>" whole chunks under PrefixAffinity, absent otherwise.
 	HeaderRoutingMatch = "X-Routing-Match"
 	// HeaderRoutingLoad is "<outstanding on the chosen backend>/<outstanding on the least loaded>" as the decision saw
-	// them, before this request was counted. The load escape's one-step-per-request assumption is unmeasured, and these
-	// two numbers beside each request's matched chunks are what a study needs to test it afterwards.
+	// them, before this request was counted.
+	// The load escape's one-step-per-request assumption is unmeasured, and these two numbers beside each request's
+	// matched chunks are what a study needs to test it afterwards.
 	HeaderRoutingLoad = "X-Routing-Load"
 )
 
@@ -73,7 +74,8 @@ type RoutingConfig struct {
 }
 
 // DefaultRoutingConfig is the configuration docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md
-// registers. Changing a value here changes the treatment that study measures.
+// registers.
+// Changing a value here changes the treatment that study measures.
 func DefaultRoutingConfig() RoutingConfig {
 	return RoutingConfig{ChunkChars: 256, CapacityChunks: 7985, MaxBackends: 8, MaxChunks: 2048, StepBudgetTokens: 512}
 }
@@ -87,11 +89,13 @@ func (c RoutingConfig) Validate() error {
 }
 
 // router keeps the state every policy needs: the round-robin positions, the requests outstanding per backend, and
-// the prefix index. One lock covers all of it, so a decision and the count it is based on cannot interleave with
-// another request's; at the rates this gateway serves that lock is not the bottleneck.
+// the prefix index.
+// One lock covers all of it, so a decision and the count it is based on cannot interleave with another request's;
+// at the rates this gateway serves that lock is not the bottleneck.
 //
-// It lives in one process. A second gateway replica would keep its own counts and index, which is why the routing
-// study runs one, as config/gateway/deployment.yaml does anyway.
+// It lives in one process.
+// A second gateway replica would keep its own counts and index, which is why the routing study runs one, as
+// config/gateway/deployment.yaml does anyway.
 type router struct {
 	cfg         RoutingConfig
 	mu          sync.Mutex
@@ -135,9 +139,9 @@ func routeKey(b *BackendRef) string {
 // routingPolicyFor is the policy every candidate agrees on, or "" for the gateway's ordering.
 //
 // Every candidate, not the head: the policy is a property of the model's set of backends, and a deployment that does
-// not ask for it, a rollout half applied for instance, keeps the ordering everyone already relied on. A HoldCap
-// candidate keeps it too, because HoldCap's hold is decided per engine and its backend must never be entered by a
-// choice other than being the head.
+// not ask for it, a rollout half applied for instance, keeps the ordering everyone already relied on.
+// A HoldCap candidate keeps it too, because HoldCap's hold is decided per engine and its backend must never be
+// entered by a choice other than being the head.
 func routingPolicyFor(targets []*BackendRef) string {
 	if len(targets) == 0 {
 		return ""
@@ -158,7 +162,8 @@ func routingPolicyFor(targets []*BackendRef) string {
 }
 
 // route chooses the backend a request goes to first and reorders targets so it is the head, the others keeping their
-// order as fallback. It also counts the request as outstanding on that backend until done is called.
+// order as fallback.
+// It also counts the request as outstanding on that backend until done is called.
 //
 // prompt is read only under PrefixAffinity, so the other policies never decode the body a second time.
 func (r *router) route(targets []*BackendRef, policy, tenant, model string, prompt func() string) ([]*BackendRef, routingDecision) {
@@ -184,8 +189,8 @@ func (r *router) route(targets []*BackendRef, policy, tenant, model string, prom
 		pick, dec.reason, dec.matched = r.prefixPick(targets, model, chain)
 		dec.total = len(chain)
 		// Recorded at decision time, as llm-d's producer does: the gateway assumes the chosen engine now holds the
-		// prefix, before it has computed anything. A request that then fails leaves a belief the engine does not
-		// share, which costs one later miss.
+		// prefix, before it has computed anything.
+		// A request that then fails leaves a belief the engine does not share, which costs one later miss.
 		r.index.record(routeKey(targets[pick]), chain)
 		routingIndexEntries.Set(float64(r.index.entries))
 		routingIndexEvictions.Add(float64(r.index.evictions))
@@ -249,9 +254,10 @@ func (r *router) minOutstanding(targets []*BackendRef) int {
 //
 // Ties rotate rather than going to the earliest, and the kind rehearsal is why: at 0.8 requests a second most
 // decisions see every backend idle, so "the earliest on a tie" sent 67% of LeastQueue's requests and, through every
-// unmatched prompt, 69% of PrefixAffinity's to the older engine (design page, "Rehearsal on kind"). Under
-// PrefixAffinity that bias also decided where each new prompt lived, so it concentrated the prompts, not only the
-// requests. The rotation is kept per model, as round robin's is; the caller holds the lock.
+// unmatched prompt, 69% of PrefixAffinity's to the older engine (design page, "Rehearsal on kind").
+// Under PrefixAffinity that bias also decided where each new prompt lived, so it concentrated the prompts, not only
+// the requests.
+// The rotation is kept per model, as round robin's is; the caller holds the lock.
 func (r *router) leastLoaded(targets []*BackendRef, model string) int {
 	least := r.minOutstanding(targets)
 	var tied []int
@@ -270,11 +276,13 @@ func (r *router) leastLoaded(targets []*BackendRef, model string) int {
 //
 // The escape: a match on backend A saves the engine the prefill of the matched tokens, about matched/budget steps.
 // Each request already outstanding on A costs this one at most about one step, because a hit request's own prefill
-// fits in one. So A is worth its queue only while outstanding(A) − outstanding(least loaded) ≤ matched tokens /
-// budget, and past that the request goes to the least loaded backend. The tokens are the matched characters over
-// four, the gateway's own estimate, which reads prose about 30% high, so the escape engages a little late. That one
-// step per queued request is an assumption, and the registered study's queue and hot-backend endpoints are what
-// would show it wrong.
+// fits in one.
+// So A is worth its queue only while outstanding(A) − outstanding(least loaded) ≤ matched tokens / budget, and past
+// that the request goes to the least loaded backend.
+// The tokens are the matched characters over four, the gateway's own estimate, which reads prose about 30% high, so
+// the escape engages a little late.
+// That one step per queued request is an assumption, and the registered study's queue and hot-backend endpoints are
+// what would show it wrong.
 func (r *router) prefixPick(targets []*BackendRef, model string, chain []uint64) (int, string, int) {
 	best, bestN := 0, -1
 	for i, t := range targets {
@@ -349,8 +357,9 @@ func routingPrompt(body []byte) string {
 }
 
 var (
-	// routingDecisions counts every routed request by the backend chosen and why. The labels are bounded: policy and
-	// reason are fixed vocabularies, and namespace and name are configured InferenceDeployments.
+	// routingDecisions counts every routed request by the backend chosen and why.
+	// The labels are bounded: policy and reason are fixed vocabularies, and namespace and name are configured
+	// InferenceDeployments.
 	routingDecisions = promauto.With(metrics.Registry).NewCounterVec(prometheus.CounterOpts{
 		Name: metricPrefix + "routing_decisions_total",
 		Help: "Requests routed under a routing policy, by policy, chosen backend and reason.",

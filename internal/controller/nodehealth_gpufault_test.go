@@ -101,7 +101,8 @@ func TestDecideGPUFault(t *testing.T) {
 		{"missing field, latched: the fault stays", obs(missing, 0), true, fp, "", metav1.ConditionTrue, metav1.ConditionFalse, gpuHealthyReasonLatched, fp, false, +1},
 		// The registration's escape path: an operator acknowledging the latched fingerprint clears the node even
 		// after an application Xid has replaced the fatal one, which only zero fields could clear until 2026-10-29
-		// (codex audit, 2026-10-28). Mutation that turns it red: delete the acknowledged-latch case.
+		// (codex audit, 2026-10-28).
+		// Mutation that turns it red: delete the acknowledged-latch case.
 		{"an application Xid after a latched fault, acknowledged: clears", obs(faultAssessment(13, 0), 0), true, fp, fp, metav1.ConditionTrue, metav1.ConditionTrue, gpuHealthyReasonAcknowledged, "", false, -1},
 		{"an application Xid after a latched fault, not acknowledged: the fault stays", obs(faultAssessment(13, 0), 0), true, fp, "", metav1.ConditionTrue, metav1.ConditionFalse, gpuHealthyReasonLatched, fp, false, +1},
 		{"an application Xid, another fingerprint acknowledged: the fault stays", obs(faultAssessment(13, 0), 0), true, fp, faultAssessment(79, 1).Fingerprint(), metav1.ConditionTrue, metav1.ConditionFalse, gpuHealthyReasonLatched, fp, false, +1},
@@ -415,9 +416,10 @@ func TestGPUFaultDeactivatesOnlyKueueGPUWorkOnTheFaultedNode(t *testing.T) {
 }
 
 // Kueue evicts a deactivated Workload and releases its quota while the Job's old Pod is still terminating on the
-// faulted node, which takes up to its grace period. Reactivating then lets the Workload be admitted again while that
-// Pod still holds the faulted card, and the next pass found the terminating Pod on the faulted node, deactivated the
-// Workload again, and so on: the 2026-11-07 operator drill counted about 18 rounds in the 30 s the old Pod took.
+// faulted node, which takes up to its grace period.
+// Reactivating then lets the Workload be admitted again while that Pod still holds the faulted card, and the next
+// pass found the terminating Pod on the faulted node, deactivated the Workload again, and so on: the 2026-11-07
+// operator drill counted about 18 rounds in the 30 s the old Pod took.
 //
 // Mutation that turns this red: drop the wait for the Job's Pods to leave the faulted node in reactivateDisplaced.
 func TestGPUFaultDoesNotCycleAWorkloadWhileItsPodStillTerminatesOnTheFaultedNode(t *testing.T) {

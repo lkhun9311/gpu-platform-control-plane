@@ -164,11 +164,12 @@ func TestAcquireWorkerReturnsRefusalWithoutRetry(t *testing.T) {
 }
 
 // This is the regression test for the critical finding in Task 3's review: acquireWorker's self-release
-// must run on a fresh background context, never on ctx itself. A signal landing the instant after the
-// acquire Patch commits is exactly what makes verifyAcquired fail via its ctx.Done() branch, and if the
-// self-release that follows reused the same cancelled ctx, its own first Get would fail immediately, the
-// release Patch would never even be attempted, and the label, taint and journal would be stranded on the
-// node with nothing left to undo them — the exact failure this task exists to prevent.
+// must run on a fresh background context, never on ctx itself.
+// A signal landing the instant after the acquire Patch commits is exactly what makes verifyAcquired fail
+// via its ctx.Done() branch, and if the self-release that follows reused the same cancelled ctx, its own
+// first Get would fail immediately, the release Patch would never even be attempted, and the label,
+// taint and journal would be stranded on the node with nothing left to undo them — the exact failure
+// this task exists to prevent.
 //
 // The interceptor simulates what a real REST client does on a cancelled context (the fake client does not
 // check ctx on its own): a Get issued after ctx is cancelled fails immediately, exactly like the trace the
@@ -280,8 +281,8 @@ func captureStdout(t *testing.T, fn func()) string {
 
 // quotedOrNone escapes the raw annotation documents, but the fields DECODED out of them were still printed
 // raw — including the transaction id, which goes straight into a -release-stale command the operator is
-// being invited to copy, and the taints, which went out through %+v. Decoding a hostile string does not make
-// it safe: anyone who can write the Node chooses those bytes.
+// being invited to copy, and the taints, which went out through %+v.
+// Decoding a hostile string does not make it safe: anyone who can write the Node chooses those bytes.
 func TestInspectWorkerEscapesFieldsDecodedOutOfNodeAnnotations(t *testing.T) {
 	// Erase the line, recolour, and print the reassuring words this tool would otherwise print for a healthy
 	// node — the same payload the raw-document test uses, now placed in the decoded fields.
@@ -292,8 +293,9 @@ func TestInspectWorkerEscapesFieldsDecodedOutOfNodeAnnotations(t *testing.T) {
 	j.Arm = "A-honor" + payload
 	j.TakenAt = "2026-08-06T10:00:00Z" + payload
 	// decodeJournal checks only that installed.taintEffect is non-empty, so the effect is node-controlled
-	// bytes too. This one reaches the terminal through verifyInstalled's divergence refusal, which
-	// inspectWorker prints immediately above the -force-release command it invites the operator to copy.
+	// bytes too.
+	// This one reaches the terminal through verifyInstalled's divergence refusal, which inspectWorker
+	// prints immediately above the -force-release command it invites the operator to copy.
 	j.Installed.TaintEffect = corev1.TaintEffect("NoSchedule" + payload)
 	raw, err := encodeJournal(j)
 	if err != nil {
@@ -340,7 +342,8 @@ func TestInspectWorkerEscapesFieldsDecodedOutOfNodeAnnotations(t *testing.T) {
 // A node carrying an undecodable journal and no marker used to fall through inspectWorker's switch to the
 // default branch, print FREE and exit 0, while decideAcquire refuses that same node as unreadable-journal.
 // An operator, or a script reading the exit code, would then keep pointing runs at a node no run can ever
-// take. This asserts both halves at once, so the two can never silently disagree again.
+// take.
+// This asserts both halves at once, so the two can never silently disagree again.
 func TestInspectWorkerRefusesAnUnreadableJournalRatherThanReportingFree(t *testing.T) {
 	n := node(nil, map[string]string{journalKey: "{not valid json"})
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
@@ -516,8 +519,9 @@ func TestReleaseStaleRefusesTheWrongTxIDWithoutWriting(t *testing.T) {
 // Dedicating the worker must not delete anything else the cluster put on it, and the pure-helper test in
 // ownership_test.go is not enough to pin that: the merge patch replaces spec.taints wholesale, so building
 // the new list from the ownership-key subset instead of the whole observed list would silently strip this
-// repository's own nodehealth unhealthy taint from the worker as a side effect. Every fake-client acquire
-// test elsewhere in this file uses a Node with no taints, so that substitution would pass all of them.
+// repository's own nodehealth unhealthy taint from the worker as a side effect.
+// Every fake-client acquire test elsewhere in this file uses a Node with no taints, so that substitution
+// would pass all of them.
 //
 // It runs the real acquire and the real release end to end, because the two patches are where the whole
 // list is actually written, and asserts an unrelated taint, label and annotation survive both.
@@ -604,7 +608,8 @@ func hasTaint(taints []corev1.Taint, want corev1.Taint) bool {
 // or the Node being deleted and recreated — and all three land on the same observable state: a free node.
 // Note the asymmetry that makes this the dangerous window rather than an obvious one: if a second run has
 // already acquired by the time this run releases, decideRelease refuses with not-our-transaction and the
-// run correctly invalidates. It is precisely the case where the node is left FREE that used to publish.
+// run correctly invalidates.
+// It is precisely the case where the node is left FREE that used to publish.
 func TestReleaseOwnedInvalidatesWhenMarkersVanishMidRun(t *testing.T) {
 	n := node(nil, nil)
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
@@ -638,7 +643,8 @@ func TestReleaseOwnedInvalidatesWhenMarkersVanishMidRun(t *testing.T) {
 
 // resolveAmbiguousAcquire is the only path that can return "acquired" without going through verifyAcquired,
 // and it answers one of the five adversarial findings this branch exists to close: a non-conflict Patch
-// error may still have committed. These four tests cover its three-way switch and its cancellation branch.
+// error may still have committed.
+// These four tests cover its three-way switch and its cancellation branch.
 //
 // First: the write landed and only the response was lost, which must resolve to acquired rather than
 // abandoning a node that now carries our markers.
@@ -668,12 +674,14 @@ func TestResolveAmbiguousAcquireAcceptsAPatchWhoseResponseWasLost(t *testing.T) 
 //
 // A linearizable read orders only COMPLETED operations, and the write being resolved is precisely the one
 // whose completion is unknown — a timed-out or disconnected request can still be in the API server's apply
-// path and commit after the read returns. The resolver used to conclude "failed and did not land" from that
-// first observation and then discard the transaction id, so the markers appearing a moment later belonged to
-// nobody: no run could acquire the node and no recovery mode could name what to release.
+// path and commit after the read returns.
+// The resolver used to conclude "failed and did not land" from that first observation and then discard the
+// transaction id, so the markers appearing a moment later belonged to nobody: no run could acquire the node
+// and no recovery mode could name what to release.
 //
 // The interceptor reproduces exactly that: the patch reports a lost response without applying, and the write
-// commits after the resolve loop's first read. The resolver must see it and resolve to acquired.
+// commits after the resolve loop's first read.
+// The resolver must see it and resolve to acquired.
 func TestResolveAmbiguousAcquireDoesNotCallAWriteDeadFromOneFreeRead(t *testing.T) {
 	n := node(nil, nil)
 	var (
@@ -686,7 +694,8 @@ func TestResolveAmbiguousAcquireDoesNotCallAWriteDeadFromOneFreeRead(t *testing.
 			err := c.Get(ctx, key, obj, opts...)
 			gets++
 			// gets 1 is the acquire loop's own read; gets 2 is the resolve loop's first re-read, which sees a
-			// free node because the in-flight write has not committed yet. It commits immediately afterwards.
+			// free node because the in-flight write has not committed yet.
+			// It commits immediately afterwards.
 			if gets == 2 && inFlight != nil {
 				pending := inFlight
 				inFlight = nil
@@ -735,15 +744,16 @@ func TestResolveAmbiguousAcquireDoesNotCallAWriteDeadFromOneFreeRead(t *testing.
 
 // The companion direction: a free read that arrives AFTER a failed one must not conclude anything either.
 //
-// The failed read is the point. It leaves a hole in the window — a moment nobody observed, which is where a
-// write in flight could have committed and been undone by nothing — so the free observation that follows it
-// no longer stands for an unbroken window, and the outcome must stay UNRESOLVED with the transaction id and
-// the operator's next command intact.
+// The failed read is the point.
+// It leaves a hole in the window — a moment nobody observed, which is where a write in flight could have
+// committed and been undone by nothing — so the free observation that follows it no longer stands for an
+// unbroken window, and the outcome must stay UNRESOLVED with the transaction id and the operator's next
+// command intact.
 //
 // This discriminates: against the pre-fix resolver the free read at attempt 1 returns "failed and did not
-// land" on the spot, before the cancellation below is ever reached. The cancellation is only how the test
-// leaves the loop cheaply; the full-window exhaustion of the freeThroughout gate is covered by
-// TestResolveAmbiguousAcquireRefusesAPatchThatDidNotLand.
+// land" on the spot, before the cancellation below is ever reached.
+// The cancellation is only how the test leaves the loop cheaply; the full-window exhaustion of the
+// freeThroughout gate is covered by TestResolveAmbiguousAcquireRefusesAPatchThatDidNotLand.
 func TestResolveAmbiguousAcquireWillNotCallAWriteDeadOnAFreeReadAfterAFailedOne(t *testing.T) {
 	n := node(nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -762,7 +772,8 @@ func TestResolveAmbiguousAcquireWillNotCallAWriteDeadOnAFreeReadAfterAFailedOne(
 				// The resolve loop's first re-read fails, so this attempt observed nothing at all.
 				return apierrors.NewInternalError(fmt.Errorf("apiserver is not answering"))
 			default:
-				// And now the node reads FREE. The pre-fix resolver called the write dead right here.
+				// And now the node reads FREE.
+				// The pre-fix resolver called the write dead right here.
 				cancel()
 				return c.Get(gctx, key, obj, opts...)
 			}
@@ -788,9 +799,9 @@ func TestResolveAmbiguousAcquireWillNotCallAWriteDeadOnAFreeReadAfterAFailedOne(
 	}
 }
 
-// Second: the error was real and the write never committed. The node is free for the whole resolution
-// window, so there is nothing of ours to undo and the refusal must say so rather than leaving the operator
-// to wonder.
+// Second: the error was real and the write never committed.
+// The node is free for the whole resolution window, so there is nothing of ours to undo and the refusal
+// must say so rather than leaving the operator to wonder.
 //
 // This is the one test that pays the full resolveAttempts * resolveInterval in real sleep, and that cost is
 // the fix: "did not land" is now a conclusion the window has to earn rather than one the first read may
@@ -819,8 +830,9 @@ func TestResolveAmbiguousAcquireRefusesAPatchThatDidNotLand(t *testing.T) {
 	// The claim is that THIS TRANSACTION wrote nothing, which is narrower than the node being bare — and the
 	// difference stopped being academic when the worker started carrying a termination qualification, an
 	// annotation that is a property of the machine rather than of anybody's transaction and that was on this
-	// fixture before acquisition was attempted. Asserting an empty annotation map would fail on it and would
-	// be asserting something acquisition never promised.
+	// fixture before acquisition was attempted.
+	// Asserting an empty annotation map would fail on it and would be asserting something acquisition never
+	// promised.
 	if len(got.Labels) != 0 || len(got.Spec.Taints) != 0 {
 		t.Fatalf("nothing may have been written: %+v %+v", got.Labels, got.Spec.Taints)
 	}
@@ -873,8 +885,9 @@ func TestResolveAmbiguousAcquireRefusesWhenAnotherTransactionHoldsTheNode(t *tes
 
 // Fourth, and the regression this whole path most needs: our journal is present under our own TxID but an
 // installed value was altered — a mutating webhook is the realistic actor — and that must NOT resolve to
-// acquired. Treating "journal present with our TxID" as acquired is the exact shortcut the design forbids,
-// because the run would then hold a node that no longer routes work the way the flavor expects.
+// acquired.
+// Treating "journal present with our TxID" as acquired is the exact shortcut the design forbids, because
+// the run would then hold a node that no longer routes work the way the flavor expects.
 //
 // The context is cancelled once the resolve loop has seen the state, which both bounds the test and covers
 // the cancellation branch: it must report UNRESOLVED and hand the node to the operator modes by name.
@@ -958,8 +971,9 @@ func TestReleaseStaleOnAnAlreadyCleanNodeReportsAlreadyReleasedRatherThanFailing
 }
 
 // Finding 3 of the branch review: releaseAcquired used to return success the instant Patch reported no error,
-// without re-reading, even though acquisition has verifyAcquired for exactly this reason. This is the ordinary
-// path: it must actually perform the post-release read rather than trust the status code alone.
+// without re-reading, even though acquisition has verifyAcquired for exactly this reason.
+// This is the ordinary path: it must actually perform the post-release read rather than trust the status code
+// alone.
 func TestReleaseVerifiesRestorationAfterThePatchOnTheOrdinaryPath(t *testing.T) {
 	n := node(nil, nil)
 	var getCalls int
@@ -987,9 +1001,9 @@ func TestReleaseVerifiesRestorationAfterThePatchOnTheOrdinaryPath(t *testing.T) 
 }
 
 // The failing direction of Finding 3: our own markers are somehow still on the node after our release patch
-// committed (a retried write landing late is a realistic cause). Verification must catch this rather than
-// report a clean release, because the whole branch exists to stop a run that looked fine from being allowed
-// to count.
+// committed (a retried write landing late is a realistic cause).
+// Verification must catch this rather than report a clean release, because the whole branch exists to stop
+// a run that looked fine from being allowed to count.
 func TestReleaseFailsVerificationWhenOurOwnMarkersReappearAfterThePatch(t *testing.T) {
 	n := node(nil, nil)
 	var patchCalls int
@@ -1085,10 +1099,11 @@ func TestReleaseVerifiesCleanWhenAnotherTransactionAcquiresRightAfterOurRelease(
 }
 
 // The same legitimate race as the test above, with the one detail that used to break it: the foreign
-// transaction reuses OUR RUN ID. The installed label and taint values are derived from the run id, so the
-// node now carries values byte-identical to the ones we installed, under a journal that names a different
-// transaction. Verification must read the journal, not the values, or a run whose worker was genuinely
-// restored is invalidated by a coincidence it has no way to influence.
+// transaction reuses OUR RUN ID.
+// The installed label and taint values are derived from the run id, so the node now carries values
+// byte-identical to the ones we installed, under a journal that names a different transaction.
+// Verification must read the journal, not the values, or a run whose worker was genuinely restored is
+// invalidated by a coincidence it has no way to influence.
 func TestReleaseVerifiesCleanWhenTheNextTransactionReusesTheSameRunID(t *testing.T) {
 	n := node(nil, nil)
 	var patchCalls int
@@ -1197,9 +1212,10 @@ func TestVerifyClean(t *testing.T) {
 		{
 			// The finding this row exists for: the installed values are derived from the RUN ID, so a foreign
 			// transaction that legitimately acquired after our release and happens to carry the same run id
-			// installs byte-identical ones. Comparing values alone reads that as our own markers having
-			// survived, and invalidates a run whose restoration actually succeeded. The journal's txID is the
-			// authority, and it names somebody else.
+			// installs byte-identical ones.
+			// Comparing values alone reads that as our own markers having survived, and invalidates a run
+			// whose restoration actually succeeded.
+			// The journal's txID is the authority, and it names somebody else.
 			name: "a different transaction holds it with the same run-id-derived values",
 			obs: ownership{
 				NodeUID: "uid-node", JournalRaw: "x", Journal: journal{TxID: "tx-other"},
@@ -1245,8 +1261,8 @@ func TestVerifyClean(t *testing.T) {
 
 // Release had no counterpart to resolveAmbiguousAcquire, so a non-conflict Patch error whose write actually
 // landed — a proxy timeout, a connection reset after the commit — made the run print "worker not restored"
-// and exit non-zero for a node that was already clean. That is a false invalidation of a valid run, which
-// this lab pays for in GPU hours.
+// and exit non-zero for a node that was already clean.
+// That is a false invalidation of a valid run, which this lab pays for in GPU hours.
 func TestReleaseResolvesAPatchWhoseResponseWasLost(t *testing.T) {
 	n := node(nil, nil)
 	var patchCalls int
@@ -1392,10 +1408,10 @@ func TestResolveReadNoteDistinguishesUnreadableFromUnresolved(t *testing.T) {
 	}
 }
 
-// The kept read error is the MOST RECENT one, not the worst one ever seen. A transient failure early in the
-// resolve loop followed by reads that succeed but do not resolve used to leave the stale error in place, so
-// the refusal claimed "Last re-read failed" about a node the operator could in fact reach — the exact
-// opposite of what the note exists to tell them.
+// The kept read error is the MOST RECENT one, not the worst one ever seen.
+// A transient failure early in the resolve loop followed by reads that succeed but do not resolve used to
+// leave the stale error in place, so the refusal claimed "Last re-read failed" about a node the operator
+// could in fact reach — the exact opposite of what the note exists to tell them.
 //
 // This costs one resolveInterval of real sleep, which is unavoidable: the bug needs a failed read AND a
 // later successful one, and the loop always waits between attempts unless the context is already done.
@@ -1481,9 +1497,10 @@ func TestQuotedOrNoneEscapesNodeControlledContent(t *testing.T) {
 }
 
 // The operator modes deliberately run on a context no signal can cancel, which is what stops a Ctrl-C from
-// half-applying a break. Unbounded, that same choice turns a hung API server into a process that never
-// returns — the stranded-marker outcome moved from "Ctrl-C" to "hung apiserver" rather than prevented, which
-// is the argument releaseCleanupTimeout already exists for.
+// half-applying a break.
+// Unbounded, that same choice turns a hung API server into a process that never returns — the
+// stranded-marker outcome moved from "Ctrl-C" to "hung apiserver" rather than prevented, which is the
+// argument releaseCleanupTimeout already exists for.
 func TestOperatorModeContextIsBoundedAndNotSignalCancellable(t *testing.T) {
 	ctx, cancel := operatorModeContext(modeInspect)
 	defer cancel()
@@ -1503,9 +1520,10 @@ func TestOperatorModeContextIsBoundedAndNotSignalCancellable(t *testing.T) {
 }
 
 // The canary is the one mode whose legitimate work is minutes long: it starts two containers, waits out a
-// grace period and reads what happened. On the recovery modes' one-minute bound it would be cut off
-// mid-probe, every time, leaving two Pods holding its finalizer and no verdict — and the failure would look
-// like a cluster that could not stop a Pod rather than like a timeout.
+// grace period and reads what happened.
+// On the recovery modes' one-minute bound it would be cut off mid-probe, every time, leaving two Pods
+// holding its finalizer and no verdict — and the failure would look like a cluster that could not stop a
+// Pod rather than like a timeout.
 //
 // Mutation that turns this red: drop the mode parameter and give every mode operatorModeTimeout again.
 func TestTheCanaryModeGetsABudgetItsOwnWorkFitsIn(t *testing.T) {
@@ -1562,9 +1580,9 @@ func residueOn(t *testing.T, c client.Client) (string, bool) {
 	return raw, ok
 }
 
-// The explanation goes with the thing it explains. A record surviving a release would be quoted by no
-// refusal — nothing refuses a free node — and read by a human as current long after the worker it described
-// was handed back.
+// The explanation goes with the thing it explains.
+// A record surviving a release would be quoted by no refusal — nothing refuses a free node — and read by a
+// human as current long after the worker it described was handed back.
 func TestReleaseClearsTheResidueRecord(t *testing.T) {
 	j, n := heldWithResidue(t)
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
@@ -1578,9 +1596,10 @@ func TestReleaseClearsTheResidueRecord(t *testing.T) {
 }
 
 // -release-stale is the command inspectWorker tells an operator to run, and it deletes the residue record in
-// the same patch that removes the markers. That makes its own output the last moment anyone can see what was
-// left, so it has to say what it is about to destroy — otherwise the explanation this whole feature exists to
-// deliver dies at the one step most likely to be copied without reading.
+// the same patch that removes the markers.
+// That makes its own output the last moment anyone can see what was left, so it has to say what it is about
+// to destroy — otherwise the explanation this whole feature exists to deliver dies at the one step most
+// likely to be copied without reading.
 //
 // The mutation that turns this red: delete the residue warning block from releaseStale, leaving only the
 // "restoring node ..." line it had before.
@@ -1605,9 +1624,9 @@ func TestReleaseStaleWarnsBeforeItDeletesTheResidueRecord(t *testing.T) {
 	}
 }
 
-// An unreadable record is still a record being destroyed, and silence about it is the same loss. It says so
-// rather than printing the raw document, which decideAcquire's own unreadable branch already establishes as
-// the right shape.
+// An unreadable record is still a record being destroyed, and silence about it is the same loss.
+// It says so rather than printing the raw document, which decideAcquire's own unreadable branch already
+// establishes as the right shape.
 //
 // The mutation that turns this red: drop the ResidueErr case from releaseStale's switch, which sends an
 // unreadable record down the readable path and prints a zero-length object list.
@@ -1626,9 +1645,10 @@ func TestReleaseStaleWarnsAboutAResidueRecordItCannotRead(t *testing.T) {
 	}
 }
 
-// forceQuarantine deliberately does NOT clear it. It is the explanation an operator most needs at the moment
-// they are breaking a hold by hand, and it cannot mislead while it sits there: decideAcquire refuses a
-// quarantined node on QuarantineRaw before it ever reaches the foreign-owner branch that quotes it.
+// forceQuarantine deliberately does NOT clear it.
+// It is the explanation an operator most needs at the moment they are breaking a hold by hand, and it cannot
+// mislead while it sits there: decideAcquire refuses a quarantined node on QuarantineRaw before it ever
+// reaches the foreign-owner branch that quotes it.
 func TestForceQuarantineLeavesTheResidueRecordInPlace(t *testing.T) {
 	_, n := heldWithResidue(t)
 	want := n.Annotations[residueKey]
@@ -1668,9 +1688,9 @@ func TestClearQuarantineRemovesTheResidueRecord(t *testing.T) {
 	}
 }
 
-// The stamp goes on a node this transaction still holds, or nowhere. Between teardown and this write another
-// actor can take the node over, and stamping our residue onto theirs is the same lie the UID preconditions
-// in teardown_apply.go exist to prevent.
+// The stamp goes on a node this transaction still holds, or nowhere.
+// Between teardown and this write another actor can take the node over, and stamping our residue onto theirs
+// is the same lie the UID preconditions in teardown_apply.go exist to prevent.
 func TestStampResidueRefusesANodeThisTransactionNoLongerHolds(t *testing.T) {
 	j := journal{
 		Schema: journalSchema, TxID: "tx-1", RunID: "r7", Arm: "reclaim-on",
@@ -1718,8 +1738,9 @@ func TestStampResidueWritesTheRecordOnANodeWeStillHold(t *testing.T) {
 	}
 	// Literal strings, not absenceName(absencePresent) / absenceName(absenceUnknown): comparing the
 	// function's output against itself is circular and pins nothing — renaming a spelling changes both
-	// sides at once and the test stays green. The persisted spellings are a wire format (see record.go's
-	// absenceName), so what belongs here is what the record actually says on disk.
+	// sides at once and the test stays green.
+	// The persisted spellings are a wire format (see record.go's absenceName), so what belongs here is
+	// what the record actually says on disk.
 	if rec.Left[0].Absence != "present" || rec.Left[1].Absence != "unknown" {
 		t.Fatalf("verdicts are %q/%q, want %q/%q: the node's residue record and the run record must spell "+
 			"verdicts identically", rec.Left[0].Absence, rec.Left[1].Absence, "present", "unknown")
@@ -1728,9 +1749,10 @@ func TestStampResidueWritesTheRecordOnANodeWeStillHold(t *testing.T) {
 
 // A record naming nothing explains nothing, and decodeResidue already refuses to read one back — so writing
 // it would put a document on the node that residueNote can only report as unreadable, which is strictly worse
-// than the bare refusal an operator would otherwise get. No caller reaches it today — tearDownBeforeRelease's
-// one hold with an empty residue returns before the stamp branch, and the surviving call site is past a
-// `len(result.Residue) == 0` return — so this pins defense in depth rather than a live path.
+// than the bare refusal an operator would otherwise get.
+// No caller reaches it today — tearDownBeforeRelease's one hold with an empty residue returns before the
+// stamp branch, and the surviving call site is past a `len(result.Residue) == 0` return — so this pins
+// defense in depth rather than a live path.
 func TestStampResidueWritesNoRecordThatNamesNothing(t *testing.T) {
 	j, n := heldWithResidue(t)
 	delete(n.Annotations, residueKey)
@@ -1749,8 +1771,9 @@ func TestStampResidueWritesNoRecordThatNamesNothing(t *testing.T) {
 // run id, and stampResidue's own doc comment promises exactly that it can.
 //
 // Both installed values ARE the run id, so the label, the taint and the node UID are byte-identical across the
-// two — only the journal's txID differs. A reused run id is the confound newTxID exists to defeat, and
-// verifyClean's comment already names this same value coincidence as the reason the journal is the authority.
+// two — only the journal's txID differs.
+// A reused run id is the confound newTxID exists to defeat, and verifyClean's comment already names this same
+// value coincidence as the reason the journal is the authority.
 // Stamping through it writes our residue onto somebody else's hold, so the next operator is refused with an
 // explanation belonging to a run that is not the one holding the node — the lie the UID preconditions in
 // teardown_apply.go exist to prevent, arriving by the one door they do not cover.
@@ -1760,8 +1783,9 @@ func TestStampResidueWritesNoRecordThatNamesNothing(t *testing.T) {
 func TestStampResidueRefusesANodeReacquiredByAnotherTransactionUnderTheSameRunID(t *testing.T) {
 	ours, n := heldWithResidue(t)
 	delete(n.Annotations, residueKey)
-	// Somebody else acquired it between our teardown and this write, under the same run id. Everything
-	// verifyInstalled compares is unchanged, because everything it compares is derived from that run id.
+	// Somebody else acquired it between our teardown and this write, under the same run id.
+	// Everything verifyInstalled compares is unchanged, because everything it compares is derived from
+	// that run id.
 	theirs := ours
 	theirs.TxID = "tx-2"
 	jraw, err := encodeJournal(theirs)
@@ -1791,8 +1815,9 @@ func TestStampResidueRefusesANodeReacquiredByAnotherTransactionUnderTheSameRunID
 // of this node that never mentioned the record — while advising the single command that must not be run.
 //
 // -release-stale on a residue hold strips the dedication label and the NoSchedule taint from a node whose
-// namespace may still be running that run's GPU Pods, and deletes the record on the way past. The advice is
-// not removed, because the operator does eventually need it; what changes is the condition attached to it.
+// namespace may still be running that run's GPU Pods, and deletes the record on the way past.
+// The advice is not removed, because the operator does eventually need it; what changes is the condition
+// attached to it.
 //
 // Mutations: drop the printResidueDetail call in inspectWorker and the objects are never named; collapse the
 // held branch's switch to its default and the unconditional "If that process is gone" line comes back.
@@ -1817,8 +1842,9 @@ func TestInspectWorkerNamesAResidueHoldAndQualifiesTheReleaseAdvice(t *testing.T
 	var ierr error
 	out := captureStdout(t, func() { ierr = inspectWorker(context.Background(), fc, "platform-worker") })
 	// Still not an error: this record decides nothing, and the run path does not refuse differently for it
-	// either. A diagnostic that started exiting non-zero on a deliberate hold would break every script that
-	// reads the code to tell a healthy worker from a broken one.
+	// either.
+	// A diagnostic that started exiting non-zero on a deliberate hold would break every script that reads
+	// the code to tell a healthy worker from a broken one.
 	if ierr != nil {
 		t.Fatalf("inspecting a held node with a residue record must succeed: %v", ierr)
 	}
@@ -1855,9 +1881,9 @@ func TestInspectWorkerNamesAResidueHoldAndQualifiesTheReleaseAdvice(t *testing.T
 	}
 }
 
-// An unreadable record is not "no record". The annotation being there at all is evidence a teardown ended
-// without removing everything, so the advice must not fall back to the unconditional release line with
-// nothing on screen to warn against it.
+// An unreadable record is not "no record".
+// The annotation being there at all is evidence a teardown ended without removing everything, so the
+// advice must not fall back to the unconditional release line with nothing on screen to warn against it.
 //
 // It stays a printed warning rather than a returned error, unlike the unreadable QUARANTINE record: that one
 // is the state this tool has no remaining move for, while this document decides nothing and an informational
@@ -1891,14 +1917,17 @@ func TestInspectWorkerSaysSoWhenAResidueRecordCannotBeRead(t *testing.T) {
 //
 // That argument ran: a concurrent -release-stale or -force-release would have moved the resourceVersion, the
 // optimistic lock would have conflicted, and we would be in the IsConflict arm — so a clean read-back here is
-// our own write. It needs the patch to have REACHED the apiserver, which is the one thing this arm exists to
-// doubt: it is written for a proxy timeout or a connection reset, and a request that never landed had no
-// opportunity to conflict. The absence of a 409 therefore proves nothing about who removed our markers.
+// our own write.
+// It needs the patch to have REACHED the apiserver, which is the one thing this arm exists to doubt: it is
+// written for a proxy timeout or a connection reset, and a request that never landed had no opportunity to
+// conflict.
+// The absence of a 409 therefore proves nothing about who removed our markers.
 //
-// Both halves are asserted together because each one alone is satisfied by breaking the other. Refusing
-// whenever the patch errors would reinstate the false invalidation this arm was written to remove — the lab
-// pays for those in runs. Accepting whenever the read-back is clean is what let a run report a tidy release
-// over a worker another transaction had taken mid-run.
+// Both halves are asserted together because each one alone is satisfied by breaking the other.
+// Refusing whenever the patch errors would reinstate the false invalidation this arm was written to remove
+// — the lab pays for those in runs.
+// Accepting whenever the read-back is clean is what let a run report a tidy release over a worker another
+// transaction had taken mid-run.
 //
 // Mutation that turns this red: drop the obs.JournalRaw check and return releaseRestore unconditionally.
 func TestReleaseOnANonConflictFailureSeparatesAFreeNodeFromAStolenOne(t *testing.T) {
@@ -1930,8 +1959,8 @@ func TestReleaseOnANonConflictFailureSeparatesAFreeNodeFromAStolenOne(t *testing
 						cur.Spec.Taints = nil
 						if tc.stolenBy != "" {
 							// A READABLE foreign journal, because verifyClean already fails closed on an
-							// unreadable one and would never reach the branch under test. This is the state a
-							// real -force-release plus a fresh acquire leaves behind.
+							// unreadable one and would never reach the branch under test.
+							// This is the state a real -force-release plus a fresh acquire leaves behind.
 							thief, jerr := encodeJournal(journal{
 								Schema: journalSchema, TxID: tc.stolenBy, RunID: "r-thief", Arm: "A-honor",
 								Kind: ownerRun, Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r-thief",

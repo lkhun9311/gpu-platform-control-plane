@@ -65,8 +65,9 @@ type fitCell struct {
 //
 // For each P block it replays the contenders' gateway-recorded arrival instants through the gateway's own
 // static-cap admitter, at threshold 1 and burst 30,000, and predicts S's admitted contender work a_S(R) in exact
-// tokens. P's admitted work a_P is read from the same record. R is the largest integer in 1 to 20,000 with
-// a_S(R) <= a_P - 0.05 on every block.
+// tokens.
+// P's admitted work a_P is read from the same record.
+// R is the largest integer in 1 to 20,000 with a_S(R) <= a_P - 0.05 on every block.
 //
 // Every R is simulated rather than searched by bisection, because a token bucket's admitted work need not be
 // monotone in its rate: admitting one request earlier can leave the bucket short for a later, larger one.
@@ -137,8 +138,9 @@ func fitPilotRate(args []string, stdout io.Writer) error {
 	return nil
 }
 
-// withinMargin reports a_S <= a_P - 0.05 in integers: 20 a_S_tokens <= 20 a_P_tokens - offered. In floating point
-// the boundary itself fails, since 0.7 - 0.05 is slightly below 0.65, and rejects a valid R (review of 1f2522e).
+// withinMargin reports a_S <= a_P - 0.05 in integers: 20 a_S_tokens <= 20 a_P_tokens - offered.
+// In floating point the boundary itself fails, since 0.7 - 0.05 is slightly below 0.65, and rejects a valid R
+// (review of 1f2522e).
 func withinMargin(admittedS, admittedP, offered int64) bool {
 	return pilotFitMarginParts*admittedS <= pilotFitMarginParts*admittedP-offered
 }

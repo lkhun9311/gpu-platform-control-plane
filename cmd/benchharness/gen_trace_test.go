@@ -188,8 +188,9 @@ func TestArrivalsOfReadsTheRegistry(t *testing.T) {
 // BOTH manifest writers record the prompt length, and a test that covers one of them covers nothing.
 //
 // gen-trace and prepare-traces each build a RunManifest, and this project has shipped a field populated on
-// one path and empty on the other. The value comes from bench.PromptLenCharsByTenant in both, so what this
-// pins is that each writer actually calls it.
+// one path and empty on the other.
+// The value comes from bench.PromptLenCharsByTenant in both, so what this pins is that each writer
+// actually calls it.
 //
 // Mutation that turns this red: drop the PromptLenChars line from either writer.
 func TestBothManifestWritersRecordThePromptLength(t *testing.T) {
@@ -294,14 +295,16 @@ func stampExactTokensInPlace(t *testing.T, path string) {
 // The output caps reach the ROWS, which is the half of "the CR declares it" that nothing checked.
 //
 // CompilePlan carries the declared caps and compile-plan exports them, and both of those are pinned
-// elsewhere. What was missing is the last hop: gen-trace has to put the value on every row, because the
-// generator held 64 and 16 as literals in traceTenants until 2026-10-01 and a plan that resolves a value
-// the runner then drops is the failure the compiler exists to prevent, one layer down. Measured by hand,
-// reverting that one assignment made a `--premium-output-tokens 128` run emit rows of 64 again and every
-// test in this package stayed green.
+// elsewhere.
+// What was missing is the last hop: gen-trace has to put the value on every row, because the generator
+// held 64 and 16 as literals in traceTenants until 2026-10-01 and a plan that resolves a value the
+// runner then drops is the failure the compiler exists to prevent, one layer down.
+// Measured by hand, reverting that one assignment made a `--premium-output-tokens 128` run emit rows of
+// 64 again and every test in this package stayed green.
 //
-// The defaults are asserted too. They are what every pre-CR trace in the committed evidence was generated
-// with, so an un-flagged regeneration has to keep producing them.
+// The defaults are asserted too.
+// They are what every pre-CR trace in the committed evidence was generated with, so an un-flagged
+// regeneration has to keep producing them.
 //
 // Mutation that turns this red: restore the literal in either TenantSpec in traceTenants.
 func TestTheOutputCapFlagsReachTheRows(t *testing.T) {

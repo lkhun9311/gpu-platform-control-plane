@@ -27,7 +27,8 @@ type RequestOutcome struct {
 	// TPOTNanos is a success's (last − first content) / (completion tokens − 1); NaN when the request has no TPOT.
 	TPOTNanos float64
 	// UsageAfterLastNanos and DoneAfterLastNanos are the completion-through-trailer diagnostic: from the last content
-	// byte to the usage trailer and to [DONE]. NaN when the row has no such stamp.
+	// byte to the usage trailer and to [DONE].
+	// NaN when the row has no such stamp.
 	UsageAfterLastNanos float64
 	DoneAfterLastNanos  float64
 }
@@ -35,8 +36,9 @@ type RequestOutcome struct {
 // CellOutcomes are the outcomes of one cell's population P: its rows whose intended arrival is inside the window.
 //
 // It refuses a cell rather than guess: a recording that does not reconcile with its trace, a row the study cannot
-// classify, or a measured row without an intended arrival on its clock. Each of those is an invalidation rule the
-// session should already have applied, so reaching here means the evidence is not what a valid cell holds.
+// classify, or a measured row without an intended arrival on its clock.
+// Each of those is an invalidation rule the session should already have applied, so reaching here means the
+// evidence is not what a valid cell holds.
 func (d VersionStudyDesign) CellOutcomes(p SamplingPolicy, windowSeconds int, trace []TraceRow, rows []RawRow) ([]RequestOutcome, error) {
 	if err := ReconcileRecording(trace, rows); err != nil {
 		return nil, err

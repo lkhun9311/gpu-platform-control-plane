@@ -17,24 +17,27 @@ import (
 
 // The whole mode, end to end, against a cluster that behaves the way the probe needs it to.
 //
-// Every other test in this package drives a piece: the Pod builder, the verifier, the handoff helper. None
-// of them reaches past `stateProbe`'s early return — the only test that called it passed a nil client and an
-// empty class — so everything the function does after acquiring the worker was unexecuted by the suite. Two
-// independent reviews said the same thing, and a perturbation confirmed it: deleting the capture wiring left
-// the full package green.
+// Every other test in this package drives a piece: the Pod builder, the verifier, the handoff helper.
+// None of them reaches past `stateProbe`'s early return — the only test that called it passed a nil client
+// and an empty class — so everything the function does after acquiring the worker was unexecuted by the
+// suite.
+// Two independent reviews said the same thing, and a perturbation confirmed it: deleting the capture wiring
+// left the full package green.
 //
-// What this file adds is the one shape that can see provenance. The double reports the writer's node from
-// the SERVER's copy, so a regression that filled the observation in from the `-worker` flag instead — which
-// is non-empty and therefore passes every emptiness guard — is caught by the second case below and by
-// nothing else.
+// What this file adds is the one shape that can see provenance.
+// The double reports the writer's node from the SERVER's copy, so a regression that filled the observation
+// in from the `-worker` flag instead — which is non-empty and therefore passes every emptiness guard — is
+// caught by the second case below and by nothing else.
 
 // probeDouble stands in for the three cluster roles the fake client has none of: the apiserver assigning
 // identities, the scheduler choosing a node, and the kubelet publishing a terminal status.
 //
-// It stamps NOTHING on Create. That is the whole point rather than an economy: controller-runtime's real
-// Create decodes the server's response back into the caller's object, so a double that did the same would
-// leave `writer.UID` populated in the caller's copy — and a regression reading the caller's object instead
-// of the cluster's would then pass. Identity appears only on the way back OUT of a Get.
+// It stamps NOTHING on Create.
+// That is the whole point rather than an economy: controller-runtime's real Create decodes the server's
+// response back into the caller's object, so a double that did the same would leave `writer.UID` populated
+// in the caller's copy — and a regression reading the caller's object instead of the cluster's would then
+// pass.
+// Identity appears only on the way back OUT of a Get.
 type probeDouble struct {
 	mu sync.Mutex
 	// node is what the scheduler is pretending to have chosen for each Pod, by name.
@@ -57,8 +60,9 @@ func newProbeDouble(writerNode string) *probeDouble {
 	}
 }
 
-// writerNameOf turns the reader's name into its predecessor's. Both are `sp-<short id>-<half>`, so the
-// suffix is the only difference and the double can name one from the other without being told.
+// writerNameOf turns the reader's name into its predecessor's.
+// Both are `sp-<short id>-<half>`, so the suffix is the only difference and the double can name one
+// from the other without being told.
 func writerNameOf(readerName string) string {
 	return strings.TrimSuffix(readerName, "-reader") + "-writer"
 }
@@ -88,9 +92,9 @@ func (d *probeDouble) interceptors() interceptor.Funcs {
 			opts ...client.CreateOption) error {
 			if p, ok := obj.(*corev1.Pod); ok {
 				// The reader's creation is the moment succession is decided, so the double checks the
-				// predecessor's absence HERE rather than leaving the test to look afterwards. Afterwards is
-				// too late and too weak: deferred cleanup deletes the writer on the way out, so "the writer
-				// is gone at the end" holds even for a probe that never waited.
+				// predecessor's absence HERE rather than leaving the test to look afterwards.
+				// Afterwards is too late and too weak: deferred cleanup deletes the writer on the way out,
+				// so "the writer is gone at the end" holds even for a probe that never waited.
 				//
 				// A first version of this file recorded the call order and nothing else, and a perturbation
 				// that replaced the absence wait with a bare delete stayed green — the writer was still in
@@ -106,8 +110,9 @@ func (d *probeDouble) interceptors() interceptor.Funcs {
 			}
 			if pvc, ok := obj.(*corev1.PersistentVolumeClaim); ok {
 				// The claim's UID IS read off the caller's object by the probe, because that is what the real
-				// Create gives it. Stamping it here is modelling the apiserver, not leaking provenance: the
-				// probe compares it later against the cluster's copy, and the double keeps them equal.
+				// Create gives it.
+				// Stamping it here is modelling the apiserver, not leaking provenance: the probe compares it
+				// later against the cluster's copy, and the double keeps them equal.
 				pvc.UID = types.UID("pvc-uid-1")
 				d.log("create/claim")
 			}
@@ -117,13 +122,15 @@ func (d *probeDouble) interceptors() interceptor.Funcs {
 			opts ...client.DeleteOption) error {
 			if p, ok := obj.(*corev1.Pod); ok {
 				// Graceful deletion: the object stays in the store and keeps answering Gets for a while, and
-				// only then goes. The fake client removes a finalizer-free object synchronously, so without
-				// this a probe that deleted and moved straight on would find its predecessor already absent
-				// and "waited for absence" would be indistinguishable from "issued a delete".
+				// only then goes.
+				// The fake client removes a finalizer-free object synchronously, so without this a probe
+				// that deleted and moved straight on would find its predecessor already absent and "waited
+				// for absence" would be indistinguishable from "issued a delete".
 				//
 				// The removal happens in the Get that runs the grace out, NOT here — see the Get
-				// interceptor. Deleting here instead would make the store agree with the caller immediately,
-				// which is the behaviour this is modelling away from.
+				// interceptor.
+				// Deleting here instead would make the store agree with the caller immediately, which is the
+				// behaviour this is modelling away from.
 				d.log("delete/" + d.half(p.Name))
 				d.mu.Lock()
 				d.gone[p.Name] = 2 // answers two more Gets, then the third removes it
@@ -252,10 +259,12 @@ func TestTheStateProbePassesOnAClusterWhoseStorageWorks(t *testing.T) {
 			"rather than its successor: %v", h)
 	}
 	// And the stronger statement the order alone does not make: at the instant the reader was created, the
-	// writer was ALREADY GONE from the store. A delete that was merely issued does not establish that.
+	// writer was ALREADY GONE from the store.
+	// A delete that was merely issued does not establish that.
 	//
 	// Mutation that turns this red: replace awaitProbeGone with a bare releaseProbe, which issues the delete
-	// and moves on. The call order still looks right; this does not.
+	// and moves on.
+	// The call order still looks right; this does not.
 	for _, call := range h {
 		if call == "reader-created-while-writer-present" {
 			t.Fatalf("the reader was created while the writer was still present, so ReadWriteOnce was "+
@@ -266,9 +275,9 @@ func TestTheStateProbePassesOnAClusterWhoseStorageWorks(t *testing.T) {
 
 // THE case that distinguishes an observation from a copy of the flag.
 //
-// The double reports the writer as having run on another node. Every emptiness guard still passes — the
-// value is non-empty — and the probe must refuse anyway, because `-worker` says where it ASKED the Pod to
-// go and only the cluster says where it went.
+// The double reports the writer as having run on another node.
+// Every emptiness guard still passes — the value is non-empty — and the probe must refuse anyway, because
+// `-worker` says where it ASKED the Pod to go and only the cluster says where it went.
 //
 // Mutations that turn this red: fill ids.writerNode from the nodeName parameter; fill ids.writerUID from
 // writer.UID; drop the node comparison from verifyStateProbe.

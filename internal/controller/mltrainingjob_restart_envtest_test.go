@@ -1096,10 +1096,11 @@ var _ = Describe("MLTrainingJob restart", func() {
 		Expect(getMLTJ(key).Status.AdmittedAt).To(BeNil(), "attempt 1's admission stamp survived its failure")
 	})
 
-	// The design's first failure row: two attempts at once after a conflict or a crash between steps. Every second
-	// status write here fails, half of them as a conflict and half as a write the server never answered, and the
-	// first create of each attempt's Job lands but loses its response. Exactly one Job per attempt must exist,
-	// adopted by its token, and the budget spent once (codex review r10, finding 7).
+	// The design's first failure row: two attempts at once after a conflict or a crash between steps.
+	// Every second status write here fails, half of them as a conflict and half as a write the server never
+	// answered, and the first create of each attempt's Job lands but loses its response.
+	// Exactly one Job per attempt must exist, adopted by its token, and the budget spent once (codex review r10,
+	// finding 7).
 	//
 	// Mutations that turn this red: adopt a Job without checking its attempt token, or let trigger append an
 	// attempt instead of moving the current one to Stopping.

@@ -23,10 +23,11 @@ import (
 
 // The refusal this whole file exists for: a profile the SCHEDULER would accept and this study must not.
 //
-// NodeResourcesFit scores cpu and memory by default. A profile that selects MostAllocated without naming
-// nvidia.com/gpu starts a scheduler that reports exactly the requested strategy and packs nothing the study
-// varies -- so the three arms report the same number and it reads as a null result rather than as a treatment
-// that never applied. Every case below is one the scheduler starts happily.
+// NodeResourcesFit scores cpu and memory by default.
+// A profile that selects MostAllocated without naming nvidia.com/gpu starts a scheduler that reports exactly
+// the requested strategy and packs nothing the study varies -- so the three arms report the same number and
+// it reads as a null result rather than as a treatment that never applied.
+// Every case below is one the scheduler starts happily.
 //
 // Mutation that turns this red: drop the GPUResourceName search from Validate.
 func TestAProfileTheSchedulerWouldAcceptAndThisStudyMustNot(t *testing.T) {
@@ -90,8 +91,8 @@ func TestAProfileTheSchedulerWouldAcceptAndThisStudyMustNot(t *testing.T) {
 
 // The rendered configuration must carry the GPU resource, or the study's treatment is inert on the cluster.
 //
-// Asserted on the rendered TEXT rather than on the struct, because the text is what the scheduler reads. A
-// renderer that dropped the resource list would leave Validate green and the cluster ungoverned.
+// Asserted on the rendered TEXT rather than on the struct, because the text is what the scheduler reads.
+// A renderer that dropped the resource list would leave Validate green and the cluster ungoverned.
 //
 // Mutation that turns this red: stop emitting the resources block.
 func TestTheRenderedConfigurationNamesTheResourceTheStudyVaries(t *testing.T) {
@@ -107,9 +108,10 @@ func TestTheRenderedConfigurationNamesTheResourceTheStudyVaries(t *testing.T) {
 			"name: " + GPUResourceName,
 			"schedulerName: default-scheduler",
 			// Without this the scheduler cannot reach the API server and crash-loops: kubeadm passes both
-			// --config and --kubeconfig, and the flag is ignored once the file is given. The first cluster
-			// this renderer built failed exactly that way, and everything downstream -- kindnet Pending,
-			// every node NotReady, the device plugins unschedulable -- looked like a different problem.
+			// --config and --kubeconfig, and the flag is ignored once the file is given.
+			// The first cluster this renderer built failed exactly that way, and everything downstream --
+			// kindnet Pending, every node NotReady, the device plugins unschedulable -- looked like a
+			// different problem.
 			"clientConnection:",
 			"kubeconfig: " + SchedulerKubeconfigPath,
 		} {

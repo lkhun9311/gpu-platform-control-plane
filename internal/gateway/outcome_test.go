@@ -25,52 +25,57 @@ import (
 
 // Both rules under test were bugs before they were rules, and the comments in server.go say so.
 //
-// Neither was reachable from a spec while it lived inline. The fallback counter needs two candidates from
-// backendsFor, and every existing fallback spec calls tryBackends directly with a nil callback, so none of
-// them runs the chatCompletions code that decides these two things. backendOverride returns exactly one
-// candidate, so it cannot produce a fallback either.
+// Neither was reachable from a spec while it lived inline.
+// The fallback counter needs two candidates from backendsFor, and every existing fallback spec calls
+// tryBackends directly with a nil callback, so none of them runs the chatCompletions code that decides
+// these two things. backendOverride returns exactly one candidate, so it cannot produce a fallback either.
 //
 // Pulling the decisions out of the request path is what makes them answerable: each is a total function of
 // values the caller already has, so the cases below are the whole input space rather than a sample of it.
 
 var _ = Describe("publishedCode", func() {
-	// The status a finished attempt is counted under. Seeded 200, corrected only when nothing answered.
+	// The status a finished attempt is counted under.
+	// Seeded 200, corrected only when nothing answered.
 
 	It("keeps the answered status even when an earlier attempt failed", func() {
 		// The regression this pins: a request whose FIRST attempt failed and whose retry SUCCEEDED leaves
-		// lastFailure set. Without the answered guard the genuine 200 is overwritten by the failure it
-		// recovered from, and a rescue is published as the thing it rescued the client from.
+		// lastFailure set.
+		// Without the answered guard the genuine 200 is overwritten by the failure it recovered from, and
+		// a rescue is published as the thing it rescued the client from.
 		Expect(publishedCode(true, http.StatusOK, http.StatusBadGateway)).To(Equal(http.StatusOK))
 	})
 
 	It("publishes the last failure when nothing reached the client", func() {
-		// The regression this pins: every cancelled request. The failure callback only wrote rec.code on a
-		// FINAL attempt, the guards inside tryBackends stopped the loop before any final attempt ran, and a
-		// request nobody served went into requests_total as a success.
+		// The regression this pins: every cancelled request.
+		// The failure callback only wrote rec.code on a FINAL attempt, the guards inside tryBackends
+		// stopped the loop before any final attempt ran, and a request nobody served went into
+		// requests_total as a success.
 		Expect(publishedCode(false, http.StatusOK, http.StatusGatewayTimeout)).To(Equal(http.StatusGatewayTimeout))
 	})
 
 	It("keeps the seeded status when nothing answered and nothing failed either", func() {
-		// No attempt reported a status, so there is nothing truer than what the recorder holds. Reaching for
-		// a failure code here would invent one.
+		// No attempt reported a status, so there is nothing truer than what the recorder holds.
+		// Reaching for a failure code here would invent one.
 		Expect(publishedCode(false, http.StatusOK, 0)).To(Equal(http.StatusOK))
 	})
 
 	It("keeps an answered failure as itself", func() {
-		// A backend that answered 500 answered. The last-failure path must not fire and rewrite it.
+		// A backend that answered 500 answered.
+		// The last-failure path must not fire and rewrite it.
 		Expect(publishedCode(true, http.StatusInternalServerError, http.StatusBadGateway)).
 			To(Equal(http.StatusInternalServerError))
 	})
 })
 
 var _ = Describe("servedByFallback", func() {
-	// Whether this request is one the fallback path rescued. Both halves of the condition earned their place.
+	// Whether this request is one the fallback path rescued.
+	// Both halves of the condition earned their place.
 
 	It("is false when no second candidate was tried", func() {
-		// The regression this pins: latching on the failure callback instead of tryBackends' own report. The
-		// callback fires before the retry guards run, so it counted a fallback whenever a non-final attempt
-		// failed — including cancelled requests where no retry ever happened, which the benchmark harness
-		// produces on every timeout.
+		// The regression this pins: latching on the failure callback instead of tryBackends' own report.
+		// The callback fires before the retry guards run, so it counted a fallback whenever a non-final
+		// attempt failed — including cancelled requests where no retry ever happened, which the benchmark
+		// harness produces on every timeout.
 		Expect(servedByFallback(false, http.StatusOK)).To(BeFalse())
 	})
 
@@ -84,9 +89,9 @@ var _ = Describe("servedByFallback", func() {
 	})
 
 	It("is false for a 4xx from the spare", func() {
-		// The spare was reached and refused the request on its own merits. The fallback path carried the
-		// request but never served an answer, and the metric's name says "served" — which is why the range
-		// stops at 400 rather than at 500.
+		// The spare was reached and refused the request on its own merits.
+		// The fallback path carried the request but never served an answer, and the metric's name says
+		// "served" — which is why the range stops at 400 rather than at 500.
 		Expect(servedByFallback(true, http.StatusNotFound)).To(BeFalse())
 	})
 

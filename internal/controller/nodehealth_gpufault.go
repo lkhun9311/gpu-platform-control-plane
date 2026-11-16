@@ -207,10 +207,10 @@ func decideGPUFault(obs GPUFaultObservation, hasObs bool, now time.Time, staleAf
 		// No fault among the fields that were read, and a fault field not read: health cannot be judged.
 		keepLatch(gpuHealthyReasonFieldMissing, fmt.Sprintf("no readable value for %v", obs.Assessment.Missing))
 	case latched != "" && latched == acknowledged:
-		// No fault now, and the operator has taken the one that is latched. The case above ran only while the
-		// reading still carried that fault, so an application Xid replacing it left the acknowledgement with
-		// nothing to match, and the registration's "only an operator's acknowledgement clears the node" did not
-		// hold (codex audit, 2026-10-28).
+		// No fault now, and the operator has taken the one that is latched.
+		// The case above ran only while the reading still carried that fault, so an application Xid replacing
+		// it left the acknowledgement with nothing to match, and the registration's "only an operator's
+		// acknowledgement clears the node" did not hold (codex audit, 2026-10-28).
 		d.healthy = metav1.Condition{Type: conditionGPUHealthy, Status: metav1.ConditionTrue,
 			Reason: gpuHealthyReasonAcknowledged, Message: "fault " + latched + " is acknowledged"}
 		d.latch, d.taint = "", -1
@@ -278,8 +278,9 @@ func applyGPUFaultToStatus(status *platformv1.NodeHealthStatus, d gpuFaultDecisi
 // faulted node: nothing it watches announces a Pod's departure.
 const displacedPodPoll = 2 * time.Second
 
-// recordGPUFault writes the platform's timestamps, displaces GPU work from a faulted node and brings back
-// what it displaced. It runs after the Node patch, so that tainted-at is a time the taint existed.
+// recordGPUFault writes the platform's timestamps, displaces GPU work from a faulted node and brings back what
+// it displaced.
+// It runs after the Node patch, so that tainted-at is a time the taint existed.
 // It returns how soon to look again: displacedPodPoll while a displaced Workload waits for its Pods to leave the
 // node, otherwise zero.
 func (r *NodeHealthReconciler) recordGPUFault(ctx context.Context, nh *platformv1.NodeHealth, d gpuFaultDecision,
@@ -352,8 +353,9 @@ const ownerKindJob = "Job"
 // displaceGPUWork deactivates the Kueue Workload of every GPU Pod still on the faulted node.
 //
 // Deactivation is Kueue's own eviction: it suspends the Job, which stops its Pods and releases the quota, and
-// reactivating the Workload requeues it. Deleting the Pods instead would have the Job recreate them inside the
-// same admission, so Kueue would never learn that the placement failed.
+// reactivating the Workload requeues it.
+// Deleting the Pods instead would have the Job recreate them inside the same admission, so Kueue would never
+// learn that the placement failed.
 // A GPU Pod with no Workload is reported and left alone: nothing here may stop work Kueue did not admit.
 func (r *NodeHealthReconciler) displaceGPUWork(ctx context.Context, nh *platformv1.NodeHealth, fp string) error {
 	cfg := r.GPUFault
@@ -423,8 +425,9 @@ func (r *NodeHealthReconciler) displaceGPUWork(ctx context.Context, nh *platform
 
 // restartLifecycleOwns reports whether a Pod's Job belongs to a distributed MLTrainingJob that restarts.
 //
-// Read uncached, like the Pod list above. A Job or MLTrainingJob that cannot be found is not a restartable one: the
-// fault path then does what it always did, which is the safe direction, because requeueing is what it did before.
+// Read uncached, like the Pod list above.
+// A Job or MLTrainingJob that cannot be found is not a restartable one: the fault path then does what it always
+// did, which is the safe direction, because requeueing is what it did before.
 func (r *NodeHealthReconciler) restartLifecycleOwns(ctx context.Context, ns string, jobRef *metav1.OwnerReference) (bool, error) {
 	var job batchv1.Job
 	if err := r.GPUFault.APIReader.Get(ctx, types.NamespacedName{Namespace: ns, Name: jobRef.Name}, &job); err != nil {

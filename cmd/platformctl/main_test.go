@@ -25,12 +25,13 @@ import (
 // These pin the two refusals that make the command safe to run by hand, and the one output that must not be
 // silent.
 //
-// The projection logic itself is tested in internal/ledger, where it can be driven without a cluster. What is
-// left here is the part a shell touches: whether a missing -ledger is refused instead of defaulted, and
-// whether an empty ledger says so.
+// The projection logic itself is tested in internal/ledger, where it can be driven without a cluster.
+// What is left here is the part a shell touches: whether a missing -ledger is refused instead of defaulted,
+// and whether an empty ledger says so.
 
 func TestListRefusesAMissingLedgerFlag(t *testing.T) {
-	// A default path would read a database the operator never named. The refusal is the feature.
+	// A default path would read a database the operator never named.
+	// The refusal is the feature.
 	if err := list(nil); err == nil {
 		t.Fatal("list ran with no -ledger; it must not pick a path on the operator's behalf")
 	} else if !strings.Contains(err.Error(), "-ledger is required") {
@@ -56,8 +57,8 @@ func TestGetRefusesAMissingLedgerFlagAndAMissingName(t *testing.T) {
 	}
 }
 
-// A ledger that was never written must refuse, not report an empty one. This is the command-level half of the
-// distinction internal/ledger.OpenForRead draws.
+// A ledger that was never written must refuse, not report an empty one.
+// This is the command-level half of the distinction internal/ledger.OpenForRead draws.
 func TestListRefusesALedgerThatDoesNotExist(t *testing.T) {
 	absent := filepath.Join(t.TempDir(), "never-written.db")
 	err := list([]string{"-ledger", absent})

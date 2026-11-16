@@ -13,41 +13,45 @@ import (
 // with a bearer token elsewhere in this repository, and a second half-copy of that would drift.
 type DeviceScraper struct {
 	// Observer and Identity are what the observation will claim about its own provenance, and both are
-	// DECLARED by whoever configured the run. Nothing here can verify either: the payload is a format anyone
-	// can emit and the endpoint is a URL anyone can serve. Identity is the exporter's image digest or
-	// version, and it must not be the endpoint -- that says where the bytes came from, not what produced them.
+	// DECLARED by whoever configured the run.
+	// Nothing here can verify either: the payload is a format anyone can emit and the endpoint is a URL anyone
+	// can serve.
+	// Identity is the exporter's image digest or version, and it must not be the endpoint -- that says where
+	// the bytes came from, not what produced them.
 	Observer DeviceObserver
 	Identity string
 	// Endpoint is recorded beside the identity so a reader can see both what was claimed and where it came
 	// from.
 	Endpoint string
-	// Interval is how often to scrape. It must leave room under maxObserverGap, because a poll that lands
-	// exactly on the limit turns one slow response into an uncovered window.
+	// Interval is how often to scrape.
+	// It must leave room under maxObserverGap, because a poll that lands exactly on the limit turns one
+	// slow response into an uncovered window.
 	Interval time.Duration
 	// Fetch returns one scrape body.
 	Fetch func(context.Context) ([]byte, error)
-	// Resolve maps a namespace and Pod name to a UID. The observer labels by name; this is what says which
-	// object that name referred to.
+	// Resolve maps a namespace and Pod name to a UID.
+	// The observer labels by name; this is what says which object that name referred to.
 	Resolve PodResolver
-	// Elapsed is the COLLECTOR's clock, so a sample's time is on the same scale as the ledger's events. A
-	// scraper with its own clock would produce an observation whose coverage of an interval could not be
-	// checked against the interval.
+	// Elapsed is the COLLECTOR's clock, so a sample's time is on the same scale as the ledger's events.
+	// A scraper with its own clock would produce an observation whose coverage of an interval could not
+	// be checked against the interval.
 	Elapsed func() int64
 }
 
 // scrapeFailureLimit is how many consecutive failed scrapes end the observation.
 //
 // It stops rather than continuing quietly, because the alternative is an observation that keeps its Started
-// and Ended bounds while seeing nothing in between -- which reads as coverage. The gap rule in
-// EstablishesDeviceWork would catch it, but only as "a gap", and an operator would be left to guess whether
-// the exporter was down or the card was idle. Ending on the failure keeps the two distinguishable.
+// and Ended bounds while seeing nothing in between -- which reads as coverage.
+// The gap rule in EstablishesDeviceWork would catch it, but only as "a gap", and an operator would be left
+// to guess whether the exporter was down or the card was idle.
+// Ending on the failure keeps the two distinguishable.
 const scrapeFailureLimit = 3
 
 // Observe polls until the context ends, and returns what it saw.
 //
 // It returns the observation even on error, because a partial observation is evidence about the part it
-// covers and the caller has EstablishesDeviceWork to decide whether that part is the one it needed. Throwing
-// it away would leave a run unable to say whether the exporter was present at all.
+// covers and the caller has EstablishesDeviceWork to decide whether that part is the one it needed.
+// Throwing it away would leave a run unable to say whether the exporter was present at all.
 func (s *DeviceScraper) Observe(ctx context.Context) (*DeviceObservation, int, error) {
 	if s.Fetch == nil || s.Resolve == nil || s.Elapsed == nil {
 		return nil, 0, fmt.Errorf("a device scraper needs a transport, a Pod resolver and the collector's clock")
@@ -73,11 +77,12 @@ func (s *DeviceScraper) Observe(ctx context.Context) (*DeviceObservation, int, e
 		// The request's start, kept only to end the observation honestly on failure.
 		started := s.Elapsed()
 		body, err := s.Fetch(ctx)
-		// Stamped AFTER the response, not before it. A slow exporter would otherwise have its reading dated to
-		// the moment the request left -- which can be seconds earlier -- so the coverage calculation would
-		// describe when this binary asked rather than when the values were read, and a stall would be invisible
-		// in exactly the interval it corrupted. Taking the later bound is the conservative half of the pair:
-		// the true observation time lies between the two, and dating it late can only widen an apparent gap.
+		// Stamped AFTER the response, not before it.
+		// A slow exporter would otherwise have its reading dated to the moment the request left -- which can be
+		// seconds earlier -- so the coverage calculation would describe when this binary asked rather than when
+		// the values were read, and a stall would be invisible in exactly the interval it corrupted.
+		// Taking the later bound is the conservative half of the pair: the true observation time lies between
+		// the two, and dating it late can only widen an apparent gap.
 		at := s.Elapsed()
 		if err != nil {
 			failures++

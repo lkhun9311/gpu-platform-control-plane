@@ -50,9 +50,9 @@ func TestAnArmMustBeNamedRatherThanDefaulted(t *testing.T) {
 // The reference arm must carry NO profile content, checked field by field.
 //
 // A run that recorded itself as the reference while installing something would misdescribe its own treatment --
-// the silent-treatment failure read from the other end. Each field is its own case because the first version of
-// this check used `!= empty`, which does not compile for a struct holding a slice and would have accepted any
-// field added later without a word.
+// the silent-treatment failure read from the other end.
+// Each field is its own case because the first version of this check used `!= empty`, which does not compile
+// for a struct holding a slice and would have accepted any field added later without a word.
 //
 // Mutation that turns this red: drop any one of the three field tests.
 func TestTheReferenceArmRefusesProfileContentFieldByField(t *testing.T) {
@@ -86,7 +86,8 @@ func TestTheReferenceArmRefusesProfileContentFieldByField(t *testing.T) {
 // The treatment arm still goes through SchedulerProfile.Validate(), so the missing-GPU guard is not lost.
 //
 // That guard is the one the amendment's chosen reference collided with, and the resolution was an explicit arm
-// mode rather than letting an empty resource list mean "untouched". This asserts the guard survived the change.
+// mode rather than letting an empty resource list mean "untouched".
+// This asserts the guard survived the change.
 //
 // Mutation that turns this red: skip Profile.Validate() for ArmConfigured.
 func TestTheTreatmentArmStillRefusesAProfileThatWouldBeInert(t *testing.T) {

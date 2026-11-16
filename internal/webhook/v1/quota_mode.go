@@ -45,11 +45,12 @@ func quotaName(policyName string) string { return "gpuquota-" + policyName }
 // by a Kueue ClusterQueue, and that the cap is one Kubernetes will actually charge a new Pod against.
 //
 // The queue-name label is what makes a workload visible to Kueue's accounting, so demanding it is right
-// exactly where Kueue is the authority. Where a GPUQuotaPolicy leaves trainingQuota off, the controller does
-// the opposite: it KEEPS the namespace ResourceQuota capping requests.nvidia.com/gpu
-// (internal/controller/gpuquotapolicy_controller.go, syncNamespaceResourceQuota) and creates no queues at all
-// (kueue_quota.go deletes them). Work in such a namespace is charged by the ResourceQuota at creation, whoever
-// creates it, and refusing it for carrying no queue label refused work the platform had agreed to count.
+// exactly where Kueue is the authority.
+// Where a GPUQuotaPolicy leaves trainingQuota off, the controller does the opposite: it KEEPS the namespace
+// ResourceQuota capping requests.nvidia.com/gpu (internal/controller/gpuquotapolicy_controller.go,
+// syncNamespaceResourceQuota) and creates no queues at all (kueue_quota.go deletes them).
+// Work in such a namespace is charged by the ResourceQuota at creation, whoever creates it, and refusing it
+// for carrying no queue label refused work the platform had agreed to count.
 //
 // It answers true only when every one of these holds, and each is a way the answer was once wrong or could be:
 //
@@ -68,15 +69,15 @@ func quotaName(policyName string) string { return "gpuquota-" + policyName }
 //     afterwards; until then a GPU Pod does not match the quota and is charged to nothing. The same holds
 //     for a GPU key newly added to an existing quota.
 //
-// Every read error is returned, never swallowed. The callers fail closed on it, for the reason the webhook's
-// failurePolicy is Fail: a guard that stops applying when a read fails admits exactly what it exists to
-// refuse, invisibly.
+// Every read error is returned, never swallowed.
+// The callers fail closed on it, for the reason the webhook's failurePolicy is Fail: a guard that stops
+// applying when a read fails admits exactly what it exists to refuse, invisibly.
 //
 // What it cannot see is a change after it answers: a policy created or a quota deleted between this read and
 // the Pod's persistence, or a policy deleted and created again with trainingQuota, which removes the quota
 // without moving the Pods it already admitted into Kueue. trainingQuota itself cannot change in place (a CRD
-// rule), so the last needs the operator's delete and drain. Those are lifecycle gaps of the policy, not of
-// this read, and no second read here would close them.
+// rule), so the last needs the operator's delete and drain.
+// Those are lifecycle gaps of the policy, not of this read, and no second read here would close them.
 func meteredByResourceQuota(ctx context.Context, reader client.Reader, namespace string) (bool, error) {
 	if reader == nil {
 		return false, fmt.Errorf("no reader wired to consult %q's quota mode", namespace)
@@ -99,7 +100,8 @@ func meteredByResourceQuota(ctx context.Context, reader client.Reader, namespace
 		resourceQuotaOnly = append(resourceQuotaOnly, p)
 	}
 	if len(resourceQuotaOnly) == 0 {
-		// No policy governs this namespace through a ResourceQuota. Nothing here says the work is metered.
+		// No policy governs this namespace through a ResourceQuota.
+		// Nothing here says the work is metered.
 		return false, nil
 	}
 

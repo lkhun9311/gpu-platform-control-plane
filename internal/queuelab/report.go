@@ -25,18 +25,18 @@ import (
 // RenderResult renders one arm's reconstruction as text.
 //
 // It lives in the pure package rather than the runner so the rules that matter can be enforced by tests,
-// and there are two of them now. Both were written after a published result said something the numbers did
-// not support.
+// and there are two of them now.
+// Both were written after a published result said something the numbers did not support.
 //
-// Every admission is printed next to the execution start it does NOT imply. The published result reported
-// "owner admitted in ~120 ms" while the owner did not begin executing for another 9.4 seconds, and nothing
-// in the code prevented that framing.
+// Every admission is printed next to the execution start it does NOT imply.
+// The published result reported "owner admitted in ~120 ms" while the owner did not begin executing for
+// another 9.4 seconds, and nothing in the code prevented that framing.
 //
-// Every magnitude is printed next to the floor below which this run resolved nothing. The published result
-// subtracted the protocol's own dose from the observed waste and called the 0.94 second remainder the
-// control plane's cost, while the run's observations were spread across two seconds. The floor line makes
-// that subtraction visibly illegitimate on the same screen as the number that invites it, which is the only
-// place it can be caught by someone who is not already looking for it.
+// Every magnitude is printed next to the floor below which this run resolved nothing.
+// The published result subtracted the protocol's own dose from the observed waste and called the 0.94
+// second remainder the control plane's cost, while the run's observations were spread across two seconds.
+// The floor line makes that subtraction visibly illegitimate on the same screen as the number that invites
+// it, which is the only place it can be caught by someone who is not already looking for it.
 func RenderResult(res LabResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "===== RESULT (arm %s) =====\n", res.Arm)
@@ -137,7 +137,8 @@ func censoredMark(c bool) string {
 //
 // An absent line would be read as "no such limit", which is the opposite of what an absent spread means: a
 // run whose events carried no kubelet stamp has NO bound on its intervals at all, and that is a worse
-// position than a known-coarse one, not a better one. So the nil case is the louder of the two.
+// position than a known-coarse one, not a better one.
+// So the nil case is the louder of the two.
 func renderFloor(s *ObservationSpread) string {
 	if s == nil {
 		return "observationFloor=UNBOUNDED -- no stop carried a kubelet timestamp to compare against," +

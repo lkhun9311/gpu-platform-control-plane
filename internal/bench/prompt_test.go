@@ -44,11 +44,12 @@ var _ = Describe("PromptText", func() {
 	})
 
 	It("does not send a run of one character, which a tokenizer would collapse", func() {
-		// The prompt this replaces was strings.Repeat("x", n). Measured against the 40,000-character
-		// contender prompt, Qwen2.5 read that as 5,029 tokens and Phi-3 as 10,004 -- so the frozen trace
-		// loaded one served model twice as hard as the other while reporting the same traffic. The property
-		// that broke is bounded vocabulary diversity, so that is what this asserts rather than the token
-		// counts themselves, which no GPU-free test can recompute.
+		// The prompt this replaces was strings.Repeat("x", n).
+		// Measured against the 40,000-character contender prompt, Qwen2.5 read that as 5,029 tokens and
+		// Phi-3 as 10,004 -- so the frozen trace loaded one served model twice as hard as the other while
+		// reporting the same traffic.
+		// The property that broke is bounded vocabulary diversity, so that is what this asserts rather than
+		// the token counts themselves, which no GPU-free test can recompute.
 		s := PromptText(40000)
 		distinct := map[byte]struct{}{}
 		for i := range len(s) {
@@ -61,9 +62,10 @@ var _ = Describe("PromptText", func() {
 
 var _ = Describe("PromptCorpusSHA256", func() {
 	It("matches the value the frozen manifests were written against", func() {
-		// Pinned deliberately. Editing the corpus changes what every arm sends, so it must invalidate the
-		// manifests rather than silently redefine the traffic they claim to have replayed; this assertion is
-		// what turns such an edit into a failing build instead of an unexplained shift between runs.
+		// Pinned deliberately.
+		// Editing the corpus changes what every arm sends, so it must invalidate the manifests rather than
+		// silently redefine the traffic they claim to have replayed; this assertion is what turns such an
+		// edit into a failing build instead of an unexplained shift between runs.
 		Expect(PromptCorpusSHA256).To(Equal("dec1020701584417449f9c7efa5354073682cce69348af3b9fb5244705200a86"))
 	})
 })

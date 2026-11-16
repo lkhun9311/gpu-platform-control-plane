@@ -10,20 +10,22 @@ import (
 // What -kubeconfig does, asserted because for the life of this tool it did nothing.
 //
 // The flag was never declared here: controller-runtime's client/config package registers it on
-// flag.CommandLine from an init(), so `-h` advertised it and `-kubeconfig /path` parsed cleanly. Nothing
-// read the value back, so every invocation talked to whatever KUBECONFIG or $HOME/.kube/config pointed at.
+// flag.CommandLine from an init(), so `-h` advertised it and `-kubeconfig /path` parsed cleanly.
+// Nothing read the value back, so every invocation talked to whatever KUBECONFIG or $HOME/.kube/config
+// pointed at.
 // A session lost twenty minutes to "nodes not found" against a cluster whose nodes were listed by kubectl a
 // moment earlier, with the same file passed to both.
 //
-// These tests drive newClusterClient directly rather than the binary. That is the seam where the decision
-// is made: the flag plumbing above it is one function call, and a test that shelled out would be asserting
-// the loader's behaviour through two layers of our own.
+// These tests drive newClusterClient directly rather than the binary.
+// That is the seam where the decision is made: the flag plumbing above it is one function call, and a test
+// that shelled out would be asserting the loader's behaviour through two layers of our own.
 
 // A kubeconfig pointing at an address nothing listens on.
 //
 // The client is built from the file, not from a reachable apiserver — client.NewWithWatch does not dial —
-// so the server address only has to parse. What is under test is which FILE was read, and a fake address
-// makes it impossible for a passing test to have reached a real cluster by accident.
+// so the server address only has to parse.
+// What is under test is which FILE was read, and a fake address makes it impossible for a passing test to
+// have reached a real cluster by accident.
 const fakeKubeconfig = `apiVersion: v1
 kind: Config
 clusters:
@@ -69,8 +71,9 @@ func TestAMissingKubeconfigPathIsRefused(t *testing.T) {
 
 // The flag beats the environment, which is the case the defect actually presented as.
 //
-// KUBECONFIG names a usable file and the flag names a missing one. If the environment won, this would
-// succeed — and an operator who passed -kubeconfig would be talking to a cluster they did not name.
+// KUBECONFIG names a usable file and the flag names a missing one.
+// If the environment won, this would succeed — and an operator who passed -kubeconfig would be
+// talking to a cluster they did not name.
 func TestTheFlagBeatsTheEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	usable := writeKubeconfig(t, dir, "usable.yaml")
@@ -84,8 +87,9 @@ func TestTheFlagBeatsTheEnvironment(t *testing.T) {
 
 // An empty path keeps the behaviour every invocation that does not pass the flag has always had.
 //
-// The control. Without it the two refusals above are satisfiable by a change that simply broke the loader
-// for everyone, and the vast majority of invocations pass no flag at all.
+// The control.
+// Without it the two refusals above are satisfiable by a change that simply broke the loader for
+// everyone, and the vast majority of invocations pass no flag at all.
 func TestNoPathFallsBackToTheEnvironment(t *testing.T) {
 	usable := writeKubeconfig(t, t.TempDir(), "usable.yaml")
 	t.Setenv("KUBECONFIG", usable)

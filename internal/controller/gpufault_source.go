@@ -181,8 +181,9 @@ type GPUFaultSource struct {
 	Config GPUFaultSourceConfig
 	// Reader lists NodeHealths; the manager's cached client is fine for that.
 	Reader client.Reader
-	// PodReader lists exporter Pods. It is the uncached API reader, so that the operator does not start a
-	// cluster-wide Pod informer to find a handful of DaemonSet Pods.
+	// PodReader lists exporter Pods.
+	// It is the uncached API reader, so that the operator does not start a cluster-wide Pod informer to
+	// find a handful of DaemonSet Pods.
 	PodReader client.Reader
 	Store     *GPUFaultStore
 	// Events receives one GenericEvent per NodeHealth to reconcile; the reconciler's controller watches it.
@@ -317,8 +318,9 @@ func podReady(p *corev1.Pod) bool {
 func (s *GPUFaultSource) scrapeNode(ctx context.Context, node string, exporters map[string][]string, listErr error) bool {
 	log := logf.FromContext(ctx).WithName("gpu-fault-source")
 	// Failures are logged when a run of them starts or changes reason, not on every tick: a node with no
-	// exporter would otherwise log once a second for as long as it exists. The log is the evidence that a
-	// detection was slow because a scrape failed, rather than because the mechanism is other than described.
+	// exporter would otherwise log once a second for as long as it exists.
+	// The log is the evidence that a detection was slow because a scrape failed, rather than because the
+	// mechanism is other than described.
 	fail := func(reason, detail string) bool {
 		if s.Store.recordFailure(node, s.now(), reason, detail) {
 			log.Info("GPU fault scrape failing", "node", node, "reason", reason, "detail", detail)

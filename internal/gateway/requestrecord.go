@@ -90,13 +90,15 @@ type doneLine struct {
 	// in a holding admitter, refused or admitted; the histogram of holds cannot give one request's (v25 review,
 	// finding 5).
 	DecidingUnixNanos int64 `json:"decidingUnixNanos,omitempty"`
-	// HandoffUnixNanos is when the request was handed to the reverse proxy. Connection acquisition, dialling and
-	// sending the request to the backend all come after it, so the segment from here to first content holds
-	// gateway transport time as well as the engine's (review of the pilot scope, round 10, finding 4).
+	// HandoffUnixNanos is when the request was handed to the reverse proxy.
+	// Connection acquisition, dialling and sending the request to the backend all come after it, so the segment
+	// from here to first content holds gateway transport time as well as the engine's (review of the pilot
+	// scope, round 10, finding 4).
 	HandoffUnixNanos int64 `json:"handoffUnixNanos,omitempty"`
-	// ReleasedUnixNanos is when the admitter's prefill reservation was released. ReleasedAtEnd says the release
-	// came from the request's cleanup rather than from the first body byte: a request that never sent a body
-	// still gives its reservation back, and the record must not read as if it had kept it.
+	// ReleasedUnixNanos is when the admitter's prefill reservation was released.
+	// ReleasedAtEnd says the release came from the request's cleanup rather than from the first body byte: a
+	// request that never sent a body still gives its reservation back, and the record must not read as if it
+	// had kept it.
 	ReleasedUnixNanos int64 `json:"releasedUnixNanos,omitempty"`
 	ReleasedAtEnd     bool  `json:"releasedAtEnd,omitempty"`
 	// Answered says whether anything reached the client from a backend; Status is then the status the gateway
@@ -108,8 +110,10 @@ type doneLine struct {
 	FirstContentAtEnd bool  `json:"firstContentAtEnd,omitempty"`
 	EndedUnixNanos    int64 `json:"endedUnixNanos"`
 	// CutShort names why a response that had started ended before its upstream finished it: upstream_aborted,
-	// client_gone or idle_timeout. Status stays the status line the client already had, so without this field a stream
-	// cut short read exactly as a complete one (issue #571). Absent for a response that ran to its end.
+	// client_gone or idle_timeout.
+	// Status stays the status line the client already had, so without this field a stream cut short read exactly as a
+	// complete one (issue #571).
+	// Absent for a response that ran to its end.
 	CutShort string `json:"cutShort,omitempty"`
 }
 
@@ -356,8 +360,9 @@ func (c *codeWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
 // contentKey is the JSON key of a chat-completion content delta.
 //
 // The value after it is matched allowing JSON whitespace around the colon, because a serializer that spaces its
-// output is still emitting content (commit review of d463287). The role frame's empty content ("") does not
-// count: the byte after the opening quote must not be the closing quote.
+// output is still emitting content (commit review of d463287).
+// The role frame's empty content ("") does not count: the byte after the opening quote must not be the closing
+// quote.
 var contentKey = []byte(`"content"`)
 
 // maxContentTail bounds what is carried between chunks while a key's value is still incomplete, so a stream of
@@ -367,8 +372,8 @@ const maxContentTail = 256
 // contentWatcher finds the first COMPLETE server-sent event carrying a non-empty content delta, across chunks.
 //
 // Recognising the content's first byte is not enough: a frame cut after `"content":"x` and finished a second
-// later would be stamped at the cut (pilot scope review 11, finding 1). So once the content is found, the
-// watcher waits for the blank line that ends the event before it reports.
+// later would be stamped at the cut (pilot scope review 11, finding 1).
+// So once the content is found, the watcher waits for the blank line that ends the event before it reports.
 type contentWatcher struct {
 	tail []byte
 	seen bool
@@ -451,8 +456,9 @@ func (c *contentWatcher) observe(b []byte) bool {
 // endOf reports whether b, following the content found, ends its event.
 //
 // An event ends at a blank line, and a server-sent event's lines may end in CRLF, LF or CR, so the end is any
-// two line endings in a row with nothing between them, a CRLF counting as one. Matching only "\n\n" missed
-// every CRLF-delimited stream, which the client reads and counts (review of 71086d8).
+// two line endings in a row with nothing between them, a CRLF counting as one.
+// Matching only "\n\n" missed every CRLF-delimited stream, which the client reads and counts (review of
+// 71086d8).
 func (c *contentWatcher) endOf(b []byte) bool {
 	for _, ch := range b {
 		if c.pendingCR {

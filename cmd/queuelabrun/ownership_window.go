@@ -31,37 +31,42 @@ import (
 
 // The ownership transaction proves the worker was ours at two instants and says nothing about the interval
 // between them. acquireWorker installs the markers and verifyAcquired reads them back; releaseOwned's
-// decideRelease reads them once more on the way out. Nothing looks in between — so a third party can strip
-// the NoSchedule taint, let other work land, and put the taint back before release, and every check this
-// program performs still passes while the measured schedule ran on a shared machine. A Node deleted and
-// recreated under the same name is the same shape: a new UID that only the two endpoints would notice.
+// decideRelease reads them once more on the way out.
+// Nothing looks in between — so a third party can strip the NoSchedule taint, let other work land, and put
+// the taint back before release, and every check this program performs still passes while the measured
+// schedule ran on a shared machine.
+// A Node deleted and recreated under the same name is the same shape: a new UID that only the two
+// endpoints would notice.
 //
-// This file closes that window. It watches the worker Node continuously from a baseline taken before the run
-// creates anything, compares every version it sees against the tuple the journal says was installed, and
-// audits what the Node looked like on either side of the release.
+// This file closes that window.
+// It watches the worker Node continuously from a baseline taken before the run creates anything, compares
+// every version it sees against the tuple the journal says was installed, and audits what the Node looked
+// like on either side of the release.
 
 // windowViolationCap bounds how many violations the record carries.
 //
 // A node whose markers are being fought over can produce an event per write, and a record with ten thousand
-// near-identical entries is one nobody reads. The COUNT is kept in full regardless (see
-// ownershipWindow.ViolationsObserved), so the cap loses detail and never loses the fact.
+// near-identical entries is one nobody reads.
+// The COUNT is kept in full regardless (see ownershipWindow.ViolationsObserved), so the cap loses detail
+// and never loses the fact.
 const windowViolationCap = 20
 
 // The two window verdicts that are not one of ownership.go's refusal reasons.
 //
 // They are constants for the same reason those are: the record persists them and a reader classifies on
-// them, so a reworded string would silently become a different verdict. Everything else this file can
-// conclude — a diverged marker, a replaced node — is verifyInstalled's own verdict and is carried under
-// verifyInstalled's own name rather than under a second vocabulary for the same fact.
+// them, so a reworded string would silently become a different verdict.
+// Everything else this file can conclude — a diverged marker, a replaced node — is verifyInstalled's
+// own verdict and is carried under verifyInstalled's own name rather than under a second vocabulary for
+// the same fact.
 const (
-	// reasonWorkerDeleted is the Node itself going away under a run that holds it. It is separate from a
-	// diverged marker because no marker survives the object, and an operator reading "the label changed" for a
-	// deleted node would go looking for a mutating webhook that was never involved.
+	// reasonWorkerDeleted is the Node itself going away under a run that holds it.
+	// It is separate from a diverged marker because no marker survives the object, and an operator reading
+	// "the label changed" for a deleted node would go looking for a mutating webhook that was never involved.
 	reasonWorkerDeleted = "worker-node-deleted"
-	// reasonWindowLost is the view ending before the run closed it. It is a violation rather than a warning
-	// because what it costs is the claim itself: from that point on nothing was watching, so exclusivity for
-	// the rest of the window is unobserved rather than established, and this gate exists to stop absence of
-	// evidence being read as evidence of absence.
+	// reasonWindowLost is the view ending before the run closed it.
+	// It is a violation rather than a warning because what it costs is the claim itself: from that point on
+	// nothing was watching, so exclusivity for the rest of the window is unobserved rather than established,
+	// and this gate exists to stop absence of evidence being read as evidence of absence.
 	reasonWindowLost = "ownership-view-lost"
 )
 
@@ -87,21 +92,23 @@ type ownershipViolation struct {
 
 // nodeMarkers is one side of the restoration audit: what the Node carried at a single read.
 //
-// Unrelated taints are carried by KEY and sorted, because they are what the audit is actually about. The
-// release patch replaces spec.taints wholesale, so a bug in withoutOwnershipTaint would delete the
+// Unrelated taints are carried by KEY and sorted, because they are what the audit is actually about.
+// The release patch replaces spec.taints wholesale, so a bug in withoutOwnershipTaint would delete the
 // operator's own taints as a side effect of restoring ours, and an audit that recorded only our own markers
 // would report that as a clean release.
 type nodeMarkers struct {
-	// Observed says the read behind this side succeeded. A false one with a zero everything else is why the
-	// audit has an Unavailable field rather than silently describing a Node nobody read.
+	// Observed says the read behind this side succeeded.
+	// A false one with a zero everything else is why the audit has an Unavailable field rather than
+	// silently describing a Node nobody read.
 	Observed   bool   `json:"observed"`
 	NodeUID    string `json:"nodeUID,omitempty"`
 	HasLabel   bool   `json:"hasLabel"`
 	LabelValue string `json:"labelValue,omitempty"`
 	// OwnershipTaintValues is the value of each taint on the ownership key, which is what the comparison
 	// turns on: the release removes the key, so a value of ours still standing here is a marker that did not
-	// come off. It is values rather than a rendered taint because the audit has to compare the two sides, and
-	// a formatted string is something to parse rather than something to check.
+	// come off.
+	// It is values rather than a rendered taint because the audit has to compare the two sides, and a
+	// formatted string is something to parse rather than something to check.
 	OwnershipTaintValues []string `json:"ownershipTaintValues,omitempty"`
 	OtherTaintKeys       []string `json:"otherTaintKeys,omitempty"`
 	HasJournal           bool     `json:"hasJournal"`
@@ -110,8 +117,10 @@ type nodeMarkers struct {
 // restorationAudit is what the Node looked like on either side of this run's release, and what changed.
 //
 // The release already proves its own markers came off — verifyReleased does that and its verdict is what
-// decides the run. What was missing is the comparison itself: an assertion that something was restored,
-// with no record of the before and after, is not an audit. This is the record.
+// decides the run.
+// What was missing is the comparison itself: an assertion that something was restored, with no record of
+// the before and after, is not an audit.
+// This is the record.
 type restorationAudit struct {
 	Before nodeMarkers `json:"before"`
 	After  nodeMarkers `json:"after"`
@@ -120,12 +129,14 @@ type restorationAudit struct {
 	// establish nothing, and the point of reading the Node again is to have a second look at it.
 	OurMarkersRemoved bool `json:"ourMarkersRemoved"`
 	// Drift names unrelated taints that did not survive the release, which is damage to somebody else's
-	// cluster state rather than a failure of this run's restoration. It is recorded and never invalidating:
-	// it happens after the measurement, so it cannot bear on the number, and a run refused for it would be a
-	// run refused for something that could not have touched what it measured.
+	// cluster state rather than a failure of this run's restoration.
+	// It is recorded and never invalidating: it happens after the measurement, so it cannot bear on the
+	// number, and a run refused for it would be a run refused for something that could not have touched what
+	// it measured.
 	Drift []string `json:"drift,omitempty"`
-	// Unavailable is why a side could not be read. The audit is evidence, not a gate, so a read that failed
-	// says so and leaves the release's own verdict standing.
+	// Unavailable is why a side could not be read.
+	// The audit is evidence, not a gate, so a read that failed says so and leaves the release's own verdict
+	// standing.
 	Unavailable string `json:"unavailable,omitempty"`
 }
 
@@ -136,12 +147,14 @@ type restorationAudit struct {
 // whose evidence would otherwise be a line on somebody's terminal.
 //
 // READ ViolationsObserved, NOT THE RECORD'S REASON, to tell an exclusivity failure from an observation
-// failure. Both land on the collector-desync disposition — deliberately, since builder.Err() is the one
-// thing that decides whether a number may exist — but LedgerBuilder.Desync keeps the FIRST reason it is
-// given, and this verdict is folded in after the streams have been joined. So on a run where a collector
-// stream also desynced, the record's `reason` names that stream and the exclusivity failure survives only
-// here. `disposition == collector-desync && window.violationsObserved > 0` is the discriminator that holds
-// in both orders; the reason text is the human's account of whichever came first.
+// failure.
+// Both land on the collector-desync disposition — deliberately, since builder.Err() is the one thing that
+// decides whether a number may exist — but LedgerBuilder.Desync keeps the FIRST reason it is given, and
+// this verdict is folded in after the streams have been joined.
+// So on a run where a collector stream also desynced, the record's `reason` names that stream and the
+// exclusivity failure survives only here.
+// `disposition == collector-desync && window.violationsObserved > 0` is the discriminator that holds in
+// both orders; the reason text is the human's account of whichever came first.
 type ownershipWindow struct {
 	Node    string `json:"node"`
 	NodeUID string `json:"nodeUID"`
@@ -154,18 +167,19 @@ type ownershipWindow struct {
 	// ClosedAt is where the covered interval ends, and it does not mean the same thing on every run.
 	//
 	// A run that reached the horizon closes its window there, before teardown and before the release, because
-	// a view open across a release would record that release as a violation. A run that failed BEFORE the
-	// horizon closes it after teardown instead, which can be three minutes later — so on those records the
-	// window covers a stretch during which no measurement was happening, and a third party mutating the node
-	// (or the view dying) in it is recorded here as a violation with nothing to mark it as post-run. It cannot
-	// change a verdict: the ledger is only ever told about this window at the horizon, which those runs never
-	// reached, and they already carry a failing disposition of their own. Read it as noise in the record of a
-	// run that measured nothing, not as evidence about a measurement.
+	// a view open across a release would record that release as a violation.
+	// A run that failed BEFORE the horizon closes it after teardown instead, which can be three minutes later
+	// — so on those records the window covers a stretch during which no measurement was happening, and a third
+	// party mutating the node (or the view dying) in it is recorded here as a violation with nothing to mark
+	// it as post-run.
+	// It cannot change a verdict: the ledger is only ever told about this window at the horizon, which those
+	// runs never reached, and they already carry a failing disposition of their own.
+	// Read it as noise in the record of a run that measured nothing, not as evidence about a measurement.
 	ClosedAt string `json:"closedAt,omitempty"`
 	// NodeVersionsObserved is the denominator for an empty Violations list, for the reason PodsOnNode is the
 	// denominator for an empty GPUConsumers list: "nothing deviated" from a view that observed nothing is
-	// indistinguishable from a view pointed at the wrong object. The opening read is one of these, so a window
-	// that held is always at least 1 rather than 0.
+	// indistinguishable from a view pointed at the wrong object.
+	// The opening read is one of these, so a window that held is always at least 1 rather than 0.
 	NodeVersionsObserved int `json:"nodeVersionsObserved"`
 	// Ending is what could be observed about how the view stopped, in endText's spelling for a lost one.
 	Ending string `json:"ending"`
@@ -176,14 +190,17 @@ type ownershipWindow struct {
 	// NeverOpened marks a window that exists only to carry a restoration audit.
 	//
 	// There is one state where a worker was acquired and no view over it could be established: the sentinel
-	// failed to start. The run is refused, but the node has already been labelled and tainted, so a
-	// restoration audit exists and is the only evidence of whether those markers came off.
+	// failed to start.
+	// The run is refused, but the node has already been labelled and tainted, so a restoration audit exists
+	// and is the only evidence of whether those markers came off.
 	//
-	// Attaching it needed somewhere to attach it TO. Without this, the audit was dropped whenever the window
-	// was nil, and clusterRestored — which asks for proof only where a window exists — then reported
-	// containment held on the strength of no evidence at all. A synthesized window is the smaller lie than a
-	// silently discarded audit, and this field is what keeps it from being read as a view that was held:
-	// every other field on it is zero, and NodeVersionsObserved of 0 already fails exclusivityHeld.
+	// Attaching it needed somewhere to attach it TO.
+	// Without this, the audit was dropped whenever the window was nil, and clusterRestored — which asks for
+	// proof only where a window exists — then reported containment held on the strength of no evidence at
+	// all.
+	// A synthesized window is the smaller lie than a silently discarded audit, and this field is what keeps
+	// it from being read as a view that was held: every other field on it is zero, and NodeVersionsObserved
+	// of 0 already fails exclusivityHeld.
 	NeverOpened bool `json:"neverOpened,omitempty"`
 }
 
@@ -206,22 +223,24 @@ type ownershipSentinel struct {
 
 // startOwnershipSentinel opens the window and takes its first reading.
 //
-// The order is the point. The stream's baseline List fixes the resume version FIRST, so every change from
-// that version onward is delivered; the Get that follows is then free of a gap of its own, because anything
-// that happened between the list and the read is already on its way through the watch. Reading first and
-// listing second would leave exactly the hole this gate exists to close.
+// The order is the point.
+// The stream's baseline List fixes the resume version FIRST, so every change from that version onward is
+// delivered; the Get that follows is then free of a gap of its own, because anything that happened between
+// the list and the read is already on its way through the watch.
+// Reading first and listing second would leave exactly the hole this gate exists to close.
 //
 // What it cannot close is the sliver between acquireWorker's own verification and this baseline, and the
-// bound on it is narrower than "anything could happen in there". The opening read compares against the
-// journal like every other version, so a strip STILL IN EFFECT when the window opens is caught; what is
-// invisible is only a complete strip-and-restore that begins and ends inside the sliver. Nothing short of
-// resuming from the resourceVersion of the acquiring patch itself would see that.
+// bound on it is narrower than "anything could happen in there".
+// The opening read compares against the journal like every other version, so a strip STILL IN EFFECT when
+// the window opens is caught; what is invisible is only a complete strip-and-restore that begins and ends
+// inside the sliver.
+// Nothing short of resuming from the resourceVersion of the acquiring patch itself would see that.
 //
 // The caller keeps the sliver small by where it calls this: run() opens the window immediately after
 // acquireWorker rather than after qualifyWorker, whose unfiltered cluster-wide Pod List is the most
-// expensive call in setup and would otherwise sit inside the gap. What remains is one Get-plus-List against
-// the apiserver. The window this proves is [baseline, close], and acquire's own verify is what stands
-// before it.
+// expensive call in setup and would otherwise sit inside the gap.
+// What remains is one Get-plus-List against the apiserver.
+// The window this proves is [baseline, close], and acquire's own verify is what stands before it.
 func startOwnershipSentinel(ctx context.Context, c client.WithWatch, j journal) (*ownershipSentinel, error) {
 	stream, err := startWatchStream(ctx, c, clusterScope(), func() client.ObjectList { return &corev1.NodeList{} })
 	if err != nil {
@@ -247,10 +266,11 @@ func startOwnershipSentinel(ctx context.Context, c client.WithWatch, j journal) 
 
 	var n corev1.Node
 	if err := c.Get(ctx, client.ObjectKey{Name: j.Node}, &n); err != nil {
-		// Refused rather than noted. The opening reading is what makes the first stretch of the window an
-		// observation instead of an assumption, and a run that could not read its own worker at the moment it
-		// starts measuring has not established the premise it is about to measure under — the same reason
-		// qualifyWorker refuses a Pod list it could not complete.
+		// Refused rather than noted.
+		// The opening reading is what makes the first stretch of the window an observation instead of an
+		// assumption, and a run that could not read its own worker at the moment it starts measuring has not
+		// established the premise it is about to measure under — the same reason qualifyWorker refuses a Pod
+		// list it could not complete.
 		s.Close()
 		return nil, fmt.Errorf("read node %s to open the ownership window: %w", j.Node, err)
 	}
@@ -260,8 +280,9 @@ func startOwnershipSentinel(ctx context.Context, c client.WithWatch, j journal) 
 	// collector.awaitEstablished's for the same reasons. startWatchStream returns a nil error before its first
 	// watch has necessarily succeeded, and a permanent pre-establishment failure — a Forbidden on nodes, the
 	// realistic one here, since this is the only cluster-scoped watch the runner opens — ends the stream having
-	// established nothing. Without this arm the run would submit its trace, spend its whole window, and refuse
-	// at the horizon over an RBAC gap that was knowable in the first second.
+	// established nothing.
+	// Without this arm the run would submit its trace, spend its whole window, and refuse at the horizon over
+	// an RBAC gap that was knowable in the first second.
 	//
 	// The wait costs no observation time at all, which is what separates this from the collector's budget: the
 	// collector is not built yet, so t0 is unstamped and the horizon has not started.
@@ -270,9 +291,10 @@ func startOwnershipSentinel(ctx context.Context, c client.WithWatch, j journal) 
 	case <-s.stream.End():
 		// "before the run could rely on it" rather than "before it ever established", because a stream that
 		// established and died in the same instant makes both arms ready and the choice between them is the
-		// runtime's — the same ambiguity collector.awaitEstablished documents. Both refuse: this one refuses
-		// here, and the other lets consume record the lost view a moment later. Only the wording could be
-		// wrong, so it claims the thing that is true either way.
+		// runtime's — the same ambiguity collector.awaitEstablished documents.
+		// Both refuse: this one refuses here, and the other lets consume record the lost view a moment
+		// later.
+		// Only the wording could be wrong, so it claims the thing that is true either way.
 		end := s.stream.Ended()
 		s.Close()
 		return nil, fmt.Errorf("the continuous view of node %s ended before the run could rely on it: %s",
@@ -294,8 +316,8 @@ func nowStamp() string { return time.Now().UTC().Format(time.RFC3339) }
 // consume folds every Node version the stream delivers, then decides what the ending meant.
 //
 // The ending rule is the collector's, deliberately: an ending the caller did not cause is a lost view, and a
-// forwarded terminal status is a loss the stream actually witnessed even alongside a cancellation. Anything
-// else would be a second, weaker reading of streamEnd's own asymmetry living in this package twice.
+// forwarded terminal status is a loss the stream actually witnessed even alongside a cancellation.
+// Anything else would be a second, weaker reading of streamEnd's own asymmetry living in this package twice.
 func (s *ownershipSentinel) consume() {
 	defer close(s.done)
 	for ev := range s.stream.ResultChan() {
@@ -303,19 +325,21 @@ func (s *ownershipSentinel) consume() {
 		case watch.Error:
 			// No verdict here, for the reason collector.consume gives: RetryWatcher forwards nothing for the
 			// errors it retries, so an Error that arrives is one it has given up on and forward has already kept
-			// the status as the ending's evidence. The ending below is what decides.
+			// the status as the ending's evidence.
+			// The ending below is what decides.
 			continue
 		}
 		// There is deliberately no watch.Bookmark arm here, and the absence is worth a line because a bookmark
 		// looks like it would be dangerous: it carries a resource version on an otherwise empty object, so
 		// comparing one against the journal would read as a stripped label.
 		//
-		// It cannot arrive. RetryWatcher consumes bookmarks to advance its own resume version and never
-		// forwards them — client-go v0.36.1, tools/watch/retrywatcher.go: `if event.Type != watch.Bookmark {
-		// ok = rw.send(ctx, event) }` — so nothing downstream of it, this consumer or the collector's four,
-		// ever sees one. The collector has no such arm for the same reason. A guard here would be code with no
-		// caller wearing a comment about a mechanism nobody had measured, which is the exact defect this
-		// lineage keeps finding.
+		// It cannot arrive.
+		// RetryWatcher consumes bookmarks to advance its own resume version and never forwards them —
+		// client-go v0.36.1, tools/watch/retrywatcher.go: `if event.Type != watch.Bookmark { ok = rw.send(ctx,
+		// event) }` — so nothing downstream of it, this consumer or the collector's four, ever sees one.
+		// The collector has no such arm for the same reason.
+		// A guard here would be code with no caller wearing a comment about a mechanism nobody had measured,
+		// which is the exact defect this lineage keeps finding.
 		n, ok := ev.Object.(*corev1.Node)
 		if !ok {
 			continue
@@ -356,8 +380,9 @@ func (s *ownershipSentinel) consume() {
 //
 // The comparison is verifyInstalled's and nothing else, which is what keeps benign drift benign: unrelated
 // labels and taints — the operator's own unhealthy taint above all — are not this run's markers and must
-// never invalidate a run for existing. A second rule written here would be a second opinion about the same
-// question, and the two would eventually disagree.
+// never invalidate a run for existing.
+// A second rule written here would be a second opinion about the same question, and the two would
+// eventually disagree.
 func (s *ownershipSentinel) observe(n *corev1.Node, et watch.EventType) {
 	obs := observe(n)
 	s.mu.Lock()
@@ -401,8 +426,9 @@ func (s *ownershipSentinel) observe(n *corev1.Node, et watch.EventType) {
 // like once it had.
 //
 // "Earliest observed", not "earliest in time": consume() starts before the opening read, so a watch event
-// delivered in that instant can be folded ahead of it. Every entry carries its own At, which is what a
-// reader should order by; retention order is arrival order and nothing more.
+// delivered in that instant can be folded ahead of it.
+// Every entry carries its own At, which is what a reader should order by; retention order is arrival
+// order and nothing more.
 func (s *ownershipSentinel) recordLocked(v ownershipViolation) {
 	s.window.ViolationsObserved++
 	if len(s.window.Violations) < windowViolationCap {
@@ -446,8 +472,9 @@ func (w *ownershipWindow) invalidation() string {
 		return ""
 	}
 	// windowViolationCap is above zero, so a counted violation is always a retained one and this stands for a
-	// state no build can reach. It is a fallback rather than an index because this string is the run's own
-	// refusal: a panic here would destroy the refusal along with the run it was refusing.
+	// state no build can reach.
+	// It is a fallback rather than an index because this string is the run's own refusal: a panic here would
+	// destroy the refusal along with the run it was refusing.
 	quoted := "no violation was retained to quote"
 	if len(w.Violations) > 0 {
 		quoted = fmt.Sprintf("%s: %s (at %s)", w.Violations[0].Reason, w.Violations[0].Detail, w.Violations[0].At)
@@ -491,8 +518,9 @@ func readMarkers(ctx context.Context, c client.Client, node string) (nodeMarkers
 // auditedRelease releases the worker and records what the Node looked like on either side of it.
 //
 // The release's own verdict is returned untouched: releaseOwned decides whether the run kept its worker, and
-// this adds evidence rather than a second opinion. A failed audit read therefore never converts a good
-// release into a bad one — it says which side could not be read and leaves the verdict alone.
+// this adds evidence rather than a second opinion.
+// A failed audit read therefore never converts a good release into a bad one — it says which side could not
+// be read and leaves the verdict alone.
 func auditedRelease(ctx context.Context, c client.Client, j journal) (*restorationAudit, error) {
 	audit := &restorationAudit{}
 	before, err := readMarkers(ctx, c, j.Node)
@@ -520,10 +548,10 @@ func auditedRelease(ctx context.Context, c client.Client, j journal) (*restorati
 
 // reportRestoration says what the audit found, and says nothing when there is nothing to act on.
 //
-// The audit is evidence; the release's own verifyReleased is what decides the run. So this prints only the
-// two things a human has to do something about — a side that could not be read, and unrelated taints that
-// did not survive the release — and stays silent on a clean one, because a line printed after every
-// successful run is a line nobody reads on the run where it matters.
+// The audit is evidence; the release's own verifyReleased is what decides the run.
+// So this prints only the two things a human has to do something about — a side that could not be read,
+// and unrelated taints that did not survive the release — and stays silent on a clean one, because a line
+// printed after every successful run is a line nobody reads on the run where it matters.
 //
 // w is a seam for the same reason reportResidue's is: a claim printed to a package-level stderr is a claim
 // no test can fail, and this file's ancestors shipped two false ones that way.
@@ -536,9 +564,10 @@ func reportRestoration(w io.Writer, worker string, a *restorationAudit) {
 	}
 	if len(a.Drift) > 0 {
 		// Not an outcome change, for the reason a failed residue stamp is not one either: what this run had to
-		// restore is its own label and taint, and verifyReleased has already proven those came off. A taint of
-		// somebody else's that did not survive is damage to the cluster rather than to the measurement, and it
-		// happened after the horizon, so it cannot bear on the number — but nobody else is watching for it.
+		// restore is its own label and taint, and verifyReleased has already proven those came off.
+		// A taint of somebody else's that did not survive is damage to the cluster rather than to the
+		// measurement, and it happened after the horizon, so it cannot bear on the number — but nobody else is
+		// watching for it.
 		_, _ = fmt.Fprintf(w, "RESTORATION DRIFT: worker %s carried taint(s) %v before this run released it and does "+
 			"not now; the release replaces spec.taints wholesale, so something dropped them\n", worker, a.Drift)
 	}

@@ -56,8 +56,9 @@ const (
 // optionally bound to the machine it means as name@id, with id the attempt's machineID for that name, and each
 // optionally scoped to one attempt as name#N or name@id#N.
 //
-// It is never inferred. A Node object deleted, or a Pod gone from the API, does not stop a process on a machine the
-// control plane cannot reach, and that process may still be writing to the shared checkpoint volume.
+// It is never inferred.
+// A Node object deleted, or a Pod gone from the API, does not stop a process on a machine the control plane cannot
+// reach, and that process may still be writing to the shared checkpoint volume.
 // An unscoped entry is spent by the first attempt that stops on it (fencedBy), because the machine it named may come
 // back and run a later attempt; and a bare name is refused once another machine of that name ran (fenceVouches).
 const annFencedNodes = "platform.lkhun9311.github.io/fenced-nodes"
@@ -101,8 +102,8 @@ func restartable(mltj *platformv1.MLTrainingJob) bool {
 // Each state is written to status before the action it authorises, so a controller that restarts mid-sequence
 // resumes the step it was on instead of repeating an earlier one.
 func (r *MLTrainingJobReconciler) reconcileRestartable(ctx context.Context, mltj *platformv1.MLTrainingJob) (ctrl.Result, error) {
-	// Terminal only when the work finished or the budget is spent; a Failed written by markFailed for a conflict is
-	// meant to recover once the conflict clears, as it does on the ordinary path.
+	// Terminal only when the work finished or the budget is spent; a Failed written by markFailed for a conflict is meant
+	// to recover once the conflict clears, as it does on the ordinary path.
 	// A terminal job still releases its held ranks: a rank whose node went NotReady before its terminal phase was read is
 	// held until the node is back or fenced, and nothing but this pass would ever release it.
 	if mltj.Status.Phase == mltjPhaseSucceeded {
@@ -292,7 +293,8 @@ func (r *MLTrainingJobReconciler) discover(ctx context.Context, mltj *platformv1
 		}
 		if boundAt[n].IsZero() {
 			// The binding is not published yet; deciding now would compare the Node with nothing, so a node an autoscaler
-			// created for a Pending rank would read as a replacement for good. A later pass decides.
+			// created for a Pending rank would read as a replacement for good.
+			// A later pass decides.
 			continue
 		}
 		var node corev1.Node
@@ -446,8 +448,8 @@ func kubeletReported(rec *platformv1.TrainingAttempt, p *corev1.Pod, node *corev
 // rankStopped reports whether a rank Pod is known to have stopped: never bound and already being deleted, so no
 // scheduler will bind it; reported terminal by its kubelet (kubeletReported); or being deleted from a node fenced for
 // its attempt.
-// With recorded, a bound Pod counts only once its node is in its attempt's record, which the barrier needs.
-// node is the Pod's Node as it is now, nil when it is gone.
+// With recorded, a bound Pod counts only once its node is in its attempt's record, which the barrier needs. node is
+// the Pod's Node as it is now, nil when it is gone.
 func rankStopped(mltj *platformv1.MLTrainingJob, p *corev1.Pod, recorded bool, node *corev1.Node) bool {
 	deleting := !p.DeletionTimestamp.IsZero()
 	n := p.Spec.NodeName
@@ -568,8 +570,8 @@ func (r *MLTrainingJobReconciler) trigger(ctx context.Context, mltj *platformv1.
 	now := metav1.Now()
 	// An attempt that ends admitted but never seen running leaves an admission stamp the next attempt's Running would
 	// be measured from, a window holding the failure, the stop barrier and the requeue (codex review r8).
-	// Cleared in the same write, so the admission-to-running window is always one attempt's; the first attempt
-	// seen running is the one the fields report.
+	// Cleared in the same write, so the admission-to-running window is always one attempt's; the first attempt seen
+	// running is the one the fields report.
 	if mltj.Status.RunningObservedAt == nil {
 		mltj.Status.AdmittedAt = nil
 	}
@@ -724,7 +726,8 @@ func (r *MLTrainingJobReconciler) stopBarrier(ctx context.Context, mltj *platfor
 // acknowledged as off, and for those a bare name can no longer acknowledge, the name@uid entry that would.
 //
 // A node that is Ready answered for its own Pods, so their absence from the API is the kubelet's report that they
-// stopped. A node that is not Ready, or no longer exists, reported nothing; only the annotation can vouch for it.
+// stopped.
+// A node that is not Ready, or no longer exists, reported nothing; only the annotation can vouch for it.
 func (r *MLTrainingJobReconciler) unfencedNodes(ctx context.Context, mltj *platformv1.MLTrainingJob, cur platformv1.TrainingAttempt) ([]string, []string, []string, error) {
 	fenced := fenceEntries(strings.Split(mltj.Annotations[annFencedNodes], ","), mltj.Status.Attempts, cur.Number)
 	var out, bound, used []string

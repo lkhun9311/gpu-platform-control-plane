@@ -27,37 +27,46 @@ import (
 //
 // docs/superpowers/specs/2026-09-21-stage-c-resume-arm-pre-registration.md registers what a resuming arm
 // costs and names the oracle it requires: a resumed run must be able to say it did the SAME work, not merely
-// work of the same shape. The workload's CPU path already carries a quantity that answers that -- the
-// accumulator advanced once per inner step -- and this predicts it.
+// work of the same shape.
+// The workload's CPU path already carries a quantity that answers that -- the accumulator advanced once per
+// inner step -- and this predicts it.
 //
 // The workload REPORTS an accumulator and the record CONSUMES it: cmd/queuelabrun's checkReportedWork runs
 // these functions over the victim attempt's count and value, and publishes the verdict as
 // measurement.workload.workCheck.
 //
 // This paragraph has been wrong twice, in opposite directions, and both were caught by a review rather than
-// by a test. It first said no value existed to compare against, which stopped being true the moment `acc=`
-// joined the termination message. It then said nothing consumed the value, which stopped being true when the
-// record started deriving the axis. A comment that describes the state of the rest of the tree goes stale
-// whenever that tree moves, and this one has no test holding it to the code.
+// by a test.
+// It first said no value existed to compare against, which stopped being true the moment `acc=` joined the
+// termination message.
+// It then said nothing consumed the value, which stopped being true when the record started deriving the
+// axis.
+// A comment that describes the state of the rest of the tree goes stale whenever that tree moves, and this
+// one has no test holding it to the code.
 //
 // What that costs was also mis-stated here and in the pre-registration: a workload argv edit does NOT move
-// canaryKey.PodTemplateHash. That hash is taken over the template rendered from templateProbeJob, a fixed
-// synthetic input, so it moves only when the OPERATOR's renderer changes. The workload command is compared
-// separately, as canaryKey.HonorCommand and IgnoreCommand, and those are what a change here invalidates.
+// canaryKey.PodTemplateHash.
+// That hash is taken over the template rendered from templateProbeJob, a fixed synthetic input, so it
+// moves only when the OPERATOR's renderer changes.
+// The workload command is compared separately, as canaryKey.HonorCommand and IgnoreCommand, and those are
+// what a change here invalidates.
 //
 // It is here rather than in internal/exputil because that package "deliberately carries no
-// experiment-specific schema". Replicating one workload's arithmetic is exactly that.
+// experiment-specific schema".
+// Replicating one workload's arithmetic is exactly that.
 
 // accumulatorSeed and accumulatorMod mirror the workload's `x=1.0` and its modulus.
 //
 // They are Go-side copies of values that live in a Python string, which is the drift this package already
 // guards elsewhere: workloadPeriod reads PERIOD out of the script rather than restating it, because "a period
 // changed in one place and restated in another is a test measuring a window that no longer contains what it
-// thinks it does". The same argument applies with more force here, since a silent divergence would not fail a
-// test -- it would produce an oracle that disagrees with a correctly resumed run and calls it wrong.
+// thinks it does".
+// The same argument applies with more force here, since a silent divergence would not fail a test -- it would
+// produce an oracle that disagrees with a correctly resumed run and calls it wrong.
 //
-// So these are not the authority. ScriptAccumulatorParams reads the authority out of the script itself, and
-// the spec file pins the two together against Python's own output.
+// So these are not the authority.
+// ScriptAccumulatorParams reads the authority out of the script itself, and the spec file pins the two
+// together against Python's own output.
 const (
 	accumulatorSeed = 1.0
 	accumulatorMod  = 1000000.0
@@ -84,7 +93,8 @@ type AccumulatorParams struct {
 //
 // It returns an error rather than falling back to the constants above, because a fallback would let the
 // oracle keep answering after the script stopped agreeing with it -- which is the failure this whole file is
-// arranged to prevent. An oracle that cannot find what it predicts must refuse, not guess.
+// arranged to prevent.
+// An oracle that cannot find what it predicts must refuse, not guess.
 func ScriptAccumulatorParams() (AccumulatorParams, error) {
 	m := accumulatorStepPattern.FindStringSubmatch(workloadScript)
 	if m == nil {
@@ -109,8 +119,8 @@ func ScriptAccumulatorParams() (AccumulatorParams, error) {
 //
 // The loop is written in the script's order deliberately: float64 is IEEE 754 in both languages, so the same
 // operations in the same sequence agree to the bit, and a "simplification" that batched the multiplications
-// or used math.Pow would not. Measured rather than assumed -- the spec runs the shipped Python and compares
-// the bit patterns.
+// or used math.Pow would not.
+// Measured rather than assumed -- the spec runs the shipped Python and compares the bit patterns.
 //
 // A negative count is an error rather than a zero, because "no iterations" and "a count that cannot be right"
 // are different statements and only one of them means the seed value.
@@ -118,9 +128,9 @@ func AccumulatorAfter(p AccumulatorParams, iterations int) (float64, error) {
 	if iterations < 0 {
 		return 0, fmt.Errorf("cannot predict the accumulator after %d iterations", iterations)
 	}
-	// The nesting mirrors the script's: an outer loop per reported iteration, an inner one per step. Only the
-	// loop SPELLING is modernised here -- the operation and its order are the script's, and reassociating or
-	// batching them would break the bit-for-bit agreement the spec pins.
+	// The nesting mirrors the script's: an outer loop per reported iteration, an inner one per step.
+	// Only the loop SPELLING is modernised here -- the operation and its order are the script's, and
+	// reassociating or batching them would break the bit-for-bit agreement the spec pins.
 	x := accumulatorSeed
 	for range iterations {
 		for range p.StepsPerIteration {
@@ -132,15 +142,16 @@ func AccumulatorAfter(p AccumulatorParams, iterations int) (float64, error) {
 
 // ResumedTheSameWork reports whether a resumed run's accumulator is the one its iteration count implies.
 //
-// EXACT equality, not a tolerance. The comparison is between two IEEE 754 doubles produced by the identical
-// operation sequence, so they are equal or the run did not do the work it claims -- and a tolerance here
-// would accept precisely the case this oracle exists to catch, a resume that replayed a different number of
-// steps and landed nearby.
+// EXACT equality, not a tolerance.
+// The comparison is between two IEEE 754 doubles produced by the identical operation sequence, so they are
+// equal or the run did not do the work it claims -- and a tolerance here would accept precisely the case
+// this oracle exists to catch, a resume that replayed a different number of steps and landed nearby.
 //
-// It says nothing about the device path. There the loop calls the kernel and never touches x, so a resumed
-// run and a control would both report the seed and this would agree for the wrong reason. The
-// pre-registration therefore scopes Stage C to the CPU path and refuses a device-path verdict; callers must
-// not reach here with a run whose reported kind is the device one.
+// It says nothing about the device path.
+// There the loop calls the kernel and never touches x, so a resumed run and a control would both report the
+// seed and this would agree for the wrong reason.
+// The pre-registration therefore scopes Stage C to the CPU path and refuses a device-path verdict; callers
+// must not reach here with a run whose reported kind is the device one.
 func ResumedTheSameWork(p AccumulatorParams, iterations int, reported float64) (bool, error) {
 	want, err := AccumulatorAfter(p, iterations)
 	if err != nil {

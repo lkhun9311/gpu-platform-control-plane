@@ -28,8 +28,8 @@ func openLiveRows(path string) (*liveRows, error) {
 	return &liveRows{f: f}, nil
 }
 
-// write is the replay's OnRow; Replay serialises the calls. A nil liveRows writes nothing, so a study that does not
-// record timing can pass its method without a branch.
+// write is the replay's OnRow; Replay serialises the calls.
+// A nil liveRows writes nothing, so a study that does not record timing can pass its method without a branch.
 func (l *liveRows) write(r bench.RawRow) {
 	if l == nil {
 		return

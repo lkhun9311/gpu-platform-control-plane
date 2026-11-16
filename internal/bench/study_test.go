@@ -14,9 +14,10 @@ var _ = Describe("the study registry", func() {
 			// Written out rather than regenerated from the same factors the code uses.
 			//
 			// A test that builds the expected names with the production function proves the function is
-			// consistent with itself and nothing else. These strings are what the runner passes on the
-			// command line and what a reader sees in the report, so they are pinned literally: changing
-			// one has to be a deliberate edit here, not a side effect of touching a format string.
+			// consistent with itself and nothing else.
+			// These strings are what the runner passes on the command line and what a reader sees in
+			// the report, so they are pinned literally: changing one has to be a deliberate edit here,
+			// not a side effect of touching a format string.
 			s, ok := LookupStudy(StudyPriceOfProtection)
 			Expect(ok).To(BeTrue())
 			Expect(s.Arms).To(Equal([]string{
@@ -52,9 +53,10 @@ var _ = Describe("the study registry", func() {
 			pop, _ := LookupStudy(StudyPriceOfProtection)
 			m5b, _ := LookupStudy(StudyM5BGateway)
 
-			// The specific collision the study field exists to prevent. The pre-registration's readings
-			// call this study's control "off", and M5-b has an arm by that name which ran through a
-			// gateway. Neither study may admit the other's condition.
+			// The specific collision the study field exists to prevent.
+			// The pre-registration's readings call this study's control "off", and M5-b has an arm by
+			// that name which ran through a gateway.
+			// Neither study may admit the other's condition.
 			Expect(pop.Admits("off")).To(BeFalse())
 			Expect(pop.Admits("kv-aware")).To(BeFalse())
 			Expect(m5b.Admits("default-fcfs")).To(BeFalse())
@@ -69,9 +71,9 @@ var _ = Describe("the study registry", func() {
 
 	Describe("evidence that predates the study field", func() {
 		It("reads an empty study as the gateway experiment", func() {
-			// Every raw file this repository has written so far carries no study at all. They are M5-b's,
-			// because M5-b is the only experiment that has been run, and a report has to keep reading
-			// them.
+			// Every raw file this repository has written so far carries no study at all.
+			// They are M5-b's, because M5-b is the only experiment that has been run, and a report has to
+			// keep reading them.
 			s, ok := LookupStudy("")
 			Expect(ok).To(BeTrue())
 			Expect(s.ID).To(Equal(StudyM5BGateway))
@@ -86,12 +88,13 @@ var _ = Describe("the study registry", func() {
 	Describe("the repetition floor each registration fixed", func() {
 		It("carries the number each pre-registration states, as a literal", func() {
 			// Pinned literally for the reason the arm names above are: a table built from the production
-			// values proves the registry is consistent with itself. These numbers decide how many paid cells
-			// a study needs, so changing one has to be a deliberate edit here.
+			// values proves the registry is consistent with itself.
+			// These numbers decide how many paid cells a study needs, so changing one has to be a deliberate
+			// edit here.
 			//
 			// Zero means "this registration fixed no floor", which is a value and not an omission -- the same
-			// distinction a nil Frozen draws. A refusal reading zero declines to judge rather than treating
-			// it as a floor of none.
+			// distinction a nil Frozen draws.
+			// A refusal reading zero declines to judge rather than treating it as a floor of none.
 			for _, c := range []struct {
 				id       string
 				minReps  int
@@ -117,16 +120,17 @@ var _ = Describe("the study registry", func() {
 		})
 
 		It("never promises an interval on fewer than three repetitions", func() {
-			// The pair has to be read together, and this is the disagreement worth refusing. Measured
-			// 2026-10-04 by calling the interval functions with two values: BootstrapCI returned
+			// The pair has to be read together, and this is the disagreement worth refusing.
+			// Measured 2026-10-04 by calling the interval functions with two values: BootstrapCI returned
 			// Lo=3998.000 Hi=4001.000 and PairedRatioCI returned Lo=22.8629 Hi=22.9770, both with an EMPTY
-			// InvalidReason -- each declines only at n==1. A two-point bootstrap has four distinct
-			// resamples, so those bounds ARE the two observations, which this project's own report calls an
-			// OBSERVED RANGE rather than an interval.
+			// InvalidReason -- each declines only at n==1.
+			// A two-point bootstrap has four distinct resamples, so those bounds ARE the two observations,
+			// which this project's own report calls an OBSERVED RANGE rather than an interval.
 			//
 			// Three rather than five, because what is being excluded is the degenerate case the functions
-			// cannot detect. Whether five is required is a question for each registration, and the literal
-			// table above is where that answer lives.
+			// cannot detect.
+			// Whether five is required is a question for each registration, and the literal table above is
+			// where that answer lives.
 			for _, id := range KnownStudyIDs() {
 				s, _ := LookupStudy(id)
 				if !s.PublishesInterval || s.MinRepetitions == 0 {
@@ -139,9 +143,10 @@ var _ = Describe("the study registry", func() {
 
 		It("fixes a floor for every study that froze a load", func() {
 			// A study with a frozen tuple is one a paid run can be bought for, and the cell count follows
-			// from the floor. Nothing else makes a new entry declare one: the registry's size is pinned
-			// nowhere, so an eighth study added with both fields omitted would read as zero -- "no
-			// registration said" -- on a study whose registration certainly has to.
+			// from the floor.
+			// Nothing else makes a new entry declare one: the registry's size is pinned nowhere, so an
+			// eighth study added with both fields omitted would read as zero -- "no registration said" --
+			// on a study whose registration certainly has to.
 			//
 			// Tied to Frozen rather than to a list of ids so that the next frozen study inherits the demand
 			// instead of being added to a literal somebody has to remember to extend.
@@ -158,9 +163,10 @@ var _ = Describe("the study registry", func() {
 
 	Describe("the report's arm column", func() {
 		It("is wide enough for the longest arm any study defines", func() {
-			// This was the literal 12, sized for M5-b's four names. "mbt-0512-priority" is 17, so every
-			// column to its right would have been pushed out of line in the one table a reader looks at
-			// -- and nothing would have failed. Deriving the width means a new study cannot do that.
+			// This was the literal 12, sized for M5-b's four names.
+			// "mbt-0512-priority" is 17, so every column to its right would have been pushed out of
+			// line in the one table a reader looks at -- and nothing would have failed.
+			// Deriving the width means a new study cannot do that.
 			widest := 0
 			var widestName string
 			for _, id := range KnownStudyIDs() {
@@ -186,7 +192,8 @@ var _ = Describe("the study registry", func() {
 })
 
 // The later runs are new studies only so their rows cannot be pooled with the first run's; in every registered field
-// they must be the same. Mutation that turns this red: change any field of a later run's entry.
+// they must be the same.
+// Mutation that turns this red: change any field of a later run's entry.
 var _ = Describe("the hold-cap product study's later runs", func() {
 	for _, id := range []string{StudyHoldCapProductTransferR2, StudyHoldCapProductTransferBoundOff} {
 		It(id+" is registered exactly like the first run but for its ID", func() {

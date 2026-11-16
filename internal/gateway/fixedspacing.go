@@ -62,11 +62,10 @@ func (f *fixedSpacingAdmitter) Admit(context.Context, RequestMeta, *BackendRef, 
 	return false, reasonReservationRequired
 }
 
-// Reserve admits a premium request at once, and a standard one when nobody waits ahead of it and a spacing has passed
-// since the backend's last standard admission; otherwise it waits its turn.
-// An admitted standard request carries an empty reservation: nothing it does later releases anything, but a
-// reservation is what keeps it on the backend whose clock it was charged to; without one the server kept the
-// fallback backends, which no spacing had been asked about (review of b80093c).
+// Reserve admits a premium request at once, and a standard one when nobody waits ahead of it and a spacing has passed since the backend's last standard admission;
+// otherwise it waits its turn.
+// An admitted standard request carries an empty reservation: nothing it does later releases anything, but a reservation is what keeps it on the backend whose
+// clock it was charged to; without one the server kept the fallback backends, which no spacing had been asked about (review of b80093c).
 // A request that has to wait is charged to the hold budget until this returns, as serial-prefill's are, and one the budget cannot hold is refused before it joins.
 func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, meta RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
 	if tier == tierPremium {
@@ -135,8 +134,9 @@ func (f *fixedSpacingAdmitter) release(key string) {
 	f.arm(key, l, now)
 }
 
-// leave takes a waiter out of line. One whose turn was handed to it as it gave up was counted as admitted, and that
-// slot is spent: the race is at the 25 s hold or a client's exit, and spending the slot only ever slows this arm.
+// leave takes a waiter out of line.
+// One whose turn was handed to it as it gave up was counted as admitted, and that slot is spent: the race is at the
+// 25 s hold or a client's exit, and spending the slot only ever slows this arm.
 func (f *fixedSpacingAdmitter) leave(key, tenant string, turn chan struct{}) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

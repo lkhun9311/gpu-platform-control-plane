@@ -63,8 +63,8 @@ func TestTheLedgerParserRefusesWhatItCannotRead(t *testing.T) {
 			t.Errorf("parseSubmissions(%q) was accepted", in)
 		}
 	}
-	// An empty ledger is legitimate: an idle cluster with nothing submitted. Report distinguishes that from a
-	// ledger whose entries are unobserved.
+	// An empty ledger is legitimate: an idle cluster with nothing submitted.
+	// Report distinguishes that from a ledger whose entries are unobserved.
 	got, err := parseSubmissions("")
 	if err != nil || got != nil {
 		t.Errorf("an empty ledger should parse to nothing without error, got %v / %v", got, err)

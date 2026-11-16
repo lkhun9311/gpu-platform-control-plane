@@ -31,12 +31,14 @@ func TestMatrixPlanRefusalAppliesTheReadingsOwnFloor(t *testing.T) {
 //
 // The load is the one the PRE-REGISTRATION names for the next run -- RATE=9.4045, premium weight 1,
 // contender weight 0.0260, DURATION_MS=505000 -- and not the wrapper's defaults, which that page calls "the
-// seventh pilot's load, the one reading 4b rejected". Pinning the rejected load's counts here would have
-// described the wrong run in a comment a later reader trusts.
+// seventh pilot's load, the one reading 4b rejected".
+// Pinning the rejected load's counts here would have described the wrong run in a comment a later reader
+// trusts.
 //
 // Measured with gen-trace at that load: 4655 premium offers over 505000 ms, 109 over 12000 ms, 99 over
-// 11000 ms. The last pair sits one on each side of MinTailSamples, which is what shows the floor being
-// applied is that one.
+// 11000 ms.
+// The last pair sits one on each side of MinTailSamples, which is what shows the floor being applied
+// is that one.
 func TestMatrixPlanRefusalSeparatesTheMeasuredDurations(t *testing.T) {
 	if err := MatrixPlanRefusal(StudySharingMatrix, ArmR1, 4655); err != nil {
 		t.Errorf("the registered 505000 ms cell (4655 premium offers) was refused: %v", err)
@@ -69,8 +71,9 @@ func TestMatrixPlanRefusalChecksTheStudyAndTheArm(t *testing.T) {
 // A set-level question no single cell can answer.
 //
 // ARMS defaults to four arms, so the three-arm run must name them; naming the wrong three is what this
-// catches. EvaluateSharingMatrix refuses a run with either arm absent, and it does so after every cell has
-// been paid for.
+// catches.
+// EvaluateSharingMatrix refuses a run with either arm absent, and it does so after every cell has been
+// paid for.
 func TestMatrixPlanArmSetRefusalNamesTheMissingDenominator(t *testing.T) {
 	if err := MatrixPlanArmSetRefusal(StudySharingMatrix, []string{ArmR1, ArmShared, ArmTimeSlicing}); err != nil {
 		t.Fatalf("the three-arm plan was refused: %v", err)

@@ -50,10 +50,11 @@ func observationFor(holdAt, endAt int64, idleDuringHold bool) *DeviceObservation
 // The fix, stated as the thing that used to fail.
 //
 // The busyness clause now reads the victim's ATTEMPT and the exclusivity, coverage and continuity clauses
-// still read the HOLD. Before the split every clause read the hold, and in this arm the hold is ~2 s of a
-// Pod that has already stopped computing -- so the gate refused the honouring arm for behaving as the arm
-// is defined to behave, while the ignoring arm computed through its ~31 s hold and passed. -require-device
-// removed the short arm, kept the long one, and left no contrast to form.
+// still read the HOLD.
+// Before the split every clause read the hold, and in this arm the hold is ~2 s of a Pod that has already
+// stopped computing -- so the gate refused the honouring arm for behaving as the arm is defined to behave,
+// while the ignoring arm computed through its ~31 s hold and passed. -require-device removed the short
+// arm, kept the long one, and left no contrast to form.
 func TestTheHonouringArmEstablishesDeviceWorkFromItsAttemptRatherThanItsHold(t *testing.T) {
 	const podReady = int64(0)
 	const holdFrom = 20_000_000_000
@@ -115,8 +116,9 @@ func TestAPodThatNeverUsedTheCardIsStillRefused(t *testing.T) {
 // The hold's own clauses did not move, and this is the one that would be quietest if they had.
 //
 // Exclusivity is about the hold: another Pod's label on the same device WHILE the owner waited makes the
-// utilisation unattributable. If the split had moved this clause to the attempt as well, a second tenant
-// during the hold would stop being fatal.
+// utilisation unattributable.
+// If the split had moved this clause to the attempt as well, a second tenant during the hold would stop
+// being fatal.
 func TestExclusivityStillReadsTheHoldAfterTheSplit(t *testing.T) {
 	const holdFrom = 20_000_000_000
 	const stopped = holdFrom + 2_177_000_000
@@ -166,9 +168,9 @@ func TestAMissingAttemptIntervalIsSaidRatherThanReadAsIdle(t *testing.T) {
 //
 // A neighbour on the same card EARLY in the victim's attempt -- long before the owner was admitted, and
 // outside the stale-label margin -- is serial reallocation, not ambiguity: by the time the hold opens the
-// card is the victim's alone, which is what the claim is about. Scanning exclusivity across the whole
-// attempt would refuse this run, so the mutation that makes the gate stricter is caught here rather than by
-// the test that only proves it still refuses a genuine overlap.
+// card is the victim's alone, which is what the claim is about.
+// Scanning exclusivity across the whole attempt would refuse this run, so the mutation that makes the gate
+// stricter is caught here rather than by the test that only proves it still refuses a genuine overlap.
 func TestANeighbourBeforeTheHoldDoesNotRefuseTheRun(t *testing.T) {
 	const holdFrom = 20_000_000_000
 	const stopped = holdFrom + 2_177_000_000
@@ -193,13 +195,16 @@ func TestANeighbourBeforeTheHoldDoesNotRefuseTheRun(t *testing.T) {
 
 // A busy instant the card SHARED with another Pod cannot be credited to this one.
 //
-// Exclusivity is checked over the hold; busyness reads the whole attempt, which is wider. So a busy sample
-// could sit at an instant where a neighbour's label was on the same card, outside the hold's reach, and be
-// counted as this Pod's work anyway. A reading at an instant two Pods share says the CARD was working. It
-// does not say which of them worked it, and attributing work to one Pod is the whole point of this clause.
+// Exclusivity is checked over the hold; busyness reads the whole attempt, which is wider.
+// So a busy sample could sit at an instant where a neighbour's label was on the same card, outside the
+// hold's reach, and be counted as this Pod's work anyway.
+// A reading at an instant two Pods share says the CARD was working.
+// It does not say which of them worked it, and attributing work to one Pod is the whole point of this
+// clause.
 //
 // The victim here is busy at exactly two instants and a neighbour shares one of them, so the run turns on
-// whether that shared instant counts. It must not.
+// whether that shared instant counts.
+// It must not.
 //
 // Mutation that turns this red: drop the shared-instant check in busyDuringAttempt.
 func TestABusyInstantSharedWithAnotherPodIsNotThisPodsWork(t *testing.T) {
@@ -249,7 +254,8 @@ func TestABusyInstantSharedWithAnotherPodIsNotThisPodsWork(t *testing.T) {
 //
 // A Pod whose held card sat idle, while a DIFFERENT device carried its label and was busy, has not shown
 // that the held card did work -- and that is exactly what a stale label or a second allocation elsewhere
-// looks like. Counting it would let the idle card be certified by activity on another one.
+// looks like.
+// Counting it would let the idle card be certified by activity on another one.
 func TestBusynessOnAnotherCardDoesNotEstablishTheHeldOne(t *testing.T) {
 	const holdFrom = 20_000_000_000
 	const stopped = holdFrom + 2_177_000_000
@@ -289,13 +295,15 @@ func TestBusynessOnAnotherCardDoesNotEstablishTheHeldOne(t *testing.T) {
 // TestAHoldShorterThanAScrapeDoesNotDeleteTheHonouringArm is the run this gate threw away.
 //
 // Measured on real hardware, session qlgpu-20260906-015520, run gh1: the owner was admitted at 24.216 s and
-// the victim stopped at 24.432 s, so the hold was 216 ms while DCGM scrapes about once a second. The hold
-// could not contain a sample. The same observation carried 43 samples naming that Pod between 3.1 s and
-// 24.1 s, 39 of them busy on one card, and the run was refused for producing no evidence.
+// the victim stopped at 24.432 s, so the hold was 216 ms while DCGM scrapes about once a second.
+// The hold could not contain a sample.
+// The same observation carried 43 samples naming that Pod between 3.1 s and 24.1 s, 39 of them busy on one
+// card, and the run was refused for producing no evidence.
 //
 // The refusal was not even-handed, which is what makes it a defect rather than a strict gate: the arm that
 // ignores SIGTERM computes through a thirty-second hold and passes trivially, so the gate removed the short
-// arm and kept the long one. The contrast between those two arms is the entire result.
+// arm and kept the long one.
+// The contrast between those two arms is the entire result.
 func TestAHoldShorterThanAScrapeDoesNotDeleteTheHonouringArm(t *testing.T) {
 	const ready = 3_887_000_000
 	const ownerAdmitted = 24_216_000_000
@@ -306,14 +314,15 @@ func TestAHoldShorterThanAScrapeDoesNotDeleteTheHonouringArm(t *testing.T) {
 		StartedNs: 50_877_837, EndedNs: 130_000_439_072,
 	}
 	// The victim's own samples, at the cadence the exporter actually ran: one a second, busy, on one card,
-	// ending just before it stopped. None of them can land inside a 216 ms hold.
+	// ending just before it stopped.
+	// None of them can land inside a 216 ms hold.
 	for at := int64(3_100_000_000); at <= 24_100_000_000; at += int64(500 * time.Millisecond) {
 		o.Samples = append(o.Samples, DeviceSample{
 			AtNs: at, DeviceUUID: "GPU-37cf5109", PodUID: "victim-uid", UtilisationPercent: 98,
 		})
 	}
-	// The occupier, on other cards, for the whole window. It is what a real node carries and it must not be
-	// mistaken for a second tenant on the held card.
+	// The occupier, on other cards, for the whole window.
+	// It is what a real node carries and it must not be mistaken for a second tenant on the held card.
 	for at := int64(0); at <= 130_000_000_000; at += int64(time.Second) {
 		o.Samples = append(o.Samples, DeviceSample{
 			AtNs: at, DeviceUUID: "GPU-occupier", PodUID: "occupier-uid", UtilisationPercent: 0,
@@ -333,8 +342,9 @@ func TestAHoldShorterThanAScrapeDoesNotDeleteTheHonouringArm(t *testing.T) {
 
 // TestAVictimThatNeverTouchedACardIsStillRefused keeps the gate a gate.
 //
-// Widening the USE question to the attempt must not turn it into no question. A Pod whose attempt was
-// sampled and idle throughout has not established device work, however long its attempt was.
+// Widening the USE question to the attempt must not turn it into no question.
+// A Pod whose attempt was sampled and idle throughout has not established device work, however long
+// its attempt was.
 func TestAVictimThatNeverTouchedACardIsStillRefused(t *testing.T) {
 	const ready = 3_887_000_000
 	const ownerAdmitted = 24_216_000_000

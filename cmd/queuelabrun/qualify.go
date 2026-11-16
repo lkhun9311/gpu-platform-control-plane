@@ -27,12 +27,14 @@ import (
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
-// The ownership transaction proves the worker is OURS. It does not prove the worker is EMPTY, and those are
-// different claims: the dedication label and the NoSchedule taint reserve the node against future placement,
-// and neither evicts a Pod that was already running when they were installed. A GPU Pod that predates the
-// acquisition keeps its device for the whole run, so the arm's queues admit against capacity the run does not
-// actually have, and it reports a number measured on a machine that is not the one it thinks it has — with no
-// signal anywhere. This file is the check that the premise held before the first Create, not after.
+// The ownership transaction proves the worker is OURS.
+// It does not prove the worker is EMPTY, and those are different claims: the dedication label and the
+// NoSchedule taint reserve the node against future placement, and neither evicts a Pod that was already
+// running when they were installed.
+// A GPU Pod that predates the acquisition keeps its device for the whole run, so the arm's queues admit
+// against capacity the run does not actually have, and it reports a number measured on a machine that is not
+// the one it thinks it has — with no signal anywhere.
+// This file is the check that the premise held before the first Create, not after.
 
 // gpuResourceName mirrors internal/queuelab's private gpuResource, duplicated for the same reason spine.go
 // duplicates terminationGraceSec and variantLabelKey: that package is measurement code that must not change
@@ -43,16 +45,19 @@ const gpuResourceName = corev1.ResourceName("nvidia.com/gpu")
 //
 // The contrast this study measures is physical card scarcity -- the owner's Pod waits because the victim
 // holds the only free device -- so a node carrying more devices than the protocol needs destroys it
-// silently. No rentable instance carries exactly two well-supported cards, and the device plugin has no
-// supported way to advertise a subset: config/nvidia-device-plugin/daemonset.yaml tried and records why
-// that probably does not work. So the surplus is HELD, and this label is how the gate tells a Pod holding
-// devices to keep the node scarce from a foreign tenant holding them to compute.
+// silently.
+// No rentable instance carries exactly two well-supported cards, and the device plugin has no supported
+// way to advertise a subset: config/nvidia-device-plugin/daemonset.yaml tried and records why that
+// probably does not work.
+// So the surplus is HELD, and this label is how the gate tells a Pod holding devices to keep the node
+// scarce from a foreign tenant holding them to compute.
 //
-// The KEY is the marker and the value is not read. That is not laxity, it is what Kubernetes allows: a
-// label value must be alphanumeric with dashes, underscores and dots, so the prose this comment originally
-// proposed to put there is rejected by the API server outright -- which the session script duly hit the
-// first time it was run against a real cluster, and which its own unit fixture had not caught because a
-// fake client does not validate. Anything a session wants to say about WHY belongs in an annotation.
+// The KEY is the marker and the value is not read.
+// That is not laxity, it is what Kubernetes allows: a label value must be alphanumeric with dashes,
+// underscores and dots, so the prose this comment originally proposed to put there is rejected by the API
+// server outright -- which the session script duly hit the first time it was run against a real cluster,
+// and which its own unit fixture had not caught because a fake client does not validate.
+// Anything a session wants to say about WHY belongs in an annotation.
 //
 // A Pod holding devices WITHOUT this key is a foreign tenant and refuses the run, which is the behaviour
 // that must not change.
@@ -61,21 +66,25 @@ const surplusOccupierLabel = "queuelab.gpu-platform/surplus-occupier"
 // gpuConsumer is one Pod already holding devices on the worker, in the spelling the run record persists.
 //
 // The phase and the terminating flag are both carried because they are what tells an operator which cluster
-// they are looking at. A Running Pod is somebody else's live work and this run must wait or move; a
-// Terminating one is almost always the previous run's stuck teardown, which will clear on its own and needs
-// no action beyond patience. Collapsing them into "a Pod was there" would send the operator to the wrong
-// remedy for whichever case they actually have.
+// they are looking at.
+// A Running Pod is somebody else's live work and this run must wait or move; a Terminating one is almost
+// always the previous run's stuck teardown, which will clear on its own and needs no action beyond
+// patience.
+// Collapsing them into "a Pod was there" would send the operator to the wrong remedy for whichever case
+// they actually have.
 type gpuConsumer struct {
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`
 	Phase     string `json:"phase"`
-	// Terminating is deletionTimestamp being set, not the phase. A Pod deleted a moment ago is still Running
-	// and still holds its device until the kubelet finishes with it, which is exactly the state a stuck
-	// teardown leaves behind and exactly the state a taint cannot see.
+	// Terminating is deletionTimestamp being set, not the phase.
+	// A Pod deleted a moment ago is still Running and still holds its device until the kubelet finishes with
+	// it, which is exactly the state a stuck teardown leaves behind and exactly the state a taint cannot
+	// see.
 	Terminating bool `json:"terminating,omitempty"`
-	// GPUs is what the Pod asked for. It is recorded rather than merely counted because "one Pod" and "one Pod
-	// holding both devices" are different amounts of contamination, and a record that only said a Pod was
-	// present could not tell them apart afterwards.
+	// GPUs is what the Pod asked for.
+	// It is recorded rather than merely counted because "one Pod" and "one Pod holding both devices" are
+	// different amounts of contamination, and a record that only said a Pod was present could not tell them
+	// apart afterwards.
 	GPUs int64 `json:"gpus"`
 }
 
@@ -83,40 +92,44 @@ type gpuConsumer struct {
 //
 // It is persisted whether the worker qualified or not, and the refusal path is the more valuable of the two:
 // a run that refused is precisely the run whose evidence would otherwise be a sentence on somebody's
-// terminal. The later validity-bearing-artifact gate is then serialization of what each gate already wrote,
-// rather than a second investigation.
+// terminal.
+// The later validity-bearing-artifact gate is then serialization of what each gate already wrote, rather
+// than a second investigation.
 //
-// It is written into the record directly rather than through a projection type, unlike recordResidue. That
-// projection exists because `residue` carries an `error` — an interface field that encodes asymmetrically and
-// does not decode at all — and because its verdict is an iota whose declaration order would have become a
-// wire format. Neither applies here: every field below is a string, a bool or an int64, and the one
-// enumerated value (Phase) is already the apiserver's own name for it. A second type would be a copy to keep
-// in sync for no guarantee.
+// It is written into the record directly rather than through a projection type, unlike recordResidue.
+// That projection exists because `residue` carries an `error` — an interface field that encodes
+// asymmetrically and does not decode at all — and because its verdict is an iota whose declaration order
+// would have become a wire format.
+// Neither applies here: every field below is a string, a bool or an int64, and the one enumerated value
+// (Phase) is already the apiserver's own name for it.
+// A second type would be a copy to keep in sync for no guarantee.
 type qualification struct {
 	Node    string `json:"node"`
 	NodeUID string `json:"nodeUID"`
-	// AllocatableGPU is what the node advertises, which is the total rather than the free amount. It is only
-	// the available amount BECAUSE GPUConsumers below is empty; the two fields are one claim, and a reader who
-	// has one without the other has been told nothing about what this run could actually schedule.
+	// AllocatableGPU is what the node advertises, which is the total rather than the free amount.
+	// It is only the available amount BECAUSE GPUConsumers below is empty; the two fields are one claim, and a
+	// reader who has one without the other has been told nothing about what this run could actually schedule.
 	AllocatableGPU int64 `json:"allocatableGPU"`
 	// OccupiedGPU is how many of those devices were held OUT of the experiment by a surplus occupier.
 	//
 	// It is recorded because a reader comparing two runs has to be able to see that one measured a node with
 	// two devices and the other a node with four, two of them pinned -- those are the same experiment only
-	// if the pinning worked, and this is where the document says whether it did. AllocatableGPU minus this
-	// is what the run could actually schedule, and the gate requires that to equal the requirement exactly.
+	// if the pinning worked, and this is where the document says whether it did.
+	// AllocatableGPU minus this is what the run could actually schedule, and the gate requires that to equal
+	// the requirement exactly.
 	OccupiedGPU int64 `json:"occupiedGPU,omitempty"`
 	RequiredGPU int64 `json:"requiredGPU"`
 	// RequiredFrom names where the requirement came from, because a bare number invites exactly the hard-coded
 	// constant this derivation exists to avoid: a later reader has to be able to tell whether 2 was computed
-	// from this run's own fixtures or typed in by somebody who knew what the cluster happened to have. It
-	// quotes BOTH lower bounds and their numbers, not just the one that won, so the margin between them is
+	// from this run's own fixtures or typed in by somebody who knew what the cluster happened to have.
+	// It quotes BOTH lower bounds and their numbers, not just the one that won, so the margin between them is
 	// legible rather than having to be reconstructed from the fixtures afterwards.
 	RequiredFrom string `json:"requiredFrom"`
 	// RequiredBoundBy is which of the two bounds decided, as a name rather than as a sentence to be parsed —
-	// the same reason the disposition is a constant and not free text. A run refused for capacity reads
-	// completely differently depending on this: bound by the quota sum means the node cannot hold the whole
-	// arm at once, bound by a single row means one Pod in the trace could never be scheduled at all.
+	// the same reason the disposition is a constant and not free text.
+	// A run refused for capacity reads completely differently depending on this: bound by the quota sum
+	// means the node cannot hold the whole arm at once, bound by a single row means one Pod in the trace
+	// could never be scheduled at all.
 	RequiredBoundBy string `json:"requiredBoundBy"`
 	Ready           bool   `json:"ready"`
 	Schedulable     bool   `json:"schedulable"`
@@ -124,24 +137,26 @@ type qualification struct {
 	//
 	// "No foreign GPU consumer" is a negative, and a negative that was never given a count is indistinguishable
 	// from a List that returned nothing because it was pointed at the wrong node, or filtered on a name the
-	// cluster does not use. A run that inspected fourteen Pods and found none holding a device has established
-	// something; a run that inspected zero has established that it looked in an empty place.
+	// cluster does not use.
+	// A run that inspected fourteen Pods and found none holding a device has established something; a run that
+	// inspected zero has established that it looked in an empty place.
 	PodsOnNode int `json:"podsOnNode"`
 	// GPUConsumersElsewhere names device holders on OTHER nodes, and it is recorded rather than gated on.
 	//
-	// Nothing about them can stop this run: they hold no capacity this worker owns. What they do is make two
-	// records comparable or not. A node comparison in this lab was run with the platform's own serving
-	// workload up on one side and scaled to zero on the other, because the second node could not be held
-	// exclusively until it was — so the node and the cluster's occupancy varied together and the result
-	// attributed to the node was confounded. Nothing in the record said so, and nothing could have: the
-	// qualification looked only at the worker.
+	// Nothing about them can stop this run: they hold no capacity this worker owns.
+	// What they do is make two records comparable or not.
+	// A node comparison in this lab was run with the platform's own serving workload up on one side and
+	// scaled to zero on the other, because the second node could not be held exclusively until it was — so
+	// the node and the cluster's occupancy varied together and the result attributed to the node was
+	// confounded.
+	// Nothing in the record said so, and nothing could have: the qualification looked only at the worker.
 	GPUConsumersElsewhere []gpuConsumer `json:"gpuConsumersElsewhere,omitempty"`
 	// OperatorImageID is the image the controller-manager is ACTUALLY running, by digest.
 	//
-	// The measured Pods are rendered by that image, and until now nothing in a record identified it. The
-	// canary fingerprints a Pod template rendered by THIS BINARY, so a harness built at HEAD against a
-	// cluster running a stale manager would hash a template nobody ran, match itself, and qualify. Recording
-	// the digest makes that visible; the canary key uses it so it also refuses.
+	// The measured Pods are rendered by that image, and until now nothing in a record identified it.
+	// The canary fingerprints a Pod template rendered by THIS BINARY, so a harness built at HEAD against a
+	// cluster running a stale manager would hash a template nobody ran, match itself, and qualify.
+	// Recording the digest makes that visible; the canary key uses it so it also refuses.
 	//
 	// Empty when the manager could not be identified, which is a fact worth keeping rather than a zero to
 	// paper over: it means the run cannot say what rendered its workloads.
@@ -154,13 +169,15 @@ type qualification struct {
 	//
 	// It is a pointer, and nil is the shape of every run that did not stand on one — refused because no canary
 	// was recorded for the worker, because the recorded one failed, or because it was taken on a different
-	// combination. It is omitempty for the reason GPUConsumers is, inverted: a record carrying one is always a
-	// record of a run that got past this gate.
+	// combination.
+	// It is omitempty for the reason GPUConsumers is, inverted: a record carrying one is always a record of a
+	// run that got past this gate.
 	TerminationCanary *canaryReference `json:"terminationCanary,omitempty"`
 }
 
-// The two names a requirement can be bound by. They are constants because the record persists one of them and
-// a reader classifies on it; a reworded string would silently become a different value.
+// The two names a requirement can be bound by.
+// They are constants because the record persists one of them and a reader classifies on it; a reworded string
+// would silently become a different value.
 const (
 	boundByQuotaSum   = "nominal-quota-sum"
 	boundByLargestRow = "largest-trace-row"
@@ -178,9 +195,10 @@ type gpuRequirement struct {
 //
 // It is derived rather than written down because the number is a property of the arm, not of the cluster: the
 // reclaim study builds two ClusterQueues at nominal 1 in one per-run cohort and the FIFO study one at 2, and a
-// constant here would be a second copy of the fixtures' sizing that nothing keeps in step with them. A node
-// advertising 1 would still let a reclaim run complete — it would simply never produce the borrow-then-reclaim
-// contrast the arm is named after, and would report the run that did not happen as the run that did.
+// constant here would be a second copy of the fixtures' sizing that nothing keeps in step with them.
+// A node advertising 1 would still let a reclaim run complete — it would simply never produce the
+// borrow-then-reclaim contrast the arm is named after, and would report the run that did not happen as the run
+// that did.
 //
 // There are TWO independent lower bounds and the requirement is the larger:
 //
@@ -194,16 +212,17 @@ type gpuRequirement struct {
 //     because head-of-line blocking is the mechanism that study is about.
 //
 // Neither bound implies the other, and today they happen to coincide — the FIFO sum is 2 and its largest row
-// is 2 — which is exactly the coincidence that would let the missing bound go unnoticed. A study with a 3-GPU
-// row against a 2-GPU nominal sum would pass a sum-only check, run, and contain a Pod that could never be
-// scheduled: the arm would report the head-of-line comparison it structurally never made.
+// is 2 — which is exactly the coincidence that would let the missing bound go unnoticed.
+// A study with a 3-GPU row against a 2-GPU nominal sum would pass a sum-only check, run, and contain a Pod
+// that could never be scheduled: the arm would report the head-of-line comparison it structurally never made.
 //
 // To be exact about what is and is not exercised today: run() pins `study := queuelab.StudyReclaim`, so the
 // FIFO trace — the one whose head row is 2 GPUs — is not reachable through this binary at all yet, and the
-// row bound therefore never decides for any run this build can perform. It is written now because the study
-// switch is a smaller change than remembering this constraint at the time, and because the bound is a
-// property of how Kubernetes schedules a Pod rather than of which study is wired up. The tests reach it
-// directly for the same reason.
+// row bound therefore never decides for any run this build can perform.
+// It is written now because the study switch is a smaller change than remembering this constraint at the
+// time, and because the bound is a property of how Kubernetes schedules a Pod rather than of which study is
+// wired up.
+// The tests reach it directly for the same reason.
 //
 // On a tie the quota sum is named as the binding one, because it is the bound that always exists.
 func requiredGPU(fs *queuelab.FixtureSet, trace []queuelab.TrainingTraceRow) (gpuRequirement, error) {
@@ -257,9 +276,9 @@ func requiredGPU(fs *queuelab.FixtureSet, trace []queuelab.TrainingTraceRow) (gp
 		gpuResourceName, contributing, flavor, sum, largestRow, largest)
 	if req.Total < 1 {
 		// A zero requirement would make this whole check pass on any node at all, including one advertising no
-		// device — so it is refused rather than accepted as a trivially satisfiable bar. Reaching it means the
-		// fixtures cover no GPU and the trace asks for none, which is a bug in this program rather than anything
-		// about the machine, and the message says so rather than blaming the node.
+		// device — so it is refused rather than accepted as a trivially satisfiable bar.
+		// Reaching it means the fixtures cover no GPU and the trace asks for none, which is a bug in this
+		// program rather than anything about the machine, and the message says so rather than blaming the node.
 		return req, fmt.Errorf("this run's fixtures and trace request no %s at all (%s); "+
 			"that is a defect in the protocol, not a property of the worker", gpuResourceName, req.From)
 	}
@@ -284,10 +303,10 @@ func gpuOf(r corev1.ResourceRequirements) int64 {
 // podGPURequest is the device count the kubelet reserves for a Pod.
 //
 // Init containers run one at a time and before the rest, so the Pod's effective request is the larger of the
-// regular containers' sum and the largest single init container — the same rule the scheduler applies. A
-// restartable init container (a sidecar) would properly be added to the sum rather than maximised over, and
-// this does not model that; it cannot change the verdict, because the only question asked of this number is
-// whether it is above zero, and the maximum is above zero exactly when the sum would be.
+// regular containers' sum and the largest single init container — the same rule the scheduler applies.
+// A restartable init container (a sidecar) would properly be added to the sum rather than maximised over,
+// and this does not model that; it cannot change the verdict, because the only question asked of this number
+// is whether it is above zero, and the maximum is above zero exactly when the sum would be.
 func podGPURequest(spec *corev1.PodSpec) int64 {
 	var regular int64
 	for _, c := range spec.Containers {
@@ -319,17 +338,18 @@ func holdsDevices(p *corev1.Pod) bool {
 
 // gpuConsumersOn finds every Pod already holding devices on the named node.
 //
-// The predicate is what a Pod REQUESTS, never what the node advertises or what a Pod is named. That
-// distinction is the trap this check has to walk past rather than into: the cluster runs a gpu-simulator
+// The predicate is what a Pod REQUESTS, never what the node advertises or what a Pod is named.
+// That distinction is the trap this check has to walk past rather than into: the cluster runs a gpu-simulator
 // DaemonSet which is where nvidia.com/gpu on these nodes comes from at all, and it requests 10m CPU and 32Mi
 // of memory and no device whatsoever — it is a device plugin, it publishes capacity rather than consuming it.
 // Any predicate keyed on "is associated with GPUs" rather than on the resource request would reject the
 // provider of the resource on every node it runs on, which is every node, and every run would refuse.
 //
-// Nothing is excluded as "this run's own". Nothing of this run's exists yet: this is called after the worker
-// is acquired and before the run's first Create, so ownership of everything found here is decided by
-// position rather than by a label filter — and a filter keyed on this attempt's transaction id would be a
-// filter that can never match, which is worse than none because it reads as a check.
+// Nothing is excluded as "this run's own".
+// Nothing of this run's exists yet: this is called after the worker is acquired and before the run's first
+// Create, so ownership of everything found here is decided by position rather than by a label filter — and a
+// filter keyed on this attempt's transaction id would be a filter that can never match, which is worse than
+// none because it reads as a check.
 func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, onNode int, occupied int64) {
 	for i := range pods {
 		p := &pods[i]
@@ -345,8 +365,9 @@ func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, on
 			continue
 		}
 		if _, held := p.Labels[surplusOccupierLabel]; held {
-			// Held to keep the node scarce, not to compute on. Counted so the record can say how many
-			// devices were excluded rather than measured, and kept out of the foreign-tenant list.
+			// Held to keep the node scarce, not to compute on.
+			// Counted so the record can say how many devices were excluded rather than measured, and
+			// kept out of the foreign-tenant list.
 			occupied += n
 			continue
 		}
@@ -363,9 +384,9 @@ func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, on
 
 // nodeReady reports whether the node's Ready condition is True.
 //
-// A missing condition is not ready. The zero value of a status this decision rests on must fail toward the
-// refusal, for the same reason absenceUnknown holds the worker in teardown: a node nobody could classify is
-// not a node to measure on.
+// A missing condition is not ready.
+// The zero value of a status this decision rests on must fail toward the refusal, for the same reason
+// absenceUnknown holds the worker in teardown: a node nobody could classify is not a node to measure on.
 func nodeReady(n *corev1.Node) bool {
 	for _, c := range n.Status.Conditions {
 		if c.Type == corev1.NodeReady {
@@ -380,19 +401,22 @@ func nodeReady(n *corev1.Node) bool {
 //
 // The observation is returned alongside the refusal deliberately: the record has to carry what was observed
 // rather than only that something was wrong, or the operator is left with a sentence and the next reader with
-// nothing. Every failing condition is reported together rather than the first one alone, because they are
-// independent facts about one node and an operator who fixes a cordon only to be told about a leftover Pod on
-// the next run has been made to pay for two round trips against a cluster this could have described in one.
+// nothing.
+// Every failing condition is reported together rather than the first one alone, because they are independent
+// facts about one node and an operator who fixes a cordon only to be told about a leftover Pod on the next
+// run has been made to pay for two round trips against a cluster this could have described in one.
 //
-// The node's taints are deliberately not examined. This run installed a NoSchedule taint on this node moments
-// ago, so a check for "no taints" would refuse every run on the marker the run itself put there; and the
-// question a taint could answer — will something new land here — is already answered by the acquisition. What
-// a taint cannot answer, and what is asked here instead, is what is on the node already.
+// The node's taints are deliberately not examined.
+// This run installed a NoSchedule taint on this node moments ago, so a check for "no taints" would refuse
+// every run on the marker the run itself put there; and the question a taint could answer — will something
+// new land here — is already answered by the acquisition.
+// What a taint cannot answer, and what is asked here instead, is what is on the node already.
 //
 // contract is what this build would submit, and it is here for the check that was added BESIDE the three
-// above rather than inside them: the termination canary. It is a parameter rather than derived in this
-// function so that every input to this decision is still visible at the call site — which is the property
-// that lets a test drive a mismatch through the real path instead of comparing the derivation against itself.
+// above rather than inside them: the termination canary.
+// It is a parameter rather than derived in this function so that every input to this decision is still
+// visible at the call site — which is the property that lets a test drive a mismatch through the real path
+// instead of comparing the derivation against itself.
 func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract canaryContract) (qualification,
 	error) {
 	allocatable := n.Status.Allocatable[gpuResourceName]
@@ -416,9 +440,9 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 	q.OperatorImageID = operatorImageID(pods)
 
 	// The canary is consulted here, alongside the capacity checks and not before them, so that a worker with
-	// three things wrong with it still reports all three in one refusal. The reference is attached whenever it
-	// matched, on the same principle the block's other fields follow: what was observed goes into the record
-	// whichever way the verdict went.
+	// three things wrong with it still reports all three in one refusal.
+	// The reference is attached whenever it matched, on the same principle the block's other fields follow:
+	// what was observed goes into the record whichever way the verdict went.
 	canary, cerr := checkTerminationCanary(n, contract, q.OperatorImageID)
 	q.TerminationCanary = canary
 
@@ -429,20 +453,24 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 	if !q.Schedulable {
 		failed = append(failed, "it is cordoned (spec.unschedulable), so nothing this run submits can land on it")
 	}
-	// EXACTLY the requirement, not at least it. The direction that is obviously dangerous is too few
-	// devices; the direction that quietly destroys the experiment is too many.
+	// EXACTLY the requirement, not at least it.
+	// The direction that is obviously dangerous is too few devices; the direction that quietly
+	// destroys the experiment is too many.
 	//
-	// The contrast this lab publishes is physical card scarcity. In every recorded run the owner becomes
-	// Ready one to two seconds AFTER the victim's terminal phase, in both arms -- the owner's Pod is
-	// admitted by Kueue within 0.1 s of the preemption decision and then waits for a card. The 29-second arm
-	// difference IS that wait. On a node advertising two spare devices the owner's Pod binds at admission in
-	// both arms, the wait collapses to a container start on each side, and the difference falls below the
-	// floor while every other figure looks normal.
+	// The contrast this lab publishes is physical card scarcity.
+	// In every recorded run the owner becomes Ready one to two seconds AFTER the victim's terminal phase, in
+	// both arms -- the owner's Pod is admitted by Kueue within 0.1 s of the preemption decision and then
+	// waits for a card.
+	// The 29-second arm difference IS that wait.
+	// On a node advertising two spare devices the owner's Pod binds at admission in both arms, the wait
+	// collapses to a container start on each side, and the difference falls below the floor while every
+	// other figure looks normal.
 	//
-	// That failure is not detectable afterwards. It produces a plausible, internally consistent record set,
-	// and the preregistration's third refutation condition would read it as the session's marquee discovery:
-	// "if driver cleanup dominates and both arms converge, the termination contract stops mattering." The
-	// harness would have manufactured its own most interesting result out of the instance type.
+	// That failure is not detectable afterwards.
+	// It produces a plausible, internally consistent record set, and the preregistration's third refutation
+	// condition would read it as the session's marquee discovery: "if driver cleanup dominates and both arms
+	// converge, the termination contract stops mattering." The harness would have manufactured its own most
+	// interesting result out of the instance type.
 	//
 	// What makes a four-card instance measurable is not this gate but the surplus OCCUPIER it recognises: a
 	// Pod labelled surplusOccupierLabel holds the devices the protocol must not have, hack/gpu-session.sh
@@ -450,10 +478,11 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 	// node advertises.
 	//
 	// This comment used to send a reader to config/nvidia-device-plugin, on the grounds that it "restricts
-	// which devices the plugin exposes". Two reviews established that it almost certainly does not -- the
-	// manifest now carries the evidence against itself -- and the retraction reached the refusal string and
-	// not this paragraph beside it. That is the third time a retraction has been written where the claim was
-	// noticed rather than everywhere it appears.
+	// which devices the plugin exposes".
+	// Two reviews established that it almost certainly does not -- the manifest now carries the evidence
+	// against itself -- and the retraction reached the refusal string and not this paragraph beside it.
+	// That is the third time a retraction has been written where the claim was noticed rather than
+	// everywhere it appears.
 	available := q.AllocatableGPU - q.OccupiedGPU
 	switch {
 	case available < req.Total:
@@ -510,12 +539,12 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 // when the read itself failed, because a qualification built from a failed read would be a document full of
 // zero values claiming a node advertises nothing and carries no Pods.
 //
-// Pods are listed cluster-wide and filtered here rather than through a spec.nodeName field selector. The
-// local comparison is what decides either way — a server-side selector this code cannot verify would still
-// have to be re-checked against each returned Pod — so the selector would add a dependency without changing
-// a verdict, on a lab cluster of a few dozen Pods. The RBAC is the same either way: a field-selected List of
-// Pods still requires list on pods at cluster scope, which is what this adds to whatever credential the
-// runner uses.
+// Pods are listed cluster-wide and filtered here rather than through a spec.nodeName field selector.
+// The local comparison is what decides either way — a server-side selector this code cannot verify would
+// still have to be re-checked against each returned Pod — so the selector would add a dependency without
+// changing a verdict, on a lab cluster of a few dozen Pods.
+// The RBAC is the same either way: a field-selected List of Pods still requires list on pods at cluster
+// scope, which is what this adds to whatever credential the runner uses.
 func qualifyWorker(ctx context.Context, c client.Client, nodeName string,
 	req gpuRequirement, contract canaryContract) (*qualification, error) {
 	var n corev1.Node
@@ -524,9 +553,10 @@ func qualifyWorker(ctx context.Context, c client.Client, nodeName string,
 	}
 	var pods corev1.PodList
 	if err := c.List(ctx, &pods); err != nil {
-		// Refused rather than skipped. A run that could not see the Pods on its worker has not established the
-		// premise it is about to measure under, and treating an unreadable cluster as a clean one is the exact
-		// substitution — absence of evidence for evidence of absence — that this gate exists to stop.
+		// Refused rather than skipped.
+		// A run that could not see the Pods on its worker has not established the premise it is about to
+		// measure under, and treating an unreadable cluster as a clean one is the exact substitution — absence
+		// of evidence for evidence of absence — that this gate exists to stop.
 		return nil, fmt.Errorf("list pods to check %s for foreign GPU consumers: %w", nodeName, err)
 	}
 	q, err := qualify(&n, pods.Items, req, contract)
@@ -565,9 +595,9 @@ func gpuConsumersOffNode(pods []corev1.Pod, node string) []gpuConsumer {
 //
 // It reads imageID rather than image because the tag is mutable and the whole point is to pin what actually
 // ran: `controller:latest` names one thing today and another tomorrow, and the Makefile's default IMG is
-// exactly that tag. Ambiguity returns empty rather than a guess — two managers Ready at once during a
-// rollout is a real state, and picking one of them would record a digest that rendered only half the run's
-// Pods.
+// exactly that tag.
+// Ambiguity returns empty rather than a guess — two managers Ready at once during a rollout is a real
+// state, and picking one of them would record a digest that rendered only half the run's Pods.
 func operatorImageID(pods []corev1.Pod) string {
 	var found string
 	for i := range pods {

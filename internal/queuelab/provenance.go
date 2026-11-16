@@ -32,8 +32,8 @@ import (
 // conditions now justify (empty when none), and whether that state forces the whole run invalid.
 //
 // The collector (a later slice) tracks the last emitted event per object and only journals a transition,
-// so a repeated observation of the same admitted Workload does not produce duplicate Admitted events. This
-// classifier is stateless: it answers "what does THIS version mean", not "did it just change".
+// so a repeated observation of the same admitted Workload does not produce duplicate Admitted events.
+// This classifier is stateless: it answers "what does THIS version mean", not "did it just change".
 type ObservedState struct {
 	// Event is the lifecycle transition this object version justifies, or "" for none.
 	Event EventType
@@ -50,12 +50,13 @@ type ObservedState struct {
 	//
 	// It used to be finished-only, and that narrowness was a measurement defect rather than a naming one.
 	// The spread between this stamp and the collector's arrival time is what bounds how finely an interval
-	// can be read — and every interval this lab publishes has endpoints that are NOT container stops. The
-	// headline is admission to running, so neither of its endpoints was sampled, and the bound derived from
-	// stop events was being applied to intervals it did not describe. Two reviewers found it independently.
+	// can be read — and every interval this lab publishes has endpoints that are NOT container stops.
+	// The headline is admission to running, so neither of its endpoints was sampled, and the bound derived
+	// from stop events was being applied to intervals it did not describe.
+	// Two reviewers found it independently.
 	//
-	// Every source is quantised to the second, because metav1.Time serialises RFC3339 without fractions. The
-	// arithmetic that turns these into a bound lives in resolution.go and accounts for that.
+	// Every source is quantised to the second, because metav1.Time serialises RFC3339 without fractions.
+	// The arithmetic that turns these into a bound lives in resolution.go and accounts for that.
 	//
 	// A pointer, because an observation whose component published no timestamp must not read as one stamped
 	// at the epoch.
@@ -63,9 +64,10 @@ type ObservedState struct {
 	// ExitCode is the terminated container's status, and it is what tells one kind of stop from another.
 	//
 	// Reason carries the Pod PHASE, which is "Failed" both for a workload that honoured SIGTERM and exited
-	// promptly and for one that ignored it and was SIGKILLed at the end of the grace period. Those are the two
-	// arms of this experiment, so a ledger that records only the phase cannot say which of them it observed —
-	// the termination canary distinguishes them by exit status (143 against 137) and the run itself could not.
+	// promptly and for one that ignored it and was SIGKILLed at the end of the grace period.
+	// Those are the two arms of this experiment, so a ledger that records only the phase cannot say which of
+	// them it observed — the termination canary distinguishes them by exit status (143 against 137) and the
+	// run itself could not.
 	//
 	// It is a pointer because "no terminated container status to read" is a different fact from "exited 0",
 	// and nil is the only honest spelling of the first.
@@ -73,9 +75,9 @@ type ObservedState struct {
 	// Iterations is how much work the container had completed when it stopped, read out of the same terminated
 	// status the exit code comes from.
 	//
-	// It is what turns a discarded GPU-second into a discarded UNIT OF WORK. Without it the waste figure says
-	// how long a device was held and nothing about what was lost, and a workload that computed nothing looks
-	// exactly like one that saturated the card.
+	// It is what turns a discarded GPU-second into a discarded UNIT OF WORK.
+	// Without it the waste figure says how long a device was held and nothing about what was lost, and a
+	// workload that computed nothing looks exactly like one that saturated the card.
 	//
 	// nil for the same reason ExitCode is: a status that could not be read, or a message that does not carry a
 	// count, is a different fact from zero iterations.
@@ -85,12 +87,13 @@ type ObservedState struct {
 	//
 	// They exist because the count alone cannot tell a device run from a CPU run: both paths increment it,
 	// both finish healthy, and a card the scheduler reserved and nothing touched produces the same plausible
-	// figures as one that computed. Without this the harness could only assert device work from an EXTERNAL
-	// observer, which is a claim about the exporter as much as about the card -- and a fake exporter was made
-	// to satisfy it.
+	// figures as one that computed.
+	// Without this the harness could only assert device work from an EXTERNAL observer, which is a claim
+	// about the exporter as much as about the card -- and a fake exporter was made to satisfy it.
 	//
-	// Both are closed-set tokens or empty. A message this build cannot parse into a known pair yields all
-	// three fields empty rather than a guess, because the message is a channel the workload controls.
+	// Both are closed-set tokens or empty.
+	// A message this build cannot parse into a known pair yields all three fields empty rather than a
+	// guess, because the message is a channel the workload controls.
 	WorkloadKind string
 	DeviceStatus string
 	// Accumulator is the deterministic value the CPU loop held when the container stopped, and it is the only
@@ -106,53 +109,55 @@ type ObservedState struct {
 	// Resumed is the iteration count this attempt STARTED from, and zero is a claim rather than an absence.
 	//
 	// Without it a resumed attempt is indistinguishable from one that ran from zero: the oracle accepts both,
-	// because the pair is internally consistent either way. It is what lets discarded work be counted once --
-	// an attempt reporting 2698 after resuming at 1370 performed 1328 iterations, and charging it 2698 would
-	// count the first stretch twice.
+	// because the pair is internally consistent either way.
+	// It is what lets discarded work be counted once -- an attempt reporting 2698 after resuming at 1370
+	// performed 1328 iterations, and charging it 2698 would count the first stretch twice.
 	//
 	// nil when the message carried no sixth field, which is every message from a build before the resume arm.
 	Resumed *int
 	// SaveStatus is whether the attempt's own checkpoint writes succeeded, over the closed saveStatuses set.
 	//
 	// It exists because save() swallows its own exceptions and must go on doing so: a workload that died on
-	// a failed write would leave no final message, and an unreadable run is worse than a refused one. Until
-	// this field, a read-only mount produced a run byte-identical to a successful one -- and for the resume
-	// arms that is the failure that matters, because an attempt that restored nothing reports exactly what a
-	// genuine null result reports.
+	// a failed write would leave no final message, and an unreadable run is worse than a refused one.
+	// Until this field, a read-only mount produced a run byte-identical to a successful one -- and for the
+	// resume arms that is the failure that matters, because an attempt that restored nothing reports exactly
+	// what a genuine null result reports.
 	//
 	// Empty when the message carried no seventh field, which is every message from a build before the field
-	// existed. Empty and SaveNotAttempted are different claims: the first is "nobody could say", the second
-	// is "the workload was given nowhere to write".
+	// existed.
+	// Empty and SaveNotAttempted are different claims: the first is "nobody could say", the second is "the
+	// workload was given nowhere to write".
 	SaveStatus string
 	// SleptNs and WindowNs are the workload's own MEASUREMENT of how it spent its service, beside DutyCycle's
 	// report of what it was configured to do.
 	//
 	// DutyCycle alone cannot be checked: it is the workload echoing its argument back, so a workload whose
-	// sleep had been deleted reports the value it was given while sleeping none of it. The pair is measured
-	// around the workload's own time.sleep calls with its own monotonic clock, which is what makes the
-	// configured value falsifiable rather than merely recorded.
+	// sleep had been deleted reports the value it was given while sleeping none of it.
+	// The pair is measured around the workload's own time.sleep calls with its own monotonic clock, which
+	// is what makes the configured value falsifiable rather than merely recorded.
 	//
 	// nil for every message from a build that could not measure, and a measured zero is a different claim from
-	// that absence. Present or absent together, because the parser refuses a message carrying one alone.
+	// that absence.
+	// Present or absent together, because the parser refuses a message carrying one alone.
 	SleptNs  *int64
 	WindowNs *int64
 	// DutyCycle is the fraction of its service the workload spent computing, as the workload itself reported
 	// it, and nil when the message did not carry one.
 	//
-	// It is the workload's report rather than the runner's request on purpose. A workload that read the
-	// argument and ignored it would otherwise be recorded as having idled while it computed throughout, and
-	// the difference between a reserved GPU-second and an observed device-second is exactly what this field
-	// is for.
+	// It is the workload's report rather than the runner's request on purpose.
+	// A workload that read the argument and ignored it would otherwise be recorded as having idled while it
+	// computed throughout, and the difference between a reserved GPU-second and an observed device-second
+	// is exactly what this field is for.
 	DutyCycle *float64
 }
 
 // ClassifyWorkload reads a Workload's conditions into the authoritative admission/preemption state.
 //
 // The ONLY preemption the reclaim study expects is in-cohort reclamation: Preempted=True with reason
-// InCohortReclamation AND Evicted=True with reason Preempted. Any other eviction (PodsReadyTimeout,
-// NodeFailures, AdmissionCheck, a stopped queue, a non-reclaim preemption) is a different mechanism than
-// the one under test and would silently change the arm, so it invalidates the run instead of being folded
-// as if it were the study's preemption.
+// InCohortReclamation AND Evicted=True with reason Preempted.
+// Any other eviction (PodsReadyTimeout, NodeFailures, AdmissionCheck, a stopped queue, a non-reclaim
+// preemption) is a different mechanism than the one under test and would silently change the arm, so it
+// invalidates the run instead of being folded as if it were the study's preemption.
 func ClassifyWorkload(wl *kueuev1beta2.Workload) ObservedState {
 	evicted, evictReason := conditionTrue(wl.Status.Conditions, kueuev1beta2.WorkloadEvicted)
 	if evicted {
@@ -173,14 +178,15 @@ func ClassifyWorkload(wl *kueuev1beta2.Workload) ObservedState {
 	return ObservedState{}
 }
 
-// ClassifyJob reads a batch/v1 Job's conditions. Only the terminal Complete condition is the authoritative
-// Completed event; a failure invalidates the run, because a lab Job runs with backoffLimit 0 (set by the
-// runner) and a real training row is not supposed to fail, so a failure means the arm did not run as
-// designed.
+// ClassifyJob reads a batch/v1 Job's conditions.
+// Only the terminal Complete condition is the authoritative Completed event; a failure invalidates the
+// run, because a lab Job runs with backoffLimit 0 (set by the runner) and a real training row is not
+// supposed to fail, so a failure means the arm did not run as designed.
 //
 // SuccessCriteriaMet is deliberately NOT treated as completion: Kubernetes sets it before the Job's Pods
 // have all terminated, so completing on it would let an orchestrator close the horizon while a Pod is still
-// holding a GPU, dropping that interval. Complete is the condition that waits for terminal Pods.
+// holding a GPU, dropping that interval.
+// Complete is the condition that waits for terminal Pods.
 func ClassifyJob(job *batchv1.Job) ObservedState {
 	for _, c := range job.Status.Conditions {
 		if c.Status != corev1.ConditionTrue {
@@ -211,10 +217,11 @@ func ClassifyPod(pod *corev1.Pod) ObservedState {
 		if r.duty > 0 {
 			st.DutyCycle = &r.duty
 		}
-		// Copied unconditionally, unlike duty. Duty needs the `> 0` guard because ReportFromMessage defaults a
-		// missing fourth field to 1.0 and a refused message to 0, so zero is the only spelling of "no reading"
-		// a float64 has. These are pointers, so nil already says that and a guard could only lose a measured
-		// zero -- which is precisely the reading a full-duty attempt produces.
+		// Copied unconditionally, unlike duty.
+		// Duty needs the `> 0` guard because ReportFromMessage defaults a missing fourth field to 1.0 and a
+		// refused message to 0, so zero is the only spelling of "no reading" a float64 has.
+		// These are pointers, so nil already says that and a guard could only lose a measured zero -- which is
+		// precisely the reading a full-duty attempt produces.
 		st.SleptNs, st.WindowNs = r.sleptNs, r.windowNs
 		return st
 	}
@@ -268,8 +275,9 @@ type terminatedReading struct {
 	resumed           *int
 	saveStatus        string
 	// sleptNs and windowNs are the workload's measurement of how it spent its service, and they travel as a
-	// pair because a fraction needs both. ReportFromMessage refuses a message carrying one without the other,
-	// so either being non-nil means both are.
+	// pair because a fraction needs both.
+	// ReportFromMessage refuses a message carrying one without the other, so either being non-nil means both
+	// are.
 	sleptNs  *int64
 	windowNs *int64
 }
@@ -316,14 +324,15 @@ const DeviceOK = "ok"
 // DeviceNotAttempted is a workload that never reached for the driver at all, as opposed to one that reached
 // and was refused.
 //
-// The distinction is the whole reading of the resume arms. Their workload skips cuda() entirely when it is
-// given a progress file, because on the device path the loop never advances the accumulator and a resumed
-// attempt would be indistinguishable from one that restored nothing. "no-libcuda" would mean the driver was
-// missing; this means it was not asked for.
+// The distinction is the whole reading of the resume arms.
+// Their workload skips cuda() entirely when it is given a progress file, because on the device path the
+// loop never advances the accumulator and a resumed attempt would be indistinguishable from one that
+// restored nothing.
+// "no-libcuda" would mean the driver was missing; this means it was not asked for.
 //
-// A constant for the reason DeviceLaunchFailedMidrun is one: the token crosses a language boundary. The
-// embedded Python writes it and this package parses it back, so a rename on one side would silently turn
-// "we did not try" into an unknown status with nothing failing to compile.
+// A constant for the reason DeviceLaunchFailedMidrun is one: the token crosses a language boundary.
+// The embedded Python writes it and this package parses it back, so a rename on one side would silently
+// turn "we did not try" into an unknown status with nothing failing to compile.
 const DeviceNotAttempted = "not-attempted"
 
 // DeviceLaunchFailedMidrun is a card that ran a kernel and then stopped, which is the one failure that says
@@ -331,8 +340,8 @@ const DeviceNotAttempted = "not-attempted"
 //
 // It is a constant because the token crosses a language boundary: the embedded Python writes it into the
 // termination message and this package parses it back out, and a rename on one side would silently reclassify
-// a dying card as a run that never reached the device. TestTheWorkloadEmitsTheDeviceTokenThisPackageParses
-// holds the two together.
+// a dying card as a run that never reached the device.
+// TestTheWorkloadEmitsTheDeviceTokenThisPackageParses holds the two together.
 const DeviceLaunchFailedMidrun = "launch-failed-midrun"
 
 // deviceStatuses is every device-path outcome the workload can report, one per call it makes.
@@ -340,7 +349,8 @@ const DeviceLaunchFailedMidrun = "launch-failed-midrun"
 // The set is closed and each member sends a reader somewhere different: no-libcuda is a base image or a
 // container runtime that never injected the driver, no-device is a card that was not passed through,
 // ptx-load-failed is a kernel this driver would not JIT, and launch-failed-midrun is a card that worked and
-// then stopped. Collapsing them into a bool would turn every one of those into the same shrug.
+// then stopped.
+// Collapsing them into a bool would turn every one of those into the same shrug.
 var deviceStatuses = map[string]bool{
 	DeviceOK: true, DeviceNotAttempted: true, "no-libcuda": true, "cuinit-failed": true, "no-device": true,
 	"ctx-failed": true, "ptx-load-failed": true, "no-kernel": true, "alloc-failed": true,
@@ -349,19 +359,20 @@ var deviceStatuses = map[string]bool{
 
 // Checkpoint-write tokens, as the workload spells them in its own report.
 //
-// Constants for the reason the device tokens are: they cross a language boundary. The embedded Python writes
-// them into the termination message and this package parses them back, so a rename on one side would turn a
-// failed checkpoint into an unknown status with nothing failing to compile.
+// Constants for the reason the device tokens are: they cross a language boundary.
+// The embedded Python writes them into the termination message and this package parses them back, so a
+// rename on one side would turn a failed checkpoint into an unknown status with nothing failing to compile.
 //
 // The vocabulary exists because save() swallows its own exceptions and must go on doing so -- a workload
 // that died on a failed write would leave no final message, and an unreadable run is worse than a refused
-// one. Reporting is what separates "the volume worked" from "the volume was never asked", which
+// one.
+// Reporting is what separates "the volume worked" from "the volume was never asked", which
 // docs/superpowers/specs/2026-09-22-the-checkpoint-must-say-whether-it-was-written.md registers as the thing
 // that must exist before a card is bought for the resume arms.
 const (
-	// SaveNotAttempted is a workload given no state path, so it never tried to write. It is what every arm
-	// but the checkpointing pair reports, and what every message written before this field existed means by
-	// carrying no field at all.
+	// SaveNotAttempted is a workload given no state path, so it never tried to write.
+	// It is what every arm but the checkpointing pair reports, and what every message written before this
+	// field existed means by carrying no field at all.
 	SaveNotAttempted = "not-attempted"
 	// SaveOK is every write the workload attempted having returned without raising.
 	//
@@ -395,26 +406,28 @@ var saveStatuses = map[string]bool{
 // experiment is about, and the one that can print no final line because SIGKILL cannot be handled.
 //
 // Anything that is not exactly the expected shape yields nothing rather than a guess, and the count is
-// refused ALONGSIDE the tokens rather than kept. They are three readings of one sentence: a message this
-// build cannot parse is a message whose iteration count it also has no reason to trust, and keeping the
-// number from a sentence whose other half was unintelligible is how a measurement gets invented from
-// whatever happened to be in a file.
+// refused ALONGSIDE the tokens rather than kept.
+// They are three readings of one sentence: a message this build cannot parse is a message whose
+// iteration count it also has no reason to trust, and keeping the number from a sentence whose other
+// half was unintelligible is how a measurement gets invented from whatever happened to be in a file.
 //
 // The two tokens are checked against each other, not just against their own sets. dev=ok means a kernel
 // launched, so it cannot appear beside the CPU fallback; and the device kind can only carry ok or the
-// mid-run failure, because every earlier failure returns before the kind is set. A pair outside that
-// relation was not written by this workload.
+// mid-run failure, because every earlier failure returns before the kind is set.
+// A pair outside that relation was not written by this workload.
 // WorkloadReport is everything one termination message yields, as one value.
 //
 // A struct rather than the seven return values this became, for the argument terminatedReading already makes
 // twenty lines above: they are all readings of ONE sentence, four of them are optional in the same way, and a
 // positional list that long invites a caller to transpose two of its string-or-pointer slots without the
-// compiler noticing. Twenty-one call sites spelled `_` four to six times each to reach one field.
+// compiler noticing.
+// Twenty-one call sites spelled `_` four to six times each to reach one field.
 //
-// Iterations == nil is the invalid-report signal, and it is the ONLY one. A refused message yields the zero
-// struct, so no partially parsed field can escape a refusal -- the rule the whole parser is arranged around is
-// that a message this build cannot fully read is one whose count it also has no reason to trust. Mutating the
-// arity refusal to return the count it had already parsed turns
+// Iterations == nil is the invalid-report signal, and it is the ONLY one.
+// A refused message yields the zero struct, so no partially parsed field can escape a refusal -- the rule the
+// whole parser is arranged around is that a message this build cannot fully read is one whose count it also
+// has no reason to trust.
+// Mutating the arity refusal to return the count it had already parsed turns
 // TestAMessageWhoseSaveStatusThisBuildDoesNotKnowIsRefusedWhole red, which is the evidence that the rule is
 // pinned rather than merely intended.
 type WorkloadReport struct {
@@ -424,7 +437,8 @@ type WorkloadReport struct {
 	Kind   string
 	Device string
 	// Duty is the fraction the workload was CONFIGURED to compute for, defaulting to 1.0 for a message from a
-	// build whose workload had no duty axis. It is the workload's own echo of its argument, not a measurement.
+	// build whose workload had no duty axis.
+	// It is the workload's own echo of its argument, not a measurement.
 	Duty float64
 	// Accumulator, Resumed and SaveStatus are absent for a message from a build that could not report them,
 	// and each absence is a different statement from its zero value.
@@ -435,23 +449,26 @@ type WorkloadReport struct {
 	// inside its time.sleep calls, over the window from its start to the snapshot that reported them.
 	//
 	// Both nil for a message from a build whose workload could not measure, and a measured zero is a DIFFERENT
-	// statement from that absence -- a full-duty attempt slept none of its service and says so. They are
-	// present or absent TOGETHER: a fraction needs both, and slept without a window is half a reading.
+	// statement from that absence -- a full-duty attempt slept none of its service and says so.
+	// They are present or absent TOGETHER: a fraction needs both, and slept without a window is half a
+	// reading.
 	//
-	// This is not GPU utilisation and the complement is not device compute time. The rest of the window also
-	// holds descheduling, sleep overrun, interpreter overhead and kernel-launch latency, none of which this
-	// separates. Compared against 1-Duty rather than Duty, and never required to equal it: a row whose duration
-	// is not a whole number of the workload's periods ends inside one phase or the other.
+	// This is not GPU utilisation and the complement is not device compute time.
+	// The rest of the window also holds descheduling, sleep overrun, interpreter overhead and kernel-launch
+	// latency, none of which this separates.
+	// Compared against 1-Duty rather than Duty, and never required to equal it: a row whose duration is not a
+	// whole number of the workload's periods ends inside one phase or the other.
 	SleptNs  *int64
 	WindowNs *int64
 }
 
 func ReportFromMessage(msg string) WorkloadReport {
 	fields := strings.Fields(strings.TrimSpace(msg))
-	// Three fields through seven. Each later shape came from a build the earlier ones could not have
-	// written: the fourth is the duty cycle, the fifth the accumulator, the sixth the resume point, the
-	// seventh the checkpoint-write status. A message without one came from a build whose workload could not
-	// report it -- for duty, full duty is what it ran at rather than a value being guessed.
+	// Three fields through seven.
+	// Each later shape came from a build the earlier ones could not have written: the fourth is the duty
+	// cycle, the fifth the accumulator, the sixth the resume point, the seventh the checkpoint-write status.
+	// A message without one came from a build whose workload could not report it -- for duty, full duty is
+	// what it ran at rather than a value being guessed.
 	// Accepting every shape is what keeps every record written before an axis existed readable; refusing the
 	// old shape would make this build unable to read its own history, which is a worse failure than the one
 	// the strictness is for.
@@ -488,8 +505,9 @@ func ReportFromMessage(msg string) WorkloadReport {
 	// `>= 5`, not `== 5`, for the reason duty is `>= 4`.
 	//
 	// It was `== 5` until the sixth field existed, and widening the arity without widening this skipped the
-	// accumulator on every six-field message: the value was present, parsed nowhere, and returned nil. The
-	// preemption spec caught it -- a natural-completion message is five fields and would have stayed green.
+	// accumulator on every six-field message: the value was present, parsed nowhere, and returned nil.
+	// The preemption spec caught it -- a natural-completion message is five fields and would have stayed
+	// green.
 	if len(fields) >= 5 {
 		v, ok := parseAccumulatorField(fields[4])
 		if !ok {
@@ -501,9 +519,9 @@ func ReportFromMessage(msg string) WorkloadReport {
 	// `>= 6`, not `== 6`, and the reason is the defect the accumulator had at `== 5`.
 	//
 	// Widening the arity for a seventh field without widening this would skip the resume point on every
-	// seven-field message: the value present, parsed nowhere, returned nil. That is not hypothetical -- it
-	// is exactly what happened when the sixth field landed, and the spec that caught it only did so because
-	// one shape of message happened to be shorter.
+	// seven-field message: the value present, parsed nowhere, returned nil.
+	// That is not hypothetical -- it is exactly what happened when the sixth field landed, and the spec
+	// that caught it only did so because one shape of message happened to be shorter.
 	if len(fields) >= 6 {
 		v, ok := parseResumeField(fields[5], n)
 		if !ok {
@@ -514,10 +532,10 @@ func ReportFromMessage(msg string) WorkloadReport {
 	s := ""
 	// `>= 7`, not `== 7`, and this is the third time that distinction has mattered in this function.
 	//
-	// The accumulator had the defect at `== 5` and the resume point inherited the fix at `>= 6`. Widening the
-	// arity for the timing fields while leaving this at `== 7` would skip the save status on every message that
-	// carries them -- the value present, parsed nowhere, returned as the empty string, which reads as "a build
-	// that could not report it" rather than as a parse that did not happen.
+	// The accumulator had the defect at `== 5` and the resume point inherited the fix at `>= 6`.
+	// Widening the arity for the timing fields while leaving this at `== 7` would skip the save status on every
+	// message that carries them -- the value present, parsed nowhere, returned as the empty string, which reads
+	// as "a build that could not report it" rather than as a parse that did not happen.
 	if len(fields) >= 7 {
 		v, ok := parseSavedField(fields[6])
 		if !ok {
@@ -528,8 +546,9 @@ func ReportFromMessage(msg string) WorkloadReport {
 	// The two observations arrive together or not at all.
 	//
 	// An eight-field message carries a slept total with no window to divide it by, and a fraction is the only
-	// thing either number is for. Accepting it would put an unusable reading into the ledger under a name that
-	// promises a fraction, so the whole message is refused -- the same rule every optional field here follows.
+	// thing either number is for.
+	// Accepting it would put an unusable reading into the ledger under a name that promises a fraction, so the
+	// whole message is refused -- the same rule every optional field here follows.
 	var slept, window *int64
 	if len(fields) == 8 {
 		return WorkloadReport{}
@@ -543,9 +562,9 @@ func ReportFromMessage(msg string) WorkloadReport {
 		if !ok {
 			return WorkloadReport{}
 		}
-		// Slept cannot exceed the window it is a fraction of. A pair that says otherwise was not written by one
-		// process reading one clock, and reporting a fraction above 1.0 would be a plausible wrong number --
-		// which this package treats as worse than a refusal.
+		// Slept cannot exceed the window it is a fraction of.
+		// A pair that says otherwise was not written by one process reading one clock, and reporting a fraction
+		// above 1.0 would be a plausible wrong number -- which this package treats as worse than a refusal.
 		if sv > wv {
 			return WorkloadReport{}
 		}
@@ -558,9 +577,10 @@ func ReportFromMessage(msg string) WorkloadReport {
 // The four optional fields, one reader each, returning false for anything this build cannot read.
 //
 // They are separate functions rather than inline blocks because the seventh field took ReportFromMessage
-// past the complexity limit this repository keeps on production code. Extracting them is the honest fix: the
-// alternative was a lint exception, which would have deferred a real finding for the convenience of the
-// change that caused it. Each reader keeps the argument for its own refusal beside it.
+// past the complexity limit this repository keeps on production code.
+// Extracting them is the honest fix: the alternative was a lint exception, which would have deferred a real
+// finding for the convenience of the change that caused it.
+// Each reader keeps the argument for its own refusal beside it.
 //
 // Every one of them refuses ALONGSIDE the rest of the message rather than yielding a zero value, and that is
 // the rule the whole parser is arranged around: a message this build cannot fully parse is one whose
@@ -590,12 +610,14 @@ func parseDutyField(f string) (float64, bool) {
 // The workload writes it with %.17g, which round-trips a float64 exactly; %g does not, and an accumulator
 // that arrived rounded would fail an exact comparison for a reason unrelated to the work the run did.
 //
-// Non-finite values are refused alongside a parse error, and the reason is not tidiness. ParseFloat accepts
-// "NaN", "Inf" and "-Inf", and until the message grew a fifth field the arity rule refused those by
-// accident. They reach LifecycleEvent.Accumulator and then json.Marshal fails with `unsupported value: NaN`
-// -- so a workload emitting one would not produce a suspicious record, it would produce NO record, losing
-// the whole run's evidence at write time. NaN also cannot be compared: the oracle's `want == reported` is
-// false for NaN against anything including itself, so such a run could never be verified nor refused.
+// Non-finite values are refused alongside a parse error, and the reason is not tidiness.
+// ParseFloat accepts "NaN", "Inf" and "-Inf", and until the message grew a fifth field the arity rule
+// refused those by accident.
+// They reach LifecycleEvent.Accumulator and then json.Marshal fails with `unsupported value: NaN` -- so a
+// workload emitting one would not produce a suspicious record, it would produce NO record, losing the whole
+// run's evidence at write time.
+// NaN also cannot be compared: the oracle's `want == reported` is false for NaN against anything including
+// itself, so such a run could never be verified nor refused.
 func parseAccumulatorField(f string) (float64, bool) {
 	if !strings.HasPrefix(f, "acc=") {
 		return 0, false
@@ -609,14 +631,14 @@ func parseAccumulatorField(f string) (float64, bool) {
 
 // parseResumeField reads the iteration count the attempt STARTED from, bounded by the count it reports.
 //
-// Zero means "began at zero" and absence means "this build could not say". A boolean would collapse those,
-// and the difference is the whole question a resume arm exists to answer: an attempt that resumed from 1370
-// did not do 1370 of the iterations it reports, and a waste figure that counts them has counted the same
-// work twice.
+// Zero means "began at zero" and absence means "this build could not say".
+// A boolean would collapse those, and the difference is the whole question a resume arm exists to answer:
+// an attempt that resumed from 1370 did not do 1370 of the iterations it reports, and a waste figure that
+// counts them has counted the same work twice.
 //
-// iters bounds it because an attempt claiming to have restored more than it holds is unreadable. What one
-// message can say about itself ends there; whether the restored work was ever PERFORMED is a question about
-// the ledger, and cmd/queuelabrun/record.go asks it.
+// iters bounds it because an attempt claiming to have restored more than it holds is unreadable.
+// What one message can say about itself ends there; whether the restored work was ever PERFORMED is a
+// question about the ledger, and cmd/queuelabrun/record.go asks it.
 func parseResumeField(f string, iters int) (int, bool) {
 	if !strings.HasPrefix(f, "resumed=") {
 		return 0, false
@@ -631,11 +653,13 @@ func parseResumeField(f string, iters int) (int, bool) {
 // parseSleptField reads the nanoseconds the workload spent inside its own time.sleep calls.
 //
 // Zero is a claim and not an absence: a full-duty attempt slept none of its service, and a build whose workload
-// could not measure sends no field at all. Collapsing those would make "measured nothing" and "did not measure"
-// the same reading, which is the distinction this field exists to create.
+// could not measure sends no field at all.
+// Collapsing those would make "measured nothing" and "did not measure" the same reading, which is the
+// distinction this field exists to create.
 //
-// Negative is refused rather than clamped. The value is a difference of two time.monotonic() readings inside one
-// process, so a negative one means the arithmetic was edited; a fraction built from it would be nonsense.
+// Negative is refused rather than clamped.
+// The value is a difference of two time.monotonic() readings inside one process, so a negative one means the
+// arithmetic was edited; a fraction built from it would be nonsense.
 func parseSleptField(f string) (int64, bool) {
 	if !strings.HasPrefix(f, "sleptns=") {
 		return 0, false
@@ -650,8 +674,8 @@ func parseSleptField(f string) (int64, bool) {
 // parseWindowField reads the nanoseconds between the workload's start and the snapshot reporting it.
 //
 // Zero is refused where the slept field accepts it, and the asymmetry is the point: a zero denominator makes the
-// fraction undefined, while a zero numerator makes it exactly zero. A reader handed the first cannot tell a run
-// that idled from one that measured nothing.
+// fraction undefined, while a zero numerator makes it exactly zero.
+// A reader handed the first cannot tell a run that idled from one that measured nothing.
 func parseWindowField(f string) (int64, bool) {
 	if !strings.HasPrefix(f, "windowns=") {
 		return 0, false
@@ -669,9 +693,9 @@ func parseWindowField(f string) (int64, bool) {
 // whose progress file never landed is not a smaller reading of the resume arms, it is a different run.
 //
 // An unknown token refuses the whole message rather than reading as an unclassified status, which is a
-// harsher consequence than the device tokens have. That is deliberate -- the message is a channel the
-// workload controls -- and it is why TestTheWorkloadEmitsTheSaveTokensThisPackageParses holds the two
-// spellings together.
+// harsher consequence than the device tokens have.
+// That is deliberate -- the message is a channel the workload controls -- and it is why
+// TestTheWorkloadEmitsTheSaveTokensThisPackageParses holds the two spellings together.
 func parseSavedField(f string) (string, bool) {
 	if !strings.HasPrefix(f, "saved=") {
 		return "", false
@@ -686,9 +710,10 @@ func parseSavedField(f string) (string, bool) {
 // conditionStamp is the component's own transition time for a metav1 condition, or nil when it published none.
 //
 // Kueue writes lastTransitionTime on the Admitted condition, so this is Kueue's clock for the admission
-// rather than the collector's clock for hearing about it. That distinction is the entire reason the field
-// exists: an interval between two arrival times carries the difference of their delivery lags, and nothing
-// bounds that difference unless both endpoints can be compared against the component that produced them.
+// rather than the collector's clock for hearing about it.
+// That distinction is the entire reason the field exists: an interval between two arrival times carries
+// the difference of their delivery lags, and nothing bounds that difference unless both endpoints can be
+// compared against the component that produced them.
 func conditionStamp(conditions []metav1.Condition, condType string) *int64 {
 	for i := range conditions {
 		if conditions[i].Type != condType {

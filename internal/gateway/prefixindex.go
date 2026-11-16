@@ -31,8 +31,8 @@ import (
 // The engines' own caches are not tenant-scoped by this; only the gateway's index is.
 //
 // Only whole chunks are hashed, because a trailing partial chunk would be a different chunk the next time the same
-// prefix arrives with a longer suffix, and could never match. At most maxChunks are hashed, which bounds the work
-// a single request can cost the gateway.
+// prefix arrives with a longer suffix, and could never match.
+// At most maxChunks are hashed, which bounds the work a single request can cost the gateway.
 func prefixChain(tenant, model, prompt string, chunkChars, maxChunks int) []uint64 {
 	if chunkChars <= 0 {
 		return nil
@@ -69,13 +69,14 @@ type backendLRU struct {
 // prefixIndex is the gateway's approximation of which prefixes each backend's engine still holds.
 //
 // It is an approximation by construction: it records what the gateway sent, at the moment it decided, not what the
-// engine computed or kept. It mimics the engine's eviction with a per-backend LRU sized to the engine's capacity, as
-// llm-d's approximate producer does, and it never learns of an engine restart. A wrong belief costs a cache miss on
-// the engine, never a wrong answer.
+// engine computed or kept.
+// It mimics the engine's eviction with a per-backend LRU sized to the engine's capacity, as llm-d's approximate
+// producer does, and it never learns of an engine restart.
+// A wrong belief costs a cache miss on the engine, never a wrong answer.
 //
 // Memory is bounded twice: capacity chunks per backend, and at most maxBackends backends, the least recently used
-// backend's whole entry being dropped when another appears. So at most capacity × maxBackends hashes are held,
-// whatever the traffic or the number of InferenceDeployments.
+// backend's whole entry being dropped when another appears.
+// So at most capacity × maxBackends hashes are held, whatever the traffic or the number of InferenceDeployments.
 //
 // Not safe for concurrent use; the router holds its lock around every call.
 type prefixIndex struct {
@@ -95,8 +96,9 @@ func newPrefixIndex(capacity, maxBackends int) *prefixIndex {
 // matched reports how many leading chunks of chain the index believes backend holds.
 //
 // Leading and consecutive, because an engine's prefix cache can only reuse a prefix: a chunk held after a missing one
-// is no use to it. The chain makes chunk i's hash depend on every chunk before it, so a hit at i already means the
-// whole prefix through i was sent there.
+// is no use to it.
+// The chain makes chunk i's hash depend on every chunk before it, so a hit at i already means the whole prefix
+// through i was sent there.
 func (x *prefixIndex) matched(backend string, chain []uint64) int {
 	b, ok := x.backends[backend]
 	if !ok {

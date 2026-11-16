@@ -26,14 +26,16 @@ func repoFile(t *testing.T, rel string) string {
 // Every taint the GPU node group declares must be tolerated by the flavour a run is admitted under.
 //
 // This is the defect that would have killed the session most quietly. eks.tf taints the node
-// nvidia.com/gpu=present:NoSchedule; nothing else in this repository tolerated it. Kueue checks a podset's
-// tolerations against the FLAVOUR's declared taints rather than the node's real ones, so the Workload is
-// admitted, the Job unsuspends, the ledger records Admitted -- and the scheduler then refuses the Pod. Every
-// arm dies at a barrier with a desync.
+// nvidia.com/gpu=present:NoSchedule; nothing else in this repository tolerated it.
+// Kueue checks a podset's tolerations against the FLAVOUR's declared taints rather than the node's real
+// ones, so the Workload is admitted, the Job unsuspends, the ledger records Admitted -- and the scheduler
+// then refuses the Pod.
+// Every arm dies at a barrier with a desync.
 //
 // Neither existing gate could see it: the canary and the preflight both build their Pods through
 // probePodFrom, which sets spec.nodeName and bypasses the scheduler, and NoSchedule is a scheduler
-// predicate. Both would call the node healthy.
+// predicate.
+// Both would call the node healthy.
 //
 // The taints are read from the terraform rather than restated here, so the two cannot drift apart.
 func TestTheFlavourToleratesEveryTaintTheGPUNodeGroupDeclares(t *testing.T) {
@@ -44,11 +46,12 @@ func TestTheFlavourToleratesEveryTaintTheGPUNodeGroupDeclares(t *testing.T) {
 			"rewritten rather than deleted")
 	}
 	flavor := labResourceFlavor(FixtureIdentity{RunID: "r1"}, StudyReclaim, "v")
-	// A toleration must actually TOLERATE the taint, not merely mention its key. The first version of this
-	// accepted any entry with a matching key, so operator, value and effect could all be wrong -- a
-	// `nvidia.com/gpu=wrong:NoExecute` toleration would have passed while leaving every Pod Pending against
-	// the node's `nvidia.com/gpu=present:NoSchedule`. A test that checks the name of the thing rather than
-	// the thing is the failure this file exists to catch, committed inside the file.
+	// A toleration must actually TOLERATE the taint, not merely mention its key.
+	// The first version of this accepted any entry with a matching key, so operator, value and effect could
+	// all be wrong -- a `nvidia.com/gpu=wrong:NoExecute` toleration would have passed while leaving every
+	// Pod Pending against the node's `nvidia.com/gpu=present:NoSchedule`.
+	// A test that checks the name of the thing rather than the thing is the failure this file exists to
+	// catch, committed inside the file.
 	//
 	// The rule is Kubernetes': Exists matches any value, Equal matches only its own, and an empty effect
 	// matches every effect.
@@ -104,23 +107,25 @@ func TestTheFlavourToleratesEveryTaintTheGPUNodeGroupDeclares(t *testing.T) {
 // mounting the kubelet's pod-resources socket is necessary and not sufficient, and without the mapping every
 // sample arrives with no pod label -- which ParseDCGMUtilisation skips, so a healthy exporter reporting full
 // utilisation yields zero attributable samples and the harness reports that the observer could not
-// attribute. And the collection interval defaults to thirty seconds, while the exporter serves a CACHED
-// snapshot in between, so the pod-to-device mapping in a served scrape can be far staler than the
-// stale-label margin the exclusivity clause allows.
+// attribute.
+// And the collection interval defaults to thirty seconds, while the exporter serves a CACHED snapshot in
+// between, so the pod-to-device mapping in a served scrape can be far staler than the stale-label margin the
+// exclusivity clause allows.
 func TestTheExporterManifestEmitsWhatTheParserReads(t *testing.T) {
 	ds := repoFile(t, "config/dcgm-exporter/daemonset.yaml")
-	// The VALUE, not the name. Checking only that the variable appears accepts `value: "false"`, which
-	// disables the very mapping this test exists to require -- the same name-not-thing mistake the
-	// toleration check above was making.
+	// The VALUE, not the name.
+	// Checking only that the variable appears accepts `value: "false"`, which disables the very
+	// mapping this test exists to require -- the same name-not-thing mistake the toleration check
+	// above was making.
 	if !regexp.MustCompile(`name:\s*DCGM_EXPORTER_KUBERNETES\s*\n\s*value:\s*"true"`).MatchString(ds) {
 		t.Fatal("the exporter does not enable the kubernetes mapping with value \"true\", so no sample will " +
 			"carry a pod label and every device claim will fail attribution for a reason that is not about " +
 			"the card")
 	}
-	// The exporter's device-to-Pod mapping is per node and it has to know which node it is on. NVIDIA's own
-	// reference DaemonSet sets NODE_NAME from the downward API; this manifest omitted it, and a review
-	// predicted empty Pod attribution on a real cluster -- indistinguishable downstream from a card nobody
-	// used, which is the failure the mapping flag above exists to prevent.
+	// The exporter's device-to-Pod mapping is per node and it has to know which node it is on.
+	// NVIDIA's own reference DaemonSet sets NODE_NAME from the downward API; this manifest omitted it, and
+	// a review predicted empty Pod attribution on a real cluster -- indistinguishable downstream from a
+	// card nobody used, which is the failure the mapping flag above exists to prevent.
 	if !regexp.MustCompile(`name:\s*NODE_NAME\s*\n\s*valueFrom:\s*\n\s*fieldRef:\s*\n\s*fieldPath:\s*spec\.nodeName`).MatchString(ds) {
 		t.Fatal("the exporter does not learn its own node name from the downward API, so its per-node " +
 			"device-to-Pod mapping has nothing to key on and its samples may carry no pod label at all")
@@ -144,9 +149,11 @@ func TestTheExporterManifestEmitsWhatTheParserReads(t *testing.T) {
 // The session script must address the exporter's container by a name the manifest actually uses.
 //
 // It hardcoded the DAEMONSET's name where the CONTAINER's belonged, matched nothing, and exited on the first
-// command of the session. What makes that worth a test rather than a fix is how it was "verified": a
-// stand-in DaemonSet was written with the container name the script expected, so the check confirmed the
-// script agreed with a fixture built from the script. The manifest is the only thing worth checking against.
+// command of the session.
+// What makes that worth a test rather than a fix is how it was "verified": a stand-in DaemonSet was written
+// with the container name the script expected, so the check confirmed the script agreed with a fixture built
+// from the script.
+// The manifest is the only thing worth checking against.
 func TestTheSessionScriptAddressesTheExportersRealContainer(t *testing.T) {
 	sh := repoFile(t, "hack/gpu-session.sh")
 	ds := repoFile(t, "config/dcgm-exporter/daemonset.yaml")
@@ -174,13 +181,15 @@ func TestTheSessionScriptAddressesTheExportersRealContainer(t *testing.T) {
 
 // The infrastructure must be able to run the axes the preregistration promises.
 //
-// The GPU node group was capped at one node while the preregistration promised a node comparison. The cap
-// saved nothing -- desired_size is 0 either way, and nothing bills at zero -- so a number nobody had argued
-// for made a preregistered axis unrunnable. The failure would not have been silent (`-compare -mode node`
-// refuses a set in which nothing varies) but it would have been discovered on the rented node.
+// The GPU node group was capped at one node while the preregistration promised a node comparison.
+// The cap saved nothing -- desired_size is 0 either way, and nothing bills at zero -- so a number nobody
+// had argued for made a preregistered axis unrunnable.
+// The failure would not have been silent (`-compare -mode node` refuses a set in which nothing varies) but
+// it would have been discovered on the rented node.
 //
-// This ties the promise to the capability. If the node axis is ever withdrawn from the preregistration, this
-// test should be deleted with it rather than left asserting a requirement nothing has.
+// This ties the promise to the capability.
+// If the node axis is ever withdrawn from the preregistration, this test should be deleted with it rather
+// than left asserting a requirement nothing has.
 //
 // Mutation that turns this red: put the cap back to 1.
 func TestTheGPUNodeGroupCanRunTheAxesThePreregistrationPromises(t *testing.T) {
@@ -192,10 +201,11 @@ func TestTheGPUNodeGroupCanRunTheAxesThePreregistrationPromises(t *testing.T) {
 	// The GPU group is the block carrying the NVIDIA AMI; read its cap rather than the first one in the file,
 	// and read ONLY its block.
 	//
-	// This used to slice from "gpu = {" to end-of-file, which worked while the cap was a literal. When it
-	// became max_size = var.gpu_max_nodes the numeric regex stopped matching inside the gpu block and
-	// silently matched gpu_single's max_size = 1 further down -- so the test asserted about the wrong node
-	// group while naming the right one. Bounded now.
+	// This used to slice from "gpu = {" to end-of-file, which worked while the cap was a literal.
+	// When it became max_size = var.gpu_max_nodes the numeric regex stopped matching inside the gpu block
+	// and silently matched gpu_single's max_size = 1 further down -- so the test asserted about the wrong
+	// node group while naming the right one.
+	// Bounded now.
 	start := strings.Index(tf, "gpu = {")
 	if start < 0 {
 		t.Fatal("eks.tf declares no gpu node group")
@@ -231,11 +241,13 @@ func TestTheGPUNodeGroupCanRunTheAxesThePreregistrationPromises(t *testing.T) {
 	//
 	// The preregistration promises a node axis and says plainly what a one-node session delivers instead --
 	// the arm contrast, the dose axis and the device evidence -- with -compare -mode node refusing rather
-	// than fabricating. What must never happen is the cap dropping to one because somebody edited a number.
+	// than fabricating.
+	// What must never happen is the cap dropping to one because somebody edited a number.
 	//
 	// So at one, two things must hold: the cap is carried by the variable that exists to record the decision,
-	// and the quota that forces it is actually read. Two g4dn.12xlarge is 96 vCPU against the 52 granted on
-	// 2026-08-26, so today the cap is arithmetic rather than preference.
+	// and the quota that forces it is actually read.
+	// Two g4dn.12xlarge is 96 vCPU against the 52 granted on 2026-08-26, so today the cap is arithmetic
+	// rather than preference.
 	if max < 2 {
 		if m[1] != "var.gpu_max_nodes" {
 			t.Fatalf("the GPU node group caps at %d node(s) as a literal. One is acceptable only as a "+
@@ -261,11 +273,11 @@ func TestTheGPUNodeGroupCanRunTheAxesThePreregistrationPromises(t *testing.T) {
 
 // The session script's device count must be the one the harness derives.
 //
-// hack/gpu-session.sh sizes the surplus occupier from a REQUIRED constant. The harness derives the same
-// number from the run's own fixtures and trace, and qualify.go's own comment names a hard-coded copy of it
-// as "the constant this derivation exists to avoid". Two truths, and nothing kept them in step: a drifted
-// script would hold the wrong number of cards and the run would refuse -- after the canary and the preflight
-// had spent their minutes on a rented node.
+// hack/gpu-session.sh sizes the surplus occupier from a REQUIRED constant.
+// The harness derives the same number from the run's own fixtures and trace, and qualify.go's own comment
+// names a hard-coded copy of it as "the constant this derivation exists to avoid".
+// Two truths, and nothing kept them in step: a drifted script would hold the wrong number of cards and the
+// run would refuse -- after the canary and the preflight had spent their minutes on a rented node.
 //
 // Mutation that turns this red: change REQUIRED in the script without changing the fixtures.
 func TestTheSessionScriptHoldsTheDeviceCountTheHarnessDerives(t *testing.T) {
@@ -279,7 +291,8 @@ func TestTheSessionScriptHoldsTheDeviceCountTheHarnessDerives(t *testing.T) {
 		t.Fatalf("REQUIRED %q is not a number: %v", m[1], cerr)
 	}
 	// The same two bounds qualify() uses: the nominal quota summed over the study's ClusterQueues, and the
-	// largest single row. Derived here from the fixtures rather than restated.
+	// largest single row.
+	// Derived here from the fixtures rather than restated.
 	fs, err := BuildFixtures(StudyReclaim, "Never", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"})
 	if err != nil {
 		t.Fatalf("build the study's fixtures: %v", err)
@@ -312,15 +325,16 @@ func TestTheSessionScriptHoldsTheDeviceCountTheHarnessDerives(t *testing.T) {
 // Growing the study's repetitions must not break the orderings its comparisons depend on.
 //
 // n=2 per cell was the kind allocation and the weakest thing about the design: a cell's spread is one
-// number and cannot be told from its own noise. Raising it is the cheapest axis this study can buy on
-// rented hardware -- about three minutes a run -- so the session script repeats a block rather than
-// carrying a hand-written list per size.
+// number and cannot be told from its own noise.
+// Raising it is the cheapest axis this study can buy on rented hardware -- about three minutes a run
+// -- so the session script repeats a block rather than carrying a hand-written list per size.
 //
-// That only works if the block composes. Every comparison the script prints requires ITS OWN factor to
-// alternate in time; a blocked sequence makes the harness print CONFOUNDED and the study cannot use its own
-// records. The subsets matter: the dose comparison reads the grace runs on the FIRST worker only, so a
-// check that pooled both workers' grace runs would report a break that no published comparison has. That
-// mistake was made while writing this, which is why the subsets here are the globs the script prints
+// That only works if the block composes.
+// Every comparison the script prints requires ITS OWN factor to alternate in time; a blocked sequence makes
+// the harness print CONFOUNDED and the study cannot use its own records.
+// The subsets matter: the dose comparison reads the grace runs on the FIRST worker only, so a check that
+// pooled both workers' grace runs would report a break that no published comparison has.
+// That mistake was made while writing this, which is why the subsets here are the globs the script prints
 // rather than the factors in the abstract.
 func TestGrowingTheRepetitionsKeepsEveryComparisonInterleaved(t *testing.T) {
 	sh := repoFile(t, "hack/gpu-session.sh")
@@ -329,10 +343,11 @@ func TestGrowingTheRepetitionsKeepsEveryComparisonInterleaved(t *testing.T) {
 			"that has moved and must be rewritten rather than deleted")
 	}
 	type run struct{ dose, arm, id, node string }
-	// PARSED from the script, not transcribed into Go. A hand-copied block is a fixture written to fit the
-	// code: edit the shell and this test keeps checking the copy. That is the failure this repository has
-	// made repeatedly, and it was made here first -- the block below was a Go transcription until a mutation
-	// of the copy proved the copy was all that was being checked.
+	// PARSED from the script, not transcribed into Go.
+	// A hand-copied block is a fixture written to fit the code: edit the shell and this test keeps checking
+	// the copy.
+	// That is the failure this repository has made repeatedly, and it was made here first -- the block below
+	// was a Go transcription until a mutation of the copy proved the copy was all that was being checked.
 	blockFor := func(twoWorkers bool) []run {
 		body := sh[strings.Index(sh, "SEQUENCE=()"):]
 		branch := body[strings.Index(body, "if [[ ${#WORKERS[@]} -ge 2 ]]; then"):]
@@ -367,9 +382,10 @@ func TestGrowingTheRepetitionsKeepsEveryComparisonInterleaved(t *testing.T) {
 				"this test is reading the wrong region", got, map[bool]int{false: 1, true: 2}[tw], want)
 		}
 	}
-	// Every (dose, arm) cell must appear EXACTLY ONCE per block. That is what makes repetition safe: with
-	// one of each, every comparison's subset alternates however the block is ordered, and with two of any
-	// the alternation breaks at the duplicate no matter how the rest is arranged.
+	// Every (dose, arm) cell must appear EXACTLY ONCE per block.
+	// That is what makes repetition safe: with one of each, every comparison's subset alternates however
+	// the block is ordered, and with two of any the alternation breaks at the duplicate no matter how the
+	// rest is arranged.
 	for _, tw := range []bool{false, true} {
 		seen := map[string]int{}
 		for _, r := range blockFor(tw) {
@@ -434,18 +450,21 @@ func TestGrowingTheRepetitionsKeepsEveryComparisonInterleaved(t *testing.T) {
 // Every GPU node group must carry EXACTLY ONE of the two mode labels.
 //
 // eks.tf's own comment names half of this and it is worth a test rather than a paragraph: the DaemonSets
-// select on this repository's labels, not NVIDIA's GPU Feature Discovery ones. A tainted group carrying
-// NEITHER schedules the tenant's Pods and not the observer, so the card is used and nothing watches it --
-// and the run reports "no device observer ran" without anything saying why the observer was absent.
+// select on this repository's labels, not NVIDIA's GPU Feature Discovery ones.
+// A tainted group carrying NEITHER schedules the tenant's Pods and not the observer, so the card is used
+// and nothing watches it -- and the run reports "no device observer ran" without anything saying why the
+// observer was absent.
 //
 // Carrying BOTH is the newer hazard and the worse one. platform.lkhun9311.github.io/gpu selects the
 // exclusive device plugin and the observer; platform.lkhun9311.github.io/gpu-sharing selects the
-// time-slicing plugin. A node with both runs two device plugins registering nvidia.com/gpu against one
-// kubelet socket, on a rented card, in the middle of a paid session.
+// time-slicing plugin.
+// A node with both runs two device plugins registering nvidia.com/gpu against one kubelet socket, on a
+// rented card, in the middle of a paid session.
 //
 // The split is the mechanism that keeps M5-c's sharing matrix away from queuelab's device evidence: under
 // time-slicing a busy SM belongs to no single Pod, so the sharing node has no observer BY DESIGN, and that
-// absence must be distinguishable from the absence that is a bug. One label each is how.
+// absence must be distinguishable from the absence that is a bug.
+// One label each is how.
 func TestEveryGPUTaintedNodeGroupCarriesExactlyOneModeLabel(t *testing.T) {
 	tf := repoFile(t, "infra/aws/cluster/eks.tf")
 
@@ -457,10 +476,11 @@ func TestEveryGPUTaintedNodeGroupCarriesExactlyOneModeLabel(t *testing.T) {
 	}
 
 	// Matched with a whitespace-tolerant pattern rather than a literal, because HCL aligns the `=` in a
-	// block and terraform fmt does it for you. A literal with single spaces stops matching the moment a
-	// longer key is added beside it -- and it fails OPEN: the label reads as absent, so a node group that
-	// carries both labels passes as though it carried one. That is exactly the mutation that survived the
-	// first version of this test.
+	// block and terraform fmt does it for you.
+	// A literal with single spaces stops matching the moment a longer key is added beside it -- and it
+	// fails OPEN: the label reads as absent, so a node group that carries both labels passes as though it
+	// carried one.
+	// That is exactly the mutation that survived the first version of this test.
 	//
 	// The closing quote after `gpu` is what keeps the exclusive pattern from matching `gpu-sharing`.
 	exclusiveLabel := regexp.MustCompile(`"platform\.lkhun9311\.github\.io/gpu"\s*=\s*"true"`)
@@ -499,7 +519,8 @@ func TestEveryGPUTaintedNodeGroupCarriesExactlyOneModeLabel(t *testing.T) {
 		t.Fatal("no GPU-tainted node group found in eks.tf; this test would pass vacuously")
 	}
 	// queuelab needs a multi-GPU node under the exclusive plugin, M5-b needs a single card under it, and
-	// M5-c needs a card under the sharing plugin. Losing either side of the split loses an experiment.
+	// M5-c needs a card under the sharing plugin.
+	// Losing either side of the split loses an experiment.
 	if exclusive < 2 {
 		t.Errorf("found %d exclusive GPU node group(s); queuelab needs a multi-GPU node and M5-b a single-card one", exclusive)
 	}
@@ -512,8 +533,8 @@ func TestEveryGPUTaintedNodeGroupCarriesExactlyOneModeLabel(t *testing.T) {
 //
 // This is the drift that actually happened rather than one imagined for a test: the paragraph said "four
 // runs, two per arm" long after the set had grown to twelve, and nothing noticed because a sentence and a
-// directory have no relationship a compiler can see. A reader who takes the README at its word is being
-// told the experiment is a third of its size.
+// directory have no relationship a compiler can see.
+// A reader who takes the README at its word is being told the experiment is a third of its size.
 //
 // The magnitudes were removed from the README at the same time for the same reason -- a number restated in
 // two places drifts in one of them -- so the count is what is left to hold.
@@ -549,12 +570,14 @@ func TestTheReadmeRunCountMatchesTheRecordsOnDisk(t *testing.T) {
 // No terraform variable may be declared twice, and no GPU group may point at a card the sizing was not done for.
 //
 // Both halves of this were broken at once, and the first `terraform plan` would have been where anyone
-// found out. Editing variables.tf to move M5-b and M5-c onto one card class left the previous declarations
-// in place, so `gpu_shared_node_instance_type` and `gpu_single_node_instance_type` each appeared twice --
-// which terraform rejects outright as a duplicate declaration, meaning the committed configuration did not
-// parse. Worse if it had: one of the stale copies still defaulted to a T4, and every figure in
-// hack/m5b-vllm-sizing.md is derived for an A10G's 23,028 MiB. A run on the wrong card would have produced
-// numbers that looked ordinary.
+// found out.
+// Editing variables.tf to move M5-b and M5-c onto one card class left the previous declarations in place,
+// so `gpu_shared_node_instance_type` and `gpu_single_node_instance_type` each appeared twice -- which
+// terraform rejects outright as a duplicate declaration, meaning the committed configuration did not
+// parse.
+// Worse if it had: one of the stale copies still defaulted to a T4, and every figure in
+// hack/m5b-vllm-sizing.md is derived for an A10G's 23,028 MiB.
+// A run on the wrong card would have produced numbers that looked ordinary.
 func TestTerraformDeclaresEachVariableOnceAndSizesTheGPUGroupsForTheirCard(t *testing.T) {
 	tf := repoFile(t, "infra/aws/cluster/variables.tf")
 
@@ -573,8 +596,9 @@ func TestTerraformDeclaresEachVariableOnceAndSizesTheGPUGroupsForTheirCard(t *te
 	// The card each GPU group provisions, against what its milestone was sized for.
 	//
 	// queuelab needs two devices on ONE node and no G-family size has exactly two, so its smallest machine
-	// is a 12xlarge. M5-b and M5-c share one card class deliberately: the matrix's exclusive arm IS the
-	// flagship's configuration, and two Qwen2.5-3B engines do not fit on a T4.
+	// is a 12xlarge.
+	// M5-b and M5-c share one card class deliberately: the matrix's exclusive arm IS the flagship's
+	// configuration, and two Qwen2.5-3B engines do not fit on a T4.
 	want := map[string]string{
 		"gpu_node_instance_type":        "g4dn.12xlarge",
 		"gpu_single_node_instance_type": "g5.",
@@ -597,8 +621,9 @@ func TestTerraformDeclaresEachVariableOnceAndSizesTheGPUGroupsForTheirCard(t *te
 		}
 	}
 
-	// And the two that must agree, must. M5-b and M5-c on different silicon would confound the one arm they
-	// share, which is the whole reason they were consolidated.
+	// And the two that must agree, must.
+	// M5-b and M5-c on different silicon would confound the one arm they share, which is the whole reason
+	// they were consolidated.
 	one := regexp.MustCompile(`(?s)variable "gpu_single_node_instance_type" \{.*?default\s*=\s*"([^"]+)"`).FindStringSubmatch(tf)
 	two := regexp.MustCompile(`(?s)variable "gpu_shared_node_instance_type" \{.*?default\s*=\s*"([^"]+)"`).FindStringSubmatch(tf)
 	if one != nil && two != nil && one[1] != two[1] {
@@ -609,15 +634,16 @@ func TestTerraformDeclaresEachVariableOnceAndSizesTheGPUGroupsForTheirCard(t *te
 
 // Every terraform region must be the one the GPU quota was granted in, and they must all agree.
 //
-// The failure this guards does not happen at apply time, which is why it would have survived one. Every GPU
-// node group runs at desired_size 0, so `terraform apply` in the wrong region succeeds: it builds a VPC, a
-// cluster and four node groups, none of which launches a G instance. The quota error arrives later, when a
-// session scales one up -- on a cluster that has looked healthy for hours, at the start of the window the
-// card is being paid for.
+// The failure this guards does not happen at apply time, which is why it would have survived one.
+// Every GPU node group runs at desired_size 0, so `terraform apply` in the wrong region succeeds: it builds
+// a VPC, a cluster and four node groups, none of which launches a G instance.
+// The quota error arrives later, when a session scales one up -- on a cluster that has looked healthy for
+// hours, at the start of the window the card is being paid for.
 //
 // The account's "Running On-Demand G and VT instances" quota was raised to 52 vCPU in ap-northeast-2 on
-// 2026-08-26. Everything terraform builds has to live there: a region set in the cluster but not the state
-// backend, or in the backend but not the registry, is the same failure with an extra step.
+// 2026-08-26.
+// Everything terraform builds has to live there: a region set in the cluster but not the state backend, or
+// in the backend but not the registry, is the same failure with an extra step.
 func TestEveryTerraformRegionIsWhereTheGPUQuotaLives(t *testing.T) {
 	const quotaRegion = "ap-northeast-2"
 
@@ -625,13 +651,15 @@ func TestEveryTerraformRegionIsWhereTheGPUQuotaLives(t *testing.T) {
 	//
 	// This test was written after the terraform default was found pointing at us-east-1, and it covered the
 	// five terraform files -- while .github/workflows/{infra,destroy,ci}.yml and hack/m5a-ephemeral-runbook.sh
-	// still carried the same wrong region. A later review found those, and this test had been green
-	// throughout: it excluded exactly the callers that had the bug.
+	// still carried the same wrong region.
+	// A later review found those, and this test had been green throughout: it excluded exactly the callers
+	// that had the bug.
 	//
-	// The consequence for destroy.yml was the worst of them. Its first call is
-	// `aws eks describe-cluster --region "$AWS_REGION"`, which returns ResourceNotFoundException in Virginia,
-	// so the nightly teardown logged "cluster not found; skipping" and exited clean while Seoul kept billing.
-	// ci.yml would have pushed the operator image to a registry that does not exist there.
+	// The consequence for destroy.yml was the worst of them.
+	// Its first call is `aws eks describe-cluster --region "$AWS_REGION"`, which returns
+	// ResourceNotFoundException in Virginia, so the nightly teardown logged "cluster not found; skipping" and
+	// exited clean while Seoul kept billing. ci.yml would have pushed the operator image to a registry that
+	// does not exist there.
 	files := map[string]string{
 		"infra/aws/cluster/variables.tf":        `(?s)variable "region" \{.*?default\s*=\s*"([^"]+)"`,
 		"infra/aws/bootstrap/variables.tf":      `(?s)variable "region" \{.*?default\s*=\s*"([^"]+)"`,
@@ -660,14 +688,15 @@ func TestEveryTerraformRegionIsWhereTheGPUQuotaLives(t *testing.T) {
 
 // No GPU node group may pin itself to a subnet index, because an index does not know what runs there.
 //
-// Every group used module.vpc.public_subnets[0], which is whichever zone happened to come back first. In
-// ap-northeast-2 that is 2a and g5 is offered there, so it worked -- and would have kept working until the
-// day 2a dropped out of the available list, when the slice becomes [2b, 2c], subnet zero becomes 2b, and
-// g5 is not offered in 2b at all.
+// Every group used module.vpc.public_subnets[0], which is whichever zone happened to come back first.
+// In ap-northeast-2 that is 2a and g5 is offered there, so it worked -- and would have kept working until
+// the day 2a dropped out of the available list, when the slice becomes [2b, 2c], subnet zero becomes 2b,
+// and g5 is not offered in 2b at all.
 //
 // Like the region, this fails at SESSION time rather than at apply: the groups run at desired_size 0, so
 // terraform builds them and launches nothing. placement.tf derives each group's subnets from where its own
-// instance type is actually offered and stops the plan when that set is empty. This keeps the derivation.
+// instance type is actually offered and stops the plan when that set is empty.
+// This keeps the derivation.
 func TestNoGPUNodeGroupPinsItselfToASubnetIndex(t *testing.T) {
 	tf := repoFile(t, "infra/aws/cluster/eks.tf")
 

@@ -25,8 +25,8 @@ import (
 // NodeCapacity is one node's GPU accounting at a census instant.
 //
 // Free is derived rather than read: the amendment requires it, because AllocatableGPU is what a node ADVERTISES
-// and the scheduler places against allocatable minus the requests of pods already bound there. A field called
-// "free" read straight off the API would be the total.
+// and the scheduler places against allocatable minus the requests of pods already bound there.
+// A field called "free" read straight off the API would be the total.
 // TreatmentVerdict is check-treatment's published answer, and the form a cell record carries it in.
 //
 // Named for the same reason as ArmVerdict: the record embeds it, and a second declaration of its shape would
@@ -49,10 +49,10 @@ func (n NodeCapacity) Free() int { return n.Allocatable - n.Reserved }
 
 // QualificationFixture is a placement with a KNOWN unequal preference between the two strategies.
 //
-// It is the instrument's own control, and the registration requires it to pass before any comparative run. A
-// study whose treatment silently did not apply reports three identical arms and reads as a null result, so the
-// fixture has to be a case where LeastAllocated and MostAllocated demonstrably disagree -- if they agree, the
-// fixture cannot discriminate and observing the expected node proves nothing about which strategy ran.
+// It is the instrument's own control, and the registration requires it to pass before any comparative run.
+// A study whose treatment silently did not apply reports three identical arms and reads as a null result, so
+// the fixture has to be a case where LeastAllocated and MostAllocated demonstrably disagree -- if they agree,
+// the fixture cannot discriminate and observing the expected node proves nothing about which strategy ran.
 type QualificationFixture struct {
 	// Nodes is the cluster's GPU state before the probe pod is submitted.
 	Nodes []NodeCapacity
@@ -63,12 +63,13 @@ type QualificationFixture struct {
 // PreferredNode is the node the given strategy scores highest for the fixture's probe pod.
 //
 // Only nodes that can FIT the request are candidates: scoring runs after filtering, so a node with less free
-// capacity than the request is not "scored low", it is not scored at all. Getting that wrong would make the
-// prediction disagree with the scheduler for a reason unrelated to the strategy.
+// capacity than the request is not "scored low", it is not scored at all.
+// Getting that wrong would make the prediction disagree with the scheduler for a reason unrelated to the
+// strategy.
 //
-// Ties are refused rather than broken. The scheduler breaks them by its own rules, which this function does not
-// model, so a fixture whose outcome depends on a tiebreak is one whose observed placement cannot be read as
-// evidence about the strategy.
+// Ties are refused rather than broken.
+// The scheduler breaks them by its own rules, which this function does not model, so a fixture whose outcome
+// depends on a tiebreak is one whose observed placement cannot be read as evidence about the strategy.
 func (f QualificationFixture) PreferredNode(s ScoringStrategy) (string, error) {
 	if f.Request <= 0 {
 		return "", fmt.Errorf("the probe requests %d devices; a fixture that asks for nothing places anywhere "+
@@ -95,11 +96,12 @@ func (f QualificationFixture) PreferredNode(s ScoringStrategy) (string, error) {
 	// Scored over the POST-PLACEMENT ALLOCATION FRACTION, not over raw free counts.
 	//
 	// Kubernetes v1.31's NodeResourcesFit computes (reserved + request) / allocatable for each candidate and
-	// MostAllocated prefers the highest, LeastAllocated the lowest. Ranking free counts agrees with that only
-	// when the nodes are the same size, and adversarial review produced the counterexample: capacities [4,2],
-	// reservations [1,0], request 1 gives free [3,2] -- which looks discriminating -- while the real fractions
-	// are (1+1)/4 and (0+1)/2, both 0.5, a tie. The live fixture that qualified this cluster used equal-sized
-	// nodes, so the two models agreed there and the defect stayed invisible.
+	// MostAllocated prefers the highest, LeastAllocated the lowest.
+	// Ranking free counts agrees with that only when the nodes are the same size, and adversarial review
+	// produced the counterexample: capacities [4,2], reservations [1,0], request 1 gives free [3,2] -- which
+	// looks discriminating -- while the real fractions are (1+1)/4 and (0+1)/2, both 0.5, a tie.
+	// The live fixture that qualified this cluster used equal-sized nodes, so the two models agreed there and
+	// the defect stayed invisible.
 	//
 	// Compared by cross-multiplication rather than as float64: the values are small integers, the comparison is
 	// exact, and a float64 ratio would make two genuinely equal fractions differ in the last place.
@@ -135,7 +137,8 @@ func (f QualificationFixture) PreferredNode(s ScoringStrategy) (string, error) {
 //
 // A fixture where both strategies prefer the same node is not a weak control, it is no control: the probe would
 // land on the expected node whichever strategy the cluster is actually running, so the observation could not
-// refute an unapplied treatment. Refusing such a fixture is the point of this function.
+// refute an unapplied treatment.
+// Refusing such a fixture is the point of this function.
 func (f QualificationFixture) Discriminates() error {
 	least, err := f.PreferredNode(LeastAllocated)
 	if err != nil {
@@ -164,9 +167,9 @@ func (f QualificationFixture) freeSummary() string {
 // TreatmentApplied judges an observed placement against the profile the run asked for.
 //
 // This is the check the registration says must be built first, and it answers the question a scheduler-config
-// readback cannot: whether the configuration the cluster accepted actually MOVED a placement. A scheduler that
-// loaded the right strategy over the wrong resource list reports the right configuration and behaves like the
-// default, so reading the config back is necessary and not sufficient.
+// readback cannot: whether the configuration the cluster accepted actually MOVED a placement.
+// A scheduler that loaded the right strategy over the wrong resource list reports the right configuration and
+// behaves like the default, so reading the config back is necessary and not sufficient.
 func (f QualificationFixture) TreatmentApplied(p SchedulerProfile, observedNode string) error {
 	if err := p.Validate(); err != nil {
 		return fmt.Errorf("the profile itself would not apply: %w", err)

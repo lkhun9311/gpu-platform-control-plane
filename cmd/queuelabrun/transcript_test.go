@@ -13,22 +13,26 @@ import (
 
 // Every printed queuelabrun transcript must be a subset of what queuelabrun actually prints.
 //
-// This is the third recurrence of one failure. Numbers typed onto a page drift from the records they were
-// taken from, the records get replaced, and the page keeps quoting a set that no longer exists -- while the
-// page ITSELF narrates having fixed exactly that. A review recomputing every figure by hand found eleven
-// live instances, a command that could not run as printed, and a transcript quoting wording this build
-// cannot emit.
+// This is the third recurrence of one failure.
+// Numbers typed onto a page drift from the records they were taken from, the records get replaced, and the
+// page keeps quoting a set that no longer exists -- while the page ITSELF narrates having fixed exactly
+// that.
+// A review recomputing every figure by hand found eleven live instances, a command that could not run as
+// printed, and a transcript quoting wording this build cannot emit.
 //
 // The citation test that already guards these pages says in its own comment that it cannot check whether a
-// number in a table came from the records it cites. This checks the part it can: a block presented as
-// output must consist of lines the tool really produces, in order, from the command printed above it.
+// number in a table came from the records it cites.
+// This checks the part it can: a block presented as output must consist of lines the tool really produces,
+// in order, from the command printed above it.
 //
-// Abridgement is allowed -- a page may drop lines from a long output. What is not allowed is a line the tool
-// does not print: a stale number, an edited phrase, an invented sentence, or a command that fails. Every one
-// of the defects that prompted this test is in that class.
+// Abridgement is allowed -- a page may drop lines from a long output.
+// What is not allowed is a line the tool does not print: a stale number, an edited phrase, an invented
+// sentence, or a command that fails.
+// Every one of the defects that prompted this test is in that class.
 //
-// Prose figures outside transcripts are still unguarded, and no test here can fix that. What this does is
-// make the transcripts trustworthy enough that prose has somewhere to be checked against.
+// Prose figures outside transcripts are still unguarded, and no test here can fix that.
+// What this does is make the transcripts trustworthy enough that prose has somewhere to be checked
+// against.
 func TestEveryPrintedTranscriptMatchesWhatTheToolPrints(t *testing.T) {
 	bin := buildRunner(t)
 	docs, err := filepath.Glob(filepath.Join("..", "..", "hack", "*.md"))
@@ -122,14 +126,15 @@ func transcriptAfter(lines []string, cmdLine int) []string {
 
 // assertTranscriptSubset requires every printed line to appear in the tool's output, in order.
 //
-// Line by line, with whitespace collapsed. A page wraps output to its own column width, so one output
-// sentence becomes several page lines -- but each of those lines is still a CONTIGUOUS fragment of what the
-// tool printed, so each must appear in the collapsed output. A stale number, an edited phrase or an
-// invented sentence is not a fragment of anything.
+// Line by line, with whitespace collapsed.
+// A page wraps output to its own column width, so one output sentence becomes several page lines -- but
+// each of those lines is still a CONTIGUOUS fragment of what the tool printed, so each must appear in the
+// collapsed output.
+// A stale number, an edited phrase or an invented sentence is not a fragment of anything.
 //
-// The search cursor only moves forward, so a page cannot reorder the tool's output either. Abridgement is
-// what is deliberately allowed: dropping lines from a long block is a presentation choice, and every defect
-// this test exists for is an addition or an alteration rather than an omission.
+// The search cursor only moves forward, so a page cannot reorder the tool's output either.
+// Abridgement is what is deliberately allowed: dropping lines from a long block is a presentation choice,
+// and every defect this test exists for is an addition or an alteration rather than an omission.
 func assertTranscriptSubset(t *testing.T, doc string, line int, block []string, out string) {
 	t.Helper()
 	flat := collapse(out)
@@ -161,8 +166,10 @@ func collapse(s string) string { return strings.Join(strings.Fields(s), " ") }
 // splitCommand parses a printed command line the way a shell would, honouring single quotes.
 //
 // It refuses a backslash line-continuation inside quotes, which is not a parse failure in a shell -- it is
-// worse. The shell passes the backslash and the newline through as part of the quoted string, the glob
-// matches nothing, and the tool refuses with a message about files. One page shipped that for a week.
+// worse.
+// The shell passes the backslash and the newline through as part of the quoted string, the glob matches
+// nothing, and the tool refuses with a message about files.
+// One page shipped that for a week.
 func splitCommand(s string) ([]string, error) {
 	if strings.HasSuffix(strings.TrimRight(s, " "), `\`) {
 		return nil, errContinuedInsideQuotes

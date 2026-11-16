@@ -47,16 +47,16 @@ const maxBodyBytes = 1 << 20 // 1MB
 // ErrProfileViolation is the sentinel reported when a request carries something the benchmark profile forbids.
 //
 // It exists because the M5-b experiment is registered over a TEXT-ONLY request shape, and the gateway accepted
-// anything: `tools`, a top-level `system`, `functions`, unknown fields. None of it is counted by the input
-// estimate, so a caller could offer a megabyte of tool definitions and be admitted at near-zero cost -- and,
-// worse for a measurement artifact, the run would report an admitted-work fraction computed over a population
-// whose offered work it never saw.
+// anything: `tools`, a top-level `system`, `functions`, unknown fields.
+// None of it is counted by the input estimate, so a caller could offer a megabyte of tool definitions and be
+// admitted at near-zero cost -- and, worse for a measurement artifact, the run would report an admitted-work
+// fraction computed over a population whose offered work it never saw.
 //
 // Refusing rather than counting is the choice the repository's own rule dictates for measurement code: an
-// error beats a figure the evidence does not support. Pricing the extra bytes was the other option and was
-// rejected on review -- it would change eligibility at the registered 4096 threshold, the bucket's
-// consumption and the reported weights at once, which is a different intervention rather than the same one
-// implemented correctly.
+// error beats a figure the evidence does not support.
+// Pricing the extra bytes was the other option and was rejected on review -- it would change eligibility
+// at the registered 4096 threshold, the bucket's consumption and the reported weights at once, which is a
+// different intervention rather than the same one implemented correctly.
 //
 // It is OFF unless the profile is enabled, because this gateway is not only the experiment's: a general
 // caller sending tool definitions is making a legitimate request that this profile has no authority over.
@@ -79,9 +79,14 @@ type RequestMeta struct {
 	//
 	// It is NOT conservative, which this comment used to claim.
 	//
-	// The calibration is now measured rather than argued -- internal/bench/testdata/tokenizer_calibration.json, against Qwen2.5's tokenizer and chat template -- and the error changes sign with length. The chat template costs a fixed ~25 tokens, which dominates a short prompt: 200 characters estimate at 50 and measure at 68, so the estimate reads 36 percent LOW. Prose runs about 5.2 characters per token, so at 40,000 characters the same formula estimates 10,000 against a measured 7,695 and reads 30 percent high. A request scored at exactly the 4096 threshold measures 3,171 real tokens.
+	// The calibration is now measured rather than argued -- internal/bench/testdata/tokenizer_calibration.json, against Qwen2.5's tokenizer and chat template -- and the error changes sign with length.
+	// The chat template costs a fixed ~25 tokens, which dominates a short prompt: 200 characters estimate at 50 and measure at 68, so the estimate reads 36 percent LOW.
+	// Prose runs about 5.2 characters per token, so at 40,000 characters the same formula estimates 10,000 against a measured 7,695 and reads 30 percent high.
+	// A request scored at exactly the 4096 threshold measures 3,171 real tokens.
 	//
-	// So the guard rejects a band of standard requests whose true input is below its threshold, and under-counts the shortest prompts. Neither is corrected here: the threshold is pre-registered for the M5-b arms, and moving it after measuring is the post-hoc tuning the control arm exists to rule out. Byte length is still what is measured, since it equals the character count for ASCII and over-counts for multibyte UTF-8 -- that part of the original reasoning holds.
+	// So the guard rejects a band of standard requests whose true input is below its threshold, and under-counts the shortest prompts.
+	// Neither is corrected here: the threshold is pre-registered for the M5-b arms, and moving it after measuring is the post-hoc tuning the control arm exists to rule out.
+	// Byte length is still what is measured, since it equals the character count for ASCII and over-counts for multibyte UTF-8 -- that part of the original reasoning holds.
 	EstInputTokens int
 	// NonTextContent is true when at least one message's content was not a plain string.
 	//
@@ -255,26 +260,28 @@ type statusRecorder struct {
 	// code defaults to 200 because a handler that calls Write without WriteHeader implicitly sends 200.
 	code int
 	// answered distinguishes "the client received 200" from "nothing reached the client and code is still its
-	// default". Without it those two are the same value, and a request no backend ever answered is published
-	// as a success — which is exactly what happened to every cancelled request.
+	// default".
+	// Without it those two are the same value, and a request no backend ever answered is published as a
+	// success — which is exactly what happened to every cancelled request.
 	answered bool
 	// firstByteAt is when the first byte reached the CLIENT, and the zero value means none ever did.
 	//
 	// It is recorded here rather than in attemptWriter because attemptWriter is per-attempt and suppresses a
 	// failed one entirely: WriteHeader and Write both return without forwarding while another candidate
-	// remains (proxy.go:575, :585). So a write that arrives at this wrapper is one the client actually got,
-	// which is the only reading of "first byte" a latency figure may be built on.
+	// remains (proxy.go:575, :585).
+	// So a write that arrives at this wrapper is one the client actually got, which is the only reading of
+	// "first byte" a latency figure may be built on.
 	//
-	// It is NOT time to first TOKEN. For a streaming response the status line and headers go out first, so
-	// this closes on the header. docs/02_CONTROL_PLANE_API.md:75 advertises ttftP95Ms, and nothing here
-	// measures it; what this supports is the weaker, true statement that nothing had reached the client
-	// before this instant.
+	// It is NOT time to first TOKEN.
+	// For a streaming response the status line and headers go out first, so this closes on the header.
+	// docs/02_CONTROL_PLANE_API.md:75 advertises ttftP95Ms, and nothing here measures it; what this
+	// supports is the weaker, true statement that nothing had reached the client before this instant.
 	firstByteAt time.Time
 	// onFirstBody runs once, when the first byte of response BODY reaches the client.
 	//
-	// The status line does not count: for a stream it goes out before any token exists. The prospective
-	// admitter releases a request's prefill reservation here, as the nearest point the gateway can see to the
-	// engine having finished that request's prompt.
+	// The status line does not count: for a stream it goes out before any token exists.
+	// The prospective admitter releases a request's prefill reservation here, as the nearest point the
+	// gateway can see to the engine having finished that request's prompt.
 	onFirstBody func()
 	bodySeen    bool
 	// onBody sees every body chunk written toward the client, and onFlush runs after each flush, for the request
@@ -377,18 +384,19 @@ func errorCode(status int) string {
 		return "rate_limited"
 	case http.StatusUnprocessableEntity:
 		// A body that parses and is refused for its SHAPE, which is not the same as malformed JSON: the caller's
-		// fix is to stop sending a field, not to correct a syntax error. `invalid_request` is deliberately not
-		// reused here -- the design document promised that name for 400 and the code has always answered
-		// `bad_request`, so reviving it for a third meaning would make the record worse.
+		// fix is to stop sending a field, not to correct a syntax error.
+		// `invalid_request` is deliberately not reused here -- the design document promised that name for 400
+		// and the code has always answered `bad_request`, so reviving it for a third meaning would make the
+		// record worse.
 		return "profile_violation"
 	case http.StatusRequestTimeout:
 		// A body the client did not finish sending before the server's read deadline.
 		return "request_timeout"
 	case http.StatusRequestEntityTooLarge:
 		// Added with the two 413 paths and missed at the time, so both of them — an oversized body and an
-		// estimate larger than the bucket can ever hold — were answering internal_error. A client branching on
-		// the code was told the gateway had broken when it had in fact refused something it can describe, and
-		// the one action that resolves either case is the same: send less.
+		// estimate larger than the bucket can ever hold — were answering internal_error.
+		// A client branching on the code was told the gateway had broken when it had in fact refused something
+		// it can describe, and the one action that resolves either case is the same: send less.
 		return "payload_too_large"
 	case http.StatusBadGateway:
 		return "bad_gateway"
@@ -467,20 +475,24 @@ const defaultResponseHeaderTimeout = 30 * time.Second
 const maxIdleConnsPerHost = 600
 
 // engineKeepAlive is how long the engine keeps an idle connection open: vLLM v0.27.1's VLLM_HTTP_TIMEOUT_KEEP_ALIVE,
-// whose default of 5 s reaches uvicorn's timeout_keep_alive (read from the v0.27.1 image's own
-// vllm/envs.py and vllm/entrypoints/openai/api_server.py on 2026-10-15). The controller renders no override.
+// whose default of 5 s reaches uvicorn's timeout_keep_alive (read from the v0.27.1 image's own vllm/envs.py and
+// vllm/entrypoints/openai/api_server.py on 2026-10-15).
+// The controller renders no override.
 const engineKeepAlive = 5 * time.Second
 
 // idleConnTimeout is how long the gateway keeps an idle connection to a backend, and it is shorter than
 // engineKeepAlive on purpose.
 //
-// It was 90 s. A connection idle between 5 and 90 s is one the engine may be closing at the moment the gateway
-// picks it for the next request, and a POST lost that way is not retried by net/http, because a chat completion
-// is not idempotent: the client gets a 502. The hold-cap product study saw one such 502, logged as
-// "connection reset by peer" (hack/eks-serve/holdcap-study/runs/20261015T050622Z/README.md); that this race caused
-// it is consistent with the log, not proven by it.
+// It was 90 s.
+// A connection idle between 5 and 90 s is one the engine may be closing at the moment the gateway picks it for the
+// next request, and a POST lost that way is not retried by net/http, because a chat completion is not idempotent:
+// the client gets a 502.
+// The hold-cap product study saw one such 502, logged as "connection reset by peer"
+// (hack/eks-serve/holdcap-study/runs/20261015T050622Z/README.md); that this race caused it is consistent with the
+// log, not proven by it.
 // Ending the gateway's side first removes the window: a connection the gateway still holds is one the engine has
-// not timed out. The price is a fresh handshake after more than 4 s of idleness, which is cheap inside a cluster.
+// not timed out.
+// The price is a fresh handshake after more than 4 s of idleness, which is cheap inside a cluster.
 const idleConnTimeout = engineKeepAlive - time.Second
 
 // maxIdleBackends is how many distinct backends may each hold a full idle pool before the total cap binds.
@@ -515,12 +527,13 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 	//
 	// Only the wait for the first response header is bounded; the time the body spends streaming is not.
 	// Cloned from http.DefaultTransport rather than built from zero values, and that is a correctness point
-	// rather than convention. A zero Transport has no DialContext and no TLSHandshakeTimeout, so nothing
-	// bounds the time spent REACHING a backend — and ResponseHeaderTimeout below cannot cover it, because it
-	// only starts once a connection exists. An unreachable or blackholed model server would then hold a
-	// gateway request for the OS-level TCP timeout, minutes rather than the seconds this file's own rationale
-	// says it is bounding. A zero value also drops Proxy, so a deployment behind an egress proxy would
-	// silently stop using it.
+	// rather than convention.
+	// A zero Transport has no DialContext and no TLSHandshakeTimeout, so nothing bounds the time spent
+	// REACHING a backend — and ResponseHeaderTimeout below cannot cover it, because it only starts once a
+	// connection exists.
+	// An unreachable or blackholed model server would then hold a gateway request for the OS-level TCP
+	// timeout, minutes rather than the seconds this file's own rationale says it is bounding.
+	// A zero value also drops Proxy, so a deployment behind an egress proxy would silently stop using it.
 	//
 	// Clone carries DefaultTransport's MaxIdleConns of 100, which the block at the bottom of this function
 	// argues must not exist here, so it is put back to zero explicitly below rather than inherited.
@@ -545,16 +558,19 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 	// This was zero — unlimited — and the reasoning for that was sound as far as it went: a total cap makes one
 	// backend's pool depend on how busy the others are, so a noisy backend could evict the connections of the
 	// tenant whose latency is being measured, and that coupling is the exact thing this gateway is instrumented
-	// to detect. It must not be introduced by its own connection pool.
+	// to detect.
+	// It must not be introduced by its own connection pool.
 	//
 	// What the reasoning leaned on was that "the number of backends is bounded by the configured
-	// InferenceDeployments", and nothing enforces that. Deployments are created by users, churn leaves dead
-	// hosts holding idle sockets for the full IdleConnTimeout, and 600 per host times an unbounded host count
-	// is a file-descriptor exhaustion path rather than a bound.
+	// InferenceDeployments", and nothing enforces that.
+	// Deployments are created by users, churn leaves dead hosts holding idle sockets for the full
+	// IdleConnTimeout, and 600 per host times an unbounded host count is a file-descriptor exhaustion path
+	// rather than a bound.
 	//
 	// maxIdleBackends is the number of distinct backends that can each hold a FULL per-host pool before the
-	// total starts evicting. Eight is well past any measured topology — the largest is one model with a head
-	// and a spare — so the eviction coupling stays hypothetical while the socket count stays finite.
+	// total starts evicting.
+	// Eight is well past any measured topology — the largest is one model with a head and a spare — so the
+	// eviction coupling stays hypothetical while the socket count stays finite.
 	//
 	// Assigned rather than omitted either way: Clone inherits DefaultTransport's cap of 100, which would bind
 	// immediately and silently.
@@ -572,10 +588,11 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 	// The caller's credential stops here.
 	//
 	// Authorization carries the tenant's API key, and resolveTenant has already spent it: by this point the
-	// tenant is known and the key has no further job. Go's ReverseProxy copies request headers verbatim, so
-	// without this the key travelled on to whichever backend the request was routed to -- a backend that
-	// logs its request headers, or one that is compromised, then holds a credential it can replay against
-	// this gateway as that tenant. Nothing upstream authenticates, so nothing upstream needs it.
+	// tenant is known and the key has no further job.
+	// Go's ReverseProxy copies request headers verbatim, so without this the key travelled on to whichever
+	// backend the request was routed to -- a backend that logs its request headers, or one that is
+	// compromised, then holds a credential it can replay against this gateway as that tenant.
+	// Nothing upstream authenticates, so nothing upstream needs it.
 	//
 	// A security review named this "inexpensive fix, embarrassing boundary mistake", which is the right
 	// weight: it does not hand over another tenant's identity, it hands over the caller's own.
@@ -583,24 +600,25 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 	// Director, deliberately, even though Go 1.26 deprecates it in favour of Rewrite.
 	//
 	// The obvious move was Rewrite, and it was tried and reverted, and the reason is in ServeHTTP rather than
-	// in this function. At most one of Rewrite or Director may be set, and taking the Rewrite branch also
-	// makes ReverseProxy delete Forwarded and every X-Forwarded-* header and run the outbound query through
-	// cleanQueryParams. Three fallback specs failed immediately -- the backend was never reached on a
-	// retryable status, and a trailer "never left the attempt's scratch headers" -- and the suite went from
-	// 1.3 s to 225 s, so something in the retry path was waiting on a timeout rather than merely disagreeing.
+	// in this function.
+	// At most one of Rewrite or Director may be set, and taking the Rewrite branch also makes ReverseProxy
+	// delete Forwarded and every X-Forwarded-* header and run the outbound query through cleanQueryParams.
+	// Three fallback specs failed immediately -- the backend was never reached on a retryable status, and a
+	// trailer "never left the attempt's scratch headers" -- and the suite went from 1.3 s to 225 s, so
+	// something in the retry path was waiting on a timeout rather than merely disagreeing.
 	//
 	// Which of those differences does it is NOT established here, and the comment says so rather than
 	// guessing: the migration needs that answer, and the two-line security fix does not.
 	//
-	// So the deprecation is suppressed narrowly, at the two lines that earn it, with this note. The repository
-	// already suppresses gosec and errcheck where the reason is written down; what it does not do is suppress
-	// a finding to make a check quiet.
+	// So the deprecation is suppressed narrowly, at the two lines that earn it, with this note.
+	// The repository already suppresses gosec and errcheck where the reason is written down; what it does not
+	// do is suppress a finding to make a check quiet.
 	director := p.Director               //nolint:staticcheck // Rewrite breaks the fallback path; see the note above
 	p.Director = func(r *http.Request) { //nolint:staticcheck // same
 		director(r)
 		r.Header.Del("Authorization")
-		// Either header makes a POST replayable to net/http, which then resends it on a fresh connection when a
-		// pooled one dies after the request was written -- below tryBackends, so neverReachedBackend never sees it.
+		// Either header makes a POST replayable to net/http, which then resends it on a fresh connection when a pooled
+		// one dies after the request was written -- below tryBackends, so neverReachedBackend never sees it.
 		// No engine behind this gateway deduplicates by the key, so the promise it makes is one nothing upstream keeps.
 		r.Header.Del("Idempotency-Key")
 		r.Header.Del("X-Idempotency-Key")
@@ -647,12 +665,13 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 		// The error goes to the LOG; the client gets a fixed sentence.
 		//
 		// A transport error names what it failed to reach: "dial tcp 10.244.2.18:8090: connect: connection
-		// refused" hands a caller a Pod IP and port, and a DNS failure hands them internal Service names. This
-		// used to be passed through verbatim, so the gateway published its own cluster topology to anyone who
-		// could make a backend fail — and making a backend fail is not hard when one is already unhealthy.
+		// refused" hands a caller a Pod IP and port, and a DNS failure hands them internal Service names.
+		// This used to be passed through verbatim, so the gateway published its own cluster topology to anyone
+		// who could make a backend fail — and making a backend fail is not hard when one is already unhealthy.
 		//
-		// Nothing is lost operationally. The status code still separates the two cases the design cares about
-		// (502 unreachable, 504 hung), and the detail an operator needs is in the log beside the request id.
+		// Nothing is lost operationally.
+		// The status code still separates the two cases the design cares about (502 unreachable, 504 hung),
+		// and the detail an operator needs is in the log beside the request id.
 		log.FromContext(r.Context()).Error(err, "upstream request failed",
 			"code", code, "backend", target.Host, "path", r.URL.Path)
 		writeJSONError(w, code, publicUpstreamMessage(code))
@@ -679,8 +698,9 @@ const maxBackendAttempts = 2
 // capBackendAttempts returns the prefix of candidates a request can actually reach.
 //
 // It is exported to the package so the caller can apply the cap once and hand the SAME slice to admission,
-// to backend registration and to forwarding. Each stage deriving its own view of "the candidates" is how a
-// backend outside the reachable set came to be able to reject a request and to acquire a scraper.
+// to backend registration and to forwarding.
+// Each stage deriving its own view of "the candidates" is how a backend outside the reachable set came to
+// be able to reject a request and to acquire a scraper.
 func capBackendAttempts[T any](targets []T) []T {
 	if len(targets) > maxBackendAttempts {
 		return targets[:maxBackendAttempts]
@@ -690,15 +710,18 @@ func capBackendAttempts[T any](targets []T) []T {
 
 // neverReachedBackend reports whether a failed attempt provably delivered nothing to a backend.
 //
-// This is the only safe basis for replaying a chat-completion POST, and the distinction is not pedantic. A
-// completion is not idempotent: it consumes GPU seconds, it is billed, and on a streaming client it can
-// produce a second set of tokens. Replaying one that a backend already began serving charges the tenant
-// twice for work they asked for once, and nothing downstream can detect that it happened.
+// This is the only safe basis for replaying a chat-completion POST, and the distinction is not pedantic.
+// A completion is not idempotent: it consumes GPU seconds, it is billed, and on a streaming client it can
+// produce a second set of tokens.
+// Replaying one that a backend already began serving charges the tenant twice for work they asked for
+// once, and nothing downstream can detect that it happened.
 //
 // A DIAL failure is the case where no bytes were written, because there was never a connection to write them
-// to. Everything else — a connection that was established and then broke, a response header timeout, an
+// to.
+// Everything else — a connection that was established and then broke, a response header timeout, an
 // upstream's own 502/503/504 — is consistent with the backend having received the request and started
-// generating. "The client saw nothing" is not evidence that the backend did nothing.
+// generating.
+// "The client saw nothing" is not evidence that the backend did nothing.
 //
 // Go's own transport draws the same line, retrying only requests it knows were not written; it does not
 // export that judgement, so this reconstructs the one case that can be recognised from outside.
@@ -710,25 +733,30 @@ func neverReachedBackend(err error) bool {
 // attemptWriter is what lets one request try a second backend without the client seeing the first one fail.
 //
 // httputil.ReverseProxy has no notion of "try again elsewhere": its ErrorHandler writes a 502 straight to the
-// ResponseWriter it was handed. Suppressing that write while candidates remain is the whole mechanism — the
-// client is never told about an attempt that another backend went on to serve.
+// ResponseWriter it was handed.
+// Suppressing that write while candidates remain is the whole mechanism — the client is never told about an
+// attempt that another backend went on to serve.
 //
 // wrote is the safety latch, and it is set on the first byte that actually leaves for the client rather than
-// on success. Once a status line or a token is out, a second backend cannot take over: it would splice two
-// answers into one response, and for a stream that is a token sequence from two different models. So a
-// failure AFTER the first write ends the request, however many candidates are left.
+// on success.
+// Once a status line or a token is out, a second backend cannot take over: it would splice two answers into
+// one response, and for a stream that is a token sequence from two different models.
+// So a failure AFTER the first write ends the request, however many candidates are left.
 //
 // Suppression is keyed on failed rather than applied unconditionally, because a suppressing writer that
-// swallowed a SUCCESSFUL response would be a gateway that answers nothing. ErrorHandler runs only after the
-// transport gave up and before it writes, so failed is already true by the time the bytes to drop arrive.
+// swallowed a SUCCESSFUL response would be a gateway that answers nothing.
+// ErrorHandler runs only after the transport gave up and before it writes, so failed is already true by the
+// time the bytes to drop arrive.
 type attemptWriter struct {
 	http.ResponseWriter
 	// scratch holds the headers this attempt sets, and it exists because suppressing the BODY of a failed
-	// attempt was never enough. Header() used to return the real writer's live map, shared by every attempt,
-	// and ErrorHandler's first act is Header().Set("Content-Type", "application/json"). WriteHeader was
-	// suppressed so that map was never committed and never cleared — and ReverseProxy then copies the winning
-	// upstream's headers in with Add, not Set. The client received two Content-Type values, application/json
-	// first, and any client that branches on it to decide whether to parse SSE mis-handled a valid stream.
+	// attempt was never enough.
+	// Header() used to return the real writer's live map, shared by every attempt, and ErrorHandler's first
+	// act is Header().Set("Content-Type", "application/json").
+	// WriteHeader was suppressed so that map was never committed and never cleared — and ReverseProxy then
+	// copies the winning upstream's headers in with Add, not Set.
+	// The client received two Content-Type values, application/json first, and any client that branches on it
+	// to decide whether to parse SSE mis-handled a valid stream.
 	scratch http.Header
 	// suppress is true while another candidate remains to try.
 	suppress bool
@@ -737,10 +765,12 @@ type attemptWriter struct {
 	// wrote records that bytes reached the client, which forecloses any further attempt.
 	wrote bool
 	// replayable records that this attempt provably delivered nothing to a backend, which is the only
-	// condition under which the same non-idempotent POST may be sent somewhere else. See neverReachedBackend.
+	// condition under which the same non-idempotent POST may be sent somewhere else.
+	// See neverReachedBackend.
 	replayable bool
 	// heldCode and held are the error response this attempt's ErrorHandler wrote while suppressed, kept so it can
-	// still reach the client when no other backend is tried after all. See release.
+	// still reach the client when no other backend is tried after all.
+	// See release.
 	heldCode int
 	held     []byte
 }
@@ -748,9 +778,10 @@ type attemptWriter struct {
 // release sends the error response this attempt held back, when the loop stops without trying another backend.
 //
 // Suppression assumed a next attempt, and four guards can stop the loop before one: a backend that may have
-// received the request, a cancelled client, and a body that cannot be replayed (two ways). Each used to return with
-// nothing written, so net/http answered the client an empty 200 while the gateway's metrics counted a 502 (codex
-// audit, 2026-10-28); "the gateway failed" must reach the client that the counters say it reached.
+// received the request, a cancelled client, and a body that cannot be replayed (two ways).
+// Each used to return with nothing written, so net/http answered the client an empty 200 while the gateway's
+// metrics counted a 502 (codex audit, 2026-10-28); "the gateway failed" must reach the client that the counters say
+// it reached.
 func (a *attemptWriter) release() {
 	if !a.failed || a.wrote || !a.suppress {
 		return
@@ -769,10 +800,11 @@ func (a *attemptWriter) release() {
 // Once the attempt has COMMITTED it returns the real writer's map instead, because the scratch map exists to
 // isolate an attempt that might still be abandoned and this one no longer can be.
 //
-// The case that needs it is trailers. ReverseProxy copies the body and then writes the upstream's trailer
-// values into rw.Header(); promote runs at WriteHeader or Write, so by then it has already happened, and
-// every trailer landed in a map nothing reads again. A streaming completion announcing usage totals in a
-// trailer delivered them nowhere.
+// The case that needs it is trailers.
+// ReverseProxy copies the body and then writes the upstream's trailer values into rw.Header(); promote
+// runs at WriteHeader or Write, so by then it has already happened, and every trailer landed in a map
+// nothing reads again.
+// A streaming completion announcing usage totals in a trailer delivered them nowhere.
 func (a *attemptWriter) Header() http.Header {
 	if a.wrote {
 		return a.ResponseWriter.Header()
@@ -790,8 +822,9 @@ func (a *attemptWriter) promote() {
 	}
 	maps.Copy(a.ResponseWriter.Header(), a.scratch)
 	// Released so the guard above makes this run exactly once, which is what the sentence on this function
-	// already claimed. Write calls promote unconditionally, so without it a streaming completion paid a
-	// maps.Copy of the whole header map per chunk, forever, after the response had already committed.
+	// already claimed.
+	// Write calls promote unconditionally, so without it a streaming completion paid a maps.Copy of the
+	// whole header map per chunk, forever, after the response had already committed.
 	//
 	// Safe because nothing reads scratch again: Header returns the real writer's map once wrote is set, and
 	// wrote is set immediately after this returns on both paths that call it.
@@ -832,15 +865,16 @@ func (a *attemptWriter) Flush() {
 //
 // Extracted from the handler rather than left inline, because the two conditions that make a retry SAFE are
 // the whole of this function and neither is observable from outside it: nothing may have reached the client,
-// and the request body must be replayable. Inline they were four lines in a four-hundred line handler with no
-// way to write a spec against them.
+// and the request body must be replayable.
+// Inline they were four lines in a four-hundred line handler with no way to write a spec against them.
 //
 // SCOPE, and it is narrower than "the backend is down" suggests. att.failed is set only by ErrorHandler,
 // which ReverseProxy calls only when the round trip itself failed — a refused connection, a dial timeout, a
-// reset. A backend that ACCEPTS the connection and answers 503 (a model server still loading weights, an
-// engine that OOMed, one at capacity) is a successful round trip: the status reaches the client and a healthy
-// spare is never tried. "Up but not serving" is the more common shape for a model server, so this covers the
-// less likely half.
+// reset.
+// A backend that ACCEPTS the connection and answers 503 (a model server still loading weights, an engine that
+// OOMed, one at capacity) is a successful round trip: the status reaches the client and a healthy spare is
+// never tried.
+// "Up but not serving" is the more common shape for a model server, so this covers the less likely half.
 //
 // Closing it means hooking ModifyResponse to turn a retryable status into an error, and the reason it is not
 // done here is that the final attempt must then pass the ORIGINAL status through rather than the 502
@@ -852,10 +886,11 @@ func (a *attemptWriter) Flush() {
 // broken one look identical in the metrics.
 // The bool reports whether the loop ACTUALLY advanced to another candidate.
 //
-// The caller cannot infer this from the failure callback. That callback fires before the guards below decide
-// whether a retry is possible at all, so a caller latching on it counts a fallback for a request that was
-// never retried — on a cancelled request it also leaves the status recorder holding its seeded 200, and a
-// failed request is then published as a success. Reporting the fact is the only way the caller can know it.
+// The caller cannot infer this from the failure callback.
+// That callback fires before the guards below decide whether a retry is possible at all, so a caller
+// latching on it counts a fallback for a request that was never retried — on a cancelled request it also
+// leaves the status recorder holding its seeded 200, and a failed request is then published as a success.
+// Reporting the fact is the only way the caller can know it.
 func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 	transport http.RoundTripper, onFailure func(code int, final bool)) (advanced bool) {
 	return tryBackendsObserved(w, r, targets, transport, onFailure, nil)
@@ -864,14 +899,16 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 // tryBackendsObserved is tryBackends that also reports each attempt, by its index in targets, as it begins.
 //
 // The routing policies count requests outstanding per backend, and a request that falls back is outstanding on the
-// backend that now serves it, not the one first chosen; onAttempt is how that count follows it. Nil reports nothing.
+// backend that now serves it, not the one first chosen; onAttempt is how that count follows it.
+// Nil reports nothing.
 func tryBackendsObserved(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 	transport http.RoundTripper, onFailure func(code int, final bool), onAttempt func(i int)) (advanced bool) {
-	// Attempts are capped, and the cap is not tidiness. Each attempt gets the transport's full
-	// ResponseHeaderTimeout plus its dial timeout, and nothing spans the loop — so a model left with four
-	// stale InferenceDeployments pointing at blackholed Services would pin a goroutine, a client connection
-	// and a slot in the tenant's in-flight budget for minutes where the pre-fallback worst case was one
-	// timeout. The blast radius grew with operator sloppiness, and the premise of fallback is that several
+	// Attempts are capped, and the cap is not tidiness.
+	// Each attempt gets the transport's full ResponseHeaderTimeout plus its dial timeout, and nothing spans
+	// the loop — so a model left with four stale InferenceDeployments pointing at blackholed Services would
+	// pin a goroutine, a client connection and a slot in the tenant's in-flight budget for minutes where
+	// the pre-fallback worst case was one timeout.
+	// The blast radius grew with operator sloppiness, and the premise of fallback is that several
 	// deployments per model are NORMAL.
 	//
 	// Two, because the value of a third attempt is small and its cost is another full timeout: if the head and
@@ -898,42 +935,51 @@ func tryBackendsObserved(w http.ResponseWriter, r *http.Request, targets []*url.
 		// remained, on the reasoning that "up but not serving" is the ordinary shape for a model server and a
 		// healthy spare was going untried.
 		//
-		// It is removed because that reasoning proves the wrong thing. A status is proof the request ARRIVED.
+		// It is removed because that reasoning proves the wrong thing.
+		// A status is proof the request ARRIVED.
 		// A model server answering 503 may have refused it at the door, or may have accepted it, spent GPU
 		// seconds on it and failed on the way out; 504 in particular is most likely while generation is still
-		// running. Replaying a chat completion in that state bills the tenant twice for one request and can
-		// emit a second set of tokens, and no counter anywhere would show it happened. Fallback now covers
-		// only the case that can be established from outside — the connection that was never made.
+		// running.
+		// Replaying a chat completion in that state bills the tenant twice for one request and can emit a
+		// second set of tokens, and no counter anywhere would show it happened.
+		// Fallback now covers only the case that can be established from outside — the connection that was
+		// never made.
 		//
 		// What is given up is real: a backend that returns 503 without doing any work now answers the client
-		// instead of falling through to a healthy spare. That is the safe direction of the two, and closing it
-		// properly needs the backends to state an idempotency contract rather than the gateway to assume one.
+		// instead of falling through to a healthy spare.
+		// That is the safe direction of the two, and closing it properly needs the backends to state an
+		// idempotency contract rather than the gateway to assume one.
 		proxy.ServeHTTP(att, r)
 
-		// Answered, or answered partially: either way this request is finished. A failure after the first byte
-		// cannot be retried, because a second backend would splice its answer onto the one already in flight.
+		// Answered, or answered partially: either way this request is finished.
+		// A failure after the first byte cannot be retried, because a second backend would splice its answer
+		// onto the one already in flight.
 		if !att.failed || att.wrote || last {
 			return advanced
 		}
 		// From here the attempt failed before writing, and a guard that ends the loop must send its held error.
 		//
-		// The request must provably have reached no backend. Everything below this line replays a POST that
-		// consumes GPU time and is billed, so the bar is evidence rather than the absence of evidence.
+		// The request must provably have reached no backend.
+		// Everything below this line replays a POST that consumes GPU time and is billed, so the bar is
+		// evidence rather than the absence of evidence.
 		if !att.replayable {
 			att.release()
 			return advanced
 		}
-		// A client that hung up is not a backend that failed. RoundTrip returns context.Canceled, which is not
-		// a net.Error, so ErrorHandler maps it to 502 and the loop would walk every remaining candidate —
-		// each cloning the same already-cancelled context and failing at once. One disconnect then produced N
-		// upstream errors and N-1 fallbacks, poisoning the very ratio backend_fallbacks_total exists to give.
+		// A client that hung up is not a backend that failed.
+		// RoundTrip returns context.Canceled, which is not a net.Error, so ErrorHandler maps it to 502 and the
+		// loop would walk every remaining candidate — each cloning the same already-cancelled context and
+		// failing at once.
+		// One disconnect then produced N upstream errors and N-1 fallbacks, poisoning the very ratio
+		// backend_fallbacks_total exists to give.
 		// The harness cancels every request outstanding past its timeout, so this is routine rather than exotic.
 		if r.Context().Err() != nil {
 			att.release()
 			return advanced
 		}
-		// The body has been consumed by the attempt that just failed, so the next one needs it back. GetBody
-		// reads from a buffer already in memory; a request without one cannot be replayed and ends here.
+		// The body has been consumed by the attempt that just failed, so the next one needs it back.
+		// GetBody reads from a buffer already in memory; a request without one cannot be replayed and ends
+		// here.
 		if r.GetBody == nil {
 			att.release()
 			return advanced
@@ -944,8 +990,9 @@ func tryBackendsObserved(w http.ResponseWriter, r *http.Request, targets []*url.
 			return advanced
 		}
 		r.Body = body
-		// Past every guard, so the next iteration really is another backend being tried. Set here rather than
-		// at the top of the loop: entering the loop is not advancing, and the difference is the whole point.
+		// Past every guard, so the next iteration really is another backend being tried.
+		// Set here rather than at the top of the loop: entering the loop is not advancing, and the difference
+		// is the whole point.
 		advanced = true
 	}
 	return advanced
@@ -954,8 +1001,9 @@ func tryBackendsObserved(w http.ResponseWriter, r *http.Request, targets []*url.
 // benchmarkRequest is the exact shape an M5-b run sends, and nothing else.
 //
 // Decoded with DisallowUnknownFields, so a field this struct does not name is a refusal rather than something
-// silently forwarded and uncounted. The estimator's own probe above deliberately does NOT do this: the proxy
-// must pass an unmodelled field through untouched, and only the experiment's profile has an opinion about it.
+// silently forwarded and uncounted.
+// The estimator's own probe above deliberately does NOT do this: the proxy must pass an unmodelled field
+// through untouched, and only the experiment's profile has an opinion about it.
 type benchmarkRequest struct {
 	Model    string `json:"model"`
 	Messages []struct {
@@ -974,14 +1022,15 @@ type benchmarkRequest struct {
 
 // checkBenchmarkProfile refuses a body outside the registered text-only request shape.
 //
-// The fields accepted here mirror internal/bench's sender, except the two it omits unless a study asks for them. `priority` is NOT among them: it belongs to
-// a separately specified experiment, and a run that carried it would be measuring a different treatment under
+// The fields accepted here mirror internal/bench's sender, except the two it omits unless a study asks for them.
+// `priority` is NOT among them: it belongs to a separately specified experiment, and a run that carried it would be measuring a different treatment under
 // this one's name.
 //
-// `min_tokens` is accepted only when it equals `max_tokens`. The prospective-admission pilot fixes every output
-// at its cap, so that a short completion is a failure rather than silently deleted work (design page, "Load"),
-// and the gateway must not refuse that traffic. Any other value would change how much output a request asks for
-// without the cap saying so, which is the treatment change this profile exists to refuse.
+// `min_tokens` is accepted only when it equals `max_tokens`.
+// The prospective-admission pilot fixes every output at its cap, so that a short completion is a failure rather
+// than silently deleted work (design page, "Load"), and the gateway must not refuse that traffic.
+// Any other value would change how much output a request asks for without the cap saying so, which is the
+// treatment change this profile exists to refuse.
 //
 // A string `content` is required rather than the multimodal array the OpenAI schema also allows, because the
 // input estimate cannot read a token cost off a non-text part -- the shape that made NonTextContent necessary

@@ -15,18 +15,22 @@ import (
 // These specs cover verifyStateProbe, which had NO test when it shipped.
 //
 // What it checked, precisely: that the two Pod UIDs differ, that a claim of that name is Bound, and that the
-// claim names a volume. What it did NOT check, and what its own registration page names: that the claim is
-// the same OBJECT the probe created (name equality is not object equality), and that either Pod ran on the
-// worker the probe took out of service.
+// claim names a volume.
+// What it did NOT check, and what its own registration page names: that the claim is the same OBJECT the
+// probe created (name equality is not object equality), and that either Pod ran on the worker the probe took
+// out of service.
 //
 // The UID comparison also had a defect of its own, and it is simpler than a first draft of this comment
-// claimed. The function re-read both Pods into locals `w` and `r` — and then compared `writer.UID` and
-// `reader.UID`, the PARAMETERS. The re-read was discarded entirely. So what it compared were the UIDs the
-// caller's objects happened to carry, which against a fake apiserver that assigns none are empty on both
-// sides; the `!= ""` guard then skipped the comparison silently. Against a real apiserver the values are
-// present, because Create decodes the server's response back into the object it was given — so the defect
-// is not "this could never fail in production", it is "this could never fail in any test, and the re-read
-// it appeared to rely on was dead code".
+// claimed.
+// The function re-read both Pods into locals `w` and `r` — and then compared `writer.UID` and
+// `reader.UID`, the PARAMETERS.
+// The re-read was discarded entirely.
+// So what it compared were the UIDs the caller's objects happened to carry, which against a fake
+// apiserver that assigns none are empty on both sides; the `!= ""` guard then skipped the comparison
+// silently.
+// Against a real apiserver the values are present, because Create decodes the server's response back into
+// the object it was given — so the defect is not "this could never fail in production", it is "this could
+// never fail in any test, and the re-read it appeared to rely on was dead code".
 
 const probeNode = "platform-worker"
 
@@ -70,9 +74,10 @@ func TestTheProbeVerifierAcceptsWhatThePageRegistered(t *testing.T) {
 
 // An identity nobody assigned must be a refusal, not a comparison that passes vacuously.
 //
-// This is the row that would have caught the original defect. A fake apiserver assigns no UIDs, so the
-// shipped verifier's `a != "" && b != "" && a == b` never compared anything — and the only test that could
-// have noticed was one asserting that the ABSENCE is itself refused.
+// This is the row that would have caught the original defect.
+// A fake apiserver assigns no UIDs, so the shipped verifier's `a != "" && b != "" && a == b` never
+// compared anything — and the only test that could have noticed was one asserting that the ABSENCE is
+// itself refused.
 //
 // Mutation that turns this red: guard the identity comparisons with `!= ""` instead of demanding them.
 func TestTheProbeVerifierRefusesIdentitiesNobodyAssigned(t *testing.T) {
@@ -107,9 +112,10 @@ func TestTheProbeVerifierRefusesIdentitiesNobodyAssigned(t *testing.T) {
 			wants:  "reader's node",
 		},
 		{
-			// The row a review found missing. Five identities are demanded and only four were driven, so the
-			// reader's own UID was the one requirement in this block that no case exercised — which is the
-			// same shape of gap as the vacuous comparison this whole file exists to replace.
+			// The row a review found missing.
+			// Five identities are demanded and only four were driven, so the reader's own UID was the one
+			// requirement in this block that no case exercised — which is the same shape of gap as the
+			// vacuous comparison this whole file exists to replace.
 			name:   "the reader carries no identity",
 			ids:    probeIdentities{claimUID: "claim-uid", writerUID: "writer-uid", writerNode: probeNode},
 			reader: probeHalf("sp-reader", "", probeNode),
@@ -135,8 +141,9 @@ func TestTheProbeVerifierRefusesIdentitiesNobodyAssigned(t *testing.T) {
 // Point 4 of the registered criteria: the two halves must have shared an OBJECT, not a name.
 //
 // A claim deleted and recreated between the halves carries the same name in the same namespace and a
-// different volume. The reader would read whatever that new volume held, and the shipped verifier — which
-// asked only whether something named `queuelab-state` was Bound — would have called it a pass.
+// different volume.
+// The reader would read whatever that new volume held, and the shipped verifier — which asked only
+// whether something named `queuelab-state` was Bound — would have called it a pass.
 //
 // Mutation that turns this red: compare the claim by name rather than by UID.
 func TestTheProbeVerifierRefusesAClaimThatWasReplaced(t *testing.T) {
@@ -216,10 +223,11 @@ func TestTheProbeVerifierRefusesAReaderThatIsTheWriter(t *testing.T) {
 
 // The handoff must refuse to destroy what nobody has read yet.
 //
-// This is the row a perturbation asked for. Removing the capture upstream — so the writer is deleted and
-// only then looked for — left every other test in this file green, because verifyStateProbe receives the
-// identities ready-made and cannot tell who filled them in. The ordering IS the handoff's guarantee, and it
-// had nothing behind it.
+// This is the row a perturbation asked for.
+// Removing the capture upstream — so the writer is deleted and only then looked for — left every other test
+// in this file green, because verifyStateProbe receives the identities ready-made and cannot tell who
+// filled them in.
+// The ordering IS the handoff's guarantee, and it had nothing behind it.
 //
 // Mutation that turns this red: drop the emptiness refusal from awaitProbeGone, or stop passing the
 // captured identities to it.

@@ -1,8 +1,8 @@
 // Package v1 holds the admission webhooks for the platform v1 API.
 //
-// The rules here exist for one reason: the CRD schema accepts values the controller cannot act on. Each one
-// closes a gap measured in internal/controller/mltrainingjob_immutable_test.go rather than a gap imagined
-// from reading the types, and each rejection replaces an outcome that was silent.
+// The rules here exist for one reason: the CRD schema accepts values the controller cannot act on.
+// Each one closes a gap measured in internal/controller/mltrainingjob_immutable_test.go rather than a gap
+// imagined from reading the types, and each rejection replaces an outcome that was silent.
 package v1
 
 import (
@@ -29,19 +29,22 @@ import (
 // MLTrainingJobValidator rejects MLTrainingJob writes the controller could not honour.
 //
 // It holds a client because the update rule turns on whether the owned Job already exists, and that is the
-// fact that decides whether an edit can still take effect. Reading status.phase instead would decide the
-// same question from a field that lags the Job it describes.
+// fact that decides whether an edit can still take effect.
+// Reading status.phase instead would decide the same question from a field that lags the Job it describes.
 type MLTrainingJobValidator struct {
-	// Reader, not client.Client. Embedding the full interface put Create, Update, Delete and Patch on the
-	// exported validator's own surface — an admission validator that can mutate the cluster is a wider public
-	// API than the job needs, and it invites a future rule to write from inside a decision that should only
-	// read. A named field also makes the dependency legible in tests: what has to be faked is one Get.
+	// Reader, not client.Client.
+	// Embedding the full interface put Create, Update, Delete and Patch on the exported validator's own
+	// surface — an admission validator that can mutate the cluster is a wider public API than the job needs,
+	// and it invites a future rule to write from inside a decision that should only read.
+	// A named field also makes the dependency legible in tests: what has to be faked is one Get.
 	//
 	// It must be an UNCACHED reader, which is why SetupMLTrainingJobWebhookWithManager passes
-	// mgr.GetAPIReader() rather than mgr.GetClient(). The manager's client reads through an informer cache,
-	// and a cache that has not yet seen a Job created moments ago answers NotFound — not an error. That
-	// answer is indistinguishable from the Job genuinely not existing, so the immutability rules below would
-	// be skipped, silently, in precisely the window right after creation where an edit does the most damage.
+	// mgr.GetAPIReader() rather than mgr.GetClient().
+	// The manager's client reads through an informer cache, and a cache that has not yet seen a Job created
+	// moments ago answers NotFound — not an error.
+	// That answer is indistinguishable from the Job genuinely not existing, so the immutability rules below
+	// would be skipped, silently, in precisely the window right after creation where an edit does the most
+	// damage.
 	// The error path already fails closed; this is the path that had no error to fail on.
 	Reader client.Reader
 }
@@ -62,10 +65,11 @@ func SetupMLTrainingJobWebhookWithManager(mgr ctrl.Manager) error {
 // can hold the result and check which one it got.
 //
 // The check that matters is an INEQUALITY against mgr.GetClient(), because asserting it equals
-// mgr.GetAPIReader() only restates this line. The failure being guarded against is a revert to the cached
-// client, and that is what an inequality catches. It cannot be caught any other way here: the bug needs the
-// informer to lag behind a Create, and in envtest it never does, so the end-to-end spec passes under both
-// readers.
+// mgr.GetAPIReader() only restates this line.
+// The failure being guarded against is a revert to the cached client, and that is what an inequality
+// catches.
+// It cannot be caught any other way here: the bug needs the informer to lag behind a Create, and in envtest
+// it never does, so the end-to-end spec passes under both readers.
 func newValidator(mgr ctrl.Manager) *MLTrainingJobValidator {
 	return &MLTrainingJobValidator{Reader: mgr.GetAPIReader()}
 }
@@ -181,14 +185,16 @@ func (v *MLTrainingJobValidator) ValidateUpdate(
 	// Once deletion has started, every update is allowed through.
 	//
 	// This validator already refuses to intercept DELETE, on the reasoning that a webhook able to refuse one
-	// could strand an object nobody can remove. That reasoning was right and the guard was in the wrong place:
-	// the finalizer is removed with an ordinary UPDATE, so an object whose spec this validator considers
-	// unrunnable — an empty image on something created before this webhook existed — could never complete the
-	// update that ends its deletion. It would sit in Terminating forever, refused by the rule that exists to
-	// stop unrunnable jobs being CREATED.
+	// could strand an object nobody can remove.
+	// That reasoning was right and the guard was in the wrong place: the finalizer is removed with an ordinary
+	// UPDATE, so an object whose spec this validator considers unrunnable — an empty image on something
+	// created before this webhook existed — could never complete the update that ends its deletion.
+	// It would sit in Terminating forever, refused by the rule that exists to stop unrunnable jobs being
+	// CREATED.
 	//
-	// Nothing is lost by allowing these. The object is going away; a spec edit racing its own deletion changes
-	// nothing that will ever run, and the rules below are about what a Job would do, not about cleanup.
+	// Nothing is lost by allowing these.
+	// The object is going away; a spec edit racing its own deletion changes nothing that will ever run, and
+	// the rules below are about what a Job would do, not about cleanup.
 	if !newJob.DeletionTimestamp.IsZero() {
 		return nil, nil
 	}
@@ -206,17 +212,18 @@ func (v *MLTrainingJobValidator) ValidateUpdate(
 	}
 
 	// The pod template is written once, when the Job is created, because a batch/v1 Job's template is
-	// immutable afterwards. So the question is not whether the spec changed but whether the Job exists yet:
-	// before it does, every field is still free to change.
+	// immutable afterwards.
+	// So the question is not whether the spec changed but whether the Job exists yet: before it does, every
+	// field is still free to change.
 	exists, err := v.ownedJobExists(ctx, newJob)
 	if err != nil {
-		// Failing closed. A rule that silently stopped applying whenever the API was briefly unreachable would
-		// let through exactly the edits it exists to catch, and the webhook's failurePolicy is fail for the
-		// same reason.
+		// Failing closed.
+		// A rule that silently stopped applying whenever the API was briefly unreachable would let through
+		// exactly the edits it exists to catch, and the webhook's failurePolicy is fail for the same reason.
 		return nil, fmt.Errorf("check whether the owned job exists for %s/%s: %w", newJob.Namespace, newJob.Name, err)
 	}
-	// A restartable job has no Job between two attempts, and a recorded attempt is what still says one started:
-	// the controller records the first before creating any Job, so there is no moment a run exists and this is false.
+	// A restartable job has no Job between two attempts, and a recorded attempt is what still says one started: the
+	// controller records the first before creating any Job, so there is no moment a run exists and this is false.
 	// It is read from the stored object, which a client cannot rewrite through this update.
 	if exists || len(oldJob.Status.Attempts) > 0 {
 		errs = append(errs, bakedFieldEdits(&oldJob.Spec, &newJob.Spec)...)
@@ -259,10 +266,11 @@ func validateRunnable(spec *platformv1.MLTrainingJobSpec) field.ErrorList {
 
 // bakedFieldEdits reports edits to the fields the owned Job's pod template was built from.
 //
-// Refusing these is what makes the edit visible. Permitting them is not permissive — the write is stored,
-// the next reconcile succeeds, and the running Job keeps the old value, so the API and the cluster disagree
-// with nothing anywhere reporting it. A rejection at this point says plainly that the change cannot be
-// applied, which is the outcome the user can act on.
+// Refusing these is what makes the edit visible.
+// Permitting them is not permissive — the write is stored, the next reconcile succeeds, and the running Job
+// keeps the old value, so the API and the cluster disagree with nothing anywhere reporting it.
+// A rejection at this point says plainly that the change cannot be applied, which is the outcome the user
+// can act on.
 func bakedFieldEdits(oldSpec, newSpec *platformv1.MLTrainingJobSpec) field.ErrorList {
 	var errs field.ErrorList
 	specPath := field.NewPath("spec")
@@ -282,8 +290,9 @@ func bakedFieldEdits(oldSpec, newSpec *platformv1.MLTrainingJobSpec) field.Error
 		errs = append(errs, field.Invalid(specPath.Child("command"), newSpec.Command, because))
 	}
 	// Completions is immutable on a batch/v1 Job and parallelism is not, which is a distinction the reconciler
-	// does not make: it writes both on every pass. Verified against a real apiserver rather than assumed —
-	// parallelism goes from 2 to 4 without complaint, and completions is refused with "field is immutable".
+	// does not make: it writes both on every pass.
+	// Verified against a real apiserver rather than assumed — parallelism goes from 2 to 4 without complaint,
+	// and completions is refused with "field is immutable".
 	//
 	// So an edit here was stored and then failed on every reconcile afterwards, indefinitely, and what the
 	// user saw was a controller erroring about an object they had successfully updated.
@@ -293,9 +302,9 @@ func bakedFieldEdits(oldSpec, newSpec *platformv1.MLTrainingJobSpec) field.Error
 	}
 	// Queue is not part of the pod template, so it needs its own sentence: the reconciler copies the desired
 	// labels — including Kueue's queue-name label — onto the live Job on every pass, and Kueue's own webhook
-	// refuses that label being changed on a Job it has already admitted. Without this rule the edit is stored
-	// happily and then fails on every reconcile afterwards, which surfaces as a controller error loop about an
-	// object the user believes they successfully updated.
+	// refuses that label being changed on a Job it has already admitted.
+	// Without this rule the edit is stored happily and then fails on every reconcile afterwards, which
+	// surfaces as a controller error loop about an object the user believes they successfully updated.
 	if oldSpec.Queue != newSpec.Queue {
 		errs = append(errs, field.Invalid(specPath.Child("queue"), newSpec.Queue,
 			"the owned Job is already admitted under queue "+oldSpec.Queue+
@@ -304,8 +313,9 @@ func bakedFieldEdits(oldSpec, newSpec *platformv1.MLTrainingJobSpec) field.Error
 	// The state volume is built into the pod template, so an edit after the Job exists is stored and then
 	// has no effect on anything that runs -- the silent outcome every rule above replaces with a rejection.
 	//
-	// Compared by VALUE, not by pointer. Two specs naming the same claim at the same path describe the same
-	// Pod, and comparing addresses would refuse an update that changed nothing at all.
+	// Compared by VALUE, not by pointer.
+	// Two specs naming the same claim at the same path describe the same Pod, and comparing addresses would
+	// refuse an update that changed nothing at all.
 	if describeStateVolume(oldSpec.StateVolume) != describeStateVolume(newSpec.StateVolume) {
 		errs = append(errs, field.Invalid(specPath.Child("stateVolume"),
 			describeStateVolume(newSpec.StateVolume), because))

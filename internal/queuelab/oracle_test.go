@@ -30,10 +30,10 @@ import (
 //
 // Every other assertion here is about Go agreeing with itself. submit_test.go already states the principle
 // for this package: a textual check "a program with a syntax error on line 40 satisfies perfectly", and "a
-// convention with no test is a convention that breaks on the next edit to either side, silently". The
-// convention under test is heavier than a string format -- it is that two languages' float64 arithmetic
-// agrees to the bit -- and it was verified by hand once before this file existed. A hand check does not
-// survive the next edit.
+// convention with no test is a convention that breaks on the next edit to either side, silently".
+// The convention under test is heavier than a string format -- it is that two languages' float64
+// arithmetic agrees to the bit -- and it was verified by hand once before this file existed.
+// A hand check does not survive the next edit.
 
 func TestTheOracleReadsItsParametersFromTheShippedScript(t *testing.T) {
 	p, err := ScriptAccumulatorParams()
@@ -41,7 +41,8 @@ func TestTheOracleReadsItsParametersFromTheShippedScript(t *testing.T) {
 		t.Fatalf("the oracle cannot find the accumulator in the workload it predicts: %v", err)
 	}
 	// Asserted against the values the script carries today, so a change to either side is visible here rather
-	// than only in a run. The point is not the numbers; it is that the two sides still agree on them.
+	// than only in a run.
+	// The point is not the numbers; it is that the two sides still agree on them.
 	if p.StepsPerIteration != 50000 {
 		t.Errorf("StepsPerIteration = %d, want 50000", p.StepsPerIteration)
 	}

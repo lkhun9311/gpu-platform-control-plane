@@ -186,7 +186,8 @@ var _ = Describe("olderInfD", func() {
 //
 // It exists for the specs that predate fallback, and it keeps them honest rather than merely compiling: they
 // pin which deployment wins when several serve one model, and that choice must not drift now that the losers
-// are kept instead of discarded. The head is the whole of the old behaviour.
+// are kept instead of discarded.
+// The head is the whole of the old behaviour.
 func (s *Server) headBackendFor(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*BackendRef, error) {
 	refs, err := s.backendsFor(ctx, policy, model)
 	if err != nil {

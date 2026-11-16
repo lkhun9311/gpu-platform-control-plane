@@ -96,14 +96,17 @@ const (
 	// request.
 	//
 	// The old client dialled per request because it abandoned each body before EOF, and reused a connection
-	// only when the stream terminator happened to be buffered already. Go 1.27 changed the transport under it:
-	// it now drains up to 256 KiB of an unread body on Close, within 50 ms, and reuses the connection when that
-	// reaches EOF, and a vLLM stream's remainder after [DONE] is a few bytes. Built on 1.27, the unchanged
-	// client reused most connections and the "before" arm measured something close to drain-only.
+	// only when the stream terminator happened to be buffered already.
+	// Go 1.27 changed the transport under it: it now drains up to 256 KiB of an unread body on Close, within 50
+	// ms, and reuses the connection when that reaches EOF, and a vLLM stream's remainder after [DONE] is a few
+	// bytes.
+	// Built on 1.27, the unchanged client reused most connections and the "before" arm measured something close
+	// to drain-only.
 	//
-	// So it now sends Connection: close and reuses nothing. That is the old client's dial-per-request at its
-	// most consistent: an upper bound on its handshakes, where on Go 1.26 it sometimes did one fewer. Results
-	// recorded on Go 1.26 used the old behaviour and are unaffected.
+	// So it now sends Connection: close and reuses nothing.
+	// That is the old client's dial-per-request at its most consistent: an upper bound on its handshakes,
+	// where on Go 1.26 it sometimes did one fewer.
+	// Results recorded on Go 1.26 used the old behaviour and are unaffected.
 	SenderModeLegacy = "legacy"
 	// SenderModeDrainOnly keeps Go's default two-connection pool but drains, isolating the drain's share.
 	SenderModeDrainOnly = "drain-only"
@@ -134,34 +137,37 @@ func SenderConnForMode(mode string, trace []TraceRow, timeout time.Duration) (Se
 // Why the sender needs this at all.
 //
 // The client used to be built with no Transport, so it used http.DefaultTransport and its
-// MaxIdleConnsPerHost of 2 (net/http's DefaultMaxIdleConnsPerHost). The gateway's own outbound pool was
-// raised off that same default for exactly the reason that matters here (internal/gateway/proxy.go): under
-// open-loop dispatch many requests to one host are in flight at once, and a cap of 2 closes all but two of
-// those connections the moment a wave completes, so the next wave handshakes again.
+// MaxIdleConnsPerHost of 2 (net/http's DefaultMaxIdleConnsPerHost).
+// The gateway's own outbound pool was raised off that same default for exactly the reason that matters
+// here (internal/gateway/proxy.go): under open-loop dispatch many requests to one host are in flight at
+// once, and a cap of 2 closes all but two of those connections the moment a wave completes, so the next
+// wave handshakes again.
 //
 // In the client that cost lands inside the latency the harness reports rather than in the system under test.
 // It was measured (hack/m5b-gateway-path-evidence.log): replaying an 884-request trace with the old client
 // opened 431 connections, exactly 2.0 requests per connection, which is Go's default cap reproduced to the
-// decimal. The same trace with this pool and the drain opened 6.
+// decimal.
+// The same trace with this pool and the drain opened 6.
 //
 // Where the number comes from.
 //
 // It is derived per run rather than being a constant, because the harness's in-flight ceiling is a property
-// of the run's own parameters, not of the harness. Dispatch is open-loop (Replay never waits for a response),
-// so in-flight requests accumulate at the trace's arrival rate and leave only by completing or timing out,
-// giving a hard ceiling of rate x timeout. That is the same shape of derivation the gateway uses, and
-// deliberately not a copy of the gateway's 600: 600 is what that formula happens to give for one particular
-// pair of flag values.
+// of the run's own parameters, not of the harness.
+// Dispatch is open-loop (Replay never waits for a response), so in-flight requests accumulate at the trace's
+// arrival rate and leave only by completing or timing out, giving a hard ceiling of rate x timeout.
+// That is the same shape of derivation the gateway uses, and deliberately not a copy of the gateway's 600:
+// 600 is what that formula happens to give for one particular pair of flag values.
 //
 // The result is additionally capped at len(trace), since a trace cannot have more requests in flight than it
 // contains, and floored at Go's default of 2 so this can never be worse than what it replaces.
 //
 // What is assumed rather than derived.
 //
-// This is the ceiling, not the steady state. Observation puts real concurrency far below it: peak in-flight
-// was 6 at rate 20/s against a millisecond-scale backend and 97 at rate 40/s against a two-second backend
-// (same log). The ceiling is used anyway for the same reason the gateway uses one: this setting never opens
-// a connection, it only decides whether an already-established one is kept when it goes idle, so it cannot
+// This is the ceiling, not the steady state.
+// Observation puts real concurrency far below it: peak in-flight was 6 at rate 20/s against a
+// millisecond-scale backend and 97 at rate 40/s against a two-second backend (same log).
+// The ceiling is used anyway for the same reason the gateway uses one: this setting never opens a
+// connection, it only decides whether an already-established one is kept when it goes idle, so it cannot
 // push the socket count above the concurrency the process already reached.
 func PoolSizeForTrace(trace []TraceRow, timeout time.Duration) int {
 	if len(trace) == 0 {
@@ -188,8 +194,9 @@ func PoolSizeForTrace(trace []TraceRow, timeout time.Duration) int {
 //
 // Keyed by tenant rather than carried on the trace row, because priority is a property of the tenant's
 // contract -- the same rule internal/gateway states for tier, that it is "not something a caller can assert
-// about itself". A benchmark whose rows named their own priority would measure a mechanism no deployment
-// would ship. A tenant absent from the map sends no priority field at all.
+// about itself".
+// A benchmark whose rows named their own priority would measure a mechanism no deployment would ship.
+// A tenant absent from the map sends no priority field at all.
 func (h *HTTPSender) SetPriorities(p map[string]int) { h.priorities = p }
 
 // SetRequestIDPrefix makes each request carry X-Request-Id, built by RequestIDFor.
@@ -214,7 +221,8 @@ func (h *HTTPSender) SetSampling(p *SamplingPolicy) error {
 }
 
 // RequestIDFor is the X-Request-Id a row is sent with, and the one its raw row records: the two must agree, so
-// both are built here. The gateway forwards it and vLLM makes it the engine's id, as "chatcmpl-<id>-<8 random>".
+// both are built here.
+// The gateway forwards it and vLLM makes it the engine's id, as "chatcmpl-<id>-<8 random>".
 // The prefix must be unique per cell and phase, because a trace index alone repeats in every cell.
 func RequestIDFor(prefix string, index int) string {
 	if prefix == "" {
@@ -261,18 +269,22 @@ const maxDrainBytes = 8 << 10 // 8KB
 // The "reuses one connection across sequential requests" spec in httpsender_test.go fails without this line,
 // observing a fresh dial where the pool should have served, which is the pin holding it in place.
 //
-// Of the two changes this is the larger one by some way. Measured on one 884-request trace
-// (hack/m5b-gateway-path-evidence.log), draining alone took the client from 431 connections to 53, and
-// sizing the pool took it from 53 to 6: the drain accounts for 378 of the 425 connections no longer opened.
+// Of the two changes this is the larger one by some way.
+// Measured on one 884-request trace (hack/m5b-gateway-path-evidence.log), draining alone took the client
+// from 431 connections to 53, and sizing the pool took it from 53 to 6: the drain accounts for 378 of the
+// 425 connections no longer opened.
 //
 // Read that trace's scope before quoting those numbers: every arm in it recorded ZERO rejections, so they
-// describe the all-200 path only. Send's non-200 branch returned without draining until this was noticed, and
-// the same method run on an 884-rejection trace measured pooled mode — the mode every real run uses — opening
-// 884 connections, one handshake per request, indistinguishable from legacy and worse than the 431 that
-// trace's "before" arm reported. Draining the rejection body takes it to 22.
+// describe the all-200 path only.
+// Send's non-200 branch returned without draining until this was noticed, and the same method run on an
+// 884-rejection trace measured pooled mode — the mode every real run uses — opening 884 connections, one
+// handshake per request, indistinguishable from legacy and worse than the 431 that trace's "before" arm
+// reported.
+// Draining the rejection body takes it to 22.
 //
 // A drain that hits the bound without reaching EOF simply forfeits reuse for that one connection, so the
-// failure mode is a lost optimization rather than a wrong number. The request's own deadline bounds it too.
+// failure mode is a lost optimization rather than a wrong number.
+// The request's own deadline bounds it too.
 func drainForReuse(body io.Reader) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxDrainBytes))
 }
@@ -281,8 +293,9 @@ func drainForReuse(body io.Reader) {
 //
 // A nil return means http.Client falls back to http.DefaultTransport, which is what SenderModeLegacy and
 // SenderModeDrainOnly select; that path is kept only so the before/after of introducing the pool can be
-// measured. It named a GoDefaultConnPool constant that does not exist in this package, which would send an
-// operator looking for a fourth mode beside the three the flag actually accepts.
+// measured.
+// It named a GoDefaultConnPool constant that does not exist in this package, which would send an operator
+// looking for a fourth mode beside the three the flag actually accepts.
 //
 // One Transport per sender, and one sender per replay, is what makes the pool a pool: a Transport owns the
 // idle-connection pool, so one built per request would pool nothing at all.
@@ -291,23 +304,25 @@ func newSenderTransport(maxIdleConnsPerHost int) http.RoundTripper {
 		return nil
 	}
 	// Cloned from http.DefaultTransport rather than built from a zero value, because the arms this sender
-	// compares differ ONLY in pooling. A fresh &http.Transport{} silently drops the defaults the other arm
-	// runs with — the proxy resolver, the dialer's timeout and keep-alive, TLS handshake timeout, expect-100
-	// handling and HTTP/2 — so "before" and "after" would differ in half a dozen ways at once and the measured
-	// difference could not be attributed to MaxIdleConnsPerHost.
+	// compares differ ONLY in pooling.
+	// A fresh &http.Transport{} silently drops the defaults the other arm runs with — the proxy resolver, the
+	// dialer's timeout and keep-alive, TLS handshake timeout, expect-100 handling and HTTP/2 — so "before" and
+	// "after" would differ in half a dozen ways at once and the measured difference could not be attributed to
+	// MaxIdleConnsPerHost.
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.MaxIdleConnsPerHost = maxIdleConnsPerHost
 	// MaxIdleConns is set back to zero, which the clone does NOT bring: http.DefaultTransport caps the total
-	// at 100, and a shared total would let traffic to one host evict the connections of another. In a
-	// two-tenant noisy-neighbour benchmark that is precisely the coupling the run exists to detect, and the
-	// harness must not introduce it itself.
+	// at 100, and a shared total would let traffic to one host evict the connections of another.
+	// In a two-tenant noisy-neighbour benchmark that is precisely the coupling the run exists to detect, and
+	// the harness must not introduce it itself.
 	t.MaxIdleConns = 0
-	// MaxConnsPerHost stays zero, as the clone leaves it. That one blocks dispatch when the limit is reached,
-	// which would turn this open-loop sender into a closed-loop one and reintroduce the coordinated omission
-	// the design goes to some trouble to avoid.
+	// MaxConnsPerHost stays zero, as the clone leaves it.
+	// That one blocks dispatch when the limit is reached, which would turn this open-loop sender into a
+	// closed-loop one and reintroduce the coordinated omission the design goes to some trouble to avoid.
 	//
-	// IdleConnTimeout keeps the clone's 90s. Zero would mean "never close an idle connection", and a harness
-	// that leaks sockets on a long run measures its own file-descriptor pressure.
+	// IdleConnTimeout keeps the clone's 90s.
+	// Zero would mean "never close an idle connection", and a harness that leaks sockets on a long run
+	// measures its own file-descriptor pressure.
 	return t
 }
 
@@ -325,19 +340,20 @@ type chatRequest struct {
 	// StreamOptions asks the engine to append a usage chunk carrying its own count of the prompt.
 	//
 	// That count is the served tokenizer's, which is the unit the design's admission-match criterion is
-	// defined in and the unit no run has ever measured. It arrives on admitted requests only -- a refusal
-	// never reaches the engine -- so it checks the trace's per-prompt-length measurement rather than
-	// replacing it.
+	// defined in and the unit no run has ever measured.
+	// It arrives on admitted requests only -- a refusal never reaches the engine -- so it checks the
+	// trace's per-prompt-length measurement rather than replacing it.
 	StreamOptions streamOptions `json:"stream_options"`
 	// Priority is vLLM's per-request scheduling priority, omitted entirely when the tenant has none.
 	//
-	// Lower is more urgent. It is read only under --scheduling-policy=priority, and it is the one axis that
-	// moved the tail in the microtest: at a 512-token batch budget it took a short request behind a long one
-	// from 13.79x its uncontended time to 1.57x.
+	// Lower is more urgent.
+	// It is read only under --scheduling-policy=priority, and it is the one axis that moved the tail in the
+	// microtest: at a 512-token batch budget it took a short request behind a long one from 13.79x its
+	// uncontended time to 1.57x.
 	//
-	// A pointer so the field disappears from the body rather than defaulting to 0. Sending 0 for every
-	// tenant would make every request equally urgent under a policy that reads the field, which is a control
-	// arm that is not a control.
+	// A pointer so the field disappears from the body rather than defaulting to 0.
+	// Sending 0 for every tenant would make every request equally urgent under a policy that reads the
+	// field, which is a control arm that is not a control.
 	Priority *int `json:"priority,omitempty"`
 	// The generation fields of a registered SamplingPolicy, pointers so a study without one sends none of them.
 	//
@@ -431,11 +447,12 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		//
 		// 429 is not an edge case here, it is the outcome the admission arms exist to produce: an arm that
 		// protects capacity does so BY rejecting, so the rejection-heavy runs are exactly the ones whose
-		// numbers the pool was introduced to clean up. Returning without reading the body marks the connection
-		// unusable, so every rejection cost a fresh handshake and put it back inside the latency the harness
-		// reports — reproducing, on the measured path, the instrument artifact drainForReuse's own comment
-		// says it removes. The 431-to-6 evidence quoted above cannot have covered this: every arm in that log
-		// recorded zero rejections.
+		// numbers the pool was introduced to clean up.
+		// Returning without reading the body marks the connection unusable, so every rejection cost a fresh
+		// handshake and put it back inside the latency the harness reports — reproducing, on the measured
+		// path, the instrument artifact drainForReuse's own comment says it removes.
+		// The 431-to-6 evidence quoted above cannot have covered this: every arm in that log recorded zero
+		// rejections.
 		//
 		// No ordering care is needed, unlike readStream: a non-200 result carries no EndUnixNanos, because a
 		// rejection is counted rather than timed, so there is no measurement here for the drain to fall into.
@@ -460,8 +477,9 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 // is the refusal path -- the one a streaming reader never touches, and the one that would be forgotten.
 //
 // The header names come from internal/gateway rather than string literals here: they are the contract between
-// the two packages, and a copy of a contract is how this project has produced most of its defects. Empty when
-// the gateway predates reporting them, which every consumer reads as "not recorded" rather than as a value.
+// the two packages, and a copy of a contract is how this project has produced most of its defects.
+// Empty when the gateway predates reporting them, which every consumer reads as "not recorded" rather than as
+// a value.
 func (h *HTTPSender) withAdmissionDecision(resp *http.Response, res SendResult) SendResult {
 	res.Tier = resp.Header.Get(gateway.HeaderAdmissionTier)
 	res.AdmissionReason = resp.Header.Get(gateway.HeaderAdmissionReason)
@@ -510,11 +528,12 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) (res S
 			// RECORDED, not merely used to leave the loop.
 			//
 			// Measured 2026-10-04 by calling this function with three bodies: a clean stream, one cut off
-			// before [DONE], and one carrying an SSE error object. All three returned ErrorKind "", one
-			// output token and a stamped first-token time -- indistinguishable, and all three therefore
-			// counted as completed requests whose TTFT entered the tail. A truncated response is not a
-			// completed one, and a report that cannot tell them apart reports a completion rate that is
-			// partly invention.
+			// before [DONE], and one carrying an SSE error object.
+			// All three returned ErrorKind "", one output token and a stamped first-token time --
+			// indistinguishable, and all three therefore counted as completed requests whose TTFT entered
+			// the tail.
+			// A truncated response is not a completed one, and a report that cannot tell them apart
+			// reports a completion rate that is partly invention.
 			res.StreamTerminated = true
 			break
 		}
@@ -527,11 +546,12 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) (res S
 				// Why the engine stopped generating, which it sends and this struct used to discard.
 				//
 				// vLLM puts null on every content chunk and the reason on the last one: "length" when the
-				// output cap cut it, "stop" when the model ended on its own. Without it, a cap that
-				// truncated every response and a model that finished early are the same row -- and the
-				// output cap is a load variable this study freezes, so "the cap was not reached" is a
-				// claim the evidence could not support either way. The value is in
-				// internal/bench/testdata/vllm_sse_stream.txt, so it was arriving all along.
+				// output cap cut it, "stop" when the model ended on its own.
+				// Without it, a cap that truncated every response and a model that finished early are the
+				// same row -- and the output cap is a load variable this study freezes, so "the cap was
+				// not reached" is a claim the evidence could not support either way.
+				// The value is in internal/bench/testdata/vllm_sse_stream.txt, so it was arriving all
+				// along.
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			// The usage chunk arrives last, with an empty choices list, so it contributes no output token.
@@ -539,21 +559,23 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) (res S
 				PromptTokens int `json:"prompt_tokens"`
 				// The engine's own output count, which the frame tally below is not.
 				//
-				// OutputTokens counts SSE frames carrying content, one per frame. That equals the token
-				// count only while the server emits one token per frame, and nothing in the protocol
-				// promises it: a server that batched two tokens into a frame would halve every throughput
-				// number, every tenant share and every inter-token time this harness reports, without
-				// changing a single token the GPU produced. The request already asks for usage, so this
-				// count was arriving and being discarded.
+				// OutputTokens counts SSE frames carrying content, one per frame.
+				// That equals the token count only while the server emits one token per frame, and
+				// nothing in the protocol promises it: a server that batched two tokens into a frame
+				// would halve every throughput number, every tenant share and every inter-token time this
+				// harness reports, without changing a single token the GPU produced.
+				// The request already asks for usage, so this count was arriving and being discarded.
 				CompletionTokens int `json:"completion_tokens"`
 			} `json:"usage"`
 			// The engine's own in-band failure, which this struct used to have no field for.
 			//
 			// An SSE frame carrying {"error": {...}} is valid JSON, so Unmarshal succeeded, no declared
 			// field matched, and the frame was dropped silently -- the request then finished as an ordinary
-			// success. Reproduced: a stream of one content chunk, an error object and [DONE] came back with
-			// ErrorKind "" and a first token stamped. The HTTP status is 200 in this case because the
-			// headers were already sent when the engine failed, so status cannot carry it either.
+			// success.
+			// Reproduced: a stream of one content chunk, an error object and [DONE] came back with
+			// ErrorKind "" and a first token stamped.
+			// The HTTP status is 200 in this case because the headers were already sent when the engine
+			// failed, so status cannot carry it either.
 			Error *struct {
 				Message string `json:"message"`
 				Type    string `json:"type"`
@@ -568,9 +590,9 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) (res S
 		// An in-band error ends the stream and is kept verbatim, because the vocabulary is the engine's.
 		//
 		// ErrorKind stays a small closed set the report buckets by, so the engine's own words go in their
-		// own field rather than widening that set. The first token, if one arrived, still stands: it was
-		// observed, and a response that produced tokens and then failed is a different fact from one that
-		// never started.
+		// own field rather than widening that set.
+		// The first token, if one arrived, still stands: it was observed, and a response that produced
+		// tokens and then failed is a different fact from one that never started.
 		if chunk.Error != nil {
 			res.ErrorKind = errorKindStream
 			res.StreamError = strings.TrimSpace(chunk.Error.Type + ": " + chunk.Error.Message)
@@ -587,7 +609,8 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) (res S
 			}
 		}
 		// The LAST non-empty reason wins, because every content chunk carries null and only the final one
-		// carries the reason. Taking the first would record "" for every request that produced any output.
+		// carries the reason.
+		// Taking the first would record "" for every request that produced any output.
 		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
 			res.FinishReason = chunk.Choices[0].FinishReason
 		}

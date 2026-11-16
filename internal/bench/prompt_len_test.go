@@ -7,17 +7,19 @@ import "testing"
 // # WHY THE PATH MATTERS
 //
 // A hand-built ArmSummary fills these maps directly and never runs tallyPromptLen, so it would test nothing
-// about the branch ordering or the three-way split. This package's 188 ArmSummary literals are exactly that
-// shape, and three defects this session were found because a mutation of the real aggregation left every
-// literal-based test green. So each case here starts from RawRow.
+// about the branch ordering or the three-way split.
+// This package's 188 ArmSummary literals are exactly that shape, and three defects this session were found
+// because a mutation of the real aggregation left every literal-based test green.
+// So each case here starts from RawRow.
 //
 // # WHY THREE AND NOT ONE
 //
 // The first version of tallyPromptLen returned early on `PromptLenChars <= 0`, which threw absences and
-// negatives away together. An external review derived the counter-example from that branch before any run:
-// `[200, 200]` and `[200, absent]` both collapsed to "one length, 200", so a reading built on the
-// distribution would have certified uniformity over rows half of which said nothing. That is the case
-// TestAnAbsentLengthIsNotTheLengthBesideIt pins, and it is the reason the split exists.
+// negatives away together.
+// An external review derived the counter-example from that branch before any run: `[200, 200]` and `[200,
+// absent]` both collapsed to "one length, 200", so a reading built on the distribution would have
+// certified uniformity over rows half of which said nothing.
+// That is the case TestAnAbsentLengthIsNotTheLengthBesideIt pins, and it is the reason the split exists.
 func TestPromptLengthsAreTalliedThroughSummarize(t *testing.T) {
 	rows := []RawRow{
 		// Two rows at one level: a distribution with one key.
@@ -30,8 +32,9 @@ func TestPromptLengthsAreTalliedThroughSummarize(t *testing.T) {
 		{Index: 3, Tenant: PremiumTenant, HTTPStatus: 200},
 		// A length that cannot be one: a defect in the recorder, not evidence about the load.
 		{Index: 4, Tenant: PremiumTenant, PromptLenChars: -7, HTTPStatus: 200},
-		// A FAILED row still carries the length it was generated at. Counted, because a mixture whose
-		// second level is the one that timed out would otherwise be invisible.
+		// A FAILED row still carries the length it was generated at.
+		// Counted, because a mixture whose second level is the one that timed out would otherwise be
+		// invisible.
 		{Index: 5, Tenant: PremiumTenant, PromptLenChars: 200, HTTPStatus: 0, ErrorKind: "timeout"},
 		{Index: 6, Tenant: NoisyTenant, PromptLenChars: 42579, HTTPStatus: 200},
 	}
@@ -44,9 +47,9 @@ func TestPromptLengthsAreTalliedThroughSummarize(t *testing.T) {
 	if got := s.PromptLenCharsByTenant[PremiumTenant][200]; got != 2 {
 		t.Errorf("premium rows at 200 chars = %d, want 2; a failed row still carries its generated length", got)
 	}
-	// MORE THAN ONE KEY is the disagreement, derived rather than stored. A single length plus a -1 sentinel
-	// would be the same claim in two representations, and this repository has been bitten by a claim carried
-	// in two places where only one was guarded.
+	// MORE THAN ONE KEY is the disagreement, derived rather than stored.
+	// A single length plus a -1 sentinel would be the same claim in two representations, and this repository
+	// has been bitten by a claim carried in two places where only one was guarded.
 	if n := len(s.PromptLenCharsByTenant[PremiumTenant]); n != 2 {
 		t.Errorf("distinct premium prompt lengths = %d, want 2; pooling them hides that two conditions were merged", n)
 	}
@@ -68,9 +71,9 @@ func TestPromptLengthsAreTalliedThroughSummarize(t *testing.T) {
 // The counter-example the review derived from the single-branch version, as a test.
 //
 // Two arms that a reading must not describe the same way: one where every row carried 1,174, and one where
-// the rows that said anything said 1,174 and the rest said nothing. The distribution is identical in both --
-// one key, 1174 -- so the ONLY thing that separates them is the unreported count, and a reading that reads
-// the distribution alone certifies uniformity it has not seen.
+// the rows that said anything said 1,174 and the rest said nothing.
+// The distribution is identical in both -- one key, 1174 -- so the ONLY thing that separates them is the
+// unreported count, and a reading that reads the distribution alone certifies uniformity it has not seen.
 func TestAnAbsentLengthIsNotTheLengthBesideIt(t *testing.T) {
 	complete := Summarize("shared", []RawRow{
 		{Index: 0, Tenant: PremiumTenant, PromptLenChars: 1174, HTTPStatus: 200},

@@ -11,10 +11,11 @@ import (
 
 // senderConfig is the replay's resolved sending configuration, written beside its raw rows.
 //
-// The pilot compares it across a block's arms and refuses a difference (design page, build item 26). An
-// arm-dependent sender setting would otherwise pass into the measured dispatch lag, and from there into the
-// thresholds the pilot's formulas set. The arm label, the request-ID prefix and the paths are expected to
-// differ, and the analysis normalises them; everything else must match.
+// The pilot compares it across a block's arms and refuses a difference (design page, build item 26).
+// An arm-dependent sender setting would otherwise pass into the measured dispatch lag, and from there into
+// the thresholds the pilot's formulas set.
+// The arm label, the request-ID prefix and the paths are expected to differ, and the analysis normalises
+// them; everything else must match.
 type senderConfig struct {
 	Study               string         `json:"study"`
 	Arm                 string         `json:"arm"`

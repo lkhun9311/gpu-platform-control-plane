@@ -60,9 +60,10 @@ func gpuPod(namespace, name, nodeName string, gpus int64) *corev1.Pod {
 // it: 10m of CPU, 32Mi of memory, a toleration for everything, and no device request at all.
 //
 // It is written out here rather than described in a comment because it is the single most dangerous input
-// this check has. The simulator is a device PLUGIN — it is where nvidia.com/gpu on these nodes comes from —
-// and it runs on every node, so a predicate that rejected it would refuse every run on every cluster this lab
-// has ever used, including the one the reviewer is about to point at it.
+// this check has.
+// The simulator is a device PLUGIN — it is where nvidia.com/gpu on these nodes comes from — and it runs on
+// every node, so a predicate that rejected it would refuse every run on every cluster this lab has ever used,
+// including the one the reviewer is about to point at it.
 func simulatorPod(nodeName string) *corev1.Pod {
 	return &corev1.Pod{
 		Namespace: "system",
@@ -95,9 +96,9 @@ func simulatorPod(nodeName string) *corev1.Pod {
 	}
 }
 
-// testReq is a requirement whose provenance is not what the test is about. The tests that DO care about the
-// provenance build a gpuRequirement by hand instead, so that this helper can never be what makes one of them
-// pass.
+// testReq is a requirement whose provenance is not what the test is about.
+// The tests that DO care about the provenance build a gpuRequirement by hand instead, so that this helper
+// can never be what makes one of them pass.
 func testReq(n int64) gpuRequirement {
 	return gpuRequirement{Total: n, BoundBy: boundByQuotaSum, From: "test"}
 }
@@ -116,15 +117,16 @@ func testFixtures(t *testing.T, study queuelab.Study, variant string) *queuelab.
 // The requirement has to be COMPUTED from this run's own protocol, and the two real studies cannot prove
 // that on their own: reclaim (two ClusterQueues at nominal 1, largest row 1) and FIFO (one queue at nominal
 // 2, largest row 2) both come to 2, so `return 2` passes for both and the check silently stops being about
-// this run's arm. The synthetic set is what makes the summation observable — 1 + 3 is a number no constant
-// anyone would plausibly type produces.
+// this run's arm.
+// The synthetic set is what makes the summation observable — 1 + 3 is a number no constant anyone would
+// plausibly type produces.
 //
 // The quota on a foreign flavor is there for the same reason: only this run's flavor is pinned to this run's
 // worker, so a summation that ignored the flavor would size the node against capacity that lives elsewhere.
 //
-// The provenance is asserted on the CONTRIBUTING queue count, not on len(fs.ClusterQueue). The synthetic set
-// has three queues and two of them were summed; a provenance saying "3 ClusterQueue(s)" would describe a sum
-// that was not taken over them, in the one field whose entire job is to be trustworthy.
+// The provenance is asserted on the CONTRIBUTING queue count, not on len(fs.ClusterQueue).
+// The synthetic set has three queues and two of them were summed; a provenance saying "3 ClusterQueue(s)"
+// would describe a sum that was not taken over them, in the one field whose entire job is to be trustworthy.
 //
 // Mutation that turns this red: replace the summation with a constant 2 while keeping an honest provenance
 // string (the synthetic case catches it); or build the provenance with len(fs.ClusterQueue) instead of the
@@ -183,18 +185,20 @@ func TestRequiredGPUIsDerivedFromTheFixturesNotHardCoded(t *testing.T) {
 	}
 }
 
-// The bound my brief denied existed. It said every trace row requests one GPU; FIFOHeadOfLineScenario emits a
-// 2-GPU head row and ValidateTrace REQUIRES one, because a head job that cannot immediately fit is the entire
-// mechanism that study compares.
+// The bound my brief denied existed.
+// It said every trace row requests one GPU; FIFOHeadOfLineScenario emits a 2-GPU head row and ValidateTrace
+// REQUIRES one, because a head job that cannot immediately fit is the entire mechanism that study compares.
 //
-// The two bounds are independent and neither implies the other. A Pod is scheduled whole onto one node, so a
-// row larger than the node advertises can never be scheduled at all however much aggregate quota the queues
-// hold — the run would proceed, the head job would sit unschedulable forever, and the arm would report the
-// head-of-line comparison it structurally never made. Today the FIFO sum (2) and its largest row (2) happen
-// to coincide, which is exactly the coincidence that lets a sum-only derivation look correct indefinitely.
+// The two bounds are independent and neither implies the other.
+// A Pod is scheduled whole onto one node, so a row larger than the node advertises can never be scheduled at
+// all however much aggregate quota the queues hold — the run would proceed, the head job would sit
+// unschedulable forever, and the arm would report the head-of-line comparison it structurally never made.
+// Today the FIFO sum (2) and its largest row (2) happen to coincide, which is exactly the coincidence that
+// lets a sum-only derivation look correct indefinitely.
 //
 // Mutation that turns this red: derive the requirement from the nominal quota sum alone (drop the
-// `largest > sum` branch). Both real studies stay green — that is the point of this test existing.
+// `largest > sum` branch).
+// Both real studies stay green — that is the point of this test existing.
 func TestRequiredGPUTakesTheLargestSingleRowWhenItExceedsTheQuotaSum(t *testing.T) {
 	fs := &queuelab.FixtureSet{
 		Flavor:       &kueuev1beta2.ResourceFlavor{Name: "queuelab-gpu-r7"},
@@ -255,9 +259,10 @@ func syntheticCQ(name, flavor string, nominal int64) *kueuev1beta2.ClusterQueue 
 }
 
 // A protocol asking for no device at all would make the capacity check pass on any machine, including one
-// with no GPU — a bar that reads as a check and is not one. It is a defect in this program rather than in the
-// node, and the message has to say so or an operator goes looking at the cluster. Both bounds are zero here,
-// because either one alone being positive is a legitimate requirement.
+// with no GPU — a bar that reads as a check and is not one.
+// It is a defect in this program rather than in the node, and the message has to say so or an operator goes
+// looking at the cluster.
+// Both bounds are zero here, because either one alone being positive is a legitimate requirement.
 //
 // Mutation that turns this red: drop the `req.Total < 1` branch from requiredGPU.
 func TestRequiredGPURefusesAProtocolThatAsksForNoDevice(t *testing.T) {
@@ -278,9 +283,9 @@ func TestRequiredGPURefusesAProtocolThatAsksForNoDevice(t *testing.T) {
 // The whole point of the check: the ownership taint reserves the node against FUTURE placement and evicts
 // nothing, so a Pod that was already holding a device keeps holding it for the entire run.
 //
-// Mutation that turns this red: drop the `len(consumers) > 0` branch from qualify. The node is Ready,
-// schedulable and advertises two devices, so nothing else in qualify has anything to object to and the run
-// proceeds onto a machine with one of its two GPUs already spoken for.
+// Mutation that turns this red: drop the `len(consumers) > 0` branch from qualify.
+// The node is Ready, schedulable and advertises two devices, so nothing else in qualify has anything to
+// object to and the run proceeds onto a machine with one of its two GPUs already spoken for.
 func TestQualifyRefusesAWorkerThatAlreadyHoldsAForeignGPUPod(t *testing.T) {
 	q, err := qualify(node(nil, nil), []corev1.Pod{*gpuPod("tenant-a", "train-7", "platform-worker", 1)},
 		testReq(2), mustHarnessContract(t))
@@ -301,8 +306,9 @@ func TestQualifyRefusesAWorkerThatAlreadyHoldsAForeignGPUPod(t *testing.T) {
 //
 // The simulator is where nvidia.com/gpu comes from on these nodes, it runs on every node, and it requests no
 // device — so the predicate has to be "what does this Pod REQUEST", never "is this Pod something to do with
-// GPUs". Rejecting the provider of the resource would make every run on every one of this lab's clusters
-// refuse, and it would refuse for a reason that reads entirely plausible in the log.
+// GPUs".
+// Rejecting the provider of the resource would make every run on every one of this lab's clusters refuse,
+// and it would refuse for a reason that reads entirely plausible in the log.
 //
 // Mutation that turns this red: change gpuConsumersOn's test from `podGPURequest(&p.Spec) == 0` to something
 // keyed on the node advertising the resource, on the priority class, or on the Pod's own name — every
@@ -349,10 +355,10 @@ func TestQualifyCountsATerminatingGPUPodBecauseItStillHoldsTheDevice(t *testing.
 }
 
 // Pending counts, and the reason is not symmetry with Running: a Pod already assigned to this node has had
-// the device reserved for it by the scheduler and will take it the moment its image finishes pulling. This is
-// the ordinary state of a GPU Pod in the first seconds of its life, so a run started just after somebody
-// else's job was admitted is exactly when it would be missed — and it would be missed silently, because by
-// the time the run submitted anything the Pod would be Running and holding the device.
+// the device reserved for it by the scheduler and will take it the moment its image finishes pulling.
+// This is the ordinary state of a GPU Pod in the first seconds of its life, so a run started just after
+// somebody else's job was admitted is exactly when it would be missed — and it would be missed silently,
+// because by the time the run submitted anything the Pod would be Running and holding the device.
 //
 // This branch was the one predicate my first round left untested: mutating holdsDevices to exclude Pending
 // kept the whole targeted suite green.
@@ -376,7 +382,8 @@ func TestQualifyCountsAPendingGPUPodBecauseTheDeviceIsAlreadyReservedForIt(t *te
 
 // Two exclusions, both of which would otherwise refuse runs on perfectly good clusters: a GPU Pod on the
 // OTHER worker is not on this run's machine at all, and a Succeeded one has already had its device released
-// by the kubelet and is only waiting to be garbage collected. This lab's clusters accumulate both.
+// by the kubelet and is only waiting to be garbage collected.
+// This lab's clusters accumulate both.
 //
 // Mutation that turns this red: drop the `p.Spec.NodeName != node` guard, or drop the holdsDevices guard.
 // Either one alone makes this test fail, and either one alone would make a run refuse over a Pod on another
@@ -438,9 +445,9 @@ func TestQualifyRefusesANodeTooSmallForTheArm(t *testing.T) {
 }
 
 // Ready and schedulable are two separate facts and both are reported, because an operator who cordoned a node
-// and also let it go NotReady should not have to run the tool twice to find that out. The missing-condition
-// case is in here deliberately: a Node object with no Ready condition at all must fail toward the refusal,
-// the same way an unclassifiable teardown target holds the worker.
+// and also let it go NotReady should not have to run the tool twice to find that out.
+// The missing-condition case is in here deliberately: a Node object with no Ready condition at all must fail
+// toward the refusal, the same way an unclassifiable teardown target holds the worker.
 //
 // Mutation that turns this red: make nodeReady return true when no Ready condition is present, or drop the
 // Schedulable branch from qualify.
@@ -473,9 +480,9 @@ func TestQualifyRefusesANodeThatIsNotReadyOrIsCordoned(t *testing.T) {
 	}
 }
 
-// One node, three things wrong with it. Reporting only the first would make an operator pay a round trip
-// against a real cluster per defect, which on a lab whose runs are minutes long is the difference between one
-// correction and three.
+// One node, three things wrong with it.
+// Reporting only the first would make an operator pay a round trip against a real cluster per defect, which
+// on a lab whose runs are minutes long is the difference between one correction and three.
 //
 // Mutation that turns this red: return on the first failed condition in qualify instead of accumulating them.
 func TestQualifyReportsEveryConditionItFailedNotJustTheFirst(t *testing.T) {
@@ -496,8 +503,9 @@ func TestQualifyReportsEveryConditionItFailedNotJustTheFirst(t *testing.T) {
 }
 
 // A Pod may name only the limit and have the request defaulted to match it, which is how a great many GPU
-// Pods are actually written. Reading Requests alone scores exactly those Pods as consuming nothing, and they
-// are the ones most likely to be sitting on a shared lab worker.
+// Pods are actually written.
+// Reading Requests alone scores exactly those Pods as consuming nothing, and they are the ones most likely
+// to be sitting on a shared lab worker.
 //
 // Mutation that turns this red: delete the Limits fallback from gpuOf.
 func TestPodGPURequestReadsALimitOnlyPod(t *testing.T) {
@@ -524,10 +532,11 @@ func TestPodGPURequestReadsALimitOnlyPod(t *testing.T) {
 }
 
 // A run that could not read the Pods on its worker has not established the premise it is about to measure
-// under. Treating an unreadable cluster as a clean one is the substitution — absence of evidence for evidence
-// of absence — that this whole gate exists to stop, and it is the shape an RBAC gap takes: the runner is
-// newly required to list Pods cluster-wide, and a cluster where it may not is the cluster where this would
-// silently pass.
+// under.
+// Treating an unreadable cluster as a clean one is the substitution — absence of evidence for evidence of
+// absence — that this whole gate exists to stop, and it is the shape an RBAC gap takes: the runner is newly
+// required to list Pods cluster-wide, and a cluster where it may not is the cluster where this would silently
+// pass.
 //
 // Mutation that turns this red: swallow the List error in qualifyWorker and carry on with no Pods.
 func TestQualifyWorkerRefusesWhenItCannotSeeThePods(t *testing.T) {
@@ -554,9 +563,10 @@ func TestQualifyWorkerRefusesWhenItCannotSeeThePods(t *testing.T) {
 	}
 }
 
-// The observation has to be returned alongside the refusal, not instead of it. A refused run is precisely the
-// run whose evidence would otherwise be a sentence on somebody's terminal, and the later
-// validity-bearing-artifact gate can only be serialization of what each gate wrote if each gate wrote.
+// The observation has to be returned alongside the refusal, not instead of it.
+// A refused run is precisely the run whose evidence would otherwise be a sentence on somebody's terminal, and
+// the later validity-bearing-artifact gate can only be serialization of what each gate wrote if each gate
+// wrote.
 //
 // Mutation that turns this red: return `nil, err` from qualifyWorker when qualify refuses.
 func TestQualifyWorkerReturnsWhatItSawEvenWhenItRefuses(t *testing.T) {
@@ -605,16 +615,19 @@ func mustHarnessContract(t *testing.T) canaryContract {
 
 // A node with MORE devices than the protocol needs is refused, and that direction is the dangerous one.
 //
-// Too few devices is obviously fatal and was already refused. Too many destroys the experiment silently:
-// the contrast this lab publishes is physical card scarcity, and every recorded run shows it directly --
-// Kueue admits the owner within 0.1 s of the preemption decision, and the owner's Pod becomes Ready one to
-// two seconds after the VICTIM'S terminal phase, in both arms. It is waiting for a card. The 29-second arm
-// difference is that wait.
+// Too few devices is obviously fatal and was already refused.
+// Too many destroys the experiment silently: the contrast this lab publishes is physical card scarcity,
+// and every recorded run shows it directly -- Kueue admits the owner within 0.1 s of the preemption
+// decision, and the owner's Pod becomes Ready one to two seconds after the VICTIM'S terminal phase, in
+// both arms.
+// It is waiting for a card.
+// The 29-second arm difference is that wait.
 //
-// Give the run two spare devices and the owner's Pod binds at admission in both arms. The wait collapses to
-// a container start on each side, the difference falls below the floor, and every other figure in the
-// record looks exactly as it does today. Nothing downstream could tell that from a real finding -- and the
-// preregistration's third refutation condition would read it as the session's most useful discovery.
+// Give the run two spare devices and the owner's Pod binds at admission in both arms.
+// The wait collapses to a container start on each side, the difference falls below the floor, and every
+// other figure in the record looks exactly as it does today.
+// Nothing downstream could tell that from a real finding -- and the preregistration's third refutation
+// condition would read it as the session's most useful discovery.
 //
 // The instance this study rents carries four cards because no rentable one carries two, so this is not
 // hypothetical: it is the default in infra/aws/cluster/variables.tf.
@@ -636,9 +649,10 @@ func TestANodeWithSpareDevicesIsRefused(t *testing.T) {
 	occupier := func(gpus int64) []corev1.Pod {
 		return []corev1.Pod{{
 			Namespace: "gpu-platform-control-plane-system", Name: "surplus-occupier",
-			// A valid label value: alphanumeric with dashes, dots and underscores. The first version of
-			// this fixture used a sentence, which a fake client accepts and a real API server rejects --
-			// so the unit test passed while the manifest the session applies was invalid.
+			// A valid label value: alphanumeric with dashes, dots and underscores.
+			// The first version of this fixture used a sentence, which a fake client accepts and a real
+			// API server rejects -- so the unit test passed while the manifest the session applies was
+			// invalid.
 			Labels: map[string]string{surplusOccupierLabel: "session"},
 			Spec: corev1.PodSpec{
 				NodeName: "platform-worker",

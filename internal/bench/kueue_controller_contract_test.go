@@ -18,7 +18,8 @@ import (
 )
 
 // The Kueue controller EKS runs is the v0.18.3 release, vendored byte for byte under config/kueue-controller
-// (docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 1). These pin what that rests on.
+// (docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 1).
+// These pin what that rests on.
 
 const kueueDir = "config/kueue-controller"
 
@@ -72,8 +73,9 @@ func get(obj any, path ...string) any {
 
 func name(obj map[string]any) string { s, _ := get(obj, "metadata", "name").(string); return s }
 
-// The vendored file is the release file. A hand edit, a re-download of a different version or a line-ending
-// conversion changes the hash, and the Application would then deploy something RELEASE does not describe.
+// The vendored file is the release file.
+// A hand edit, a re-download of a different version or a line-ending conversion changes the hash, and the
+// Application would then deploy something RELEASE does not describe.
 //
 // Mutation that turns this red: change one byte of manifests.yaml, or the sha256 in RELEASE.
 func TestTheVendoredKueueIsTheRelease(t *testing.T) {
@@ -96,8 +98,9 @@ func TestTheVendoredKueueIsTheRelease(t *testing.T) {
 
 // The release names one image, and the kustomization pins that image by the digest RELEASE records.
 //
-// A tag can be moved to other bytes; the digest cannot. And a second image in a later release would run
-// unpinned, which this catches by requiring the release's image set to be exactly the one the pin rewrites.
+// A tag can be moved to other bytes; the digest cannot.
+// And a second image in a later release would run unpinned, which this catches by requiring the release's
+// image set to be exactly the one the pin rewrites.
 //
 // Mutation that turns this red: drop the digest from the kustomization's images entry, or change its name.
 func TestTheKueueControllerIsPinnedByDigest(t *testing.T) {
@@ -136,8 +139,8 @@ func TestTheKueueControllerIsPinnedByDigest(t *testing.T) {
 // config/kueue-crds is what envtest and test/e2e load in place of Kueue, so its schemas must be the release's.
 //
 // They are allowed to differ in exactly two places, by name: which version is stored, and the conversion stanza.
-// envtest runs no conversion webhook, so the fixtures store v1beta1 and convert by None. Anything else that
-// differs is a test environment admitting objects the cluster would refuse, or the reverse.
+// envtest runs no conversion webhook, so the fixtures store v1beta1 and convert by None.
+// Anything else that differs is a test environment admitting objects the cluster would refuse, or the reverse.
 //
 // Mutation that turns this red: change a type or add a property in one fixture's schema.
 func TestTheKueueCRDFixturesHaveTheReleaseSchemas(t *testing.T) {
@@ -190,8 +193,9 @@ func TestTheKueueCRDFixturesHaveTheReleaseSchemas(t *testing.T) {
 }
 
 // Kueue's certificate manager writes the CA bundle into objects Argo also syncs, and self-heal would revert it on
-// every pass unless each field is ignored. The fields are read off the release, not off a list kept by hand: every
-// CRD that converts by webhook, both webhook configurations, and the certificate Secret.
+// every pass unless each field is ignored.
+// The fields are read off the release, not off a list kept by hand: every CRD that converts by webhook, both
+// webhook configurations, and the certificate Secret.
 //
 // Mutation that turns this red: delete one entry from the Application's ignoreDifferences.
 func TestTheKueueApplicationIgnoresWhatKueueWrites(t *testing.T) {
@@ -267,9 +271,10 @@ func TestTheSharedFlavorCarriesNoPlacement(t *testing.T) {
 }
 
 // Kueue's visibility API is aggregated: the API server calls the Service each APIService names, on that Service's
-// target port. The EKS module opens only its recommended webhook ports from the control plane, so every port an
-// APIService needs must be opened in infra/aws/cluster/eks.tf, or the APIService stays unavailable and Argo holds
-// the Application's first wave unhealthy, which keeps the gpu flavor in the second wave from ever being applied.
+// target port.
+// The EKS module opens only its recommended webhook ports from the control plane, so every port an APIService
+// needs must be opened in infra/aws/cluster/eks.tf, or the APIService stays unavailable and Argo holds the
+// Application's first wave unhealthy, which keeps the gpu flavor in the second wave from ever being applied.
 //
 // Mutation that turns this red: delete the 8082 rule from eks.tf, or change the release's target port.
 func TestTheNodesAdmitKueuesAggregatedAPI(t *testing.T) {

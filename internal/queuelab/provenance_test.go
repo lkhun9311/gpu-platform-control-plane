@@ -128,9 +128,9 @@ func TestClassifyPodReadyAndStopped(t *testing.T) {
 //
 // "Failed" is the phase both for a workload that honoured SIGTERM and exited promptly and for one that
 // ignored it until the grace period ran out and was killed — 143 against 137, the exact contrast the
-// termination canary qualifies and the run itself could not observe. Recording the phase alone left the
-// ledger unable to say which kind of stop it had watched, so a claim that a run exercised the SIGKILL path
-// rested on the clock rather than on evidence.
+// termination canary qualifies and the run itself could not observe.
+// Recording the phase alone left the ledger unable to say which kind of stop it had watched, so a claim
+// that a run exercised the SIGKILL path rested on the clock rather than on evidence.
 //
 // Mutation that turns this red: drop ExitCode from the ObservedState that ClassifyPod returns.
 func TestClassifyPodRecordsWhichKindOfStopItObserved(t *testing.T) {
@@ -178,9 +178,9 @@ func TestClassifyPodRecordsWhichKindOfStopItObserved(t *testing.T) {
 // The count arrives in the Pod object, which is what lets it survive the arm that cannot report anything.
 //
 // The ignoring workload is SIGKILLed at the grace boundary and SIGKILL cannot be handled, so it prints no
-// final line — its stdout ends wherever the last periodic flush landed, and teardown deletes that anyway. The
-// kubelet copies /dev/termination-log into the terminated status instead, and the workload rewrites that file
-// from inside its loop, so the number is in the object the collector already watches.
+// final line — its stdout ends wherever the last periodic flush landed, and teardown deletes that anyway.
+// The kubelet copies /dev/termination-log into the terminated status instead, and the workload rewrites that
+// file from inside its loop, so the number is in the object the collector already watches.
 //
 // A message that is not exactly the expected shape yields nil rather than a guess: it is a channel the
 // workload controls, and a number parsed loosely out of it would be a measurement invented from whatever
@@ -212,29 +212,33 @@ func TestClassifyPodReadsTheWorkCompletedFromTheTerminatedStatus(t *testing.T) {
 		{"an empty termination log", "", nil},
 		{"something shaped like a count but not one", "iters=many kind=cpu-float dev=no-libcuda", nil},
 		{"a negative count", "iters=-3 kind=cpu-float dev=no-libcuda", nil},
-		// The count is refused ALONGSIDE the tokens rather than kept. A message this build cannot parse is a
-		// message whose number it also has no reason to trust, and the old shape -- a bare count with nothing
-		// saying which loop produced it -- is exactly what a version-16 workload wrote.
+		// The count is refused ALONGSIDE the tokens rather than kept.
+		// A message this build cannot parse is a message whose number it also has no reason to trust, and the
+		// old shape -- a bare count with nothing saying which loop produced it -- is exactly what a
+		// version-16 workload wrote.
 		{"the count alone, which is what the previous workload wrote", "iters=137", nil},
 		{"a kind no workload here emits", "iters=5 kind=torch dev=ok", nil},
 		{"a device status outside the closed set", "iters=5 kind=cuda-fma dev=probably-fine", nil},
 		// The same unknown status beside the FALLBACK, which is the row that makes the closed-set check
-		// load-bearing. The cross-token clause below catches the device-kind row above on its own -- an
-		// unknown status is not ok and not the mid-run failure -- so without this row the whole set could be
-		// deleted and the suite would stay green, and any string at all would be recorded as a device status
-		// for a reader to interpret.
+		// load-bearing.
+		// The cross-token clause below catches the device-kind row above on its own -- an unknown status is
+		// not ok and not the mid-run failure -- so without this row the whole set could be deleted and the
+		// suite would stay green, and any string at all would be recorded as a device status for a reader to
+		// interpret.
 		{"an unknown device status beside the fallback", "iters=5 kind=cpu-float dev=probably-fine", nil},
-		// The two tokens are checked against EACH OTHER, and these two rows are why that clause exists. Both
-		// halves are individually valid and the pair is impossible: dev=ok means a kernel launched, so it
-		// cannot sit beside the fallback; and every device failure before the launch returns before the kind
-		// is set, so the device kind cannot carry one.
+		// The two tokens are checked against EACH OTHER, and these two rows are why that clause exists.
+		// Both halves are individually valid and the pair is impossible: dev=ok means a kernel launched, so
+		// it cannot sit beside the fallback; and every device failure before the launch returns before the
+		// kind is set, so the device kind cannot carry one.
 		{"the fallback claiming a kernel ran", "iters=5 kind=cpu-float dev=ok", nil},
 		{"the device kind wearing a pre-launch failure", "iters=5 kind=cuda-fma dev=no-libcuda", nil},
 		{"a report missing its device status", "iters=5 kind=cuda-fma", nil},
-		// The row that makes the prefix check load-bearing. Every other rejection above is caught by Atoi
-		// failing, so without this one the check could be deleted and the suite would stay green — a bare
-		// number would then be read as an iteration count. The termination log is a file anything in the
-		// container can write, and "42" is exactly what an unrelated tool leaves behind.
+		// The row that makes the prefix check load-bearing.
+		// Every other rejection above is caught by Atoi failing, so without this one the check could be
+		// deleted and the suite would stay green — a bare number would then be read as an iteration
+		// count.
+		// The termination log is a file anything in the container can write, and "42" is exactly what an
+		// unrelated tool leaves behind.
 		{"a bare number nobody labelled", "42", nil},
 		{"another tool's key", "tokens=5", nil},
 	} {
@@ -258,8 +262,8 @@ func TestClassifyPodReadsTheWorkCompletedFromTheTerminatedStatus(t *testing.T) {
 //
 // This is the regression guard for a measurement defect two reviewers found independently: the harness
 // bounded the resolution of its intervals with the spread of container STOP skews, while the interval it
-// publishes as its headline runs from a Kueue admission to a kubelet readiness. Neither endpoint was
-// sampled, so the bound described events the interval did not contain.
+// publishes as its headline runs from a Kueue admission to a kubelet readiness.
+// Neither endpoint was sampled, so the bound described events the interval did not contain.
 //
 // Mutation that turns this red: drop ComponentStampUnixNanos from either branch of ClassifyPod, or from the
 // admitted branch of ClassifyWorkload.
@@ -285,8 +289,9 @@ func TestEveryEndpointCarriesItsComponentsOwnStamp(t *testing.T) {
 			*got.ComponentStampUnixNanos, at.UnixNano())
 	}
 
-	// The near endpoint: Kueue's own clock for the admission. Without it the owner's wait is bounded at
-	// neither end, which is the state the whole rename corrects.
+	// The near endpoint: Kueue's own clock for the admission.
+	// Without it the owner's wait is bounded at neither end, which is the state the whole rename
+	// corrects.
 	admitted := &kueuev1beta2.Workload{Status: kueuev1beta2.WorkloadStatus{
 		Conditions: []metav1.Condition{{
 			Type: kueuev1beta2.WorkloadAdmitted, Status: metav1.ConditionTrue,
@@ -354,8 +359,9 @@ func TestTheDutyTheWorkloadReportsSurvivesIntoTheLedger(t *testing.T) {
 //
 // The count and the tokens are three readings of one sentence and are refused together, because a number
 // kept from a sentence whose other half was unintelligible is a measurement invented from whatever happened
-// to be in a file. The duty is a fourth reading of the same sentence and gets the same treatment: how much
-// work an iteration count represents is exactly what the duty says.
+// to be in a file.
+// The duty is a fourth reading of the same sentence and gets the same treatment: how much work an iteration
+// count represents is exactly what the duty says.
 func TestADutyThisBuildCannotReadRefusesTheWholeMessage(t *testing.T) {
 	for _, msg := range []string{
 		"iters=900 kind=cuda-fma dev=ok duty=",
@@ -375,13 +381,14 @@ func TestADutyThisBuildCannotReadRefusesTheWholeMessage(t *testing.T) {
 //
 // It is stricter than the others in one way and the comment in ReportFromMessage says why: the accumulator is
 // the only value in the sentence that can be CHECKED, so a message whose fifth field cannot be read is worse
-// than one that has no fifth field at all. The second would be an attempt whose count is unverifiable; the
-// first would look like an attempt that carried its own proof.
+// than one that has no fifth field at all.
+// The second would be an attempt whose count is unverifiable; the first would look like an attempt that
+// carried its own proof.
 //
-// `extra=1` used to be refused by the arity rule alone, back when four fields was the maximum. It still is,
-// but now for a reason worth pinning rather than inherited: a fifth field this build does not recognise is
-// not an accumulator, and guessing that it might be is how a channel the workload controls turns into a
-// number the record asserts.
+// `extra=1` used to be refused by the arity rule alone, back when four fields was the maximum.
+// It still is, but now for a reason worth pinning rather than inherited: a fifth field this build does not
+// recognise is not an accumulator, and guessing that it might be is how a channel the workload controls
+// turns into a number the record asserts.
 func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
 	for _, msg := range []string{
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 extra=1",
@@ -391,9 +398,10 @@ func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
 		// The sixth field is `resumed=` now, and this row asserts an UNRECOGNISED sixth is still refused.
 		//
 		// `2026-09-21-the-resume-arm-chain.md` registered this overturn in advance: an earlier version of this
-		// list refused every sixth field by arity, and the resume arm needs one. What survives is the rule the
-		// row was written for — a field this build cannot read must refuse the count beside it, because a
-		// channel the workload controls must not become a number the record asserts.
+		// list refused every sixth field by arity, and the resume arm needs one.
+		// What survives is the rule the row was written for — a field this build cannot read must refuse the
+		// count beside it, because a channel the workload controls must not become a number the record
+		// asserts.
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 sixth=2",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 resumed=",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 resumed=abc",
@@ -402,11 +410,12 @@ func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
 		// reading: the attempt cannot have begun further along than it ended.
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 resumed=901",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 1370",
-		// ParseFloat accepts all three, and the arity rule used to refuse them by accident. A review found
-		// that they now reach LifecycleEvent.Accumulator and json.Marshal then fails with `unsupported
-		// value: NaN` -- so a workload emitting one would produce no record at all rather than a suspicious
-		// one, losing the whole run's evidence at write time. NaN is worse still: the oracle compares with
-		// ==, and NaN equals nothing including itself, so such a run could never be verified or refused.
+		// ParseFloat accepts all three, and the arity rule used to refuse them by accident.
+		// A review found that they now reach LifecycleEvent.Accumulator and json.Marshal then fails with
+		// `unsupported value: NaN` -- so a workload emitting one would produce no record at all rather than
+		// a suspicious one, losing the whole run's evidence at write time.
+		// NaN is worse still: the oracle compares with ==, and NaN equals nothing including itself, so such
+		// a run could never be verified or refused.
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=NaN",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=Inf",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=-Inf",
@@ -425,8 +434,9 @@ func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
 // TestAResumePointIsReadWhenTheMessageCarriesOne is the success path for the sixth field.
 //
 // The refusal list beside it is longer than this, and that asymmetry is a trap: a parser that refused every
-// sixth field would satisfy every one of those rows and none of this one. `2026-09-21-the-resume-arm-chain.md`
-// registered the widening in advance precisely because the refusals were written first.
+// sixth field would satisfy every one of those rows and none of this one.
+// `2026-09-21-the-resume-arm-chain.md` registered the widening in advance precisely because the refusals were
+// written first.
 func TestAResumePointIsReadWhenTheMessageCarriesOne(t *testing.T) {
 	for _, tc := range []struct {
 		msg  string
@@ -456,10 +466,11 @@ func TestAResumePointIsReadWhenTheMessageCarriesOne(t *testing.T) {
 
 // The seventh field, and the widening it forced on the sixth.
 //
-// The second half of each row is the point. When the sixth field landed, the arity grew and the
-// accumulator's clause stayed `== 5`, so a value that was present parsed nowhere and came back nil on every
-// six-field message. The same trap sits one field along, and the only thing that catches it is asserting the
-// EARLIER fields still arrive once a later one follows them.
+// The second half of each row is the point.
+// When the sixth field landed, the arity grew and the accumulator's clause stayed `== 5`, so a value that
+// was present parsed nowhere and came back nil on every six-field message.
+// The same trap sits one field along, and the only thing that catches it is asserting the EARLIER fields
+// still arrive once a later one follows them.
 //
 // Mutation that turns this red: leave the arity rule at 6, or leave the resume point's clause at `== 6`.
 func TestACheckpointWriteStatusIsReadWhenTheMessageCarriesOne(t *testing.T) {
@@ -524,8 +535,9 @@ func TestAMessageWithoutASaveStatusStillReads(t *testing.T) {
 			t.Errorf("%q was refused, so this build cannot read the records it already wrote", msg)
 		}
 		// Empty and not-attempted are DIFFERENT claims: "nobody could say" against "the workload was given
-		// nowhere to write". Collapsing them would make every record written before this field assert
-		// something its build never reported.
+		// nowhere to write".
+		// Collapsing them would make every record written before this field assert something its build
+		// never reported.
 		if saved != "" {
 			t.Errorf("%q carried no save status but one was reported as %q", msg, saved)
 		}
@@ -551,9 +563,11 @@ func TestAMessageWithoutAnAccumulatorStillReads(t *testing.T) {
 // TestAHalfReadingOfTheSleepObservationIsRefusedWhole covers the eight-field shape, the one the wire format can
 // produce by accident.
 //
-// A fraction needs both numbers. An eight-field message carries a slept total with no window to divide it by,
-// and every use of either number is the fraction -- so accepting it would put an unusable reading into the
-// ledger under a name that promises one. The whole message goes, on the rule every optional field here follows.
+// A fraction needs both numbers.
+// An eight-field message carries a slept total with no window to divide it by, and every use of either number
+// is the fraction -- so accepting it would put an unusable reading into the ledger under a name that promises
+// one.
+// The whole message goes, on the rule every optional field here follows.
 //
 // Mutation that turns this red: accept eight fields and leave WindowNs nil.
 func TestAHalfReadingOfTheSleepObservationIsRefusedWhole(t *testing.T) {
@@ -570,8 +584,9 @@ func TestAHalfReadingOfTheSleepObservationIsRefusedWhole(t *testing.T) {
 	if rep.SleptNs == nil || *rep.SleptNs != 1300000000 || rep.WindowNs == nil || *rep.WindowNs != 2600000000 {
 		t.Errorf("the pair did not survive: slept=%v window=%v", rep.SleptNs, rep.WindowNs)
 	}
-	// Every earlier field must survive the two new ones. This is the `==` versus `>=` regression, which this
-	// function has now had three times: the value present, parsed nowhere, returned as a zero value.
+	// Every earlier field must survive the two new ones.
+	// This is the `==` versus `>=` regression, which this function has now had three times: the value
+	// present, parsed nowhere, returned as a zero value.
 	if rep.SaveStatus != SaveOK {
 		t.Errorf("saveStatus = %q, want %q; widening the arity without widening its guard skips index six",
 			rep.SaveStatus, SaveOK)
@@ -591,8 +606,8 @@ func TestAHalfReadingOfTheSleepObservationIsRefusedWhole(t *testing.T) {
 // TestAnImpossibleSleepPairIsRefused holds the one internal consistency the pair can be checked for.
 //
 // Slept cannot exceed the window it is a fraction of: both come from one process reading one monotonic clock
-// between two points, so a pair saying otherwise was not produced by the workload this package ships. Reporting
-// it would publish a fraction above 1.0, and a plausible wrong number is worse here than a refusal.
+// between two points, so a pair saying otherwise was not produced by the workload this package ships.
+// Reporting it would publish a fraction above 1.0, and a plausible wrong number is worse here than a refusal.
 //
 // Mutation that turns this red: drop the sv > wv comparison, or either reader's own bound.
 func TestAnImpossibleSleepPairIsRefused(t *testing.T) {
@@ -619,9 +634,10 @@ func TestAnImpossibleSleepPairIsRefused(t *testing.T) {
 
 // TestAMeasuredZeroIsNotTheSameAsNoMeasurement is the third control the registration named.
 //
-// A full-duty attempt sleeps none of its service and now says so with sleptns=0. A build whose workload could
-// not measure sends no such field. Collapsing those two would report every historical run as having computed
-// throughout -- which is the false measurement this pair was added to replace, reappearing as a default.
+// A full-duty attempt sleeps none of its service and now says so with sleptns=0.
+// A build whose workload could not measure sends no such field.
+// Collapsing those two would report every historical run as having computed throughout -- which is the false
+// measurement this pair was added to replace, reappearing as a default.
 //
 // Mutation that turns this red: make the timing fields non-pointers, or default a missing pair to zero.
 func TestAMeasuredZeroIsNotTheSameAsNoMeasurement(t *testing.T) {

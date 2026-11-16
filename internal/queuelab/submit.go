@@ -31,104 +31,119 @@ import (
 //
 // A mutable tag lets the image drift between runs, so the same study re-run months later could execute
 // different bytes; pinning the multi-arch index digest freezes exactly what runs while still resolving on
-// whatever architecture the node uses. WorkloadImage is exported so a caller that must check it against its
-// own copy has no copy to keep.
+// whatever architecture the node uses.
+// WorkloadImage is exported so a caller that must check it against its own copy has no copy to keep.
 //
 // It moved from python:3.12-alpine to python:3.12-slim when the workload gained its device path, and the
 // reason is musl. nvidia-container-toolkit does not ship a CUDA runtime into the container; it bind-mounts
-// the HOST's driver libraries, which are linked against glibc. On an alpine base libcuda.so.1 is present and
-// unloadable, so every run would have taken the CPU fallback with dev=no-libcuda and looked exactly like a
-// node with no GPU. That is the worst possible failure here: silent, plausible, and indistinguishable from
-// the honest answer.
+// the HOST's driver libraries, which are linked against glibc.
+// On an alpine base libcuda.so.1 is present and unloadable, so every run would have taken the CPU fallback
+// with dev=no-libcuda and looked exactly like a node with no GPU.
+// That is the worst possible failure here: silent, plausible, and indistinguishable from the honest answer.
 const WorkloadImage = "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a"
 
-// workloadScript is the trace's workload. It tries to compute on the DEVICE, falls back to the CPU, and says
-// which of the two it did.
+// workloadScript is the trace's workload.
+// It tries to compute on the DEVICE, falls back to the CPU, and says which of the two it did.
 //
-// The self-report is the point of this file. Before it, the harness had no way to distinguish a run where the
-// GPU worked from one where the same Python fell back to the CPU on a card the scheduler had reserved and
-// nothing touched -- both produce a healthy iteration count and a plausible number, which is why a GPU run
-// used to come back byte-identical to a kind run. The provenance a record carries is now this string's
-// content rather than a literal in the writer, so the record cannot claim a kernel that never launched.
+// The self-report is the point of this file.
+// Before it, the harness had no way to distinguish a run where the GPU worked from one where the same Python
+// fell back to the CPU on a card the scheduler had reserved and nothing touched -- both produce a healthy
+// iteration count and a plausible number, which is why a GPU run used to come back byte-identical to a kind
+// run.
+// The provenance a record carries is now this string's content rather than a literal in the writer, so the
+// record cannot claim a kernel that never launched.
 //
 // The device path is the CUDA DRIVER API through ctypes, not torch or cupy, and that is a cost decision as
 // much as a dependency one: those images are gigabytes, and the pull lands inside the window the experiment
 // measures. libcuda.so.1 is injected by nvidia-container-toolkit for any container that requests a GPU, so
-// the device path adds nothing to the image at all. The kernel is PTX loaded with cuModuleLoadData and
-// JIT-compiled by the driver, which is the same mechanism Numba and PyTorch's JIT paths use.
+// the device path adds nothing to the image at all.
+// The kernel is PTX loaded with cuModuleLoadData and JIT-compiled by the driver, which is the same
+// mechanism Numba and PyTorch's JIT paths use.
 //
 // The PTX is compiled by hack/verify-ptx.sh, which stores an attestation keyed to a hash of the PTX it
-// compiled; TestTheEmbeddedPTXWasCompiled refuses a mismatch. That
-// check runs without a GPU and is the difference between a session that fails on a typo and one that does
-// not. It used to be a claim in this comment with no check anywhere in the repository, which a review found:
-// the one verification the file named as available without hardware was the one it did not have.
+// compiled; TestTheEmbeddedPTXWasCompiled refuses a mismatch.
+// That check runs without a GPU and is the difference between a session that fails on a typo and one that
+// does not.
+// It used to be a claim in this comment with no check anywhere in the repository, which a review found: the
+// one verification the file named as available without hardware was the one it did not have.
 //
 // The target is sm_75 -- Turing, which is the T4 in the instance type this study rents -- and not a lower
-// floor. CUDA 13 dropped Maxwell and Pascal outright, so a driver from that generation refuses a
-// .target sm_50 module even when the physical card is newer. A compatibility floor below the oldest card
-// this lab could plausibly rent buys nothing and can only refuse.
+// floor.
+// CUDA 13 dropped Maxwell and Pascal outright, so a driver from that generation refuses a .target sm_50
+// module even when the physical card is newer.
+// A compatibility floor below the oldest card this lab could plausibly rent buys nothing and can only
+// refuse.
 //
 // .version travels WITH the target and cannot be left behind: ISA 6.0 is CUDA 9.0 and predates Turing, so
-// `.version 6.0 / .target sm_75` is rejected outright with "does not support". That pairing shipped for
-// several minutes, and the ptxas test below is what found it -- which is the argument for the test rather
-// than for the comment that used to stand in its place.
+// `.version 6.0 / .target sm_75` is rejected outright with "does not support".
+// That pairing shipped for several minutes, and the ptxas test below is what found it -- which is the
+// argument for the test rather than for the comment that used to stand in its place.
 //
 // The kernel arguments are BOUND INTO the launch closure, and that default argument is load-bearing rather
 // than style. kernelParams is an array of raw addresses: ctypes copies the integer and keeps no reference,
-// and the closure captures only the names it mentions. Without the binding, buf and inner are freed the
-// moment cuda() returns, and every launch in the loop dereferences reclaimed memory -- while the FIRST
-// launch, the one inside cuda() that sets dev="ok", succeeds because they are still alive. So the workload
-// would report a healthy device path and then either abort with an illegal address or, worse, run with a
-// garbage iteration count: one launch doing a hundred thousand times the intended work blocks
-// cuCtxSynchronize past the grace period with the GIL released, which makes the HONOURING arm miss its
-// SIGTERM and exit 137 like the ignoring one. That inverts the study's only experimental axis. Demonstrated
-// with a control before it was fixed, and TestTheKernelArgumentsOutliveTheirBuilder is the regression.
+// and the closure captures only the names it mentions.
+// Without the binding, buf and inner are freed the moment cuda() returns, and every launch in the loop
+// dereferences reclaimed memory -- while the FIRST launch, the one inside cuda() that sets dev="ok",
+// succeeds because they are still alive.
+// So the workload would report a healthy device path and then either abort with an illegal address or,
+// worse, run with a garbage iteration count: one launch doing a hundred thousand times the intended work
+// blocks cuCtxSynchronize past the grace period with the GIL released, which makes the HONOURING arm miss
+// its SIGTERM and exit 137 like the ignoring one.
+// That inverts the study's only experimental axis.
+// Demonstrated with a control before it was fixed, and TestTheKernelArgumentsOutliveTheirBuilder is the
+// regression.
 //
 // It stays runnable with NO device, and that is forced rather than chosen: the termination canary strips the
 // GPU limit from its probe Pods so they can schedule on a node whose devices are spoken for, and a workload
-// that could not start without CUDA would break the gate every run depends on. So a missing device is an
-// ordinary fallback rather than an error -- but it is a REPORTED one, and dev= names which of the eight
-// driver calls refused.
+// that could not start without CUDA would break the gate every run depends on.
+// So a missing device is an ordinary fallback rather than an error -- but it is a REPORTED one, and dev=
+// names which of the eight driver calls refused.
 //
 // The count and the report are written to /dev/termination-log from INSIDE the loop.
 //
 // The kubelet copies that file into the container's terminated status, which the collector already watches --
-// soleTerminated reads the same struct. So the report arrives inside the Pod object rather than needing the
-// logs subresource, a second client, extra RBAC, and a read that races teardown. Writing it from inside the
-// loop rather than from the termination handler matters because the ignoring arm is SIGKILLed at the grace
-// boundary and SIGKILL cannot be handled: a report written only on the way out would be missing from exactly
-// the arm whose discarded work the experiment is about.
+// soleTerminated reads the same struct.
+// So the report arrives inside the Pod object rather than needing the logs subresource, a second client,
+// extra RBAC, and a read that races teardown.
+// Writing it from inside the loop rather than from the termination handler matters because the ignoring arm
+// is SIGKILLed at the grace boundary and SIGKILL cannot be handled: a report written only on the way out
+// would be missing from exactly the arm whose discarded work the experiment is about.
 //
 // Marking is time-based rather than every N iterations because the two paths differ in rate by orders of
 // magnitude -- a kernel launch is milliseconds, a 50000-step Python float loop is not -- and a fixed
 // iteration cadence would rewrite the file hundreds of times a second on the device path.
 //
-// The handler is installed BEFORE the device path runs. Context creation takes a noticeable fraction of a
-// second on a cold card, and a SIGTERM arriving in that window against no handler kills the honoring arm
-// under the ignoring arm's contract.
+// The handler is installed BEFORE the device path runs.
+// Context creation takes a noticeable fraction of a second on a cold card, and a SIGTERM arriving in that
+// window against no handler kills the honoring arm under the ignoring arm's contract.
 //
 // Work per launch is FIXED -- 1024 blocks of 256 threads, 20000 fused multiply-adds each -- rather than
-// calibrated to the card. An adaptive size would make "one iteration" mean something different on every run,
-// and discarded iterations are compared across runs.
+// calibrated to the card.
+// An adaptive size would make "one iteration" mean something different on every run, and discarded
+// iterations are compared across runs.
 //
-// It is carried in the command rather than baked into an image on purpose. The command is part of the Pod
-// template the termination canary fingerprints, so changing the workload forces a re-take; an image would
-// only do that when its digest moved, and a script edited inside the same tag would not move it.
+// It is carried in the command rather than baked into an image on purpose.
+// The command is part of the Pod template the termination canary fingerprints, so changing the workload
+// forces a re-take; an image would only do that when its digest moved, and a script edited inside the
+// same tag would not move it.
 //
 // PERIOD is 2.6 seconds and must not be 1.0, which is what it was when the idling study first ran.
 //
-// The exporter collects every 1000 ms. A workload whose duty cycle also has a one-second period does not
-// drift through the sampler's phase: a sample that lands in the idle part of the cycle lands there again,
-// and again. Session qlgpu-20260906-103327 measured that -- a victim executing 22,093 real kernels at a
-// declared 0.25 duty was reported by DCGM as working in ZERO of 104 samples, while the same exporter in the
-// same run read 98 for a continuously computing neighbour and named every Pod on every card.
+// The exporter collects every 1000 ms.
+// A workload whose duty cycle also has a one-second period does not drift through the sampler's phase: a
+// sample that lands in the idle part of the cycle lands there again, and again.
+// Session qlgpu-20260906-103327 measured that -- a victim executing 22,093 real kernels at a declared 0.25
+// duty was reported by DCGM as working in ZERO of 104 samples, while the same exporter in the same run read
+// 98 for a continuously computing neighbour and named every Pod on every card.
 //
 // 2.6 shares no period with 1000 ms, so the burst walks through the sampler's phase and cannot hide behind
-// it. It is also long enough that a quarter of it is 0.65 s, which is comfortably wider than the interval
-// NVML averages over, so a sample landing in a burst reads a burst rather than an edge.
+// it.
+// It is also long enough that a quarter of it is 0.65 s, which is comfortably wider than the interval NVML
+// averages over, so a sample landing in a burst reads a burst rather than an edge.
 //
-// This is a fix and a test at once. If a quarter-duty run still reports zeros at this period, the phase
-// explanation was wrong and the blind spot is somewhere else.
+// This is a fix and a test at once.
+// If a quarter-duty run still reports zeros at this period, the phase explanation was wrong and the
+// blind spot is somewhere else.
 const workloadScript = `import ctypes,os,signal,sys,time
 seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"
 duty=float(sys.argv[3]) if len(sys.argv)>3 else 1.0
@@ -321,9 +336,10 @@ type TerminationContract string
 // Go side that kept its own spelling could drift from the Python side without anything failing to compile.
 //
 // This comment named TestTheContractTokensAreWhatTheScriptCompares as what held the two together, and that
-// test did not exist -- not renamed, never written. The protection the paragraph promised was not there,
-// which is the one kind of comment this repository treats as worse than none: a reader who believes it stops
-// looking. TestTheArgvTokensAreWhatTheScriptCompares is the test, and it is now real.
+// test did not exist -- not renamed, never written.
+// The protection the paragraph promised was not there, which is the one kind of comment this repository
+// treats as worse than none: a reader who believes it stops looking.
+// TestTheArgvTokensAreWhatTheScriptCompares is the test, and it is now real.
 const (
 	argHonor  = "honor"
 	argIgnore = "ignore"
@@ -338,10 +354,10 @@ const (
 // no restore -- so the test binds the pair by asserting the script compares against one and that the two are
 // distinct, rather than pretending to find both.
 //
-// Both are rendered, never one-or-absent. The workload treats an absent argument as "do not restore", so
-// omitting it at argFresh would produce the same behaviour under a different command string -- and the
-// command is what canaryKey.HonorCommand and IgnoreCommand fingerprint, so one experiment would need two
-// qualifications for one mechanism.
+// Both are rendered, never one-or-absent.
+// The workload treats an absent argument as "do not restore", so omitting it at argFresh would produce
+// the same behaviour under a different command string -- and the command is what canaryKey.HonorCommand
+// and IgnoreCommand fingerprint, so one experiment would need two qualifications for one mechanism.
 const (
 	argResume = "resume"
 	argFresh  = "fresh"
@@ -374,18 +390,18 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) (*platformv1.ML
 // RenderMLTrainingJobWithContract turns one immutable trace row into the MLTrainingJob to submit into
 // namespace, with an explicit workload termination contract.
 //
-// The workload attempts the CUDA driver API and falls back to a CPU compute loop, in a digest-pinned Python
-// image. This comment described it as CPU-only for several commits after it gained the device path, which is
-// the same drift the pages were audited for. The change was deliberate: a sleeper holds the quota and computes nothing, so on real
-// hardware "GPU-seconds discarded" would be GPU-seconds of discarded BOOKING, and nothing in the harness
-// could tell the two apart. The loop also reports its progress, which is what turns a discarded GPU-second
-// into a discarded unit of work.
+// The workload attempts the CUDA driver API and falls back to a CPU compute loop, in a digest-pinned Python image.
+// This comment described it as CPU-only for several commits after it gained the device path, which is the same drift the pages
+// were audited for.
+// The change was deliberate: a sleeper holds the quota and computes nothing, so on real hardware "GPU-seconds discarded" would be
+// GPU-seconds of discarded BOOKING, and nothing in the harness could tell the two apart.
+// The loop also reports its progress, which is what turns a discarded GPU-second into a discarded unit of work.
 //
 // It must remain RUNNABLE WITHOUT A DEVICE, and that is forced rather than chosen: the termination canary
 // strips the GPU limit from its probe Pods so they can schedule on a node whose devices are spoken for, and
-// a workload requiring CUDA to start would break the gate every run depends on. That is why the device path
-// is an attempt with a fallback rather than a requirement -- and why the fallback is REPORTED, so a run that
-// took it cannot be mistaken for one that did not.
+// a workload requiring CUDA to start would break the gate every run depends on.
+// That is why the device path is an attempt with a fallback rather than a requirement -- and why the
+// fallback is REPORTED, so a run that took it cannot be mistaken for one that did not.
 //
 // The study still runs on kind with simulated nvidia.com/gpu capacity and no real GPU; what is under test is
 // Kueue admission and reclaim, not GPU computation.
@@ -398,33 +414,38 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) (*platformv1.ML
 // `queuelab-<run id>` and refuses a reused id elsewhere, so this name is unique to the run without carrying
 // the id a second time.
 //
-// StateClaim renders it, and the runner creates it; nothing else in this tree does. A claim that does not
-// exist leaves the victim Pending, which is the loud failure StateVolume's own documentation argues for.
+// StateClaim renders it, and the runner creates it; nothing else in this tree does.
+// A claim that does not exist leaves the victim Pending, which is the loud failure StateVolume's own
+// documentation argues for.
 const StateClaimName = "queuelab-state"
 
 // StateClaimSize is what the claim asks for, and it is not a measurement of anything.
 //
 // The file the workload writes is one short line -- `iters=%d acc=%.17g`, tens of bytes -- so any figure
 // here is larger than the need by orders of magnitude. 1Gi is chosen because it is the smallest request no
-// provisioner in common use rounds up to something surprising, not because the workload approaches it. A
-// reader looking for how much state a resumed run carries must read the file's format, not this constant.
+// provisioner in common use rounds up to something surprising, not because the workload approaches it.
+// A reader looking for how much state a resumed run carries must read the file's format, not this
+// constant.
 const StateClaimSize = "1Gi"
 
 // StateClaim renders the PersistentVolumeClaim a checkpointing arm's victim mounts.
 //
 // class is REQUIRED and has no default, which is the whole point of this function existing rather than a
-// claim literal somewhere in the runner. A claim created with an empty storageClassName has chosen the
-// cluster's default class by omission, and that class is exactly what decides whether the arms' contrast is
-// real: on kind it is local-path with WaitForFirstConsumer, which binds the volume wherever the first
-// consumer lands and so happens to solve node affinity by accident, while on a cluster with no default
-// class the claim never binds and the victim waits forever. A lab whose treatment arm silently did not
-// resume would report the difference between the arms as a result. So the caller names the class or there
-// is no claim; api/v1's StateVolume declines to choose one for the API, and this declines to choose one for
-// the run.
+// claim literal somewhere in the runner.
+// A claim created with an empty storageClassName has chosen the cluster's default class by omission, and
+// that class is exactly what decides whether the arms' contrast is real: on kind it is local-path with
+// WaitForFirstConsumer, which binds the volume wherever the first consumer lands and so happens to solve
+// node affinity by accident, while on a cluster with no default class the claim never binds and the victim
+// waits forever.
+// A lab whose treatment arm silently did not resume would report the difference between the arms as a
+// result.
+// So the caller names the class or there is no claim; api/v1's StateVolume declines to choose one for the
+// API, and this declines to choose one for the run.
 //
-// The labels are the transaction and run stamps only, deliberately not labLabels. The study and variant
-// labels say which QUOTA mechanism an object implements, and a claim implements none of it; stamping this
-// with a variant would put a claim about preemption policy on an object that has nothing to do with it.
+// The labels are the transaction and run stamps only, deliberately not labLabels.
+// The study and variant labels say which QUOTA mechanism an object implements, and a claim implements
+// none of it; stamping this with a variant would put a claim about preemption policy on an object that
+// has nothing to do with it.
 func StateClaim(id FixtureIdentity, class string) (*corev1.PersistentVolumeClaim, error) {
 	if err := id.validate(); err != nil {
 		return nil, err
@@ -444,9 +465,9 @@ func StateClaim(id FixtureIdentity, class string) (*corev1.PersistentVolumeClaim
 		Labels:    map[string]string{TxLabel: id.TxID, runLabel: id.RunID},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			// ReadWriteOnce because the arms never run two writers: parallelism and completions are pinned to
-			// 1, and a preempted victim's replacement starts after the old Pod is gone. It is also the only
-			// mode every provisioner supports, so asking for ReadWriteMany would make the class the operator
-			// may name depend on a concurrency this lab does not have.
+			// 1, and a preempted victim's replacement starts after the old Pod is gone.
+			// It is also the only mode every provisioner supports, so asking for ReadWriteMany would make the
+			// class the operator may name depend on a concurrency this lab does not have.
 			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{corev1.ResourceStorage: size},
@@ -459,8 +480,9 @@ func StateClaim(id FixtureIdentity, class string) (*corev1.PersistentVolumeClaim
 // StateMountPath is where that claim appears inside the trainer container; StateFilePath is the file the
 // workload saves its progress to and, under E-resume, restores from.
 //
-// One path under both arms of the pair. The axis is whether the file is READ, so a path that differed
-// between them would make the contrast two mechanisms instead of one.
+// One path under both arms of the pair.
+// The axis is whether the file is READ, so a path that differed between them would make the contrast
+// two mechanisms instead of one.
 const (
 	StateMountPath = "/queuelab-state"
 	StateFilePath  = StateMountPath + "/progress"
@@ -469,10 +491,10 @@ const (
 // RenderForArm renders one trace row as the given arm defines it.
 //
 // It exists so the things an arm decides about a row -- the termination contract, the duty cycle, and now
-// what it does with a progress file -- cannot be applied one at a time. The caller used to resolve two of
-// them and then set one on the row by hand; deleting that one line compiled, rendered the other arm's
-// workload under this arm's label, and no test noticed. An arm is a closed set of experimental conditions,
-// so resolving it is one operation.
+// what it does with a progress file -- cannot be applied one at a time.
+// The caller used to resolve two of them and then set one on the row by hand; deleting that one line
+// compiled, rendered the other arm's workload under this arm's label, and no test noticed.
+// An arm is a closed set of experimental conditions, so resolving it is one operation.
 func RenderForArm(arm Arm, row TrainingTraceRow, namespace string) (*platformv1.MLTrainingJob, error) {
 	contract, err := arm.ContractFor(row.Name)
 	if err != nil {
@@ -493,18 +515,19 @@ func RenderForArm(arm Arm, row TrainingTraceRow, namespace string) (*platformv1.
 func RenderMLTrainingJobWithContract(
 	row TrainingTraceRow, namespace string, contract TerminationContract,
 ) (*platformv1.MLTrainingJob, error) {
-	// The historical spelling: no progress file, and so nothing to restore from one. Every caller that is not
-	// an arm renders this, including the termination canary's two probes.
+	// The historical spelling: no progress file, and so nothing to restore from one.
+	// Every caller that is not an arm renders this, including the termination canary's two probes.
 	return renderWithState(row, namespace, contract, StatePlan{})
 }
 
 // renderWithState is the one place a row becomes a manifest, and it is the one place the progress file's
 // PATH and its VOLUME are decided.
 //
-// They are decided together because either alone is a defect that looks like a result. A command naming a
-// file the Pod does not mount would save progress into the container filesystem and lose it at the moment
-// the preemption it is meant to survive destroys the Pod -- reporting a resume that recovered nothing, in a
-// study whose whole question is how much is recovered. A volume nothing writes to is merely wasted.
+// They are decided together because either alone is a defect that looks like a result.
+// A command naming a file the Pod does not mount would save progress into the container filesystem and lose
+// it at the moment the preemption it is meant to survive destroys the Pod -- reporting a resume that
+// recovered nothing, in a study whose whole question is how much is recovered.
+// A volume nothing writes to is merely wasted.
 func renderWithState(
 	row TrainingTraceRow, namespace string, contract TerminationContract, plan StatePlan,
 ) (*platformv1.MLTrainingJob, error) {
@@ -541,9 +564,10 @@ func renderWithState(
 
 // sleeperCommand builds the container command for a duration under the given termination contract.
 //
-// The two arms differ by ONE argument, and that is deliberate. The ignoring arm installs no handler at all,
-// because the reason the old `sh -c "sleep N"` ignored SIGTERM was never the command: PID 1 has its default
-// signal dispositions dropped by the kernel, so a process that registers nothing is a process that ignores.
+// The two arms differ by ONE argument, and that is deliberate.
+// The ignoring arm installs no handler at all, because the reason the old `sh -c "sleep N"` ignored SIGTERM
+// was never the command: PID 1 has its default signal dispositions dropped by the kernel, so a process that
+// registers nothing is a process that ignores.
 // Spelling it as an explicit SIG_IGN would ignore for a DIFFERENT reason than the shell form did, and the
 // arms would then differ by two things rather than one.
 //
@@ -558,10 +582,11 @@ func renderWithState(
 //
 // It is a parameter rather than a constant because the resuming arm is the experimental axis Stage C adds,
 // and an arm's identity has to be chosen by the caller rather than inherited from where the renderer happens
-// to put a file. The path itself arrives with the volume that outlives the Pod; until that lands, every
-// caller passes "" and the workload behaves exactly as it did before.
-// restore says whether this row's workload reads the progress file it is given, as opposed to writing one it
-// never looks at. It is the only thing E-resume and E-fresh differ by.
+// to put a file.
+// The path itself arrives with the volume that outlives the Pod; until that lands, every caller passes ""
+// and the workload behaves exactly as it did before. restore says whether this row's workload reads the
+// progress file it is given, as opposed to writing one it never looks at.
+// It is the only thing E-resume and E-fresh differ by.
 func sleeperCommand(
 	durationSec int, contract TerminationContract, duty DutyCycle, statePath string, restore bool,
 ) ([]string, error) {
@@ -583,15 +608,17 @@ func sleeperCommand(
 	// The duty argument is always passed, even at 1.0.
 	//
 	// The workload defaults to 1.0 when the argument is absent, so omitting it at full duty would render the
-	// same behaviour -- and a DIFFERENT command string. The command is part of the Pod template the
-	// termination canary fingerprints, so two spellings of the same experiment would need two canaries and
-	// would compare as different mechanisms. One spelling.
+	// same behaviour -- and a DIFFERENT command string.
+	// The command is part of the Pod template the termination canary fingerprints, so two spellings of the
+	// same experiment would need two canaries and would compare as different mechanisms.
+	// One spelling.
 	// The state path is always passed, empty when the arm does not resume.
 	//
 	// Same reason the duty argument is always passed: the workload defaults when the argument is absent, so
 	// omitting it would render the SAME behaviour under a DIFFERENT command string -- and the command is what
 	// canaryKey.HonorCommand and IgnoreCommand fingerprint, so two spellings of one experiment would need two
-	// canaries and compare as different mechanisms. One spelling.
+	// canaries and compare as different mechanisms.
+	// One spelling.
 	// The resume spelling is always passed, at both values, for the reason the duty and the state path are.
 	// The workload defaults to not restoring when the argument is absent, so omitting it at `fresh` would
 	// render the same behaviour under a different command string, and the command is what

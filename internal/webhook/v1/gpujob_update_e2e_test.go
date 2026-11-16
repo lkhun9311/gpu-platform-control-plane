@@ -12,8 +12,8 @@ import (
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
-// Through a real apiserver with config/webhook/manifests.yaml installed, because the handler is only reached if the
-// manifest names UPDATE: issue #568 was measured exactly this way, with both edits accepted while the guard ran on create only.
+// Through a real apiserver with config/webhook/manifests.yaml installed, because the handler is only reached if the manifest
+// names UPDATE: issue #568 was measured exactly this way, with both edits accepted while the guard ran on create only.
 // Mutation that turns it red: drop UPDATE from the hand-written manifest's vgpujob rule.
 func TestApiserverRefusesTheEditsThatStepAroundTheJobGuard(t *testing.T) {
 	ctx, c := startAdmissionEnv(t)

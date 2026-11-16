@@ -18,33 +18,42 @@ import (
 // The 2026-10-01 ten-cell run completed, cost $1.44, carried clean evidence, and fired NO pre-registered
 // reading: a `GpuSharingBenchmark` declares one `sharingMode`, `sharedInstance` compiles to `{R1, shared}`,
 // and both are ROLE fields rather than candidates -- so `a.Sharing` was empty and readings 1, 2, 3 and 5
-// came back NotEvaluable. Reading 4d now refuses that shape instead of printing a gap, which is the right
-// behaviour and not a verdict.
+// came back NotEvaluable.
+// Reading 4d now refuses that shape instead of printing a gap, which is the right behaviour and not a
+// verdict.
 //
 // What follows from that is a question worth a card: will a three-arm matrix under the frozen contract
-// actually produce an answer? `internal/bench` pins it at the SharingArms level with synthetic fixtures
+// actually produce an answer?
+// `internal/bench` pins it at the SharingArms level with synthetic fixtures
 // (TestAnArmThatWrecksTheStreamDoesNotFireTheDeliverable asserts reading 5 fires; the 4c test asserts
-// reading 1 does). Nothing pinned the path a paid run actually takes: raw rows -> Summarize -> repetition
-// split -> arm assembly in this package -> readings. That path is where the empty `Sharing` slice came
-// from, and it is the one the ninth pilot's real evidence goes through.
+// reading 1 does).
+// Nothing pinned the path a paid run actually takes: raw rows -> Summarize -> repetition split -> arm
+// assembly in this package -> readings.
+// That path is where the empty `Sharing` slice came from, and it is the one the ninth pilot's real
+// evidence goes through.
 //
 // So this drives the REAL report entry point over rows shaped like the ninth pilot's -- three arms, two
-// repetitions, two tenants -- and requires an answer. Those rows are evidence in a private sibling
-// repository and a release asset, so they cannot be a test input here. The rows are therefore synthesized,
-// and what is asserted is the SHAPE of the conclusion rather than the ninth pilot's figures.
+// repetitions, two tenants -- and requires an answer.
+// Those rows are evidence in a private sibling repository and a release asset, so they cannot be a test
+// input here.
+// The rows are therefore synthesized, and what is asserted is the SHAPE of the conclusion rather than the
+// ninth pilot's figures.
 //
-// AMENDED 2026-10-03. This comment said the same path "prints `ANSWER: 5 (timeSlicing)` and exits 0" against
-// the pilot's committed rows. That was measured and is no longer true: reading 4e holds the engine's reported
-// input tokens against the frozen tuple, the pilot predates the freeze at 68 against 256, so it now exits 1
-// with the answer withheld. A stale claim in a comment is the copy no grep for published figures finds --
-// this one was caught by an audit that read the file rather than searching it.
+// AMENDED 2026-10-03.
+// This comment said the same path "prints `ANSWER: 5 (timeSlicing)` and exits 0" against the pilot's
+// committed rows.
+// That was measured and is no longer true: reading 4e holds the engine's reported input tokens against the
+// frozen tuple, the pilot predates the freeze at 68 against 256, so it now exits 1 with the answer withheld.
+// A stale claim in a comment is the copy no grep for published figures finds -- this one was caught by an
+// audit that read the file rather than searching it.
 //
 // Mutation that turns this red: restrict scoreSharingArms to an empty candidate set, or drop timeSlicing
 // from the arms the report assembles.
 func TestAThreeArmMatrixProducesAVerdict(t *testing.T) {
 	dir := t.TempDir()
 
-	// One row per request. The fields that matter to the readings, and why each is set:
+	// One row per request.
+	// The fields that matter to the readings, and why each is set:
 	//
 	//   OutputTokens > 1          -- inter-token time needs a gap, so TPOT is empty below two tokens and
 	//                                readings 1 and 5 both gate on the premium tenant's TPOT p99.
@@ -82,10 +91,12 @@ func TestAThreeArmMatrixProducesAVerdict(t *testing.T) {
 
 	// The three arms the readings need, and the shape that makes an answer possible.
 	//
-	// R1 is the isolated baseline: premium only, the denominator of both bars. `shared` is the control every
-	// improvement is measured from. `timeSlicing` is the candidate, and it is given a tail well inside the
-	// 2.00x bar while its premium stream sits outside the 1.25x one -- the outcome reading 5 exists to name,
-	// "it protects but not to the bar". Reading 1 must therefore NOT fire, and 5 must.
+	// R1 is the isolated baseline: premium only, the denominator of both bars.
+	// `shared` is the control every improvement is measured from.
+	// `timeSlicing` is the candidate, and it is given a tail well inside the 2.00x bar while its premium
+	// stream sits outside the 1.25x one -- the outcome reading 5 exists to name, "it protects but not to the
+	// bar".
+	// Reading 1 must therefore NOT fire, and 5 must.
 	arms := []struct {
 		name                       string
 		premiumTTFT, premiumTPOT   float64
@@ -109,8 +120,9 @@ func TestAThreeArmMatrixProducesAVerdict(t *testing.T) {
 				b.WriteByte('\n')
 			}
 			// MinTailSamples premium completions per repetition, so neither the pooled floor nor the
-			// per-repetition one refuses the arm. A floor that refuses here would make the test pass or
-			// fail for a reason that is not what it is about.
+			// per-repetition one refuses the arm.
+			// A floor that refuses here would make the test pass or fail for a reason that is not what
+			// it is about.
 			for i := 1; i <= bench.MinTailSamples+40; i++ {
 				enc(row(a.name, bench.PremiumTenant, false, i, rep, a.premiumTTFT, a.premiumTPOT, 16))
 			}
@@ -130,9 +142,11 @@ func TestAThreeArmMatrixProducesAVerdict(t *testing.T) {
 		args = append(args, "-raw", p)
 	}
 
-	// The report's error is not the assertion. `report` returning nil means "nothing was refused", and a run
-	// where every reading came back NotEvaluable returns nil too -- that is exactly the shape the ten-cell run
-	// had, and checking only the error would pass on it. So the OUTPUT is what is asserted.
+	// The report's error is not the assertion.
+	// `report` returning nil means "nothing was refused", and a run where every reading came back NotEvaluable
+	// returns nil too -- that is exactly the shape the ten-cell run had, and checking only the error would
+	// pass on it.
+	// So the OUTPUT is what is asserted.
 	out, err := captureStdout(t, func() error { return report(args) })
 	if err != nil {
 		t.Fatalf("a three-arm matrix was refused by the report: %v\n%s", err, out)
@@ -143,8 +157,9 @@ func TestAThreeArmMatrixProducesAVerdict(t *testing.T) {
 	if !strings.Contains(out, "[FIRED] 5") {
 		t.Errorf("reading 5 did not fire; the answer line alone could come from elsewhere:\n%s", out)
 	}
-	// And 4d must be ABSENT. Its presence would mean the candidate set was empty after all, which is the
-	// condition this test exists to distinguish from a real verdict.
+	// And 4d must be ABSENT.
+	// Its presence would mean the candidate set was empty after all, which is the condition this test
+	// exists to distinguish from a real verdict.
 	if strings.Contains(out, " 4d ") {
 		t.Errorf("reading 4d fired on a three-arm matrix, so the candidate set was empty:\n%s", out)
 	}

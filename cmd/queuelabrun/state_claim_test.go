@@ -19,11 +19,13 @@ import (
 // armsTheProtocolDefines is the same list TestParseArmAcceptsEveryArmTheProtocolDefines keeps, and it
 // carries the same limitation: PolicyVariant refuses an arm it does not know, so a name listed here that
 // the protocol dropped fails loudly — but an arm ADDED to the protocol and not added here is simply not
-// swept. That gap is item 5 of the resume arms' pre-registration, and no mechanism in this package closes
-// it today.
+// swept.
+// That gap is item 5 of the resume arms' pre-registration, and no mechanism in this package closes it
+// today.
 //
-// What the tests below do avoid is a second hand-written statement of WHICH arms checkpoint. They ask
-// StateFor, so an arm that starts or stops checkpointing changes these expectations without an edit here.
+// What the tests below do avoid is a second hand-written statement of WHICH arms checkpoint.
+// They ask StateFor, so an arm that starts or stops checkpointing changes these expectations without an
+// edit here.
 func armsTheProtocolDefines(t *testing.T) []queuelab.Arm {
 	t.Helper()
 	arms := []queuelab.Arm{
@@ -42,8 +44,9 @@ func armsTheProtocolDefines(t *testing.T) []queuelab.Arm {
 // Mutation that turns this red: delete either case from stateRequestFor's switch.
 //
 // The missing-class half is the registered requirement — a claim created without a class takes the
-// cluster's by omission. The superfluous-class half is the failure decideOperatorMode already refuses for
-// its own run-only flags: an invocation that looks configured to its author while doing none of it.
+// cluster's by omission.
+// The superfluous-class half is the failure decideOperatorMode already refuses for its own run-only
+// flags: an invocation that looks configured to its author while doing none of it.
 func TestStateRequestForRefusesAnArmAndAClassThatDisagree(t *testing.T) {
 	const class = "fast-ssd"
 	for _, a := range armsTheProtocolDefines(t) {
@@ -88,8 +91,9 @@ func TestStateRequestForRefusesAnArmAndAClassThatDisagree(t *testing.T) {
 }
 
 // stateRequest's Class field is documented as empty exactly when Needed is false, and run relies on that:
-// it reaches for state.Class only inside `if state.Needed`. A resolver that could return one without the
-// other would make that reliance wrong somewhere no compiler would say so.
+// it reaches for state.Class only inside `if state.Needed`.
+// A resolver that could return one without the other would make that reliance wrong somewhere no compiler
+// would say so.
 //
 // Mutation that turns this red: return stateRequest{Needed: true} for a non-checkpointing arm.
 func TestAResolvedStateRequestCarriesAClassExactlyWhenItNeedsOne(t *testing.T) {
@@ -125,8 +129,9 @@ func TestCheckStorageClassRefusesOneTheClusterDoesNotHave(t *testing.T) {
 	}
 }
 
-// The control. Without it a checkStorageClass that refused everything would satisfy the spec above, and the
-// resume arms would be unrunnable on every cluster.
+// The control.
+// Without it a checkStorageClass that refused everything would satisfy the spec above, and the resume arms
+// would be unrunnable on every cluster.
 func TestCheckStorageClassAcceptsOneTheClusterHas(t *testing.T) {
 	sc := &storagev1.StorageClass{Name: "fast-ssd"}
 	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(sc).Build()
@@ -136,9 +141,10 @@ func TestCheckStorageClassAcceptsOneTheClusterHas(t *testing.T) {
 	}
 }
 
-// Everything above tests the pieces. This tests the WIRING, which nothing else did: every other run() test
-// passes stateRequest{}, so the claim block was dead code in the whole suite — deleting it left the package
-// green. That was found by deleting it, not by reading it.
+// Everything above tests the pieces.
+// This tests the WIRING, which nothing else did: every other run() test passes stateRequest{}, so the claim
+// block was dead code in the whole suite — deleting it left the package green.
+// That was found by deleting it, not by reading it.
 //
 // The refusal lands before the observation window, so this costs no protocol time.
 //
@@ -181,8 +187,9 @@ func TestRunRefusesAClusterWithoutTheClassTheArmAsksFor(t *testing.T) {
 }
 
 // The other half of the wiring, and the control: a run whose class exists must actually create the claim,
-// in the namespace BuildJob will look in. Without this a run() that refused every checkpointing arm would
-// satisfy the test above and make the resume arms unrunnable everywhere.
+// in the namespace BuildJob will look in.
+// Without this a run() that refused every checkpointing arm would satisfy the test above and make the
+// resume arms unrunnable everywhere.
 //
 // Mutation that turns this red: delete the createStateClaim call from run().
 func TestRunCreatesTheClaimWhenTheArmCheckpoints(t *testing.T) {
@@ -203,8 +210,9 @@ func TestRunCreatesTheClaimWhenTheArmCheckpoints(t *testing.T) {
 		"platform-worker", selfCompletingProtocol(), 45*time.Second, "", "", "", io.Discard, now, sleep)
 
 	// The claim is read back from the cluster rather than asserted from the outcome, because what the victim
-	// mounts is the object that exists, not the call that was made. Teardown deletes the namespace, so this
-	// asks while the run's own client still holds the fake cluster's state.
+	// mounts is the object that exists, not the call that was made.
+	// Teardown deletes the namespace, so this asks while the run's own client still holds the fake cluster's
+	// state.
 	var pvc corev1.PersistentVolumeClaim
 	err := fc.Get(context.Background(),
 		client.ObjectKey{Namespace: "queuelab-r31", Name: queuelab.StateClaimName}, &pvc)

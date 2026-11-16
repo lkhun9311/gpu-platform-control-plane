@@ -27,9 +27,9 @@ const (
 	mpsPodB = "9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4"
 )
 
-// The process section in the layout NVIDIA's drivers print it, with the server and two clients. No table from this
-// card is archived in the repository, so this is the documented layout and not a capture; a row this layout does not
-// fit is read as unmeasured, never as no process.
+// The process section in the layout NVIDIA's drivers print it, with the server and two clients.
+// No table from this card is archived in the repository, so this is the documented layout and not a capture; a row
+// this layout does not fit is read as unmeasured, never as no process.
 func mpsTable(rows ...string) string {
 	return "+-----------------------------------------------------------------------------------------+\n" +
 		"| Processes:                                                                              |\n" +

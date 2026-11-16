@@ -37,16 +37,17 @@ func nodes(spec ...[3]int) []NodeCapacity {
 // than derived after the instrument had been run.
 //
 // Each is the shortest census that produces its outcome, and each outcome is a different statement: stranded,
-// not stranded, short of capacity, idle, and unreadable. The last is the one the original validity rule could
-// not tell from the fourth.
+// not stranded, short of capacity, idle, and unreadable.
+// The last is the one the original validity rule could not tell from the fourth.
 //
 // Mutation that turns this red: any single one of the five judgements.
 // The report's published JSON keys are the record format a cell's evidence is read back from.
 //
 // They were Go identifiers until the tags were added, which meant the record format was whatever the struct
-// happened to be called. One of them carries meaning a shorter name would lose: the diagnostic key says
-// `diagnostic_only` in its own name, because the original registration's mistake was to quote the per-node gap
-// sum AS the figure, and a reader pulling it out of a record has only the key to warn them.
+// happened to be called.
+// One of them carries meaning a shorter name would lose: the diagnostic key says `diagnostic_only` in its own
+// name, because the original registration's mistake was to quote the per-node gap sum AS the figure, and a
+// reader pulling it out of a record has only the key to warn them.
 //
 // Mutation that turns this red: rename any key, or drop the tags so the identifiers come back.
 func TestTheReportsPublishedKeysAreNamedRatherThanDefaulted(t *testing.T) {
@@ -113,7 +114,8 @@ func TestTheFiveRegisteredQualificationFixtures(t *testing.T) {
 	//
 	// My first draft of this fixture used two one-device nodes, which is the shape the amendment classifies as
 	// UNSATISFIABLE -- a request that would not fit on an empty node of the largest size was never a placement
-	// problem. The code refused it correctly and this test was the thing that was wrong.
+	// problem.
+	// The code refused it correctly and this test was the thing that was wrong.
 	t.Run("positive stranding: two half-empty two-device nodes and a two-device request", func(t *testing.T) {
 		c := Census{
 			Step: "qualify-positive", Settled: true,
@@ -150,8 +152,8 @@ func TestTheFiveRegisteredQualificationFixtures(t *testing.T) {
 	})
 
 	t.Run("schedulable demand must not count as stranded", func(t *testing.T) {
-		// free [1,4], request 2: the original registration's table would report 1 stranded device. The
-		// workload fits on the second node, so the registered figure is zero.
+		// free [1,4], request 2: the original registration's table would report 1 stranded device.
+		// The workload fits on the second node, so the registered figure is zero.
 		c := Census{
 			Step: "qualify-schedulable", Settled: true,
 			Nodes: nodes([3]int{1, 0, 0}, [3]int{4, 0, 0}),
@@ -200,9 +202,10 @@ func TestTheFiveRegisteredQualificationFixtures(t *testing.T) {
 		}
 		// The assertion the first draft of this test was missing, and its absence hid a real defect: q_min was
 		// taken over ALL pending requests, so this fixture reported `unsatisfiable: wants-three` together with
-		// a headline of 2 stranded devices. A request the cluster never had room for was making free capacity
-		// read as fragmented -- the conflation the amendment corrected the original registration for, arriving
-		// through the arithmetic instead of the prose.
+		// a headline of 2 stranded devices.
+		// A request the cluster never had room for was making free capacity read as fragmented -- the
+		// conflation the amendment corrected the original registration for, arriving through the arithmetic
+		// instead of the prose.
 		if r.StrandedDevices != 0 {
 			t.Errorf("StrandedDevices = %d, want 0: the only pending request is beyond the largest node, so "+
 				"there is no placement question and nothing is stranded", r.StrandedDevices)
@@ -264,10 +267,10 @@ func TestTheFiveRegisteredQualificationFixtures(t *testing.T) {
 // because it WOULD fit an empty four-device node. maxFree(1) < qMin(3) is then true and the headline claims two
 // stranded devices for a request the cluster cannot satisfy at all.
 //
-// The hole is that WitnessRequest(free) constructs a HYPOTHETICAL q with max(f_i) < q <= sum(f_i). That a
-// hypothetical one exists is not evidence the demand ledger contains one. The registered figure needs a witness
-// drawn from actual pending demand: a request that fits an empty node of the largest size AND is no larger than
-// the free capacity the cluster currently has.
+// The hole is that WitnessRequest(free) constructs a HYPOTHETICAL q with max(f_i) < q <= sum(f_i).
+// That a hypothetical one exists is not evidence the demand ledger contains one.
+// The registered figure needs a witness drawn from actual pending demand: a request that fits an empty node of
+// the largest size AND is no larger than the free capacity the cluster currently has.
 //
 // Mutation that turns this red: score the headline without requiring a pending witness within aggregate free.
 func TestAggregateShortageMustNotReachTheHeadlineThroughAnEmptyNodeThatCouldHaveHeldIt(t *testing.T) {
@@ -303,9 +306,9 @@ func TestAggregateShortageMustNotReachTheHeadlineThroughAnEmptyNodeThatCouldHave
 
 // A census the ledger cannot account for is refused, node by node.
 //
-// The premise of every free count is that the study knows who holds the reservations. An unaccounted holder
-// makes each free number a guess, and the amendment requires foreign consumers to be declared explicitly or to
-// invalidate the reading.
+// The premise of every free count is that the study knows who holds the reservations.
+// An unaccounted holder makes each free number a guess, and the amendment requires foreign consumers to be
+// declared explicitly or to invalidate the reading.
 //
 // Mutation that turns this red: drop the boundPer reconciliation.
 func TestReservationsTheLedgerCannotAccountForAreRefused(t *testing.T) {
@@ -403,16 +406,17 @@ func TestADispositionThisBuildCannotClassifyIsRefused(t *testing.T) {
 
 // Refused admission is still outstanding demand, and the report says so.
 //
-// The original registration's control assumed an arm could drive stranding to zero by admitting less. It
-// cannot: the refused requests remain demand, and only a collector that dropped them from the pending set
-// would hide the metric.
+// The original registration's control assumed an arm could drive stranding to zero by admitting less.
+// It cannot: the refused requests remain demand, and only a collector that dropped them from the pending
+// set would hide the metric.
 //
 // Mutation that turns this red: treat api-rejected as released.
 func TestRefusedAdmissionRemainsOutstandingDemand(t *testing.T) {
-	// Two-device nodes, each holding one. The node SIZE is deliberate and this fixture had it wrong at first:
-	// with one-device nodes a two-device request is unsatisfiable rather than stranded, so the case would have
-	// been testing capacity shortage while claiming to test refused demand. Third fixture in this file to make
-	// that same mistake.
+	// Two-device nodes, each holding one.
+	// The node SIZE is deliberate and this fixture had it wrong at first: with one-device nodes a two-device
+	// request is unsatisfiable rather than stranded, so the case would have been testing capacity shortage
+	// while claiming to test refused demand.
+	// Third fixture in this file to make that same mistake.
 	c := Census{
 		Step: "refusal", Settled: true,
 		Nodes: nodes([3]int{2, 1, 0}, [3]int{2, 1, 0}),
@@ -447,13 +451,14 @@ func TestRefusedAdmissionRemainsOutstandingDemand(t *testing.T) {
 //
 // Mutation that turns this red: stop collecting PlacedWorkloads, or sum reservations only at the peak.
 func TestEveryStepRecordsWhoIsPlacedAndHowMuchIsHeld(t *testing.T) {
-	// Free is 1,1,1 -- three devices spread one per node -- and the pending request wants two. That is
-	// fragmentation: the cluster holds enough free capacity to satisfy it, and no single node does.
+	// Free is 1,1,1 -- three devices spread one per node -- and the pending request wants two.
+	// That is fragmentation: the cluster holds enough free capacity to satisfy it, and no single node
+	// does.
 	//
 	// The first version of this fixture left only one device free in total while asking for two, which is a
 	// capacity shortage at that instant; the witness condition added after adversarial review correctly
-	// reported zero stranded there, and this test failed. Fourth fixture in this file to have picked capacities
-	// that made it test something other than its name.
+	// reported zero stranded there, and this test failed.
+	// Fourth fixture in this file to have picked capacities that made it test something other than its name.
 	c := Census{
 		Step: "step-3", Settled: true,
 		Nodes: nodes([3]int{2, 1, 0}, [3]int{2, 1, 0}, [3]int{1, 0, 0}),
@@ -471,8 +476,9 @@ func TestEveryStepRecordsWhoIsPlacedAndHowMuchIsHeld(t *testing.T) {
 		t.Errorf("Step = %q; a figure with no step is not in a series", r.Step)
 	}
 	// Recomputed from the corrected capacities rather than carried over: one device reserved on each of w1 and
-	// w2, three free across the three nodes. Changing a fixture's inputs and leaving its expected values behind
-	// is the mistake this file has now made four times.
+	// w2, three free across the three nodes.
+	// Changing a fixture's inputs and leaving its expected values behind is the mistake this file has now made
+	// four times.
 	if r.ReservedTotal != 2 {
 		t.Errorf("ReservedTotal = %d, want 2: big holds one on w1 and small one on w2", r.ReservedTotal)
 	}

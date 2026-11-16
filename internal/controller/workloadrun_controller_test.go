@@ -59,10 +59,11 @@ var _ = Describe("WorkloadRun", func() {
 	// setTargetPhase reports a phase AND a replica count consistent with it.
 	//
 	// The count used to be left at zero, and that was the same hole a cold review found in the product: phase
-	// Ready with no ready replica is a scaled-to-zero InferenceDeployment, which serves nothing. Every recovery
-	// these specs asserted was therefore a recovery to a target that was not carrying work -- the fixture
-	// agreed with the defect instead of catching it. Ready now means one ready replica; anything else means
-	// none, which is what a degraded or pending deployment reports.
+	// Ready with no ready replica is a scaled-to-zero InferenceDeployment, which serves nothing.
+	// Every recovery these specs asserted was therefore a recovery to a target that was not carrying work --
+	// the fixture agreed with the defect instead of catching it.
+	// Ready now means one ready replica; anything else means none, which is what a degraded or pending
+	// deployment reports.
 	setTargetPhase := func(phase string) {
 		var infd platformv1.InferenceDeployment
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tgtName, Namespace: ns}, &infd)).To(Succeed())
@@ -119,10 +120,11 @@ var _ = Describe("WorkloadRun", func() {
 
 	// The deadline must sit inside the window, and until 2026-09-26 nothing enforced it.
 	//
-	// recoversWithinSeconds' own comment has said so since the type was written. There is no WorkloadRun
-	// webhook, and the only CEL rules on the spec were the two immutability ones, so a run whose deadline
-	// ran past its window was accepted -- and then judged against a moment the controller had stopped
-	// watching before. A constraint a document states and no machine checks is worth exactly nothing.
+	// recoversWithinSeconds' own comment has said so since the type was written.
+	// There is no WorkloadRun webhook, and the only CEL rules on the spec were the two immutability ones,
+	// so a run whose deadline ran past its window was accepted -- and then judged against a moment the
+	// controller had stopped watching before.
+	// A constraint a document states and no machine checks is worth exactly nothing.
 	//
 	// Mutation that turns this red: remove the XValidation rule from WorkloadRunSpec and regenerate.
 	It("refuses a deadline that outlives the observation window", func() {
@@ -238,11 +240,12 @@ var _ = Describe("WorkloadRun", func() {
 		setTargetPhase("Degraded")
 		tick(0)
 
-		// Healthy at 20s against a 10s deadline. The deadline was declared before the run, so this is a fail.
+		// Healthy at 20s against a 10s deadline.
+		// The deadline was declared before the run, so this is a fail.
 		//
-		// Every tick stays inside workloadRunMaxGap. The first version of this spec jumped 25 s in one step
-		// and was REFUSED rather than judged -- which is the gap check working, and is why the window is
-		// walked rather than skipped to.
+		// Every tick stays inside workloadRunMaxGap.
+		// The first version of this spec jumped 25 s in one step and was REFUSED rather than judged --
+		// which is the gap check working, and is why the window is walked rather than skipped to.
 		tick(10 * time.Second)
 		setTargetPhase("Ready")
 		tick(10 * time.Second)
@@ -260,16 +263,18 @@ var _ = Describe("WorkloadRun", func() {
 		setTargetPhase("Degraded")
 		tick(0)
 
-		// The controller was not running for four polls. Whatever the target did in that time, this run did
-		// not see it, and a verdict computed across the gap would be a claim about an unwatched window.
+		// The controller was not running for four polls.
+		// Whatever the target did in that time, this run did not see it, and a verdict computed across the
+		// gap would be a claim about an unwatched window.
 		setTargetPhase("Ready")
 		tick(4 * workloadRunPoll)
 
 		run := load()
 		Expect(run.Status.Phase).To(Equal(platformv1.WorkloadRunRefused))
 		Expect(run.Status.Reason).To(ContainSubstring("the trail has a hole"))
-		// A refused run answers nothing. A leftover verdict beside it would be read as an answer, and the
-		// target HAD gone Ready -- so a controller that kept the verdict would report a pass it did not see.
+		// A refused run answers nothing.
+		// A leftover verdict beside it would be read as an answer, and the target HAD gone Ready -- so a
+		// controller that kept the verdict would report a pass it did not see.
 		Expect(run.Status.Verdict).To(BeEmpty())
 	})
 
@@ -376,9 +381,9 @@ var _ = Describe("WorkloadRun", func() {
 	})
 
 	It("does not re-judge a run that already reached a terminal state", func() {
-		// Degraded then Ready, so the run has a failure to recover from and reaches Complete. Starting it
-		// healthy would now end in Refused -- correctly, since nothing was observed to fail -- and this spec
-		// is about terminality rather than about the verdict.
+		// Degraded then Ready, so the run has a failure to recover from and reaches Complete.
+		// Starting it healthy would now end in Refused -- correctly, since nothing was observed to fail --
+		// and this spec is about terminality rather than about the verdict.
 		createRun(10, 5, tgtName)
 		setTargetPhase("Degraded")
 		tick(0)
@@ -387,8 +392,9 @@ var _ = Describe("WorkloadRun", func() {
 		tick(10 * time.Second)
 		Expect(load().Status.Phase).To(Equal(platformv1.WorkloadRunComplete))
 
-		// The target degrades afterwards. A completed run is evidence about ITS window and must not be
-		// rewritten by what happened later.
+		// The target degrades afterwards.
+		// A completed run is evidence about ITS window and must not be rewritten by what happened
+		// later.
 		setTargetPhase("Degraded")
 		before := load()
 		tick(10 * time.Second)
@@ -421,8 +427,8 @@ var _ = Describe("WorkloadRun recovery semantics", func() {
 	// setPhase reports a phase AND a replica count consistent with it.
 	//
 	// The count used to be left at zero, which made every "Ready" here a scaled-to-zero backend -- serving
-	// nothing -- while the specs asserted recoveries against it. The fixture agreed with the defect a cold
-	// review later found in the product rather than catching it.
+	// nothing -- while the specs asserted recoveries against it.
+	// The fixture agreed with the defect a cold review later found in the product rather than catching it.
 	setPhase := func(phase string) {
 		var infd platformv1.InferenceDeployment
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tgtName, Namespace: ns}, &infd)).To(Succeed())
@@ -464,8 +470,9 @@ var _ = Describe("WorkloadRun recovery semantics", func() {
 	// The defect the first end-to-end run exposed, and the reason envtest had not.
 	//
 	// Every run starts with its target healthy, so crediting the FIRST healthy observation makes the
-	// recovery second zero -- before the failure was even injected. The specs above all start their target
-	// Degraded, which is the one shape where "first healthy" and "first healthy after failing" agree.
+	// recovery second zero -- before the failure was even injected.
+	// The specs above all start their target Degraded, which is the one shape where "first healthy" and
+	// "first healthy after failing" agree.
 	It("does not credit the healthy state it started in as a recovery", func() {
 		setPhase("Ready")
 		tick(0)
@@ -516,14 +523,15 @@ var _ = Describe("WorkloadRun recovery semantics", func() {
 //
 // This spec used to pin the opposite as an intended limit: the InferenceDeployment controller reports a
 // deliberate zero-replica state as READY -- correctly, since nobody asked for replicas -- so a recovery
-// watcher saw it healthy for the whole window and ended Refused by construction. Its comment named the
-// condition under which that would change: "if this test ever fails because a scaled-to-zero backend stops
-// reporting Ready, the scenario becomes recordable".
+// watcher saw it healthy for the whole window and ended Refused by construction.
+// Its comment named the condition under which that would change: "if this test ever fails because a
+// scaled-to-zero backend stops reporting Ready, the scenario becomes recordable".
 //
-// What changed is subtler than the comment predicted, and worse than a missing scenario. The backend still
-// reports Ready; the WATCHER stopped reading that as health, because it now requires a ready replica
-// (isServing). Until it did, editing a target's spec.replicas to 0 mid-run -- which needs no status-write
-// permission -- turned an observed failure into verdict Recovered, and the ledger preserved that as evidence.
+// What changed is subtler than the comment predicted, and worse than a missing scenario.
+// The backend still reports Ready; the WATCHER stopped reading that as health, because it now requires a
+// ready replica (isServing).
+// Until it did, editing a target's spec.replicas to 0 mid-run -- which needs no status-write permission --
+// turned an observed failure into verdict Recovered, and the ledger preserved that as evidence.
 // A cold security review found it by tracing the code.
 //
 // Whether BackendFallback should now return to the scenario enum is a separate API decision and is NOT taken
@@ -571,7 +579,8 @@ var _ = Describe("WorkloadRun scenario coverage", func() {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: runName, Namespace: "default"}, &run)).To(Succeed())
 
 		// Not Refused any more: a target that serves nothing IS an observed failure, so there is something to
-		// judge and the answer is no. What must never happen is Recovered.
+		// judge and the answer is no.
+		// What must never happen is Recovered.
 		Expect(run.Status.Verdict).NotTo(Equal(platformv1.VerdictRecovered),
 			"a backend serving nothing was credited with a recovery")
 		Expect(run.Status.Phase).To(Equal(platformv1.WorkloadRunComplete))
@@ -579,8 +588,8 @@ var _ = Describe("WorkloadRun scenario coverage", func() {
 		Expect(run.Status.ObservedUnhealthy).To(BeTrue(),
 			"zero ready replicas is the unhealthy observation; without it the window would close on nothing")
 
-		// The trail keeps the target's own word AND this controller's reading of it, side by side. That pair is
-		// the whole point: the object said Ready, and it was not serving.
+		// The trail keeps the target's own word AND this controller's reading of it, side by side.
+		// That pair is the whole point: the object said Ready, and it was not serving.
 		Expect(run.Status.Observations).NotTo(BeEmpty())
 		Expect(run.Status.Observations[0].State).To(Equal("Ready"),
 			"the target's vocabulary is recorded verbatim, not normalised into the watcher's opinion")
@@ -591,13 +600,15 @@ var _ = Describe("WorkloadRun scenario coverage", func() {
 // The recorder and the kinds it watches must agree on the word for healthy.
 //
 // workloadRunHealthyPhase is deliberately a separate constant from either controller's, so that a rename on
-// either side is a decision rather than a silent reinterpretation of every recorded run. This is the test
-// that turns it into one.
+// either side is a decision rather than a silent reinterpretation of every recorded run.
+// This is the test that turns it into one.
 //
-// The failure it guards is not loud. If NodeHealth renamed its ready phase, the recorder would read every
-// sample as unhealthy: the target would be observed to fail, never observed to recover, and every
-// DegradedNode run would report NotRecovered -- blaming the platform for a vocabulary mismatch. Nothing in
-// the trail would say otherwise, because the trail would be accurate about what the recorder saw.
+// The failure it guards is not loud.
+// If NodeHealth renamed its ready phase, the recorder would read every sample as unhealthy: the target
+// would be observed to fail, never observed to recover, and every DegradedNode run would report
+// NotRecovered -- blaming the platform for a vocabulary mismatch.
+// Nothing in the trail would say otherwise, because the trail would be accurate about what the recorder
+// saw.
 func TestTheRecorderAndTheWatchedKindsAgreeOnHealthy(t *testing.T) {
 	if workloadRunHealthyPhase != phaseReady {
 		t.Errorf("the recorder treats %q as healthy and NodeHealth publishes %q; a DegradedNode run would "+

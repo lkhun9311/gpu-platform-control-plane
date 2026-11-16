@@ -47,9 +47,10 @@ var _ = Describe("which policy charges this namespace", func() {
 	ctx := context.Background()
 
 	// The queue label decides whose quota this deployment's serving Pods are charged against, so choosing it
-	// arbitrarily bills one tenant for another. Nothing forbids two policies naming the same targetNamespace
-	// -- the admission webhook's quota-mode check is written for exactly that case -- and `servingQueue` used
-	// to return the first match from a List, whose order the API server does not promise.
+	// arbitrarily bills one tenant for another.
+	// Nothing forbids two policies naming the same targetNamespace -- the admission webhook's quota-mode
+	// check is written for exactly that case -- and `servingQueue` used to return the first match from a
+	// List, whose order the API server does not promise.
 	infdFor := func(name, ns string) *platformv1.InferenceDeployment {
 		return &platformv1.InferenceDeployment{
 			Name: name, Namespace: ns,
@@ -140,28 +141,32 @@ var _ = Describe("which policy charges this namespace", func() {
 // field is omitted. Nothing checked either claim. Every existing spec passes 8080 and 1/1 explicitly, so all
 // of them would stay green if the markers were deleted.
 //
-// What is at stake is the stored record, not the running workload. Both call sites defend themselves anyway
-// -- servingPort falls back to 8080 at router.go:59, defaultOne turns any non-positive value into 1 at
-// mltrainingjob_controller.go:239 -- so losing a CRD default would break neither serving nor training. It
-// would make the object the API hands back disagree with what actually runs, silently.
+// What is at stake is the stored record, not the running workload.
+// Both call sites defend themselves anyway -- servingPort falls back to 8080 at router.go:59, defaultOne
+// turns any non-positive value into 1 at mltrainingjob_controller.go:239 -- so losing a CRD default would
+// break neither serving nor training.
+// It would make the object the API hands back disagree with what actually runs, silently.
 //
 // Only omission is pinned, and the two cases left out are left out for different reasons.
 //
 // An "explicit zero" case is not written here because the TYPED client cannot express it: all three fields
 // carry omitempty, so a Go zero is absent from the request body and is indistinguishable from not setting the
-// field. Raw JSON or an unstructured object can express it, and doing so would test a different contract
-// worth its own change -- port: 0 must be REJECTED (Minimum=1), and so, since 2026-11-07, must parallelism: 0
-// and completions: 0. The schema used to admit zero while defaultOne silently ran 1, so a 0 written to pause a
-// job started a GPU Pod (codex review r8); the spec below this Describe pins the refusal.
+// field.
+// Raw JSON or an unstructured object can express it, and doing so would test a different contract worth its
+// own change -- port: 0 must be REJECTED (Minimum=1), and so, since 2026-11-07, must parallelism: 0 and
+// completions: 0.
+// The schema used to admit zero while defaultOne silently ran 1, so a 0 written to pause a job started a GPU
+// Pod (codex review r8); the spec below this Describe pins the refusal.
 //
 // An "explicit non-zero survives" case is not written because a CRD default never overwrites a present
-// value, so nothing in this tree today can redden it. A mutating or conversion webhook would change that;
-// none exists here yet.
+// value, so nothing in this tree today can redden it.
+// A mutating or conversion webhook would change that; none exists here yet.
 //
 // Mutation that turns these red: delete the `default:` lines from
 // config/crd/bases/platform.lkhun9311.github.io_{inferencedeployments,mltrainingjobs}.yaml, which is what
-// envtest installs (suite_test.go:90). Verified 2026-09-27: both specs fail, reading back 0 instead of 8080
-// and 1. That mutation proves less than deleting the markers and regenerating would -- it cannot catch
+// envtest installs (suite_test.go:90).
+// Verified 2026-09-27: both specs fail, reading back 0 instead of 8080 and 1.
+// That mutation proves less than deleting the markers and regenerating would -- it cannot catch
 // controller-gen failing to scan the package, or a later generation step restoring the default.
 var _ = Describe("the defaults the CRDs promise", func() {
 	ctx := context.Background()
@@ -219,9 +224,10 @@ var _ = Describe("mapPolicyToInferenceDeployments", func() {
 	ctx := context.Background()
 
 	// The queue label this controller writes is decided by a GPUQuotaPolicy, and until the watch existed
-	// nothing re-reconciled when one changed. These specs pin the mapper; the Watches wiring itself is not
-	// covered, because the suite runs reconcilers directly rather than through a manager — the same limit the
-	// NodeHealth mapper's specs work within.
+	// nothing re-reconciled when one changed.
+	// These specs pin the mapper; the Watches wiring itself is not covered, because the suite runs
+	// reconcilers directly rather than through a manager — the same limit the NodeHealth mapper's specs work
+	// within.
 	infd := func(name, ns string) *platformv1.InferenceDeployment {
 		return &platformv1.InferenceDeployment{
 			Name: name, Namespace: ns,

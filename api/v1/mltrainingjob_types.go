@@ -129,15 +129,17 @@ type Distributed struct {
 // StateVolume attaches an EXISTING PersistentVolumeClaim to the trainer container.
 //
 // It references a claim rather than describing one to provision, and that is a deliberate refusal rather
-// than a smaller feature. Provisioning would put a storageClassName into this API, and the only binding
-// behaviour anything here has measured is the development cluster's local-path provisioner with
-// WaitForFirstConsumer -- which happens to solve node affinity by binding the volume wherever the first
-// consumer lands. That is a fact about kind, not about a GPU cluster, and no provisioner for one is recorded
-// anywhere in this tree. Naming a claim someone else created keeps the decision where the evidence is.
+// than a smaller feature.
+// Provisioning would put a storageClassName into this API, and the only binding behaviour anything here has
+// measured is the development cluster's local-path provisioner with WaitForFirstConsumer -- which happens to
+// solve node affinity by binding the volume wherever the first consumer lands.
+// That is a fact about kind, not about a GPU cluster, and no provisioner for one is recorded anywhere in
+// this tree.
+// Naming a claim someone else created keeps the decision where the evidence is.
 //
-// Nothing here creates, resizes or deletes the claim. A missing one leaves the Pod Pending, which is the
-// loud failure; silently falling back to an emptyDir would give a resuming workload a volume that dies with
-// its Pod and report the resume as having worked.
+// Nothing here creates, resizes or deletes the claim.
+// A missing one leaves the Pod Pending, which is the loud failure; silently falling back to an emptyDir
+// would give a resuming workload a volume that dies with its Pod and report the resume as having worked.
 type StateVolume struct {
 	// claimName is a PersistentVolumeClaim that already exists in the job's own namespace.
 	// +kubebuilder:validation:MinLength=1
@@ -178,13 +180,15 @@ type MLTrainingJobStatus struct {
 	// distributed job every rank ready or succeeded with at least one still ready.
 	//
 	// A distributed job used to be stamped on its first ready rank, which for a rank waiting at the
-	// rendezvous for a peer with no node is not the start of any work. The field is written once, so a job
-	// stamped under that rule before the change keeps its stamp.
+	// rendezvous for a peer with no node is not the start of any work.
+	// The field is written once, so a job stamped under that rule before the change keeps its stamp.
 	//
-	// Named for what it is. Unlike admittedAt it is not a stamp written by the component that acted: it is
-	// this controller's observation, and it carries the watch lag between the kubelet starting a Pod and
-	// this reconcile seeing it. The two ends of admitToRunningSeconds are therefore read on different
-	// clocks, which is the same thing queuelab reports on two clocks and for the same reason.
+	// Named for what it is.
+	// Unlike admittedAt it is not a stamp written by the component that acted: it is this controller's
+	// observation, and it carries the watch lag between the kubelet starting a Pod and this reconcile
+	// seeing it.
+	// The two ends of admitToRunningSeconds are therefore read on different clocks, which is the same
+	// thing queuelab reports on two clocks and for the same reason.
 	//
 	// It used to say "an active Pod", and that was the defect, not just the wording: the phase read
 	// .status.active, which counts PENDING Pods, so this field was stamped for Pods no node had accepted.
@@ -198,10 +202,12 @@ type MLTrainingJobStatus struct {
 
 	// admitToRunningSeconds is how long the tenant waited between having quota and using it.
 	//
-	// This is the quantity a quota owner cares about and the platform has never reported. The queuelab
-	// measured it under preemption -- 2.180 s when the preempted borrower honoured SIGTERM and 31.213 s when
-	// it did not -- and the admission webhook caps terminationGracePeriodSeconds because of that. Capping
-	// the worst case without reporting the actual one leaves the tenant who paid it unable to see the bill.
+	// This is the quantity a quota owner cares about and the platform has never reported.
+	// The queuelab measured it under preemption -- 2.180 s when the preempted borrower honoured SIGTERM and
+	// 31.213 s when it did not -- and the admission webhook caps terminationGracePeriodSeconds because of
+	// that.
+	// Capping the worst case without reporting the actual one leaves the tenant who paid it unable to see
+	// the bill.
 	//
 	// A string so the value round-trips through YAML exactly, the same reason RunManifest.matchTolerance is
 	// one. Empty when the window was not observed, in which case the AdmitToRunningObserved condition says
@@ -239,8 +245,9 @@ type MLTrainingJobStatus struct {
 // TrainingAttempt is one start of a restartable distributed job: its Job, why it ended, and when each step was seen.
 //
 // Every time is this controller's observation, written on the reconcile that saw the event, so each carries that
-// reconcile's lag. None of them is "training resumed": readiness is not training, and the first optimizer step of an
-// attempt is in the workload's own record, which the experiment reads; the controller never writes it.
+// reconcile's lag.
+// None of them is "training resumed": readiness is not training, and the first optimizer step of an attempt is in
+// the workload's own record, which the experiment reads; the controller never writes it.
 type TrainingAttempt struct {
 	// number counts attempts from 1; attempt n+1 starts only after attempt n is Stopped.
 	// +kubebuilder:validation:Minimum=1

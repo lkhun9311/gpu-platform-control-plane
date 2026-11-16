@@ -31,17 +31,20 @@ import (
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
-// GpuSharingBenchmark has no controller. These specs exercise the CRD's own refusals, which is where the
-// experiment protocol is enforced: the spec is a registration, and what the schema will not accept is the
-// only part of that registration the cluster can keep.
+// GpuSharingBenchmark has no controller.
+// These specs exercise the CRD's own refusals, which is where the experiment protocol is enforced: the
+// spec is a registration, and what the schema will not accept is the only part of that registration the
+// cluster can keep.
 //
 // Several of these exist because an external review constructed the case and a run against a real apiserver
-// confirmed it. Those are marked where they sit.
+// confirmed it.
+// Those are marked where they sit.
 var _ = Describe("GpuSharingBenchmark", func() {
 	ctx := context.Background()
 
-	// validBenchmark mirrors config/samples. One spec below loads that YAML itself rather than this copy,
-	// because a hand-written Go twin passes while the sample drifts away from it.
+	// validBenchmark mirrors config/samples.
+	// One spec below loads that YAML itself rather than this copy, because a hand-written Go twin passes
+	// while the sample drifts away from it.
 	validBenchmark := func(name string) *platformv1.GpuSharingBenchmark {
 		return &platformv1.GpuSharingBenchmark{
 			Name: name, Namespace: "default",
@@ -83,8 +86,9 @@ var _ = Describe("GpuSharingBenchmark", func() {
 
 		var got platformv1.GpuSharingBenchmark
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: u.GetName(), Namespace: "default"}, &got)).To(Succeed())
-		// Nothing writes a result but a real-GPU run. This is not much of a guard while no writer exists,
-		// and it is kept as the place a placeholder default would be caught.
+		// Nothing writes a result but a real-GPU run.
+		// This is not much of a guard while no writer exists, and it is kept as the place a placeholder
+		// default would be caught.
 		Expect(got.Status.Result).To(BeNil())
 		Expect(got.Status.Phase).To(BeEmpty())
 	})
@@ -106,8 +110,8 @@ var _ = Describe("GpuSharingBenchmark", func() {
 	})
 
 	It("allows two models when the topology is not one shared instance", func() {
-		// The same edit that was refused above, with the mode that makes it coherent. Without this, a rule
-		// that refused every two-model benchmark would look correct.
+		// The same edit that was refused above, with the mode that makes it coherent.
+		// Without this, a rule that refused every two-model benchmark would look correct.
 		b := validBenchmark("gsb-timeslicing")
 		b.Spec.SharingMode = "timeSlicing"
 		b.Spec.Contender.Model = "mistral-7b"
@@ -126,12 +130,14 @@ var _ = Describe("GpuSharingBenchmark", func() {
 	})
 
 	Context("the spec is a registration and cannot be edited", func() {
-		// Every field is frozen, not only the four that obviously define the experiment. Raising a
-		// repetition count after seeing an inconclusive result changes the stopping rule, and changing
-		// gpuClass mid-comparison compares different hardware -- so a protocol change is a new CR.
+		// Every field is frozen, not only the four that obviously define the experiment.
+		// Raising a repetition count after seeing an inconclusive result changes the stopping rule,
+		// and changing gpuClass mid-comparison compares different hardware -- so a protocol change is
+		// a new CR.
 		//
-		// One spec per field, deliberately. A single edit to contender.qps would pass even if only one
-		// conjunct of an older four-way rule survived.
+		// One spec per field, deliberately.
+		// A single edit to contender.qps would pass even if only one conjunct of an older four-way
+		// rule survived.
 		DescribeTable("refuses an edit to",
 			func(mutate func(*platformv1.GpuSharingBenchmark)) {
 				name := fmt.Sprintf("gsb-frozen-%d", GinkgoRandomSeed()%100000)
@@ -161,8 +167,8 @@ var _ = Describe("GpuSharingBenchmark", func() {
 			// The regression for the trap this type shipped with. streaming and warmupRequests were optional
 			// with omitempty; an object created with streaming: false lost the field on a Go round-trip, the
 			// whole-spec comparison saw a field disappear, and every later update was refused -- including to
-			// fields the documentation called mutable. Both are required now, and this proves the round-trip
-			// is faithful rather than asserting it.
+			// fields the documentation called mutable.
+			// Both are required now, and this proves the round-trip is faithful rather than asserting it.
 			u := &unstructured.Unstructured{Object: map[string]any{
 				"apiVersion": "platform.lkhun9311.github.io/v1",
 				"kind":       "GpuSharingBenchmark",
@@ -188,7 +194,8 @@ var _ = Describe("GpuSharingBenchmark", func() {
 			Expect(got.Spec.Load.Streaming).To(BeFalse())
 			Expect(got.Spec.WarmupRequests).To(BeZero())
 
-			// A label is not the spec, so this must succeed. Under the old shape it did not.
+			// A label is not the spec, so this must succeed.
+			// Under the old shape it did not.
 			got.Labels = map[string]string{"run": "1"}
 			Expect(k8sClient.Update(ctx, &got)).To(Succeed())
 		})
@@ -233,8 +240,9 @@ var _ = Describe("GpuSharingBenchmark", func() {
 		// Each of the three refusals above now has TWO reasons to fire: no reportUri and no ratio interval.
 		// Asserting only on the reportUri half would let the rule keep passing if the reportUri clause were
 		// deleted, because the ratio clause would refuse the same objects and produce a message the test never
-		// reads. So the two clauses get one spec each where the OTHER field is supplied, and the assertion
-		// names the half under test.
+		// reads.
+		// So the two clauses get one spec each where the OTHER field is supplied, and the assertion names the
+		// half under test.
 		It("refuses Completed with a report but no ratio interval", func() {
 			b := newStanding("gsb-done-noratioci")
 			b.Status.Phase = "Completed"

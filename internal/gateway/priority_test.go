@@ -89,7 +89,8 @@ var _ = Describe("engine priority bound to the tier", func() {
 	})
 
 	// A retry on another backend rewinds through GetBody, so the rewritten bytes must be what GetBody returns,
-	// every time it is called. Mutation that turns this red: replace r.Body but leave r.GetBody on the old bytes.
+	// every time it is called.
+	// Mutation that turns this red: replace r.Body but leave r.GetBody on the old bytes.
 	It("makes every rewind of the body carry the bound priority", func() {
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(plain))
 		orig := []byte(plain)

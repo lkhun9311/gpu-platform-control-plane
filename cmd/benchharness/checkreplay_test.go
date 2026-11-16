@@ -29,8 +29,9 @@ import (
 // A replay is checked as it lands, not three hours later when the report runs.
 //
 // The runner's per-replay check asked one question -- did anything at all complete -- and a replay that lost
-// a third of its traffic answered yes. The report can now refuse such a run, but only after every remaining
-// replay has been paid for. These cases are the ones that must stop the run where they happen.
+// a third of its traffic answered yes.
+// The report can now refuse such a run, but only after every remaining replay has been paid for.
+// These cases are the ones that must stop the run where they happen.
 func writeReplay(t *testing.T, dir string, rows []bench.RawRow) string {
 	t.Helper()
 	path := filepath.Join(dir, "raw-static-cap-1.jsonl")

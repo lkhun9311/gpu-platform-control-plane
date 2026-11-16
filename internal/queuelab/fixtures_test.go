@@ -26,9 +26,10 @@ import (
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// Lowercase because these become object NAMES. The earlier values were "runA"/"runB", which no apiserver
-// would have accepted — DNS-1123 labels are lowercase — so the fixture was exercising a run id a real run
-// could never have. BuildFixtures' identity validation is what surfaced that.
+// Lowercase because these become object NAMES.
+// The earlier values were "runA"/"runB", which no apiserver would have accepted — DNS-1123 labels are
+// lowercase — so the fixture was exercising a run id a real run could never have.
+// BuildFixtures' identity validation is what surfaced that.
 const runA = "run-a"
 
 func TestReclaimFixturesVaryOnlyReclaimPolicy(t *testing.T) {
@@ -119,11 +120,12 @@ func TestFixtureNamesAreUniquePerRun(t *testing.T) {
 	if len(a.Flavor.Spec.NodeTaints) != 1 || a.Flavor.Spec.NodeTaints[0].Value != runA {
 		t.Fatalf("flavor should taint the dedicated worker for the run, got %v", a.Flavor.Spec.NodeTaints)
 	}
-	// The worker toleration must be PRESENT, not the only one. The count used to be pinned at 1, which broke
-	// the moment the flavour also had to tolerate the GPU node group's own nvidia.com/gpu taint -- a
-	// toleration whose absence left every trace Pod Pending on real hardware. What matters here is that the
-	// taint this flavour applies is one this flavour tolerates; how many others it carries is not this
-	// test's business.
+	// The worker toleration must be PRESENT, not the only one.
+	// The count used to be pinned at 1, which broke the moment the flavour also had to tolerate the GPU node
+	// group's own nvidia.com/gpu taint -- a toleration whose absence left every trace Pod Pending on real
+	// hardware.
+	// What matters here is that the taint this flavour applies is one this flavour tolerates; how many
+	// others it carries is not this test's business.
 	var worker *corev1.Toleration
 	for i := range a.Flavor.Spec.Tolerations {
 		if a.Flavor.Spec.Tolerations[i].Key == a.Flavor.Spec.NodeTaints[0].Key {
@@ -156,9 +158,9 @@ func TestBuildFixturesRejectsAnUnusableIdentity(t *testing.T) {
 		{"empty TxID", FixtureIdentity{RunID: "r1", Namespace: "ns"}, "TxID"},
 		{"empty RunID", FixtureIdentity{TxID: "tx-1", Namespace: "ns"}, "RunID"},
 		{"empty Namespace", FixtureIdentity{TxID: "tx-1", RunID: "r1"}, "Namespace"},
-		// Non-empty but unrenderable. Without this row a check that only tested for "" would pass, and the
-		// apiserver would reject the object at Create with an error naming a generated name rather than the
-		// field that produced it.
+		// Non-empty but unrenderable.
+		// Without this row a check that only tested for "" would pass, and the apiserver would reject the
+		// object at Create with an error naming a generated name rather than the field that produced it.
 		{"RunID with an underscore", FixtureIdentity{TxID: "tx-1", RunID: "r_1", Namespace: "ns"}, "RunID"},
 		{"Namespace in capitals", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "NS"}, "Namespace"},
 	}
@@ -174,8 +176,8 @@ func TestBuildFixturesRejectsAnUnusableIdentity(t *testing.T) {
 		})
 	}
 
-	// The control: a usable identity must still build. Without it, a validate() that rejected everything
-	// would satisfy every row above.
+	// The control: a usable identity must still build.
+	// Without it, a validate() that rejected everything would satisfy every row above.
 	if _, err := BuildFixtures(StudyReclaim, "Any", good); err != nil {
 		t.Fatalf("refused a usable identity: %v", err)
 	}

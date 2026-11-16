@@ -49,8 +49,9 @@ func TestRunRecordRoundTrips(t *testing.T) {
 		Reason:        "",
 		Events:        []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
 		// Written out rather than derived, because this test is about the WIRE and a derived block would only
-		// prove buildRecord agrees with itself. The failure list is populated for the same reason the events are:
-		// an omitempty slice that is never non-empty here would leave the field's encoding unexercised.
+		// prove buildRecord agrees with itself.
+		// The failure list is populated for the same reason the events are: an omitempty slice that is never
+		// non-empty here would leave the field's encoding unexercised.
 		Validity: validity{
 			Verdict:            verdictRefused,
 			Failures:           []string{failureObservation, failureExclusivity},
@@ -83,10 +84,10 @@ func TestDecodeRunRecordRefusesAnUnknownSchema(t *testing.T) {
 // decodeRunRecord's verdict guard.
 //
 // Every document below that must DECODE needs one, and that is not boilerplate to skim past: a verdict is
-// required of every record, so a fixture without one is refused for a reason its test did not write. The
-// guard ORDER is what keeps the refusal fixtures honest in the other direction — the qualification, window
-// and observation guards all run before the verdict is looked at, so each of those documents is still
-// refused by the specific check its test is about rather than by a missing verdict.
+// required of every record, so a fixture without one is refused for a reason its test did not write.
+// The guard ORDER is what keeps the refusal fixtures honest in the other direction — the qualification,
+// window and observation guards all run before the verdict is looked at, so each of those documents is
+// still refused by the specific check its test is about rather than by a missing verdict.
 // The device-evidence axis is in here for the same reason the verdict is: it is required of every record,
 // and a fixture without one is refused for a reason its test did not write. device-not-observed is what a
 // record with no measurement derives, so these fixtures state the value their own fields support.
@@ -112,11 +113,13 @@ func TestDecodeRunRecordRefusesAnUnknownField(t *testing.T) {
 // otherwise hand a reader a document whose tail went to nobody.
 //
 // The accepted-then-refused pair is the whole design of this test rather than ceremony around the assertion
-// that matters. A fixture that only appended garbage and asserted a refusal would pass identically if the
-// document in front of the garbage were itself unreadable — the refusal would come from the record, not from
-// the tail — and this package has already shipped one assertion that proved nothing for exactly that reason.
+// that matters.
+// A fixture that only appended garbage and asserted a refusal would pass identically if the document in
+// front of the garbage were itself unreadable — the refusal would come from the record, not from the tail —
+// and this package has already shipped one assertion that proved nothing for exactly that reason.
 // Decoding the same bytes first is what makes the second call's failure attributable to the appended
-// document. Mutation: delete the dec.More() block in decodeRunRecord and the second call returns nil.
+// document.
+// Mutation: delete the dec.More() block in decodeRunRecord and the second call returns nil.
 func TestDecodeRunRecordRefusesTrailingDataAfterAValidRecord(t *testing.T) {
 	b := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
 		`"disposition":"completed-implemented-checks-passed",%s}`, recordSchemaVersion, refusedValidity)
@@ -141,7 +144,8 @@ func TestDecodeRunRecordRefusesEmptyRunID(t *testing.T) {
 
 // Preview safety is structural, not conventional: queuelab.Reconstruct takes an event slice, so anything
 // decodable back into one is reconstructable no matter what the field is called or what flag sits beside
-// it. The preview record therefore has no field that can carry events at all.
+// it.
+// The preview record therefore has no field that can carry events at all.
 func TestPreviewRecordCannotCarryEvents(t *testing.T) {
 	p := previewRecord{
 		SchemaVersion: recordSchemaVersion,
@@ -184,9 +188,10 @@ func TestDecodeRunRecordRefusesPreviewWithEvents(t *testing.T) {
 }
 
 // This test verifies success-content-correctness — that a successful write leaves exactly the destination
-// file behind, decodable back to the value passed in — and leftover-temp-file cleanliness. It does not
-// verify the atomic replace-not-modify mechanism itself; see TestWriteRecordReplacesTheDestinationInode
-// for that, because passing here is consistent with a non-atomic in-place write.
+// file behind, decodable back to the value passed in — and leftover-temp-file cleanliness.
+// It does not verify the atomic replace-not-modify mechanism itself; see
+// TestWriteRecordReplacesTheDestinationInode for that, because passing here is consistent with a
+// non-atomic in-place write.
 //
 // A successful write must leave exactly the destination file behind, with the content actually written
 // decodable back to the value passed in — not merely some decodable-but-unrelated bytes, and not a
@@ -269,8 +274,8 @@ func TestWriteRecordFailsLoudlyOnAnUnwritablePath(t *testing.T) {
 // that opens the destination with O_TRUNC and writes into it in place.
 //
 // The distinguishing property is not timing, so it needs no race and cannot be flaky: os.WriteFile reuses
-// the destination's inode, while temp-file-plus-rename replaces the directory entry with a new inode. A
-// changed inode number between two successive writes is direct, deterministic evidence that a rename
+// the destination's inode, while temp-file-plus-rename replaces the directory entry with a new inode.
+// A changed inode number between two successive writes is direct, deterministic evidence that a rename
 // happened rather than an in-place modification.
 func TestWriteRecordReplacesTheDestinationInode(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -314,11 +319,12 @@ func TestWriteRecordReplacesTheDestinationInode(t *testing.T) {
 }
 
 // A record this build writes has to be a record this build can read, and until verifyRecordReadable existed
-// nothing in the binary ever asked. The fixture carries a REFUSED DELETE for the reason
-// TestRunRecordCarriesTheResidueAndStillDecodes gives — an `error` encodes and does not decode, so persisting
-// teardown's `residue` verbatim would produce an unreadable record on exactly the runs whose teardown was
-// refused — but that test decodes bytes it holds in memory, and this one reads the FILE, which is what the
-// tool now does and what a later reader will actually open.
+// nothing in the binary ever asked.
+// The fixture carries a REFUSED DELETE for the reason TestRunRecordCarriesTheResidueAndStillDecodes gives —
+// an `error` encodes and does not decode, so persisting teardown's `residue` verbatim would produce an
+// unreadable record on exactly the runs whose teardown was refused — but that test decodes bytes it holds in
+// memory, and this one reads the FILE, which is what the tool now does and what a later reader will actually
+// open.
 //
 // Mutation that turns this red: change recordResidue.Error from `string` to `error` and assign
 // `e.Error = r.Observation.Err` in residueForRecord — the original observation.Err defect, which was caught by
@@ -348,9 +354,9 @@ func TestVerifyRecordReadableAcceptsARecordThisBuildJustWrote(t *testing.T) {
 	}
 }
 
-// The other half: a document the reader refuses must be reported, not shrugged off. A schema one ahead of this
-// build's is the cheapest way to produce one, and it is also the realistic drift — a future writer's record
-// landing under a reader that has not been taught it.
+// The other half: a document the reader refuses must be reported, not shrugged off.
+// A schema one ahead of this build's is the cheapest way to produce one, and it is also the realistic drift —
+// a future writer's record landing under a reader that has not been taught it.
 //
 // Mutation that turns this red: drop the `if _, err := decodeRunRecord(b); err != nil` return from
 // verifyRecordReadable's non-preview arm, so the function reports only whether the file could be OPENED.
@@ -404,11 +410,12 @@ func TestVerifyRecordReadableRefusesAPreviewWhoseFieldsDriftedIntoARuns(t *testi
 }
 
 // absenceName's spellings are a wire format: runRecord.Residue and the Node residue record both persist
-// them, so a rename here silently relabels every record already written under the old name. The two other
-// residue tests in this file each pin one spelling as a side effect of asserting a full record, but neither
-// checks it against a literal — they check it against what buildRecord happened to produce, which is not a
-// test of absenceName at all. This one is direct and literal, so a rename of any spelling, or of the
-// default's "unrecognised" prefix, has nothing else to hide behind.
+// them, so a rename here silently relabels every record already written under the old name.
+// The two other residue tests in this file each pin one spelling as a side effect of asserting a full
+// record, but neither checks it against a literal — they check it against what buildRecord happened to
+// produce, which is not a test of absenceName at all.
+// This one is direct and literal, so a rename of any spelling, or of the default's "unrecognised" prefix,
+// has nothing else to hide behind.
 func TestAbsenceNameSpellings(t *testing.T) {
 	cases := []struct {
 		a    absence
@@ -420,7 +427,8 @@ func TestAbsenceNameSpellings(t *testing.T) {
 		{absenceUnknown, "unknown"},
 		// A constant added to teardown.go without a matching case here must not fall back to "unknown" — the
 		// spelling that means "nobody could tell" — because that would hide the missing case inside a value
-		// the schema calls legitimate. It must name the integer instead, so the bug is visible in the record.
+		// the schema calls legitimate.
+		// It must name the integer instead, so the bug is visible in the record.
 		{absence(99), "unrecognised(99)"},
 	}
 	for _, tc := range cases {
@@ -434,12 +442,13 @@ func TestAbsenceNameSpellings(t *testing.T) {
 // survive the round trip the record's whole contract is built on: written, and then read back by a reader
 // that refuses anything it does not fully understand.
 //
-// The entry here carries a REFUSED DELETE on purpose. That is the case settlePhase holds a delete error
-// aside for — "the apiserver said no" is the single most useful thing a residue record can say, and it is
-// also the case that breaks if the record persists teardown.go's `residue` verbatim: an `error` field
-// encodes as `{}` and decodes not at all, so exactly the runs whose teardown was refused would write a
-// record decodeRunRecord rejects. Hence the projection this asserts against, and hence the error text
-// assertion rather than a bare "the entry is there".
+// The entry here carries a REFUSED DELETE on purpose.
+// That is the case settlePhase holds a delete error aside for — "the apiserver said no" is the single
+// most useful thing a residue record can say, and it is also the case that breaks if the record persists
+// teardown.go's `residue` verbatim: an `error` field encodes as `{}` and decodes not at all, so exactly
+// the runs whose teardown was refused would write a record decodeRunRecord rejects.
+// Hence the projection this asserts against, and hence the error text assertion rather than a bare "the
+// entry is there".
 func TestRunRecordCarriesTheResidueAndStillDecodes(t *testing.T) {
 	refused := apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "queuelab-r7",
 		errors.New("teardown may not delete namespaces"))
@@ -488,11 +497,13 @@ func TestRunRecordCarriesTheResidueAndStillDecodes(t *testing.T) {
 
 // residueForRecord copies eight fields, and two of them — Terminating and WantUID — had no assertion
 // anywhere in this file before this test: dropping either from the projection left the whole package
-// green. Terminating is the operator's first question reading a residue entry, because it is what tells a
+// green.
+// Terminating is the operator's first question reading a residue entry, because it is what tells a
 // finalizer stuck on an object apart from a Delete that never even landed; WantUID is what the next
 // operator compares against a fresh read to tell "still ours" from "somebody else's object took the name
-// after ours left". UID and WantUID are given different values so a projection that swapped the two, not
-// just dropped one, would also be caught.
+// after ours left".
+// UID and WantUID are given different values so a projection that swapped the two, not just dropped one,
+// would also be caught.
 func TestResidueForRecordProjectsTerminatingAndWantUID(t *testing.T) {
 	left := []residue{{
 		Observation: observation{
@@ -525,7 +536,8 @@ func TestResidueForRecordProjectsTerminatingAndWantUID(t *testing.T) {
 
 // A preview is the mode that generates residue TODAY — it runs the whole of run(), namespace and fixtures
 // included — so dropping the residue from its record would lose it for the only mode currently producing
-// it. Residue is safe to carry there for the reason previewRecord's own comment gives: the guarantee is
+// it.
+// Residue is safe to carry there for the reason previewRecord's own comment gives: the guarantee is
 // structural, and recordResidue has no field a lifecycle ledger can be decoded out of.
 func TestPreviewRecordCarriesResidueToo(t *testing.T) {
 	left := []residue{{
@@ -549,15 +561,17 @@ func TestPreviewRecordCarriesResidueToo(t *testing.T) {
 }
 
 // What the run observed about its worker has to survive into the artifact, through a decoder that rejects
-// anything it does not fully understand. A qualification that only reached stderr is the same loss the
-// residue field was added to end: the run that refused is exactly the run whose evidence nobody kept.
+// anything it does not fully understand.
+// A qualification that only reached stderr is the same loss the residue field was added to end: the run
+// that refused is exactly the run whose evidence nobody kept.
 //
 // The refusal shape is asserted rather than the clean one, because the clean one is the case where dropping
 // the field costs least — an empty consumer list read back as an empty consumer list looks identical whether
 // it was persisted or not.
 //
 // Mutation that turns this red: delete the Qualification field from runRecord, or stop assigning it in
-// buildRecord. Either leaves the whole package green apart from this test and its preview twin below.
+// buildRecord.
+// Either leaves the whole package green apart from this test and its preview twin below.
 func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 	q := &qualification{
 		Node:           "platform-worker",
@@ -604,11 +618,12 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 
 // A run refused before it ever reached its worker — a bad flag, a refused acquisition — has observed nothing,
 // and a record for it must say nothing rather than write a zero qualification claiming a node named "" was
-// inspected and found fine. That is why the field is a pointer.
+// inspected and found fine.
+// That is why the field is a pointer.
 //
-// Mutation that turns this red: make runRecord.Qualification a value rather than a pointer. The key then
-// appears on every record ever written, populated with zeros, and every reader has to know that Ready:false
-// on a node with no name means "not checked".
+// Mutation that turns this red: make runRecord.Qualification a value rather than a pointer.
+// The key then appears on every record ever written, populated with zeros, and every reader has to know
+// that Ready:false on a node with no name means "not checked".
 func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 	rec := buildRecord(outcome{Disposition: dispAcquisitionRefused, Reason: "held by another run"},
 		nil, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
@@ -617,21 +632,22 @@ func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 	// The bare WORD, not merely the JSON key, and it is back to the bare word after a round trip through the
-	// weaker check. When the validity block carried the executable's roadmap of work still to do, one of its
-	// entries read "environment qualification (capacity, foreign GPU pods, termination canary)" and this check
-	// fired on a record that correctly wrote no qualification — so it was narrowed to the key, losing the reach
-	// that catches the word appearing anywhere at all. recordUnchecked names the canary without the word, so
-	// the strong check stands again; a future entry that reintroduces it will fail here and should be reworded
+	// weaker check.
+	// When the validity block carried the executable's roadmap of work still to do, one of its entries read
+	// "environment qualification (capacity, foreign GPU pods, termination canary)" and this check fired on a
+	// record that correctly wrote no qualification — so it was narrowed to the key, losing the reach that
+	// catches the word appearing anywhere at all. recordUnchecked names the canary without the word, so the
+	// strong check stands again; a future entry that reintroduces it will fail here and should be reworded
 	// rather than the check weakened a second time.
 	if strings.Contains(string(b), "qualification") {
 		t.Fatalf("a run that never qualified its worker wrote a qualification anyway:\n%s", b)
 	}
 }
 
-// A preview runs the whole of run(), so it qualifies its worker exactly as a real run does. Withholding the
-// qualification from its record would lose the observation for the only mode that currently produces one on a
-// live cluster, and it is safe here for the same structural reason the residue is: it describes the machine,
-// and has no field a lifecycle ledger can be decoded out of.
+// A preview runs the whole of run(), so it qualifies its worker exactly as a real run does.
+// Withholding the qualification from its record would lose the observation for the only mode that currently
+// produces one on a live cluster, and it is safe here for the same structural reason the residue is: it
+// describes the machine, and has no field a lifecycle ledger can be decoded out of.
 //
 // Mutation that turns this red: drop Qualification from previewRecord or stop assigning it in buildRecord's
 // preview branch.
@@ -656,23 +672,28 @@ func TestPreviewRecordCarriesTheQualificationToo(t *testing.T) {
 // naming only the quota sum, and no requiredBoundBy at all.
 //
 // That document has to be REFUSED rather than read, and the asymmetry is what makes the version the right
-// instrument. A new record read by an old build already fails loudly on DisallowUnknownFields; an old record
-// read by this build decodes without complaint and leaves RequiredBoundBy at "" — neither documented
-// constant, and indistinguishable to a reader from a third kind of bound nobody named. A run artifact whose
-// binding constraint reads as a blank is exactly the "silently applying current semantics to a document
-// written under different ones" that recordSchemaVersion's own comment exists to prevent.
+// instrument.
+// A new record read by an old build already fails loudly on DisallowUnknownFields; an old record read by
+// this build decodes without complaint and leaves RequiredBoundBy at "" — neither documented constant, and
+// indistinguishable to a reader from a third kind of bound nobody named.
+// A run artifact whose binding constraint reads as a blank is exactly the "silently applying current
+// semantics to a document written under different ones" that recordSchemaVersion's own comment exists to
+// prevent.
 //
 // The message must name both versions, because the operator holding this file needs to know which build
 // wrote it, not merely that this one will not read it.
 //
 // Two mutations turn this red, and they are red for different halves of it, which is worth stating exactly
 // because the two guards overlap on THIS document and a careless reading would credit one for the other's
-// work. Reverting recordSchemaVersion to 1 alone still refuses the document — the bound guard below catches
-// the blank — but the refusal then names no version at all, and the second assertion fails: the operator is
-// told the bound is unreadable and not which build wrote the file. Reverting the version AND deleting the
-// bound guard is the pre-fix build, and the document decodes clean; the first assertion then fires with the
-// blank bound in hand. The version is what distinguishes the two SHAPES; the bound guard is what refuses a
-// bad value inside the current shape. Neither subsumes the other.
+// work.
+// Reverting recordSchemaVersion to 1 alone still refuses the document — the bound guard below catches the
+// blank — but the refusal then names no version at all, and the second assertion fails: the operator is
+// told the bound is unreadable and not which build wrote the file.
+// Reverting the version AND deleting the bound guard is the pre-fix build, and the document decodes clean;
+// the first assertion then fires with the blank bound in hand.
+// The version is what distinguishes the two SHAPES; the bound guard is what refuses a bad value inside the
+// current shape.
+// Neither subsumes the other.
 func TestDecodeRunRecordRefusesTheShapeThatPredatesTheBoundDerivation(t *testing.T) {
 	preFix := []byte(`{"schemaVersion":1,"runID":"g2a","arm":"A-honor",` +
 		`"disposition":"completed-implemented-checks-passed","qualification":{` +
@@ -695,10 +716,11 @@ func TestDecodeRunRecordRefusesTheShapeThatPredatesTheBoundDerivation(t *testing
 	}
 }
 
-// The version bump closes one route into the blank bound: a document an older build wrote. This closes the
-// other: a document that claims THIS version while naming a bound no build ever produced — hand-edited, or
-// written by a future version that forgot the field. Without it the type still permits the state the bump
-// was made to eliminate, and the bump would be a fix for one entrance to a room with two.
+// The version bump closes one route into the blank bound: a document an older build wrote.
+// This closes the other: a document that claims THIS version while naming a bound no build ever produced —
+// hand-edited, or written by a future version that forgot the field.
+// Without it the type still permits the state the bump was made to eliminate, and the bump would be a fix
+// for one entrance to a room with two.
 //
 // Mutation that turns this red: delete the RequiredBoundBy check from decodeRunRecord.
 func TestDecodeRunRecordRefusesAQualificationNamingNoDocumentedBound(t *testing.T) {
@@ -715,7 +737,8 @@ func TestDecodeRunRecordRefusesAQualificationNamingNoDocumentedBound(t *testing.
 	}
 
 	// The same document naming a real bound must still decode, or the guard above is refusing the records it
-	// was written to protect. It carries a verdict because every record must; see refusedValidity.
+	// was written to protect.
+	// It carries a verdict because every record must; see refusedValidity.
 	ok := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
 		`"disposition":"completed-implemented-checks-passed",`+refusedValidity+`,"qualification":{`+
 		`"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,`+
@@ -752,9 +775,9 @@ func testWindow() *ownershipWindow {
 // The window is the gate's evidence, and evidence that is written and then unreadable is the failure the
 // strict decoder exists to prevent — on precisely the runs that produced it.
 //
-// Mutation that turns this red: delete `Window: win` from buildRecord's runRecord branch. The run's own
-// continuous evidence then exists only as a line on a terminal, which is the state this gate was written to
-// end and the state the fourth gate would have to investigate from scratch.
+// Mutation that turns this red: delete `Window: win` from buildRecord's runRecord branch.
+// The run's own continuous evidence then exists only as a line on a terminal, which is the state this gate
+// was written to end and the state the fourth gate would have to investigate from scratch.
 func TestRunRecordCarriesTheWindowAndStillDecodes(t *testing.T) {
 	w := testWindow()
 	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, w, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false,
@@ -786,7 +809,8 @@ func TestRunRecordCarriesTheWindowAndStillDecodes(t *testing.T) {
 // somebody's terminal.
 //
 // Mutation that turns this red: drop the Violations field from the encoded window (or make recordLocked stop
-// filling it). The record then says a window existed and cannot say what it saw.
+// filling it).
+// The record then says a window existed and cannot say what it saw.
 func TestARefusedRunRecordsWhatTheWindowSaw(t *testing.T) {
 	w := testWindow()
 	w.ViolationsObserved = 2
@@ -814,8 +838,9 @@ func TestARefusedRunRecordsWhatTheWindowSaw(t *testing.T) {
 }
 
 // A preview opens its window exactly as a run does, and a preview whose record did not say what happened to
-// its worker would be a smoke check of a machine nobody watched. It is safe here for the same structural
-// reason the qualification is: no field in the block is a lifecycle ledger.
+// its worker would be a smoke check of a machine nobody watched.
+// It is safe here for the same structural reason the qualification is: no field in the block is a lifecycle
+// ledger.
 //
 // Mutation that turns this red: delete `Window: win` from buildRecord's previewRecord branch.
 func TestPreviewRecordCarriesTheWindowToo(t *testing.T) {
@@ -829,8 +854,9 @@ func TestPreviewRecordCarriesTheWindowToo(t *testing.T) {
 }
 
 // A window that watched nothing cannot be read as evidence that the worker stayed this run's, and that is
-// the single strongest claim this record can make. No build writes one — the opening read makes every window
-// at least 1 — so a zero is a hand-edited or future-written document.
+// the single strongest claim this record can make.
+// No build writes one — the opening read makes every window at least 1 — so a zero is a hand-edited or
+// future-written document.
 //
 // Mutation that turns this red: delete the window guard from decodeRunRecord.
 func TestDecodeRunRecordRefusesAWindowThatWatchedNothing(t *testing.T) {
@@ -898,13 +924,13 @@ func testQualification() *qualification {
 
 // The observation is the one gate whose evidence a reader cannot go and re-check afterwards: a Node is still
 // there to inspect and a worker's Pods are still listable, but a stream's baseline and its ending exist only
-// for as long as the process does. A record without this block cannot distinguish a run that watched its
-// whole window from one that watched thirty seconds of it, which is the single property the continuity gate
-// exists to establish.
+// for as long as the process does.
+// A record without this block cannot distinguish a run that watched its whole window from one that watched
+// thirty seconds of it, which is the single property the continuity gate exists to establish.
 //
-// Mutation that turns this red: drop `Observation: obs` from buildRecord's runRecord branch. The run still
-// observes continuously, the ledger still refuses a truncated one, and every stored record goes back to being
-// silent about which of the two it came from.
+// Mutation that turns this red: drop `Observation: obs` from buildRecord's runRecord branch.
+// The run still observes continuously, the ledger still refuses a truncated one, and every stored record goes
+// back to being silent about which of the two it came from.
 func TestRunRecordCarriesTheObservationAndStillDecodes(t *testing.T) {
 	obs := testObservation()
 	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
@@ -939,15 +965,16 @@ func TestRunRecordCarriesTheObservationAndStillDecodes(t *testing.T) {
 // The case that makes the verdict a FIELD rather than a reading of the prose, and it is not hypothetical: the
 // re-review of the ownership gate found it.
 //
-// A collector stream desyncs and the ownership window is violated in the same run. Both land on
-// collector-desync — deliberately, because builder.Err() is the one thing that decides whether a number may
-// exist — and LedgerBuilder.Desync keeps only the FIRST reason it is given. The stream's desync is recorded
-// during the run and the window's verdict is folded in after the streams are joined, so `reason` names the
-// stream and the exclusivity failure survives nowhere in the text at all.
+// A collector stream desyncs and the ownership window is violated in the same run.
+// Both land on collector-desync — deliberately, because builder.Err() is the one thing that decides whether
+// a number may exist — and LedgerBuilder.Desync keeps only the FIRST reason it is given.
+// The stream's desync is recorded during the run and the window's verdict is folded in after the streams
+// are joined, so `reason` names the stream and the exclusivity failure survives nowhere in the text at all.
 //
 // Mutation that turns this red: derive the verdict from o.Reason — for instance by returning
-// failureExclusivity only when the reason mentions the worker. The reason here names the Pod stream and
-// nothing else, so the exclusivity failure disappears exactly as it does today.
+// failureExclusivity only when the reason mentions the worker.
+// The reason here names the Pod stream and nothing else, so the exclusivity failure disappears exactly
+// as it does today.
 func TestValidityKeepsTheExclusivityFailureTheReasonHasLost(t *testing.T) {
 	o := outcome{
 		Disposition: dispCollectorDesync,
@@ -973,9 +1000,9 @@ func TestValidityKeepsTheExclusivityFailureTheReasonHasLost(t *testing.T) {
 	}
 }
 
-// Each claim is derived from its own fields, so a record failing one has to fail exactly one. A derivation
-// that collapsed them — returning early, or keying every claim off the disposition — would make the block a
-// second spelling of `disposition` and buy a reader nothing.
+// Each claim is derived from its own fields, so a record failing one has to fail exactly one.
+// A derivation that collapsed them — returning early, or keying every claim off the disposition — would
+// make the block a second spelling of `disposition` and buy a reader nothing.
 //
 // Mutations that turn this red, one per clause the rows exist to reach — every one of them was run:
 //
@@ -995,8 +1022,9 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 	unestablished := testObservation()
 	unestablished.Established = false
 	// A loss the cancellation MASKS: this stream forwarded a terminal 410 and was then cancelled at the
-	// horizon like every other. Cancelled alone would wave it through, and an expired resume point is the one
-	// thing RetryWatcher cannot resume past — the likeliest way a real apiserver breaks this gate.
+	// horizon like every other.
+	// Cancelled alone would wave it through, and an expired resume point is the one thing RetryWatcher cannot
+	// resume past — the likeliest way a real apiserver breaks this gate.
 	maskedLoss := testObservation()
 	maskedLoss.Streams[3].LastStatus = "terminal watch error: too old resource version (code 410, reason Expired)"
 	unknownResume := testObservation()
@@ -1019,9 +1047,10 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 	unrestored.Restoration = nil
 
 	// The state that had no row: a worker was acquired and the sentinel could not be started, so the run is
-	// refused with no view over a node that is already labelled and tainted. The emergency release synthesizes
-	// this carrier so its audit survives. Both outcomes are asserted below, because the failure that mattered
-	// was silent — a run in this state used to derive containment held on no evidence at all.
+	// refused with no view over a node that is already labelled and tainted.
+	// The emergency release synthesizes this carrier so its audit survives.
+	// Both outcomes are asserted below, because the failure that mattered was silent — a run in this state
+	// used to derive containment held on no evidence at all.
 	neverOpenedRemoved := &ownershipWindow{Node: "w1", TxID: "tx-1", NeverOpened: true,
 		Restoration: &restorationAudit{OurMarkersRemoved: true}}
 	neverOpenedStranded := &ownershipWindow{Node: "w1", TxID: "tx-1", NeverOpened: true,
@@ -1067,15 +1096,16 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 		{"restoration never audited", pass, nil, testQualification(), unrestored, testObservation(),
 			[]string{failureContainment}},
 		// Exclusivity fails on both of these for the same reason "no window at all" does: nothing was ever
-		// compared. What separates them is containment, and only the audit can separate them.
+		// compared.
+		// What separates them is containment, and only the audit can separate them.
 		{"acquired, never observed, markers came off", pass, nil, testQualification(), neverOpenedRemoved,
 			testObservation(), []string{failureExclusivity}},
 		{"acquired, never observed, worker left marked", pass, nil, testQualification(), neverOpenedStranded,
 			testObservation(), []string{failureExclusivity, failureContainment}},
-		// The row the single-failure rows above cannot cover: two independent claims failing at once. Without
-		// it a derivation that stopped at the first failure would satisfy every other row here, since each of
-		// them has exactly one, and the block would silently become "the first thing that went wrong" — which
-		// is the free-text reason it exists to replace.
+		// The row the single-failure rows above cannot cover: two independent claims failing at once.
+		// Without it a derivation that stopped at the first failure would satisfy every other row here, since
+		// each of them has exactly one, and the block would silently become "the first thing that went wrong"
+		// — which is the free-text reason it exists to replace.
 		{"two claims fail at once", pass, []recordResidue{{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"}},
 			testQualification(), testWindow(), lostStream, []string{failureObservation, failureContainment}},
 	} {
@@ -1094,15 +1124,17 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 }
 
 // A preview's author declared its output uncountable in advance, so its record must not be readable as a pass
-// however well every other field came out. This is the same guarantee previewRecord's missing events field
-// provides, applied to the field a reader classifies on.
+// however well every other field came out.
+// This is the same guarantee previewRecord's missing events field provides, applied to the field a reader
+// classifies on.
 //
 // This became the ONLY thing -preview decides when gateRefusal was removed, which raises what this test is
 // worth rather than lowering it: a preview now runs every gate a run does, so its record differs from an
 // admissible one in this field alone, and the `if preview` branch below is the whole of the distinction.
 //
-// Mutation that turns this red: drop the `if preview` branch from deriveValidity. A preview against a clean
-// cluster then writes a record that says it is admissible, which is the one thing -preview exists to stop.
+// Mutation that turns this red: drop the `if preview` branch from deriveValidity.
+// A preview against a clean cluster then writes a record that says it is admissible, which is the one thing
+// -preview exists to stop.
 func TestAPreviewIsNeverAdmissibleHoweverWellItWent(t *testing.T) {
 	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
 		testObservation(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now()).(previewRecord)
@@ -1118,8 +1150,8 @@ func TestAPreviewIsNeverAdmissibleHoweverWellItWent(t *testing.T) {
 }
 
 // The verdict's whole value is that a reader classifies on it without parsing prose, so a value that is
-// neither documented name hands that reader something meaningless while looking like an answer. The blank is
-// the case that matters: it is what every record written before this schema decodes into.
+// neither documented name hands that reader something meaningless while looking like an answer.
+// The blank is the case that matters: it is what every record written before this schema decodes into.
 //
 // Mutation that turns this red: delete the default arm from checkValidity.
 func TestDecodeRunRecordRefusesAVerdictNoBuildEverWrote(t *testing.T) {
@@ -1141,7 +1173,8 @@ func TestDecodeRunRecordRefusesAVerdictNoBuildEverWrote(t *testing.T) {
 // admissible direction — and only that direction — is re-derived at decode.
 //
 // Mutation that turns this red: delete the deriveValidity re-check from checkValidity's verdictAdmissible
-// arm. Both documents below then decode, and a reader is handed "admissible" over a worker that was shared
+// arm.
+// Both documents below then decode, and a reader is handed "admissible" over a worker that was shared
 // mid-run and over a run that never opened a stream.
 func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testing.T) {
 	admissible := `{"verdict":"admissible-under-implemented-gates","deviceEvidence":"device-not-observed"}`
@@ -1182,12 +1215,14 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testi
 		t.Fatal("a record claiming to be admissible while carrying no observation at all was accepted")
 	}
 	// A document that claims the strongest verdict AND lists claims it did not support is contradicting
-	// itself, whatever its other fields say. It is refused by its own arm rather than by the re-derivation
-	// above, because the fields here DO support admissible — only the block disagrees with itself.
+	// itself, whatever its other fields say.
+	// It is refused by its own arm rather than by the re-derivation above, because the fields here DO
+	// support admissible — only the block disagrees with itself.
 	//
 	// Mutation that turns this red: delete the `len(r.Validity.Failures) > 0` check from checkValidity's
-	// admissible arm. The document then decodes, and a reader is handed a verdict and a list of reasons not to
-	// believe it in the same object.
+	// admissible arm.
+	// The document then decodes, and a reader is handed a verdict and a list of reasons not to believe it in
+	// the same object.
 	contradictory := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
 		`"disposition":"completed-implemented-checks-passed","validity":{"verdict":%q,"failures":[%q]},`+
 		`"qualification":%s,"window":`+window+`,"observation":%s}`,
@@ -1208,11 +1243,11 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testi
 // The reviewer's throwaway probe, made permanent: a forged record whose Pod stream forwarded a terminal 410,
 // followed by a healthy DUPLICATE Pod stream, decoded as admissible.
 //
-// It is a regression test for the fix to the missing-kind finding rather than for an original gap. That fix
-// keyed the streams by kind so the record's coverage could be checked against watchedKinds, and a kind-keyed
-// map keeps only the LAST entry — so the loss sat in an element nothing read. Every resume point here is
-// valid, which is what keeps decodeRunRecord's own all-streams guard silent and leaves the verdict as the
-// only thing standing between this document and a reader treating it as evidence.
+// It is a regression test for the fix to the missing-kind finding rather than for an original gap.
+// That fix keyed the streams by kind so the record's coverage could be checked against watchedKinds, and a
+// kind-keyed map keeps only the LAST entry — so the loss sat in an element nothing read.
+// Every resume point here is valid, which is what keeps decodeRunRecord's own all-streams guard silent and
+// leaves the verdict as the only thing standing between this document and a reader treating it as evidence.
 //
 // It goes through decodeRunRecord rather than calling observationContinuous, deliberately: a forged document
 // arrives at the decoder, and this pins the whole path checkValidity's admissible re-derivation exists for.
@@ -1223,7 +1258,8 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testi
 // No build writes a duplicate kind, so no real run was ever affected.
 //
 // Mutation that turns this red: delete the `len(obs.Streams) != len(watchedKinds())` check from
-// observationContinuous. The healthy duplicate then masks the 410 and the document decodes as admissible.
+// observationContinuous.
+// The healthy duplicate then masks the 410 and the document decodes as admissible.
 func TestDecodeRunRecordRefusesAnAdmissibleVerdictHidingALossBehindADuplicateStream(t *testing.T) {
 	stream := func(kind, lastStatus string) string {
 		return fmt.Sprintf(`{"kind":%q,"baselineResourceVersion":"2000","baselineObjects":0,`+
@@ -1260,12 +1296,12 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictHidingALossBehindADuplicateStr
 // This is the defect the first round of this gate shipped and a live run exposed: the block carried that
 // roadmap, so a record holding an observation, a qualification, a window and a derived verdict asserted
 // inside itself that this build had no "synchronized list+watch with resourceVersion continuity" and no
-// "validity-bearing run artifact" — the block printed beside it, and the block making the assertion. A reader
-// following that list would discount exactly the evidence this gate exists to add.
+// "validity-bearing run artifact" — the block printed beside it, and the block making the assertion.
+// A reader following that list would discount exactly the evidence this gate exists to add.
 //
 // The canary is asserted as PRESENT as well, because a list narrowed to nothing would pass a "does not name
-// the implemented gates" check while quietly claiming this build checks everything. Something is genuinely
-// missing and the record has to keep saying so.
+// the implemented gates" check while quietly claiming this build checks everything.
+// Something is genuinely missing and the record has to keep saying so.
 //
 // The three implemented gates below are still spelled the way the roadmap spelled them even though nothing
 // prints that wording any more, and that is on purpose: those strings are what a reverted or re-copied list
@@ -1284,10 +1320,10 @@ func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 	if !strings.Contains(got, "termination canary") {
 		t.Fatalf("the record no longer says what this build still cannot check: %q", got)
 	}
-	// And it says the RESIDUAL rather than the gate. The canary gate now exists and every run stands on one, so
-	// an entry still claiming nothing checks that the worker can stop a Pod would be exactly the defect this
-	// list was created to remove — a durable statement about the document it sits in, false about the build
-	// that wrote it — pointing the other way.
+	// And it says the RESIDUAL rather than the gate.
+	// The canary gate now exists and every run stands on one, so an entry still claiming nothing checks that
+	// the worker can stop a Pod would be exactly the defect this list was created to remove — a durable
+	// statement about the document it sits in, false about the build that wrote it — pointing the other way.
 	if strings.Contains(got, "nothing in this build checks") {
 		t.Fatalf("the record claims this build cannot check what the run it describes was refused or qualified "+
 			"on: %q", got)
@@ -1306,32 +1342,34 @@ func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 
 // The successor to the four tests deleted from spine_test.go with gateRefusal and unimplementedGates().
 //
-// Those four kept a list of missing work from decaying in three specific ways — going empty, naming something
-// already built, being widened back after somebody narrowed it — and the list they guarded no longer exists.
+// Those four kept a list of missing work from decaying in three specific ways — going empty, naming something already built,
+// being widened back after somebody narrowed it — and the list they guarded no longer exists.
 // The list that survives is recordUnchecked(workloadProvenance{}), which is strictly more consequential: the old one was printed
-// once on a terminal and could be over-broad at no cost, while this one is persisted into every record ever
-// written and read by someone who has only the file. So the same three pressures move here, applied to the
-// stronger list.
+// once on a terminal and could be over-broad at no cost, while this one is persisted into every record ever written and read by
+// someone who has only the file.
+// So the same three pressures move here, applied to the stronger list.
 //
 // The test asserts on recordUnchecked(workloadProvenance{}) directly rather than through a record, unlike the test above it, and
-// the two are not redundant. That one proves the list REACHES the document; this one proves the list still
-// SAYS the four things the residual consists of. Either alone leaves a hole: a correct list that buildRecord
-// dropped, or a faithfully persisted list narrowed to a sentence that means nothing.
+// the two are not redundant.
+// That one proves the list REACHES the document; this one proves the list still SAYS the four things the residual consists of.
+// Either alone leaves a hole: a correct list that buildRecord dropped, or a faithfully persisted list narrowed to a sentence
+// that means nothing.
 //
 // The clauses are exactly the residual the canary gate does not close, and each names a distinct thing a
 // reader would otherwise assume was covered — that a run's Pods travel MLTrainingJob, Kueue admission and the
 // Job controller, and that the template probed is the one this binary renders rather than the one the
-// operator image on the cluster does. Truncating any one of them is an overclaim about coverage, which is the
-// direction this whole list exists to guard.
+// operator image on the cluster does.
+// Truncating any one of them is an overclaim about coverage, which is the direction this whole list exists to
+// guard.
 //
 // Mutation that turns this red: have recordUnchecked(workloadProvenance{}) return nil, or drop any one of the four clauses below
 // from its entry — for instance the last, on the grounds that the template is keyed and probed and therefore
 // "covered", which is precisely the overclaim the entry was narrowed twice to avoid making.
 func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
 	unchecked := recordUnchecked(workloadProvenance{})
-	// Two entries, and the count is asserted so the list cannot grow into a roadmap. Each has to be justified
-	// the same way the first was: verifiable in the code of the build that wrote the document, because a reader
-	// holding the file has nothing else to check it against.
+	// Two entries, and the count is asserted so the list cannot grow into a roadmap.
+	// Each has to be justified the same way the first was: verifiable in the code of the build that wrote the
+	// document, because a reader holding the file has nothing else to check it against.
 	if len(unchecked) != 2 {
 		t.Fatalf("want exactly 2 unchecked entries, got %d: %v", len(unchecked), unchecked)
 	}
@@ -1342,9 +1380,11 @@ func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
 				"supported", i)
 		}
 	}
-	// The four clauses of the canary residual. Each is something a run does and the canary does not, so each is
-	// a sentence a reader needs in order to size what the reading covers. "Job controller" rather than the bare
-	// "Job", because that is a substring of MLTrainingJob above and would be satisfied by the clause before it.
+	// The four clauses of the canary residual.
+	// Each is something a run does and the canary does not, so each is a sentence a reader needs in order to
+	// size what the reading covers.
+	// "Job controller" rather than the bare "Job", because that is a substring of MLTrainingJob above and would
+	// be satisfied by the clause before it.
 	for _, want := range []string{
 		"MLTrainingJob",  // nothing here submits one, so the reconcile loop is not travelled
 		"Kueue",          // and therefore nothing is admitted
@@ -1361,12 +1401,13 @@ func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
 	//
 	// It used to be a constant, and the constant went false: it said this build's workload "is pure Python
 	// float arithmetic making no driver call" and kept saying it into every record after the workload gained
-	// a device path. On a successful GPU run the same document would have carried
-	// validity.deviceEvidence: "device-work-observed" beside a paragraph saying that was impossible.
+	// a device path.
+	// On a successful GPU run the same document would have carried validity.deviceEvidence:
+	// "device-work-observed" beside a paragraph saying that was impossible.
 	//
 	// This test pinned "fake device plugin" and so shared the defect: that is a property of the CLUSTER a run
-	// happens on, not of the build, and on the hardware this study rents the plugin is real. What is asserted
-	// now is what each shape must say for the entry to do its job.
+	// happens on, not of the build, and on the hardware this study rents the plugin is real.
+	// What is asserted now is what each shape must say for the entry to do its job.
 	for _, want := range []string{
 		"discardedIterations", // the field it qualifies, by name
 		"did NOT establish",   // the claim itself, unambiguously
@@ -1379,8 +1420,9 @@ func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
 		}
 	}
 	// And the shape a successful session writes, which no run has produced yet and which must not read as an
-	// unqualified claim. What it still cannot check is exclusivity against activity wearing no Pod label at
-	// all, and saying so is the entry's whole purpose on that path.
+	// unqualified claim.
+	// What it still cannot check is exclusivity against activity wearing no Pod label at all, and saying so
+	// is the entry's whole purpose on that path.
 	established := recordUnchecked(workloadProvenance{DeviceUseEstablished: true})[1]
 	for _, want := range []string{
 		"established",       // it says what the run did establish
@@ -1394,8 +1436,8 @@ func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
 	}
 }
 
-// The provenance travels with the number, in the record, not only in a source comment. A consumer reading
-// discardedIterations without it has no way to know the count is CPU work.
+// The provenance travels with the number, in the record, not only in a source comment.
+// A consumer reading discardedIterations without it has no way to know the count is CPU work.
 //
 // Mutation that turns this red: drop Workload from measurementOf.
 func TestTheMeasurementSaysWhatProducedItsIterations(t *testing.T) {
@@ -1411,8 +1453,9 @@ func TestTheMeasurementSaysWhatProducedItsIterations(t *testing.T) {
 			"rather than a stated limit")
 	}
 	// A measurement built from no events cannot know which loop ran, and it says so rather than naming the
-	// fallback. Defaulting to the CPU kind here would publish a genuine device run under the fallback's name
-	// on any run whose ledger this build could not read -- which is the same guess the literal used to be.
+	// fallback.
+	// Defaulting to the CPU kind here would publish a genuine device run under the fallback's name on any
+	// run whose ledger this build could not read -- which is the same guess the literal used to be.
 	if m.Workload.Kind != unreportedWorkloadKind {
 		t.Fatalf("a measurement with no ledger named a workload anyway: %q", m.Workload.Kind)
 	}
@@ -1423,8 +1466,9 @@ func TestTheMeasurementSaysWhatProducedItsIterations(t *testing.T) {
 
 // startWatchStream refuses "" and "0" outright, because a watch that begins at "now" or at an arbitrary
 // cached point cannot speak for the interval before it attached — which is the defect the continuity gate
-// replaced. So a stream recorded with either is a hand-edited or future-written document, and it must not be
-// readable as the continuous view the block's existence claims.
+// replaced.
+// So a stream recorded with either is a hand-edited or future-written document, and it must not be readable
+// as the continuous view the block's existence claims.
 //
 // Mutation that turns this red: delete the observation guard from decodeRunRecord.
 func TestDecodeRunRecordRefusesAStreamWithNoResumePoint(t *testing.T) {
@@ -1440,17 +1484,19 @@ func TestDecodeRunRecordRefusesAStreamWithNoResumePoint(t *testing.T) {
 	}
 }
 
-// The record shape gate 3 shipped, refused rather than read. The asymmetry is the one recordSchemaVersion's
-// comment describes and the reason the bump is the right instrument: a version-4 record read by a version-3
-// build already fails loudly on DisallowUnknownFields, while a version-3 record read by this build decodes
-// without complaint into a nil observation and a blank verdict — a run that "never observed anything" and was
-// "never judged", said about a run that did both under rules that could not record either.
+// The record shape gate 3 shipped, refused rather than read.
+// The asymmetry is the one recordSchemaVersion's comment describes and the reason the bump is the right
+// instrument: a version-4 record read by a version-3 build already fails loudly on DisallowUnknownFields,
+// while a version-3 record read by this build decodes without complaint into a nil observation and a blank
+// verdict — a run that "never observed anything" and was "never judged", said about a run that did both under
+// rules that could not record either.
 //
-// Two mutations turn this red, and they are red for different halves. Reverting recordSchemaVersion to 3
-// alone still refuses this document — the verdict guard catches the blank — but the refusal then names no
-// version, and the second assertion fails: the operator is told the verdict is unreadable rather than which
-// build wrote the file. Reverting the version AND deleting the verdict guard is the pre-fix build, and the
-// document decodes clean, so the first assertion fires with a nil observation in hand.
+// Two mutations turn this red, and they are red for different halves.
+// Reverting recordSchemaVersion to 3 alone still refuses this document — the verdict guard catches the
+// blank — but the refusal then names no version, and the second assertion fails: the operator is told the
+// verdict is unreadable rather than which build wrote the file.
+// Reverting the version AND deleting the verdict guard is the pre-fix build, and the document decodes
+// clean, so the first assertion fires with a nil observation in hand.
 func TestDecodeRunRecordRefusesTheShapeThatPredatesTheObservationBlock(t *testing.T) {
 	preFix := []byte(`{"schemaVersion":3,"runID":"g3a","arm":"A-honor",` +
 		`"disposition":"completed-implemented-checks-passed","qualification":{` +
@@ -1477,10 +1523,11 @@ func TestDecodeRunRecordRefusesTheShapeThatPredatesTheObservationBlock(t *testin
 // A record written before the dose regime was named must stop decoding, because its silence is not neutral.
 //
 // The two regimes measure different quantities: self-completing reports what the victim's remaining WORK
-// costs the owner, grace-bounded what the platform's configured PATIENCE costs it. Every record before this
-// bump ran the first, but says nothing — so a reader comparing an old document against a new grace-bounded
-// one would be comparing numbers that never answered the same question, with nothing in either file to warn
-// them. Refusing the old version is what makes the omission visible instead of silently favourable.
+// costs the owner, grace-bounded what the platform's configured PATIENCE costs it.
+// Every record before this bump ran the first, but says nothing — so a reader comparing an old document
+// against a new grace-bounded one would be comparing numbers that never answered the same question, with
+// nothing in either file to warn them.
+// Refusing the old version is what makes the omission visible instead of silently favourable.
 //
 // Mutation that turns this red: leave recordSchemaVersion at 6 — both halves, the constant and the document.
 func TestARecordFromBeforeTheDoseRegimeIsRefusedRatherThanAssumedDefault(t *testing.T) {
@@ -1507,10 +1554,11 @@ func TestARecordFromBeforeTheDoseRegimeIsRefusedRatherThanAssumedDefault(t *test
 // a floor and the file said nothing about which.
 //
 // Waste is censored when an attempt's stop is observed BEYOND the horizon: the loss is attributable but its
-// interval is truncated, so wastedGPUSeconds becomes a lower bound. The printed result always said so; the
-// durable artifact did not, and the artifact is what outlives the terminal. On a slower cluster — a longer
-// image pull pushes every stop later — censoring stops being exotic, which is why this cannot wait for the
-// hardware that makes it common.
+// interval is truncated, so wastedGPUSeconds becomes a lower bound.
+// The printed result always said so; the durable artifact did not, and the artifact is what outlives the
+// terminal.
+// On a slower cluster — a longer image pull pushes every stop later — censoring stops being exotic, which
+// is why this cannot wait for the hardware that makes it common.
 //
 // The horizon is in the same block for a related reason: without it a reader holding the ledger cannot
 // replay it to the same boundary, so none of the numbers could be recomputed even in principle.
@@ -1532,9 +1580,10 @@ func TestARecordFromBeforeTheMeasurementBlockIsRefused(t *testing.T) {
 	// the measurement there is exactly one way to test that: a document may carry the flag its own ledger
 	// produces, and may not carry the other one.
 	//
-	// This used to hand-build a censored measurement and assert it round-tripped. That fixture cannot exist
-	// now, and its impossibility is the feature -- a record claiming its waste is a floor, on a ledger where
-	// every attempt stopped inside the horizon, is a record that has downgraded its own headline for free.
+	// This used to hand-build a censored measurement and assert it round-tripped.
+	// That fixture cannot exist now, and its impossibility is the feature -- a record claiming its waste is
+	// a floor, on a ledger where every attempt stopped inside the horizon, is a record that has downgraded
+	// its own headline for free.
 	real := committedRecord(t)
 	got, err := decodeRunRecord(real)
 	if err != nil {
@@ -1564,7 +1613,8 @@ func TestARecordFromBeforeTheMeasurementBlockIsRefused(t *testing.T) {
 //
 // The schema test above builds a measurement literal and round-trips it, which proves the wire format and
 // nothing about whether the run's own numbers reach it — dropping the censoring flag inside measurementOf
-// left that test green. A mutation that survives is a coverage hole, and this is the hole.
+// left that test green.
+// A mutation that survives is a coverage hole, and this is the hole.
 //
 // Mutations that turn this red: hard-code Censored to false; or return a zero block instead of nil for a run
 // that never reconstructed.
@@ -1598,19 +1648,21 @@ func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
 // A record from before the iteration count is refused, because its silence about discarded WORK reads as a
 // run that measured it and lost none.
 //
-// GPU-seconds say how long a device was held; iterations say what was thrown away. A workload that computed
-// nothing produced the same waste figure as one that saturated the card, which is the ambiguity Stage A's
-// counting exists to end and this field carries into the artifact.
+// GPU-seconds say how long a device was held; iterations say what was thrown away.
+// A workload that computed nothing produced the same waste figure as one that saturated the card, which is
+// the ambiguity Stage A's counting exists to end and this field carries into the artifact.
 //
 // Mutation that turns this red: leave recordSchemaVersion at 8 — both halves.
 // TestTheWorkCheckAxisIsDerivedRatherThanAssumed pins the consumption the accumulator was emitted for.
 //
 // A review found the emitting half shipped without it: the value reached the artifact and nothing read it,
 // which is the state the device boolean was in before version 18 — a claim with its evidence sitting beside
-// it, unconsulted. These four rows are the whole input space of checkReportedWork.
+// it, unconsulted.
+// These four rows are the whole input space of checkReportedWork.
 //
-// work-unavailable is asserted as carefully as the other two. "Nobody could check" and "the check failed" are
-// different facts, and a boolean would have made the first read as the second.
+// work-unavailable is asserted as carefully as the other two.
+// "Nobody could check" and "the check failed" are different facts, and a boolean would have made the first
+// read as the second.
 func TestTheWorkCheckAxisIsDerivedRatherThanAssumed(t *testing.T) {
 	p, err := queuelab.ScriptAccumulatorParams()
 	if err != nil {
@@ -1651,8 +1703,9 @@ func TestTheWorkCheckAxisIsDerivedRatherThanAssumed(t *testing.T) {
 		},
 		{
 			// The device loop calls the kernel and never advances the accumulator, so a resumed attempt and
-			// an uninterrupted one both report the seed. Calling that verified would agree for the wrong
-			// reason, which is the one outcome worse than not checking.
+			// an uninterrupted one both report the seed.
+			// Calling that verified would agree for the wrong reason, which is the one outcome worse than
+			// not checking.
 			name: "a device attempt, where the accumulator is not advanced",
 			in: reportedWorkload{Token: queuelab.KindCUDAFMA, Kind: "cuda", Iterations: n(4),
 				Accumulator: f(1.0)},
@@ -1660,9 +1713,9 @@ func TestTheWorkCheckAxisIsDerivedRatherThanAssumed(t *testing.T) {
 		},
 		{
 			// A resumed attempt is checked against its TOTAL count, because the accumulator advances once per
-			// inner step from the seed regardless of how many processes did the advancing. This row exists so
-			// that an edit "correcting" the oracle to use the attempt's own share -- iterations minus resumed
-			// -- fails here rather than making every resumed run read as mismatched.
+			// inner step from the seed regardless of how many processes did the advancing.
+			// This row exists so that an edit "correcting" the oracle to use the attempt's own share --
+			// iterations minus resumed -- fails here rather than making every resumed run read as mismatched.
 			name: "a resumed attempt, checked against the total it reports",
 			in: reportedWorkload{Token: queuelab.KindCPUFloat, Kind: "cpu", Iterations: n(4),
 				Accumulator: f(good), Resumed: n(3)},
@@ -1685,84 +1738,94 @@ func TestTheWorkCheckAxisIsDerivedRatherThanAssumed(t *testing.T) {
 }
 
 func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
-	// The version is pinned so a wire change cannot ship without someone deciding to bump it. Version 10
-	// removed LifecycleEvent.tenant and .gpuCount: nothing ever wrote them, so every event in every record
-	// this build had produced carried "" and 0 beneath two sentences saying they meant something. Version 12
-	// added measurement.resolution.resolvedToNs, where an absent value decodes to zero and zero is the
-	// strongest claim the field can make -- so every earlier record would assert perfect resolution in the
-	// one field a consumer is meant to act on. Version 13 added validity.deviceEvidence, so that whether a
-	// run established device WORK is a field a consumer classifies on rather than a paragraph of English in
-	// unimplementedGates. Version 14 added measurement.ownerAdmitToReadyNs, where the absent value is nil --
-	// which this build genuinely writes, for a run whose owner never came back. Without the bump an older
-	// record reads as the experiment's worst outcome rather than as a run nobody measured it on. Version 15
-	// changed what resolvedToNs MEANS (spread + quantisation, not max) and where the ledger's component
-	// stamps are sampled (every endpoint kind, not stops alone), so an older record carries the same field
-	// names holding different quantities.
+	// The version is pinned so a wire change cannot ship without someone deciding to bump it.
+	// Version 10 removed LifecycleEvent.tenant and .gpuCount: nothing ever wrote them, so every event in
+	// every record this build had produced carried "" and 0 beneath two sentences saying they meant
+	// something.
+	// Version 12 added measurement.resolution.resolvedToNs, where an absent value decodes to zero and zero
+	// is the strongest claim the field can make -- so every earlier record would assert perfect resolution
+	// in the one field a consumer is meant to act on.
+	// Version 13 added validity.deviceEvidence, so that whether a run established device WORK is a field a
+	// consumer classifies on rather than a paragraph of English in unimplementedGates.
+	// Version 14 added measurement.ownerAdmitToReadyNs, where the absent value is nil -- which this build
+	// genuinely writes, for a run whose owner never came back.
+	// Without the bump an older record reads as the experiment's worst outcome rather than as a run nobody
+	// measured it on.
+	// Version 15 changed what resolvedToNs MEANS (spread + quantisation, not max) and where the ledger's
+	// component stamps are sampled (every endpoint kind, not stops alone), so an older record carries the
+	// same field names holding different quantities.
 	// Version 17 made the workload's provenance evidence rather than an assertion: events carry the kind and
-	// device status the container itself reported, and measurement.workload is derived from them. A
-	// version-16 record says "pure Python arithmetic" because its build hardcoded that, not because anything
-	// in the run said so, and nothing in the document distinguishes the two. Version 17 made the device
-	// claim a boolean derived from an observation the record did not carry; version 18 carries the
-	// observation -- the observer's declared identity and endpoint, the window judged, and the samples the
-	// gate read -- and re-runs the gate over them at decode. A version-17 record asserts; an 18 can be
-	// refuted.
+	// device status the container itself reported, and measurement.workload is derived from them.
+	// A version-16 record says "pure Python arithmetic" because its build hardcoded that, not because
+	// anything in the run said so, and nothing in the document distinguishes the two.
+	// Version 17 made the device claim a boolean derived from an observation the record did not carry;
+	// version 18 carries the observation -- the observer's declared identity and endpoint, the window
+	// judged, and the samples the gate read -- and re-runs the gate over them at decode.
+	// A version-17 record asserts; an 18 can be refuted.
 	//
 	// Version 19 split the device claim into the two intervals it was always two questions about: the
 	// exclusivity, coverage and continuity clauses read the HOLD, and the busyness clause reads the victim's
-	// own ATTEMPT. Asking all of them over the hold refused the arm that honours SIGTERM for being idle while
-	// it was being terminated -- and passed the arm that ignores it, which computes through its whole hold --
-	// so -require-device removed the short arm and kept the long one, leaving no contrast to form. A
-	// version-18 record that CARRIES an observation was judged by the collapsed question and is refused; one
-	// that carries none is byte-identical in meaning under both, and is accepted, because every run this lab
-	// has taken ran on a fake device plugin with no observer and refusing them would orphan the set the
+	// own ATTEMPT.
+	// Asking all of them over the hold refused the arm that honours SIGTERM for being idle while it was being
+	// terminated -- and passed the arm that ignores it, which computes through its whole hold -- so
+	// -require-device removed the short arm and kept the long one, leaving no contrast to form.
+	// A version-18 record that CARRIES an observation was judged by the collapsed question and is refused;
+	// one that carries none is byte-identical in meaning under both, and is accepted, because every run this
+	// lab has taken ran on a fake device plugin with no observer and refusing them would orphan the set the
 	// committed documents quote.
 	//
-	// Version 20 makes the WORK claim falsifiable, which is what 18 did for the device claim. Events carry
-	// `accumulator`, the deterministic value the CPU loop held when an attempt stopped, and
+	// Version 20 makes the WORK claim falsifiable, which is what 18 did for the device claim.
+	// Events carry `accumulator`, the deterministic value the CPU loop held when an attempt stopped, and
 	// internal/queuelab/oracle.go predicts that value from the iteration count beside it -- so a reader
-	// holding nothing but the document can ask whether an attempt did the work its count claims. A
-	// version-19 record carries the count alone, which is the shape the device boolean had before 18: an
-	// assertion with nothing to check it against. A 19 record is accepted, because absence of the field
-	// under 20 means what it meant under 19 -- that build's workload did not report one -- and the field is
-	// a pointer, so absence reads as absence rather than as zero.
+	// holding nothing but the document can ask whether an attempt did the work its count claims.
+	// A version-19 record carries the count alone, which is the shape the device boolean had before 18: an
+	// assertion with nothing to check it against.
+	// A 19 record is accepted, because absence of the field under 20 means what it meant under 19 -- that
+	// build's workload did not report one -- and the field is a pointer, so absence reads as absence rather
+	// than as zero.
 	//
-	// This assertion is the second tripwire the bump tripped, and both were doing their job. The first was
-	// the `recordSchemaVersion != 19` clause inside decodeRunRecord's 18 exception: changing the constant
-	// silently withdrew that exception and every committed ex/e17-*.json began failing with `schema 18 is
-	// not 20`, which TestEveryRunRecordDecodesUnderThisBuild caught. A bump that carried its exceptions
-	// along by accident is exactly what these clauses exist to prevent.
+	// This assertion is the second tripwire the bump tripped, and both were doing their job.
+	// The first was the `recordSchemaVersion != 19` clause inside decodeRunRecord's 18 exception: changing
+	// the constant silently withdrew that exception and every committed ex/e17-*.json began failing with
+	// `schema 18 is not 20`, which TestEveryRunRecordDecodesUnderThisBuild caught.
+	// A bump that carried its exceptions along by accident is exactly what these clauses exist to prevent.
 	//
-	// Version 21 makes a resumed attempt SAYABLE. Events gained `resumed`, the count an attempt began from,
-	// and without it a resumed attempt is indistinguishable from one that ran from zero -- the oracle accepts
-	// both, because the pair is internally consistent either way. It is also what stops discarded work being
-	// counted twice: an attempt that restored 1370 and stopped at 2698 performed 1328 iterations, and
-	// charging it the full count bills the first stretch to two attempts. A version-20 record carries no such
-	// field, which under 21 means what it meant under 20 -- that build's workload always began at zero.
+	// Version 21 makes a resumed attempt SAYABLE.
+	// Events gained `resumed`, the count an attempt began from, and without it a resumed attempt is
+	// indistinguishable from one that ran from zero -- the oracle accepts both, because the pair is
+	// internally consistent either way.
+	// It is also what stops discarded work being counted twice: an attempt that restored 1370 and stopped at
+	// 2698 performed 1328 iterations, and charging it the full count bills the first stretch to two attempts.
+	// A version-20 record carries no such field, which under 21 means what it meant under 20 -- that build's
+	// workload always began at zero.
 	//
 	// Version 22 makes a FAILED CHECKPOINT sayable. save() swallows its own exceptions -- and must, because a
 	// workload that died on a failed write would leave no final message and an unreadable run is worse than a
 	// refused one -- so until this version a read-only mount, a full disk or a missing directory produced a
-	// run byte-identical to a successful one. For the resume arms that is the failure that matters most,
-	// because it hides in the direction nobody questions: E-resume restores nothing and reports restoring
-	// nothing, which is exactly what a genuine null result reports. Events gained `saveStatus`, and a
-	// version-21 record carries none -- which under 22 means what it meant under 21, that the build could not
-	// report one.
+	// run byte-identical to a successful one.
+	// For the resume arms that is the failure that matters most, because it hides in the direction nobody
+	// questions: E-resume restores nothing and reports restoring nothing, which is exactly what a genuine
+	// null result reports.
+	// Events gained `saveStatus`, and a version-21 record carries none -- which under 22 means what it meant
+	// under 21, that the build could not report one.
 	//
-	// Version 23 makes HOW A WORKLOAD SPENT ITS SERVICE measurable. Until it, the only duty figure in a record
-	// was `dutyCycle` -- the workload echoing back the argument it was given -- so a workload whose sleep had
-	// been deleted reported the same 0.5 as one that idled half its service, and the two tests guarding the
-	// axis could assert only an ordering on reported counts. Events gained `sleptNs` and `windowNs`, measured
-	// around the workload's own sleep calls with its own monotonic clock, and a version-22 record carries
-	// neither -- which under 23 means what it meant under 22, that the build could not measure it. The fields
-	// are pointers, so absence reads as absence rather than as a measured zero, and those are different claims:
-	// a full-duty attempt slept none of its service and now says so.
+	// Version 23 makes HOW A WORKLOAD SPENT ITS SERVICE measurable.
+	// Until it, the only duty figure in a record was `dutyCycle` -- the workload echoing back the argument it
+	// was given -- so a workload whose sleep had been deleted reported the same 0.5 as one that idled half its
+	// service, and the two tests guarding the axis could assert only an ordering on reported counts.
+	// Events gained `sleptNs` and `windowNs`, measured around the workload's own sleep calls with its own
+	// monotonic clock, and a version-22 record carries neither -- which under 23 means what it meant under 22,
+	// that the build could not measure it.
+	// The fields are pointers, so absence reads as absence rather than as a measured zero, and those are
+	// different claims: a full-duty attempt slept none of its service and now says so.
 	if recordSchemaVersion != 23 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
-	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
-	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
-	// would be reading a document whose fields do not mean what this build thinks they do.
+	// Both predecessors, not only the immediate one.
+	// DisallowUnknownFields makes a version-9 document fail on the removed fields and a version-8 one fail on
+	// the version alone, and a decoder that accepted either would be reading a document whose fields do not
+	// mean what this build thinks they do.
 	for _, older := range []int{9, 10, 11, 12, 13, 14, 15, 16, 17} {
 		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
@@ -1785,8 +1848,8 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	}
 
 	// WITH one, it was judged by the collapsed question -- busyness over the hold -- and re-running the split
-	// gate over it would reach a verdict its run never took. That is a different document, not an older
-	// spelling of this one.
+	// gate over it would reach a verdict its run never took.
+	// That is a different document, not an older spelling of this one.
 	withObs := fmt.Appendf(nil, `{"schemaVersion":18,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 		`"disposition":"completed-implemented-checks-passed",`+
 		`"deviceObservation":{"observer":"dcgm","identity":"dcgm@sha256:abc","endpoint":"http://x/metrics",`+
@@ -1801,10 +1864,11 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 
 	// 19 is the second exception, and unlike 18's it is unconditional.
 	//
-	// 20 added `accumulator` to events. A version-19 document carries none, and under 20 that means what it
-	// meant under 19 -- the workload of that build did not report one -- so there is no claim for the change
-	// to have changed. Asserted here because an exception nothing exercises is an exception that stops being
-	// true the next time this block is edited.
+	// 20 added `accumulator` to events.
+	// A version-19 document carries none, and under 20 that means what it meant under 19 -- the workload of
+	// that build did not report one -- so there is no claim for the change to have changed.
+	// Asserted here because an exception nothing exercises is an exception that stops being true the next
+	// time this block is edited.
 	nineteen := fmt.Appendf(nil, `{"schemaVersion":19,"dose":"self-completing","runID":"r8","arm":"A-honor",`+
 		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
 	if _, err := decodeRunRecord(nineteen); err != nil {
@@ -1825,8 +1889,9 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// premise was not enforced.
 	//
 	// DisallowUnknownFields does not enforce it: decoding uses today's struct, so `accumulator` is a known
-	// field at every version. A schema-20 record relabelled 19 decoded clean and passed as historical
-	// evidence -- the exact comparison the version exists to prevent.
+	// field at every version.
+	// A schema-20 record relabelled 19 decoded clean and passed as historical evidence -- the exact
+	// comparison the version exists to prevent.
 	for _, older := range []int{18, 19} {
 		withAcc := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r9","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",`+
@@ -1851,9 +1916,10 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 		}
 	}
 
-	// The same premise for the field 22 added, over one more version again. No build at 18 through 21 could
-	// report whether its checkpoint landed, so a document at any of them carrying a save status is a
-	// relabelled 22 being passed off as evidence taken under rules where a failed write was invisible.
+	// The same premise for the field 22 added, over one more version again.
+	// No build at 18 through 21 could report whether its checkpoint landed, so a document at any of them
+	// carrying a save status is a relabelled 22 being passed off as evidence taken under rules where a
+	// failed write was invisible.
 	for _, older := range []int{18, 19, 20, 21} {
 		withSave := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r9",`+
 			`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
@@ -1865,9 +1931,10 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 		}
 	}
 
-	// The same premise for the pair 23 added, over one more version again. No build at 18 through 22 measured
-	// how its workload spent its service, so a document at any of them carrying the observation is a relabelled
-	// 23 being passed off as evidence taken under rules where a configured duty was all anyone could report.
+	// The same premise for the pair 23 added, over one more version again.
+	// No build at 18 through 22 measured how its workload spent its service, so a document at any of them
+	// carrying the observation is a relabelled 23 being passed off as evidence taken under rules where a
+	// configured duty was all anyone could report.
 	for _, older := range []int{18, 19, 20, 21, 22} {
 		withSleep := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r9",`+
 			`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
@@ -1884,8 +1951,8 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// a forgery -- it was refused with `schema 20 is not 21` until the predicate was made version-aware.
 	//
 	// The sentence above promising that a 20 "can carry an accumulator" was false the whole time, and the
-	// `twenty` fixture could not catch it because it carries no events for the check to look at. An
-	// exception asserted with a document that never reaches the code path is not asserted.
+	// `twenty` fixture could not catch it because it carries no events for the check to look at.
+	// An exception asserted with a document that never reaches the code path is not asserted.
 	twentyWithAcc := fmt.Appendf(nil, `{"schemaVersion":20,"dose":"self-completing","runID":"r11",`+
 		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
 		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
@@ -1908,15 +1975,16 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	//
 	// This is the assertion the schema-20 case did not have, and the omission is why the blanket question
 	// went unnoticed for a version: the `twenty` fixture carries no events, so it never got as far as the
-	// field check, and the sentence promising a 20 could carry an accumulator was false the whole time. A 21
-	// carrying a resume point is an ordinary 21 -- 21 is the version that added the field -- and refusing it
-	// would be the same defect one version later.
+	// field check, and the sentence promising a 20 could carry an accumulator was false the whole time.
+	// A 21 carrying a resume point is an ordinary 21 -- 21 is the version that added the field -- and
+	// refusing it would be the same defect one version later.
 	//
-	// TWO attempts, and the first draft had one. A lone attempt claiming to have restored 3 iterations is
-	// refused by resumeSupportedByLedger -- no earlier attempt of its row could have produced them -- so the
-	// fixture failed for a reason that has nothing to do with the schema rule it is here to exercise. That is
-	// the same trap as the event-less `twenty` fixture above, one step along: a document refused by the wrong
-	// check says nothing about the right one.
+	// TWO attempts, and the first draft had one.
+	// A lone attempt claiming to have restored 3 iterations is refused by resumeSupportedByLedger -- no
+	// earlier attempt of its row could have produced them -- so the fixture failed for a reason that has
+	// nothing to do with the schema rule it is here to exercise.
+	// That is the same trap as the event-less `twenty` fixture above, one step along: a document refused by
+	// the wrong check says nothing about the right one.
 	twentyOneWithResume := fmt.Appendf(nil, `{"schemaVersion":21,"dose":"self-completing","runID":"r13",`+
 		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
 		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u1",`+
@@ -1939,9 +2007,10 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// And its positive side, with a document that REACHES the predicate.
 	//
 	// The event-less fixture above cannot: readableUnderCurrentSchema's 22 arm asks what the events carry, so a
-	// record with none never gets as far as the question. That is the trap the schema-20 case fell into for a
-	// whole version -- a sentence promising "a 20 can carry an accumulator" that no fixture exercised -- and
-	// asserting only the event-less shape here would repeat it one version later.
+	// record with none never gets as far as the question.
+	// That is the trap the schema-20 case fell into for a whole version -- a sentence promising "a 20 can carry
+	// an accumulator" that no fixture exercised -- and asserting only the event-less shape here would repeat it
+	// one version later.
 	twentyTwoWithSave := fmt.Appendf(nil, `{"schemaVersion":22,"dose":"self-completing","runID":"r15",`+
 		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
 		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
@@ -1955,14 +2024,16 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 // TestTheWorkCheckAxisIsCheckedForEverySchemaThatCanCarryIt pins the SCOPE of both axis checks.
 //
 // The decoder asks two separate things about measurement.workload.workCheck: that a document which can carry
-// it states one at all, and that the value it states follows from replaying its own ledger. Both were
-// written as `== recordSchemaVersion` while 20 was current. That read correctly then and narrowed silently
-// when the constant moved to 21, because a schema-20 document CAN carry the axis -- so exempting it dropped
-// the check on exactly the documents that have something to check.
+// it states one at all, and that the value it states follows from replaying its own ledger.
+// Both were written as `== recordSchemaVersion` while 20 was current.
+// That read correctly then and narrowed silently when the constant moved to 21, because a schema-20 document
+// CAN carry the axis -- so exempting it dropped the check on exactly the documents that have something to
+// check.
 //
-// Nothing caught the narrowing. Reverting either site to the current-version spelling left every test in
-// this package green, which is why these two cases exist: a check whose scope no test pins is a check that
-// quietly stops applying rather than one that fails.
+// Nothing caught the narrowing.
+// Reverting either site to the current-version spelling left every test in this package green, which is
+// why these two cases exist: a check whose scope no test pins is a check that quietly stops applying
+// rather than one that fails.
 func TestTheWorkCheckAxisIsCheckedForEverySchemaThatCanCarryIt(t *testing.T) {
 	real, err := os.ReadFile(filepath.Join("..", "..", "ex", "e17-self-completing-A-honor-e17sh1.json"))
 	if err != nil {
@@ -1987,8 +2058,9 @@ func TestTheWorkCheckAxisIsCheckedForEverySchemaThatCanCarryIt(t *testing.T) {
 		return b
 	}
 
-	// The demand. A document that could state the axis and states nothing leaves a reader unable to tell a
-	// verified count from one nobody could verify, which is the whole reason the field exists.
+	// The demand.
+	// A document that could state the axis and states nothing leaves a reader unable to tell a verified
+	// count from one nobody could verify, which is the whole reason the field exists.
 	if _, err := decodeRunRecord(as20(nil)); err == nil {
 		t.Fatal("a schema-20 record stating no work-check axis decoded, so the axis is optional for exactly " +
 			"the documents it was added for")
@@ -1996,8 +2068,9 @@ func TestTheWorkCheckAxisIsCheckedForEverySchemaThatCanCarryIt(t *testing.T) {
 		t.Fatalf("refused for some other reason, so this is not testing the demand: %v", err)
 	}
 
-	// The re-derivation, which is a different site. An axis that is present and well-spelled but does not
-	// follow from the ledger beside it is the forgery the comparison exists to catch.
+	// The re-derivation, which is a different site.
+	// An axis that is present and well-spelled but does not follow from the ledger beside it is the
+	// forgery the comparison exists to catch.
 	forged := as20(func(workload map[string]any) { workload["workCheck"] = workVerified })
 	if _, err := decodeRunRecord(forged); err == nil {
 		t.Fatal("a schema-20 record whose work-check axis does not follow from its own ledger decoded")
@@ -2013,8 +2086,9 @@ func TestTheWorkCheckAxisIsCheckedForEverySchemaThatCanCarryIt(t *testing.T) {
 // when nothing carried a count, which would report "nothing was discarded" for a run that could not tell.
 // TestDiscardedIterationsChargesAResumedAttemptOnlyItsOwnShare pins the arithmetic the resume arm needs.
 //
-// A resumed attempt reports the running total. Adding it whole bills the restored stretch to two attempts --
-// once to the one that lost it, once here -- in the figure every waste claim in this lab is denominated in.
+// A resumed attempt reports the running total.
+// Adding it whole bills the restored stretch to two attempts -- once to the one that lost it, once here --
+// in the figure every waste claim in this lab is denominated in.
 // It is the same class of error as the completion filter this function already carries, which on a live run
 // turned 21540 discarded iterations into 47513; the difference is that this one stays at zero until an arm
 // resumes, so it would first appear on the run the resume arm exists to produce.
@@ -2029,8 +2103,9 @@ func TestDiscardedIterationsChargesAResumedAttemptOnlyItsOwnShare(t *testing.T) 
 			ElapsedNs: at, Iterations: n(iters), Resumed: resumed,
 		}
 	}
-	// One row, preempted at 1370 and re-executed from there to 2698. Neither attempt was credited, so both
-	// are discarded work -- but the row performed 2698 iterations in total, not 4068.
+	// One row, preempted at 1370 and re-executed from there to 2698.
+	// Neither attempt was credited, so both are discarded work -- but the row performed 2698 iterations in
+	// total, not 4068.
 	events := []queuelab.LifecycleEvent{
 		stop("a1", 1_000, 1370, nil),
 		stop("a1", 2_000, 2698, n(1370)),
@@ -2055,9 +2130,10 @@ func TestDiscardedIterationsChargesAResumedAttemptOnlyItsOwnShare(t *testing.T) 
 // A resume point has to be supported by an attempt that could have produced it.
 //
 // The parser bounds a resume point inside its own message and nothing compared it with the ledger, so a
-// document could claim an attempt continued work no attempt ever did. The accumulator cannot catch that: an
-// attempt that restored nothing reports a value consistent with its own count, which is exactly why a broken
-// mount and a successful resume are arithmetically identical and only the ledger separates them.
+// document could claim an attempt continued work no attempt ever did.
+// The accumulator cannot catch that: an attempt that restored nothing reports a value consistent with its
+// own count, which is exactly why a broken mount and a successful resume are arithmetically identical and
+// only the ledger separates them.
 //
 // Mutations that turn this red: drop the predecessor requirement; let an event stand as its own predecessor;
 // accept a predecessor that reached fewer iterations than the successor claims to have restored; or examine
@@ -2111,8 +2187,9 @@ func TestAResumePointMustBeSupportedByAnEarlierAttempt(t *testing.T) {
 		t.Errorf("the refusal does not say how far the row actually got: %v", err)
 	}
 
-	// An attempt is not its own predecessor. A rule comparing counts alone would let one event supply its
-	// own evidence, which accepts every forgery this exists to refuse.
+	// An attempt is not its own predecessor.
+	// A rule comparing counts alone would let one event supply its own evidence, which accepts every
+	// forgery this exists to refuse.
 	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
 		stop("a1", "u1", 1_000, 1370, nil),
 		stop("a1", "u1", 2_000, 2698, n(1370)),
@@ -2120,7 +2197,8 @@ func TestAResumePointMustBeSupportedByAnEarlierAttempt(t *testing.T) {
 		t.Error("an attempt was accepted as its own predecessor")
 	}
 
-	// Neither is another row's. Rows are preempted independently and their counts are not interchangeable.
+	// Neither is another row's.
+	// Rows are preempted independently and their counts are not interchangeable.
 	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
 		stop("b1", "u9", 1_000, 5000, nil),
 		stop("a1", "u2", 2_000, 2698, n(1370)),
@@ -2149,8 +2227,9 @@ func TestAResumePointMustBeSupportedByAnEarlierAttempt(t *testing.T) {
 //
 // Deleting the call from ledgerSupportsTheDocument -- which checkValidity reaches for every verdict --
 // leaves every assertion in TestAResumePointMustBeSupportedByAnEarlierAttempt green, because they call the
-// helper directly. That is the shape of defect this session already found three times in this file -- a
-// judgment that was fixed, and then guarded by nothing -- so the wiring gets its own document.
+// helper directly.
+// That is the shape of defect this session already found three times in this file -- a judgment that was
+// fixed, and then guarded by nothing -- so the wiring gets its own document.
 //
 // Mutations that turn this red: remove the resumeSupportedByLedger call from ledgerSupportsTheDocument, or
 // move that helper's own call inside checkValidity's verdict switch, where a refused document would stop
@@ -2170,8 +2249,9 @@ func TestADecodedRecordCannotCarryAnUnsupportedResume(t *testing.T) {
 		t.Fatalf("refused for some other reason, so this is not testing the wiring: %v", err)
 	}
 
-	// The same document with the predecessor its successor claims. This is the control: without it, a
-	// decoder that refused every ledger carrying a resume would pass the assertion above.
+	// The same document with the predecessor its successor claims.
+	// This is the control: without it, a decoder that refused every ledger carrying a resume would
+	// pass the assertion above.
 	supported := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r14",`+
 		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
 		`"events":[{"elapsedNs":1000,"kind":"Pod","type":"AttemptStopped","job":"a1","objectUID":"u1",`+
@@ -2218,8 +2298,8 @@ func TestDiscardedIterationsSumsOnlyWhatTheLedgerCarried(t *testing.T) {
 	}
 
 	// Wider than "the container failed": the self-completing regime's victim exits 0 and is still re-executed
-	// from zero, because Kueue does not credit a suspended Job's finished attempt. Absence of a Completed
-	// event is what says the work was lost.
+	// from zero, because Kueue does not credit a suspended Job's finished attempt.
+	// Absence of a Completed event is what says the work was lost.
 	exitedZero := discardedIterations([]queuelab.LifecycleEvent{
 		{Type: queuelab.EventAttemptStopped, Job: "a2-borrow", Reason: "Succeeded", Iterations: n(900)},
 	})
@@ -2230,7 +2310,8 @@ func TestDiscardedIterationsSumsOnlyWhatTheLedgerCarried(t *testing.T) {
 }
 
 // The record's resolution block and the report's floor have to be the same number, and the way two numbers
-// like that stop being the same is by being derived twice. This asserts the projection is a projection.
+// like that stop being the same is by being derived twice.
+// This asserts the projection is a projection.
 //
 // Mutation that turns this red: compute ResolvedToNs here as MedianNs, which is the figure a reader reaches
 // for first and the wrong one — a harness uniformly late measures intervals exactly.
@@ -2300,8 +2381,9 @@ func TestARefusedRunStillStatesTheDeviceAxis(t *testing.T) {
 }
 
 // The axis is derived, so a hand-edited document cannot assert device work its own measurement does not
-// support. In a build with no observer this is the ONLY way the value could appear, which makes it the check
-// that matters most.
+// support.
+// In a build with no observer this is the ONLY way the value could appear, which makes it the check that
+// matters most.
 func TestARecordCannotAssertDeviceWorkItsMeasurementDoesNotSupport(t *testing.T) {
 	b, err := encodeRecord(runRecord{
 		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor", Dose: "self-completing",
@@ -2330,16 +2412,16 @@ func TestARecordCannotAssertDeviceWorkItsMeasurementDoesNotSupport(t *testing.T)
 // whose observer was misattributing -- and either way it is the exact forgery that matters here.
 //
 // This was reproduced, not imagined: two committed records were edited to deviceUseEstablished:true with kind
-// left at the CPU loop, and `-mode baseline` printed a table with the "device: NOT OBSERVED" banner gone. The
-// axis check above did not catch it, because these records set the axis consistently too -- the contradiction
-// lives entirely between the workload's own two fields.
+// left at the CPU loop, and `-mode baseline` printed a table with the "device: NOT OBSERVED" banner gone.
+// The axis check above did not catch it, because these records set the axis consistently too -- the
+// contradiction lives entirely between the workload's own two fields.
 //
 // Mutation that turns this red: delete the pairing check from checkValidity.
 func TestARecordCannotClaimDeviceWorkForAWorkloadThatMakesNoDriverCall(t *testing.T) {
-	// Built on a document the write path produced, and edited in the one place the forgery lives. The old
-	// version assembled a record field by field, which the decoder's ledger replay now refuses for a reason
-	// that has nothing to do with the pairing under test -- so the fixture would have failed while telling
-	// nobody whether the pairing was still caught.
+	// Built on a document the write path produced, and edited in the one place the forgery lives.
+	// The old version assembled a record field by field, which the decoder's ledger replay now refuses for
+	// a reason that has nothing to do with the pairing under test -- so the fixture would have failed while
+	// telling nobody whether the pairing was still caught.
 	doc := committedRecordDoc(t)
 	w := doc["measurement"].(map[string]any)["workload"].(map[string]any)
 	if w["kind"] != cpuOnlyWorkloadKind {
@@ -2369,8 +2451,8 @@ func TestARecordCannotClaimDeviceWorkForAWorkloadThatMakesNoDriverCall(t *testin
 // AdmitToReadyNs is documented as valid only when the row was both Admitted and Executed, so a derivation
 // that checks admission alone reads the field on a run where the owner never ran and finds its zero value.
 // The record would then report that the quota owner was restored INSTANTLY, on precisely the runs where it
-// was never restored at all. That is the dangerous-zero pattern this file exists to keep out, arriving
-// through a two-word condition.
+// was never restored at all.
+// That is the dangerous-zero pattern this file exists to keep out, arriving through a two-word condition.
 //
 // Mutation that turns this red: drop either !o.Admitted or !o.Executed from ownerAdmitToReady.
 func TestTheOwnersWaitNeedsBothAdmissionAndExecution(t *testing.T) {
@@ -2382,7 +2464,8 @@ func TestTheOwnersWaitNeedsBothAdmissionAndExecution(t *testing.T) {
 	}
 
 	// Admitted and never ran: Kueue reserved the quota, the borrower kept the device, and the owner's Pod
-	// never started. AdmitToReadyNs is zero here and means nothing.
+	// never started.
+	// AdmitToReadyNs is zero here and means nothing.
 	if got := ownerAdmitToReady(res(true, false, 0)); got != nil {
 		t.Fatalf("an owner that was admitted and never ran reported a wait of %d ns; a record saying zero "+
 			"claims instant restoration for the run where restoration never happened", *got)
@@ -2399,11 +2482,12 @@ func TestTheOwnersWaitNeedsBothAdmissionAndExecution(t *testing.T) {
 	if *got != 30806000000 {
 		t.Fatalf("wait = %d ns, want the owner row's 30806000000 and not another row's", *got)
 	}
-	// Ready observed without an admission. The cluster cannot do this -- Kueue admits before a Pod runs --
-	// but the RECONSTRUCTION can: a collector that misses the Workload Admitted event while the Pod Ready
-	// arrives leaves admitNs at zero, and AdmitToReadyNs becomes firstReady minus nothing, which is the whole
-	// elapsed run rather than a wait. The admission half of the condition is what refuses that, and this is
-	// the case that makes it more than decoration.
+	// Ready observed without an admission.
+	// The cluster cannot do this -- Kueue admits before a Pod runs -- but the RECONSTRUCTION can: a collector
+	// that misses the Workload Admitted event while the Pod Ready arrives leaves admitNs at zero, and
+	// AdmitToReadyNs becomes firstReady minus nothing, which is the whole elapsed run rather than a wait.
+	// The admission half of the condition is what refuses that, and this is the case that makes it more than
+	// decoration.
 	if got := ownerAdmitToReady(res(false, true, 63854000000)); got != nil {
 		t.Fatalf("a run whose admission was never observed reported a %d ns wait; with admitNs at zero that "+
 			"figure is the elapsed run, not the owner's wait", *got)
@@ -2456,7 +2540,8 @@ func TestTheOwnersWaitIsAlsoReadOffTheComponentsClocks(t *testing.T) {
 // one device UUID, busy at every instant.
 //
 // It is shared by the tests below so that what differs between them is the WORKLOAD's report and nothing
-// else. A fixture rebuilt per test drifts, and a drifting fixture turns "the workload decided this" into
+// else.
+// A fixture rebuilt per test drifts, and a drifting fixture turns "the workload decided this" into
 // "something about these two observations differed".
 func busyObservation(uuid string) *queuelab.DeviceObservation {
 	obs := &queuelab.DeviceObservation{
@@ -2474,9 +2559,10 @@ func busyObservation(uuid string) *queuelab.DeviceObservation {
 // The axis MOVES, and until the workload gained a device path nothing in this repository could show that.
 //
 // The old version of this test asserted the opposite -- that the axis could not move in this build -- because
-// the workload made no driver call and the contradiction check refused every observation of it. That was
-// honest but it left the positive path untested: a GPU session would have been the first execution ever of
-// the branch that publishes device work, and a defect there would have surfaced with the meter running.
+// the workload made no driver call and the contradiction check refused every observation of it.
+// That was honest but it left the positive path untested: a GPU session would have been the first execution
+// ever of the branch that publishes device work, and a defect there would have surfaced with the meter
+// running.
 //
 // Mutations that turn this red, both run: set DeviceUseEstablished without consulting the observer (the
 // no-observer half catches it), and drop the reported-kind comparison so the CPU fallback also passes (the
@@ -2487,7 +2573,8 @@ func TestTheDeviceAxisMovesOnlyWhenBothTheWorkloadAndTheObserverSayItDid(t *test
 	cpu := workloadKinds[queuelab.KindCPUFloat]
 	cpu.DeviceStatus = "no-libcuda"
 
-	// No observer: the workload's word alone is not evidence about the card. It is the party with the motive.
+	// No observer: the workload's word alone is not evidence about the card.
+	// It is the party with the motive.
 	none := workloadFrom(nil, queuelab.DeviceClaim{}, gpu)
 	if none.DeviceUseEstablished {
 		t.Fatal("a run with no observer established device work on the workload's say-so")
@@ -2532,10 +2619,11 @@ func TestTheDeviceAxisMovesOnlyWhenBothTheWorkloadAndTheObserverSayItDid(t *test
 // axis moved, and the record said in one field that the workload was Python arithmetic and in another that
 // its GPU had been working.
 //
-// The exclusivity clause in EstablishesDeviceWork convicts a SECOND Pod label on the same card. A host
-// process outside Kubernetes wears no label at all, so that clause sees one tenant and waves it through --
-// the review named this as an open false-accept. The workload's own report closes it: the only Pod on that
-// card says it computed nothing, so the utilisation belongs to somebody the cluster cannot see.
+// The exclusivity clause in EstablishesDeviceWork convicts a SECOND Pod label on the same card.
+// A host process outside Kubernetes wears no label at all, so that clause sees one tenant and waves it
+// through -- the review named this as an open false-accept.
+// The workload's own report closes it: the only Pod on that card says it computed nothing, so the
+// utilisation belongs to somebody the cluster cannot see.
 //
 // Mutation that turns this red: drop the reported-kind comparison, or let the observation win.
 func TestAnObservationCannotContradictTheWorkloadsOwnReport(t *testing.T) {
@@ -2578,14 +2666,14 @@ func TestAnObservationCannotContradictTheWorkloadsOwnReport(t *testing.T) {
 // The provenance is read from the VICTIM's attempt, and reading any stopped container instead is a defect
 // that survives every other test in this file.
 //
-// The device claim is about the card the victim was holding while its owner waited. Every row in the trace
-// stops, and they do not have to agree: an owner that reached the driver beside a victim that did not is
-// exactly the shape a partial device passthrough produces on a two-device node, and it is a condition someone
-// needs to be told about rather than averaged away.
+// The device claim is about the card the victim was holding while its owner waited.
+// Every row in the trace stops, and they do not have to agree: an owner that reached the driver beside a
+// victim that did not is exactly the shape a partial device passthrough produces on a two-device node, and it
+// is a condition someone needs to be told about rather than averaged away.
 //
-// The in-quota row stops FIRST here, which is what makes the fixture bite. A derivation that took the first
-// stopped container it found would read a1's report, publish "the device worked", and attribute it to a
-// victim that never left the CPU.
+// The in-quota row stops FIRST here, which is what makes the fixture bite.
+// A derivation that took the first stopped container it found would read a1's report, publish "the device
+// worked", and attribute it to a victim that never left the CPU.
 //
 // Mutation that turns this red: drop the ObjectUID comparison from reportedWorkloadOf.
 func TestTheProvenanceComesFromTheVictimsAttemptAndNotAnyStop(t *testing.T) {
@@ -2610,7 +2698,8 @@ func TestTheProvenanceComesFromTheVictimsAttemptAndNotAnyStop(t *testing.T) {
 	}
 
 	// A re-executed victim row has several attempts, and the later ones ran after the owner already had its
-	// capacity back. The one that ENDS the hold is the earliest, and it is the only one the claim is about.
+	// capacity back.
+	// The one that ENDS the hold is the earliest, and it is the only one the claim is about.
 	reexecuted := append([]queuelab.LifecycleEvent{}, events...)
 	reexecuted = append(reexecuted,
 		stopped(queuelab.VictimRow, "victim-retry-uid", queuelab.KindCUDAFMA, queuelab.DeviceOK, 60_000_000_000))
@@ -2624,9 +2713,9 @@ func TestTheProvenanceComesFromTheVictimsAttemptAndNotAnyStop(t *testing.T) {
 //
 // The difference matters in one direction only, and it is the expensive one: a genuine device run whose
 // termination message was garbled -- a two-container Pod, a truncated log, a workload from a newer build --
-// would be published under the fallback's name, as arithmetic that makes no driver call. Every downstream
-// reader, including the decode-time guard that refuses device work paired with that kind, would then be
-// acting on a guess the record presents as the workload's own account.
+// would be published under the fallback's name, as arithmetic that makes no driver call.
+// Every downstream reader, including the decode-time guard that refuses device work paired with that kind,
+// would then be acting on a guess the record presents as the workload's own account.
 //
 // Mutation that turns this red: return the CPU fallback when the kind token is unknown.
 func TestALedgerThatNamesNoKnownWorkloadIsUnreportedRatherThanAssumed(t *testing.T) {
@@ -2657,9 +2746,10 @@ func TestALedgerThatNamesNoKnownWorkloadIsUnreportedRatherThanAssumed(t *testing
 //
 // Decode tests used to hand-build their fixtures, and that stopped being possible when the decoder began
 // re-deriving the measurement from the ledger: a record assembled field by field carries numbers no ledger
-// supports, which is precisely what the decoder now refuses. Basing them on a real document is not a
-// workaround for that -- it is the same lesson the fake exporter and the stand-in exporter both taught here,
-// that a fixture built to fit the code confirms only that the code agrees with itself.
+// supports, which is precisely what the decoder now refuses.
+// Basing them on a real document is not a workaround for that -- it is the same lesson the fake exporter and
+// the stand-in exporter both taught here, that a fixture built to fit the code confirms only that the code
+// agrees with itself.
 func committedRecord(t *testing.T) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "..", "ex", "e17-self-completing-A-honor-e17sh1.json"))
@@ -2682,25 +2772,28 @@ func committedRecordDoc(t *testing.T) map[string]any {
 
 // The headline numbers must follow from the ledger in the same document.
 //
-// This is the check the citation test says in its own comment it cannot make. That test proves a cited
-// record exists and decodes; it cannot prove a figure in a published table came from it. So every number in
-// every document this lab has produced entered through a channel where the only thing standing between a
-// hand edit and a comparison document was that nobody had tried.
+// This is the check the citation test says in its own comment it cannot make.
+// That test proves a cited record exists and decodes; it cannot prove a figure in a published table came
+// from it.
+// So every number in every document this lab has produced entered through a channel where the only thing
+// standing between a hand edit and a comparison document was that nobody had tried.
 //
 // Reproduced before it was fixed: a copy of a committed record with wastedGPUSeconds set to 999.999 and its
 // events untouched produced a comparison reporting a thousand discarded GPU-seconds against a six-second
 // floor, with the ledger beside it saying 40.9.
 //
 // The fixture is a REAL record rather than a synthesised one, because the replay must agree with what the
-// write path actually produces. A hand-built record would let this test pass while every honest document
-// from the field was refused -- which is exactly what happened on the first attempt, where the resolution
-// block was compared by pointer and every real record failed at once.
+// write path actually produces.
+// A hand-built record would let this test pass while every honest document from the field was refused --
+// which is exactly what happened on the first attempt, where the resolution block was compared by pointer
+// and every real record failed at once.
 //
 // Mutation that turns this red: skip any field in replayAgreesWithRecord's table, or return nil early.
 func TestTheHeadlineNumbersAreReDerivedFromTheRecordsOwnLedger(t *testing.T) {
 	// Repo-relative, like the citation test's globs: the test binary runs in the package directory and the
-	// evidence lives at the root. A skip here would be worthless -- the whole point is to replay a document
-	// the write path actually produced.
+	// evidence lives at the root.
+	// A skip here would be worthless -- the whole point is to replay a document the write path actually
+	// produced.
 	real, err := os.ReadFile(filepath.Join("..", "..", "ex", "e17-self-completing-A-honor-e17sh1.json"))
 	if err != nil {
 		t.Fatalf("no committed record to replay, so this check verifies nothing: %v", err)
@@ -2727,8 +2820,9 @@ func TestTheHeadlineNumbersAreReDerivedFromTheRecordsOwnLedger(t *testing.T) {
 		{"the censoring flag", func(m map[string]any) { m["censored"] = true }, "censored"},
 		{"what was still running", func(m map[string]any) { m["unfinishedAtHorizon"] = 7 },
 			"unfinishedAtHorizon"},
-		// The bound every other figure is judged against. Widening it is the edit that makes a difference
-		// look unresolved, and narrowing it is the edit that makes noise look like a finding.
+		// The bound every other figure is judged against.
+		// Widening it is the edit that makes a difference look unresolved, and narrowing it is the edit
+		// that makes noise look like a finding.
 		{"the resolution", func(m map[string]any) {
 			m["resolution"].(map[string]any)["resolvedToNs"] = 1
 		}, "resolution"},
@@ -2737,7 +2831,8 @@ func TestTheHeadlineNumbersAreReDerivedFromTheRecordsOwnLedger(t *testing.T) {
 		}, "workload.countedUnit"},
 		// The duty cycle is the difference between a reserved GPU-second and an observed device-second, so a
 		// record that could claim one its ledger does not support could claim a card was idle when it was
-		// busy, or busy when it was idle. Editing it in must be refused like every other figure here.
+		// busy, or busy when it was idle.
+		// Editing it in must be refused like every other figure here.
 		{"how much of its service the card was used for", func(m map[string]any) {
 			m["workload"].(map[string]any)["dutyCycle"] = 0.25
 		}, "workload.dutyCycle"},
@@ -2778,11 +2873,12 @@ func TestTheHeadlineNumbersAreReDerivedFromTheRecordsOwnLedger(t *testing.T) {
 		t.Fatal("a record carrying a measurement and no ledger decoded, so stripping the evidence is a way " +
 			"to keep the number")
 	}
-	// Refused on the NUMBER, not on the pairing. An earlier version of the decoder refused a measurement
-	// with no events outright, claiming no build writes one -- and two other tests in this file build exactly
-	// that. The claim was unsupported, so it is gone: stripping the ledger from a real record now fails
-	// because forty discarded GPU-seconds do not follow from no events, which is a fact about this document
-	// rather than an assertion about what builds do.
+	// Refused on the NUMBER, not on the pairing.
+	// An earlier version of the decoder refused a measurement with no events outright, claiming no build
+	// writes one -- and two other tests in this file build exactly that.
+	// The claim was unsupported, so it is gone: stripping the ledger from a real record now fails because
+	// forty discarded GPU-seconds do not follow from no events, which is a fact about this document rather
+	// than an assertion about what builds do.
 	if !strings.Contains(err.Error(), "no ledger") {
 		t.Fatalf("a record with its ledger stripped was refused for some other reason, which sends a reader "+
 			"to a number when the fact is that the evidence is gone: %v", err)
@@ -2793,12 +2889,13 @@ func TestTheHeadlineNumbersAreReDerivedFromTheRecordsOwnLedger(t *testing.T) {
 	// experiment's best possible outcome -- on exactly the runs where it was never restored at all.
 	//
 	// This fixture does NOT reach the comparison that would prove it, and saying so is worth more than a
-	// green line. Reconstruct refuses a ledger carrying a stop with no readiness before it, so removing the
-	// owner's PodReady fails the replay outright rather than producing a nil wait to compare against a
-	// zero. The sentinel in intPtrValue is therefore defence behind a guard that fires first, and a mutation
-	// flattening absent to 0 survives this suite. It is kept because the ordering is a property of today's
-	// Reconstruct rather than of the record format, and the field it protects is the one where a zero is
-	// the most flattering possible lie.
+	// green line.
+	// Reconstruct refuses a ledger carrying a stop with no readiness before it, so removing the owner's
+	// PodReady fails the replay outright rather than producing a nil wait to compare against a zero.
+	// The sentinel in intPtrValue is therefore defence behind a guard that fires first, and a mutation
+	// flattening absent to 0 survives this suite.
+	// It is kept because the ordering is a property of today's Reconstruct rather than of the record format,
+	// and the field it protects is the one where a zero is the most flattering possible lie.
 	if err := json.Unmarshal(real, &doc); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -2833,22 +2930,25 @@ func TestTheHeadlineNumbersAreReDerivedFromTheRecordsOwnLedger(t *testing.T) {
 // The device evidence must answer the LEDGER's question, not one of its own.
 //
 // The block records which Pod and which window the gate was asked about, and the decoder re-runs the gate
-// against those recorded values. A review pointed out that nothing tied them to the ledger: a document could
-// widen its own hold window, or name a Pod holding a different card, and pass — while the ledger replay
-// beside it independently validated the real ones. Both checks succeeding on a record where they are
-// checking different things is worse than either check being absent, because it reads as corroboration.
+// against those recorded values.
+// A review pointed out that nothing tied them to the ledger: a document could widen its own hold window, or
+// name a Pod holding a different card, and pass — while the ledger replay beside it independently validated
+// the real ones.
+// Both checks succeeding on a record where they are checking different things is worse than either check
+// being absent, because it reads as corroboration.
 //
 // This is also the first record in this repository, real or synthetic, that claims a device did any work.
-// Every committed one carries deviceObservation: null, so the positive path had never been decoded. It is
-// built from a committed record rather than from nothing, so the parts not under test — the ledger, the
-// replayed measurement, the resolution block — are what the write path actually produces.
+// Every committed one carries deviceObservation: null, so the positive path had never been decoded.
+// It is built from a committed record rather than from nothing, so the parts not under test — the ledger,
+// the replayed measurement, the resolution block — are what the write path actually produces.
 //
 // Mutation that turns this red: drop the comparison binding the block to the ledger.
 func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 	// An IGNORING record, because the honouring arm's hold is 29 ms and a fixture cannot put two scrapes
-	// inside it. That is the gate working -- minBusySamples wants two distinct instants -- and it is also a
-	// fact worth having in a test: the arm this lab calls its zero-hold control is too short for an observer
-	// running at any realistic interval to say anything about.
+	// inside it.
+	// That is the gate working -- minBusySamples wants two distinct instants -- and it is also a fact worth
+	// having in a test: the arm this lab calls its zero-hold control is too short for an observer running at
+	// any realistic interval to say anything about.
 	raw, err := os.ReadFile(filepath.Join("..", "..", "ex", "e17-grace-bounded-A-ignore-e17gi1.json"))
 	if err != nil {
 		t.Fatalf("no committed record with a long hold to build on: %v", err)
@@ -2869,7 +2969,8 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 	}
 
 	// A document with a device path: the ledger's victim reports launching kernels, and an observer covering
-	// the hold saw its card busy. Everything else is the committed run's.
+	// the hold saw its card busy.
+	// Everything else is the committed run's.
 	deviceDoc := func() map[string]any {
 		var doc map[string]any
 		if err := json.Unmarshal(raw, &doc); err != nil {
@@ -2877,8 +2978,9 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 		}
 		doc["runID"] = "forged"
 		// The forgery carries THIS build's schema, whatever it is, so the fixture keeps testing the gate
-		// rather than the version guard. It used to say "a schema-19 document" and the constant has since
-		// moved to 20; the sentence was describing a number the line below never spelled.
+		// rather than the version guard.
+		// It used to say "a schema-19 document" and the constant has since moved to 20; the sentence was
+		// describing a number the line below never spelled.
 		//
 		// The version still matters to what this proves: a record carrying an observation is judged by the
 		// question its own schema asked, and one from a predecessor that asked a different question is
@@ -2898,12 +3000,13 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 		delete(w, "whyNot")
 		// The forgery is a schema-20 document, so it has to carry the axis one of those states, and
 		// work-unavailable is the only value this document can honestly hold: its victim ran the device loop,
-		// which never advances the accumulator, so there is no pair for the oracle to check. Replaying the
-		// ledger reaches the same verdict from the same events, which is what the re-derivation compares.
+		// which never advances the accumulator, so there is no pair for the oracle to check.
+		// Replaying the ledger reaches the same verdict from the same events, which is what the re-derivation
+		// compares.
 		//
-		// Filling it in is not weakening the fixture. Without it the test refuses for a missing axis and
-		// never reaches the device gate it exists to exercise — the failure would be about this line rather
-		// than about the evidence.
+		// Filling it in is not weakening the fixture.
+		// Without it the test refuses for a missing axis and never reaches the device gate it exists to
+		// exercise — the failure would be about this line rather than about the evidence.
 		w["workCheck"] = workUnavailable
 		w["workCheckWhy"] = "the workload ran \"cuda-driver-fma-kernel\", whose loop does not advance the accumulator"
 		doc["validity"].(map[string]any)["deviceEvidence"] = deviceWorkObserved
@@ -2942,8 +3045,9 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 		return err
 	}
 
-	// The honest document decodes. Without this half the test could not tell a working guard from a decoder
-	// that refuses every device claim — which is the shape a session would meet on its first success.
+	// The honest document decodes.
+	// Without this half the test could not tell a working guard from a decoder that refuses every device
+	// claim — which is the shape a session would meet on its first success.
 	honest := deviceDoc()
 	honest["deviceObservation"] = evidence(uid, from, to)
 	if err := decode(honest); err != nil {
@@ -2965,8 +3069,8 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 			d["deviceObservation"] = evidence(uid, from+int64(time.Second), to-int64(time.Second))
 			return d
 		}()},
-		// The sharpest one: the gate is satisfied, on another Pod's card. Replay validates the real victim,
-		// the evidence check validates a stranger, and neither notices.
+		// The sharpest one: the gate is satisfied, on another Pod's card.
+		// Replay validates the real victim, the evidence check validates a stranger, and neither notices.
 		{"another Pod's card entirely", func() map[string]any {
 			d := deviceDoc()
 			d["deviceObservation"] = evidence("some-other-pod-uid", from, to)
@@ -3035,8 +3139,9 @@ func TestAReExecutedRowStillDiscardsTheAttemptItLost(t *testing.T) {
 	}
 
 	// The two streams can be delivered in either order, so the credit must not depend on Completed arriving
-	// after the attempt's terminal phase. Keying on "the last stop at or before Completed" would credit
-	// nothing here and discard the successful attempt's work as well.
+	// after the attempt's terminal phase.
+	// Keying on "the last stop at or before Completed" would credit nothing here and discard the successful
+	// attempt's work as well.
 	got = discardedIterations([]queuelab.LifecycleEvent{
 		stop(queuelab.VictimRow, "first", 10_000_000_000, 900, "Failed"),
 		completed(queuelab.VictimRow, 49_000_000_000),
@@ -3047,8 +3152,9 @@ func TestAReExecutedRowStillDiscardsTheAttemptItLost(t *testing.T) {
 			"depend on the order two watches deliver in", got)
 	}
 
-	// The shapes that must not move. A row that never completed discards everything, including a container
-	// that exited zero — the self-completing victim does exactly that and is re-executed from zero anyway.
+	// The shapes that must not move.
+	// A row that never completed discards everything, including a container that exited zero — the
+	// self-completing victim does exactly that and is re-executed from zero anyway.
 	got = discardedIterations([]queuelab.LifecycleEvent{
 		stop(queuelab.VictimRow, "only", 10_000_000_000, 900, "Succeeded"),
 	})
@@ -3073,8 +3179,9 @@ func TestAReExecutedRowStillDiscardsTheAttemptItLost(t *testing.T) {
 //
 // It sweeps the LEDGER rather than reading measurement.workload.kind, and the difference is the whole reason
 // it exists: that field is derived from ONE attempt, the one VictimAttemptUID picks as ending the hold, and
-// a resumed row has several. A later attempt that reached the driver would not appear in it at all, which is
-// exactly the case these rows drive.
+// a resumed row has several.
+// A later attempt that reached the driver would not appear in it at all, which is exactly the case these
+// rows drive.
 //
 // Mutations that turn this red: read only the victim's chosen attempt; scope the check by naming the arms
 // instead of asking the protocol; or let an arm that checkpoints nothing be refused for a device report.
@@ -3119,9 +3226,10 @@ func TestACheckpointingArmMayNotHaveTouchedTheDevice(t *testing.T) {
 			// THE row this check got wrong, and it would have cost a paid session.
 			//
 			// This case asserted a refusal, on the argument that "an arm that checkpointed the wrong row is a
-			// different defect with the same consequence". StateFor gives the state path to the VICTIM
-			// alone, so under E-fresh and E-resume the quota owner renders no progress file, never takes the
-			// workload's checkpoint gate, and uses the device exactly as it does under every other arm.
+			// different defect with the same consequence".
+			// StateFor gives the state path to the VICTIM alone, so under E-fresh and E-resume the quota
+			// owner renders no progress file, never takes the workload's checkpoint gate, and uses the device
+			// exactly as it does under every other arm.
 			// Refusing it refuses every E record a real GPU node can produce — and on kind, where nothing
 			// reaches a driver, nothing would ever have shown it.
 			//
@@ -3145,8 +3253,9 @@ func TestACheckpointingArmMayNotHaveTouchedTheDevice(t *testing.T) {
 			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.KindCUDAFMA)},
 		},
 		{
-			// An arm this build does not define is somebody else's refusal to make. Answering here would put
-			// a device verdict on a document whose experimental condition is already unreadable.
+			// An arm this build does not define is somebody else's refusal to make.
+			// Answering here would put a device verdict on a document whose experimental condition is
+			// already unreadable.
 			name:   "an arm this build does not define",
 			arm:    "E-nonsense",
 			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.KindCUDAFMA)},
@@ -3206,9 +3315,9 @@ func TestACheckpointingArmMustHaveWrittenItsProgressFile(t *testing.T) {
 			refused: true,
 		},
 		{
-			// The control arm checkpoints just as much, and that is exactly why it exists. A run where only
-			// E-fresh's write failed would put the write cost back on one side of the contrast, which is the
-			// second axis the frozen arms page rejected the original design for.
+			// The control arm checkpoints just as much, and that is exactly why it exists.
+			// A run where only E-fresh's write failed would put the write cost back on one side of the
+			// contrast, which is the second axis the frozen arms page rejected the original design for.
 			name:    "the control arm whose write failed",
 			arm:     string(queuelab.ArmEFresh),
 			events:  []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.SaveFailed)},
@@ -3223,8 +3332,9 @@ func TestACheckpointingArmMustHaveWrittenItsProgressFile(t *testing.T) {
 			refused: true,
 		},
 		{
-			// THE row that makes this per-row. A first version sweeping every row would refuse here, and it
-			// would refuse every real record of these arms.
+			// THE row that makes this per-row.
+			// A first version sweeping every row would refuse here, and it would refuse every real record
+			// of these arms.
 			name: "the rows that are not asked to checkpoint",
 			arm:  string(queuelab.ArmEResume),
 			events: []queuelab.LifecycleEvent{
@@ -3239,8 +3349,8 @@ func TestACheckpointingArmMustHaveWrittenItsProgressFile(t *testing.T) {
 			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.SaveNotAttempted)},
 		},
 		{
-			// An empty status is a question this build cannot ask rather than an answer it can refuse. What
-			// an older document means is readableUnderCurrentSchema's judgment, not this one's.
+			// An empty status is a question this build cannot ask rather than an answer it can refuse.
+			// What an older document means is readableUnderCurrentSchema's judgment, not this one's.
 			name:   "an attempt from a build that could not report one",
 			arm:    string(queuelab.ArmEResume),
 			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", "")},
@@ -3269,10 +3379,11 @@ func TestACheckpointingArmMustHaveWrittenItsProgressFile(t *testing.T) {
 
 // A restoring arm's successor must actually have read what its predecessor left.
 //
-// This is the half the write status cannot reach. With the replacement Pod's mount missing, every write the
-// predecessor attempted succeeded -- saved=ok, truthfully -- and the successor still began at zero.
-// resumeSupportedByLedger skips a zero resume point, because its question is whether a CLAIMED resume has
-// support; nothing asked the opposite one, and unasked it produces the same false null as a failed write.
+// This is the half the write status cannot reach.
+// With the replacement Pod's mount missing, every write the predecessor attempted succeeded -- saved=ok,
+// truthfully -- and the successor still began at zero. resumeSupportedByLedger skips a zero resume point,
+// because its question is whether a CLAIMED resume has support; nothing asked the opposite one, and unasked
+// it produces the same false null as a failed write.
 //
 // Mutations that turn this red: skip events whose resume point is zero; drop the Restore scoping, which
 // would refuse E-fresh for beginning at zero -- which is what E-fresh IS.
@@ -3299,9 +3410,10 @@ func TestARestoringArmMustHaveReadWhatItsPredecessorLeft(t *testing.T) {
 			},
 		},
 		{
-			// Every write succeeded and nothing was read back. A missing mount on the replacement Pod is the
-			// case this was written for, but it is not the only one that produces this ledger -- an
-			// unreadable or truncated file does too -- and the refusal deliberately does not name a cause.
+			// Every write succeeded and nothing was read back.
+			// A missing mount on the replacement Pod is the case this was written for, but it is not the
+			// only one that produces this ledger -- an unreadable or truncated file does too -- and the
+			// refusal deliberately does not name a cause.
 			name: "a successor that restored nothing from a predecessor that had something",
 			arm:  string(queuelab.ArmEResume),
 			events: []queuelab.LifecycleEvent{
@@ -3317,8 +3429,8 @@ func TestARestoringArmMustHaveReadWhatItsPredecessorLeft(t *testing.T) {
 			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", 1_000, 1370, n(0))},
 		},
 		{
-			// The control arm is DEFINED by not reading the file. Refusing it here would refuse the arm the
-			// contrast is measured against.
+			// The control arm is DEFINED by not reading the file.
+			// Refusing it here would refuse the arm the contrast is measured against.
 			name: "the control arm, which is supposed to begin at zero every time",
 			arm:  string(queuelab.ArmEFresh),
 			events: []queuelab.LifecycleEvent{
@@ -3397,10 +3509,11 @@ func TestADecodedRecordCannotShowACheckpointThatNeverLanded(t *testing.T) {
 		t.Errorf("refused for some other reason, so this is not testing the write check: %v", err)
 	}
 
-	// The read side, with every write succeeding. This is the document a missing mount produces -- and also
-	// the one an unreadable or truncated checkpoint produces, which is why the refusal reports that the
-	// restore did not happen rather than naming which of those it was. Either way it is the document that
-	// would otherwise be published as "resuming bought nothing".
+	// The read side, with every write succeeding.
+	// This is the document a missing mount produces -- and also the one an unreadable or truncated
+	// checkpoint produces, which is why the refusal reports that the restore did not happen rather than
+	// naming which of those it was.
+	// Either way it is the document that would otherwise be published as "resuming bought nothing".
 	nothingRead := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r15",`+
 		`"arm":"E-resume","disposition":"completed-implemented-checks-passed",`+
 		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"a2-borrow","objectUID":"u1",`+
@@ -3415,10 +3528,12 @@ func TestADecodedRecordCannotShowACheckpointThatNeverLanded(t *testing.T) {
 		// The refusal must not name a CAUSE, and nothing guarded that until this assertion.
 		//
 		// The first version of the message said the missing restore "is a mount the replacement Pod did not
-		// get". The ledger does not establish that: the workload starts fresh from an absent file, a
-		// truncated one, a garbled one and a non-finite accumulator alike, so a missing mount is one of
-		// several causes and the document cannot say which. Removing the overclaim left no test behind, which
-		// a perturbation found by putting it back and watching the suite stay green.
+		// get".
+		// The ledger does not establish that: the workload starts fresh from an absent file, a truncated one,
+		// a garbled one and a non-finite accumulator alike, so a missing mount is one of several causes and
+		// the document cannot say which.
+		// Removing the overclaim left no test behind, which a perturbation found by putting it back and
+		// watching the suite stay green.
 		if strings.Contains(err.Error(), "is a mount") {
 			t.Errorf("the refusal names one cause as established; the ledger supports only that the restore "+
 				"did not happen: %v", err)

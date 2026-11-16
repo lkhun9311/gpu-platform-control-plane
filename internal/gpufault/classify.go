@@ -62,7 +62,8 @@ var faultFields = []string{FieldXid, FieldECCDoubleBit}
 //
 // Borrowed rather than chosen, from k8s-device-plugin v0.16.2 internal/rm/health.go ("Application errors: the
 // GPU should still be healthy"), so that this platform's quarantine and the plugin's own unhealthy rule agree
-// on which Xids are about the card. Every other non-zero Xid is a fault.
+// on which Xids are about the card.
+// Every other non-zero Xid is a fault.
 var applicationXids = map[int64]bool{13: true, 31: true, 43: true, 45: true, 68: true}
 
 // GPUReading is what one scrape said about one card.
@@ -230,9 +231,10 @@ type Assessment struct {
 // Pristine reports whether every card carried every fault field and each read zero: no Xid recorded and no
 // double-bit error counted since the host engine or the driver last started.
 //
-// It is what releases a latched fault, and "no fault" is not enough for that. The Xid field holds the last Xid
-// only, so an application Xid arriving after a fatal one replaces it and reads as no fault while nothing about
-// the card was repaired; zero is the value a GPU reset or a driver reload leaves.
+// It is what releases a latched fault, and "no fault" is not enough for that.
+// The Xid field holds the last Xid only, so an application Xid arriving after a fatal one replaces it and
+// reads as no fault while nothing about the card was repaired; zero is the value a GPU reset or a driver
+// reload leaves.
 func (a Assessment) Pristine() bool {
 	return a.Cards > 0 && len(a.Missing) == 0 && len(a.Faults) == 0 && !a.nonZero
 }
@@ -285,8 +287,9 @@ func (a Assessment) Reason() string {
 // Assess applies the fault policy to one scrape's readings.
 //
 // An Xid is a fault unless it is one of the application Xids; a double-bit count above zero is a fault; the
-// single-bit count is never one. A value that is not a whole non-negative number is refused, because a field
-// DCGM defines as an Xid code or a count cannot honestly be anything else and rounding it would invent one.
+// single-bit count is never one.
+// A value that is not a whole non-negative number is refused, because a field DCGM defines as an Xid code or
+// a count cannot honestly be anything else and rounding it would invent one.
 func Assess(readings map[string]*GPUReading) (Assessment, error) {
 	var a Assessment
 	uuids := make([]string, 0, len(readings))

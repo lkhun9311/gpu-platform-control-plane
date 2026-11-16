@@ -217,14 +217,17 @@ const rendezvousRetry = 30 * time.Second
 
 // StateVolumeName is the Pod-local name tying the volume to its mount.
 //
-// It is not the claim's name. A Pod may only ever hold one of these, so a fixed name keeps the rendered
-// template a function of the claim and path alone -- two jobs mounting different claims render the same
-// spelling, which is what lets the termination canary compare templates across runs.
+// It is not the claim's name.
+// A Pod may only ever hold one of these, so a fixed name keeps the rendered template a function of the
+// claim and path alone -- two jobs mounting different claims render the same spelling, which is what
+// lets the termination canary compare templates across runs.
 //
 // Exported because the canary has to REMOVE by this name what BuildJob attaches by it, and the two must not
-// be able to disagree. Spelling "state" again in cmd/queuelabrun would be the copy kept in step by hand that
-// canary.go's renderedPodTemplate argues against: two values that have to be updated together are the drift,
-// not a check on it. That package already links this one, so sharing the constant costs nothing new.
+// be able to disagree.
+// Spelling "state" again in cmd/queuelabrun would be the copy kept in step by hand that canary.go's
+// renderedPodTemplate argues against: two values that have to be updated together are the drift, not a check
+// on it.
+// That package already links this one, so sharing the constant costs nothing new.
 const StateVolumeName = "state"
 
 // SharedMemoryVolumeName is the Pod-local name of the memory-backed volume mounted at /dev/shm in a Pod with more than one GPU.
@@ -299,14 +302,15 @@ func buildJob(mltj *platformv1.MLTrainingJob, attempt int32) *batchv1.Job {
 	// `template-probe-state` mounted at `/template-probe-state`.
 	//
 	// What the hash covers and what the probe EXECUTES are two different statements, and an earlier version
-	// of this comment collapsed them -- it claimed the branch was not taken at all. The Pod the canary runs
-	// has the volume stripped back off by probePodFrom, because a Pod naming a claim nobody created would sit
-	// Pending forever and the canary SCHEDULES its probe.
+	// of this comment collapsed them -- it claimed the branch was not taken at all.
+	// The Pod the canary runs has the volume stripped back off by probePodFrom, because a Pod naming a claim
+	// nobody created would sit Pending forever and the canary SCHEDULES its probe.
 	//
 	// So the cost is narrower than it used to be written, and still real: the hash notices a change to this
-	// mount, and no canary ever RUNS one. That is why the pre-registration made a controller-path envtest a
-	// requirement of this work rather than an option -- without one, the only thing between a mis-rendered
-	// mount and a paid session is a reading no instrument takes.
+	// mount, and no canary ever RUNS one.
+	// That is why the pre-registration made a controller-path envtest a requirement of this work rather
+	// than an option -- without one, the only thing between a mis-rendered mount and a paid session is a
+	// reading no instrument takes.
 	if sv := mltj.Spec.StateVolume; sv != nil {
 		pod.Volumes = []corev1.Volume{{
 			Name:                  StateVolumeName,
@@ -345,13 +349,19 @@ func buildJob(mltj *platformv1.MLTrainingJob, attempt int32) *batchv1.Job {
 
 // driverCapabilities states which NVIDIA driver libraries this Pod needs mounted into it, for a Pod that asks for a device.
 //
-// nvidia-container-toolkit does not ship a CUDA runtime into a container: it bind-mounts the HOST's driver libraries, and which of them it mounts is decided by NVIDIA_DRIVER_CAPABILITIES at container CREATION. The workload cannot set it, because by the time any process in the container runs, the mounts have already been decided.
+// nvidia-container-toolkit does not ship a CUDA runtime into a container: it bind-mounts the HOST's driver libraries, and which of them it mounts is decided by NVIDIA_DRIVER_CAPABILITIES at container CREATION.
+// The workload cannot set it, because by the time any process in the container runs, the mounts have already been decided.
 //
-// Leaving it unset means taking whatever the toolkit on that node defaults to, and the default is the problem. Historically it was "utility", which mounts nvidia-smi and libnvidia-ml and NOT libcuda.so.1 -- "compute" is what mounts the one a CUDA program loads. Newer toolkit builds default to "utility,compute" and CDI-based setups are more permissive still, so whether a container gets libcuda depends on the AMI, the toolkit version and the runtime mode rather than on anything this repository states.
+// Leaving it unset means taking whatever the toolkit on that node defaults to, and the default is the problem.
+// Historically it was "utility", which mounts nvidia-smi and libnvidia-ml and NOT libcuda.so.1 -- "compute" is what mounts the one a CUDA program loads.
+// Newer toolkit builds default to "utility,compute" and CDI-based setups are more permissive still, so whether a container gets libcuda depends on the AMI, the toolkit version and the runtime mode rather than on anything this repository states.
 //
-// The failure that produces is silent and expensive. A GPU is allocated, the Pod starts, the workload's ctypes.CDLL("libcuda.so.1") raises, it falls back to the CPU loop, and the run completes with plausible iteration counts and device-not-observed -- indistinguishable from a cluster with no cards at all. That is exactly the outcome the alpine-to-glibc image move was made to prevent; the move fixed the linkage half and left this half to a default.
+// The failure that produces is silent and expensive.
+// A GPU is allocated, the Pod starts, the workload's ctypes.CDLL("libcuda.so.1") raises, it falls back to the CPU loop, and the run completes with plausible iteration counts and device-not-observed -- indistinguishable from a cluster with no cards at all.
+// That is exactly the outcome the alpine-to-glibc image move was made to prevent; the move fixed the linkage half and left this half to a default.
 //
-// It is set only when a device is requested. A Pod asking for no GPU that declared driver capabilities anyway would be making a claim about hardware it has not been given.
+// It is set only when a device is requested.
+// A Pod asking for no GPU that declared driver capabilities anyway would be making a claim about hardware it has not been given.
 //
 // This changes the rendered Pod template, so it changes podTemplateHashOf and invalidates every termination canary taken before it -- by design, and the reason to do it before a GPU node exists rather than after: the re-take is free on a cluster whose workers are already there.
 func driverCapabilities(gpuCount int32) []corev1.EnvVar {
@@ -415,28 +425,31 @@ func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload, distributed b
 	if isJobConditionTrue(job, batchv1.JobComplete) {
 		return mltjPhaseSucceeded, admittedCondition(metav1.ConditionTrue, "JobComplete")
 	}
-	// Running means at least one Pod reported Ready. Active cannot say even that a node took it.
+	// Running means at least one Pod reported Ready.
+	// Active cannot say even that a node took it.
 	//
 	// `.status.active` counts pending Pods as well as running ones, so a job whose Pod no node would take
 	// reported Running -- measured at 145 of 145 samples across 179.1 s in two arms of the fragmentation
-	// study (docs/11_WHAT_THIS_MEASURED.md, finding 6). The cost is not only a wrong phase: the running end
-	// of admitToRunningSeconds is recorded on entry into this phase, so the platform's own latency metric
-	// was taken from a moment that never happened.
+	// study (docs/11_WHAT_THIS_MEASURED.md, finding 6).
+	// The cost is not only a wrong phase: the running end of admitToRunningSeconds is recorded on entry
+	// into this phase, so the platform's own latency metric was taken from a moment that never happened.
 	//
-	// `.status.ready` counts active, non-terminating Pods whose Ready condition is true. That is STRICTER
-	// than "a node accepted it": a scheduled Pod whose readiness probe has not passed is running and is not
-	// counted here, so this phase now carries readiness delay as well as watch lag. Job status offers no
-	// "scheduled" count, and of the two it does offer this is the one that cannot be true of a Pod nothing
-	// would place.
+	// `.status.ready` counts active, non-terminating Pods whose Ready condition is true.
+	// That is STRICTER than "a node accepted it": a scheduled Pod whose readiness probe has not passed is
+	// running and is not counted here, so this phase now carries readiness delay as well as watch lag.
+	// Job status offers no "scheduled" count, and of the two it does offer this is the one that cannot be
+	// true of a Pod nothing would place.
 	//
 	// The Job controller computes the field, not the API server, and it writes a non-nil pointer even for
-	// zero. A nil is therefore a cluster too old to report it, which is unknown rather than "nothing is
+	// zero.
+	// A nil is therefore a cluster too old to report it, which is unknown rather than "nothing is
 	// running" -- so it falls through to Admitted rather than reinstating the Active reading, which would
 	// restore exactly the defect this replaces.
 	//
 	// A distributed job needs every rank, not one: its ranks rendezvous before the first step, so a job
-	// missing any of them does no work at all. One Ready rank of two is what Finding 10 measured reported as
-	// Running for 598.1 s while the other rank had no node and Kueue's own readiness rule counted it unready.
+	// missing any of them does no work at all.
+	// One Ready rank of two is what Finding 10 measured reported as Running for 598.1 s while the other rank
+	// had no node and Kueue's own readiness rule counted it unready.
 	if job.Status.Ready != nil && *job.Status.Ready > 0 && (!distributed || ranksReady(job)) {
 		return mltjPhaseRunning, admittedCondition(metav1.ConditionTrue, "PodsRunning")
 	}
@@ -455,10 +468,11 @@ func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload, distributed b
 //
 // The caller also requires one rank still Ready, which Kueue does not, and the difference is deliberate.
 // Kueue asks whether the ranks came up, and every rank having succeeded answers yes; this phase says what is
-// happening now. Without that requirement a job whose ranks all exited, seen before the Job carries Complete
-// (it carried SuccessCriteriaMet alone for 21 to 28 ms in Finding 10's four finishing runs), would enter
-// Running at its end, and a controller that missed the ranks' readiness would record its completion as the
-// moment they started.
+// happening now.
+// Without that requirement a job whose ranks all exited, seen before the Job carries Complete (it carried
+// SuccessCriteriaMet alone for 21 to 28 ms in Finding 10's four finishing runs), would enter Running at its
+// end, and a controller that missed the ranks' readiness would record its completion as the moment they
+// started.
 func ranksReady(job *batchv1.Job) bool {
 	// The API server defaults parallelism to 1, so nil only reaches here from a hand-built Job.
 	want := int32(1)
@@ -504,16 +518,18 @@ func admittedCondition(status metav1.ConditionStatus, reason string) metav1.Cond
 
 // WorkloadJobRefIndex indexes a Kueue Workload by every Job UID that could claim it.
 //
-// A cached List narrows by FIELD indexes only. A label selector is applied by walking the whole store, so
-// the label lookup this replaced cost O(N) in the number of Workloads even when it matched immediately —
-// measured in BenchmarkGetWorkloadForJobHit, which never reaches the fallback and still grew linearly.
+// A cached List narrows by FIELD indexes only.
+// A label selector is applied by walking the whole store, so the label lookup this replaced cost O(N) in
+// the number of Workloads even when it matched immediately — measured in BenchmarkGetWorkloadForJobHit,
+// which never reaches the fallback and still grew linearly.
 const WorkloadJobRefIndex = ".metadata.jobRef"
 
 // indexWorkloadByJobRef emits both claims a Workload can carry: the job-uid label and its owner references.
 //
-// Both go into ONE index so the lookup is a single List. Indexing only the label would leave the owner-
-// reference fallback listing the entire namespace, which measured about 20x the label walk because it
-// deep-copies every Workload into the result rather than the one it matched.
+// Both go into ONE index so the lookup is a single List.
+// Indexing only the label would leave the owner- reference fallback listing the entire namespace, which
+// measured about 20x the label walk because it deep-copies every Workload into the result rather than
+// the one it matched.
 func indexWorkloadByJobRef(o client.Object) []string {
 	wl, ok := o.(*kueuev1beta1.Workload)
 	if !ok {
@@ -536,13 +552,16 @@ func indexWorkloadByJobRef(o client.Object) []string {
 // getWorkloadForJob returns the Kueue Workload created for a Job, or nil if Kueue has not created one yet.
 //
 // Kueue stamps every Workload it creates with the kueue.x-k8s.io/job-uid label, so a labelled match is
-// preferred. A Workload whose owner reference points at the Job's UID is accepted as a fallback, in case a
-// Workload ever exists without the label.
+// preferred.
+// A Workload whose owner reference points at the Job's UID is accepted as a fallback, in case a Workload
+// ever exists without the label.
 //
-// Both claims resolve through one indexed List. This lookup runs on the way in for EVERY MLTrainingJob —
-// before Kueue has created the Workload there is nothing to match, which is the path that used to pay for
-// both a full label walk and a full namespace list. With MaxConcurrentReconciles at its default of 1, a
-// per-item cost proportional to the namespace's size drains the queue in O(N^2).
+// Both claims resolve through one indexed List.
+// This lookup runs on the way in for EVERY MLTrainingJob — before Kueue has created the Workload there is
+// nothing to match, which is the path that used to pay for both a full label walk and a full namespace
+// list.
+// With MaxConcurrentReconciles at its default of 1, a per-item cost proportional to the namespace's size
+// drains the queue in O(N^2).
 //
 // The index lives on the manager's cache, so a client that reads through to the apiserver cannot serve this
 // List: the apiserver rejects field selectors it does not define for the resource.
@@ -559,11 +578,13 @@ func (r *MLTrainingJobReconciler) getWorkloadForJob(ctx context.Context, job *ba
 	// The label is preferred over the owner reference, so the two are separated here rather than taking
 	// whichever the index happened to return first.
 	//
-	// Within each group the OLDEST wins, by creation time and then by name. List order is not a selection
-	// rule: the cache can return duplicates in either order, so "the first one" made the chosen Workload — and
-	// therefore the phase written to status — depend on which way a map happened to iterate. Status could
-	// oscillate between two Workloads with nothing having changed. Oldest-first is the same tie-break the
-	// gateway's backend ordering uses, and for the same reason: a deterministic answer that does not move.
+	// Within each group the OLDEST wins, by creation time and then by name.
+	// List order is not a selection rule: the cache can return duplicates in either order, so "the first one"
+	// made the chosen Workload — and therefore the phase written to status — depend on which way a map
+	// happened to iterate.
+	// Status could oscillate between two Workloads with nothing having changed.
+	// Oldest-first is the same tie-break the gateway's backend ordering uses, and for the same reason: a
+	// deterministic answer that does not move.
 	var labelled, owned *kueuev1beta1.Workload
 	for i := range claimed.Items {
 		wl := &claimed.Items[i]

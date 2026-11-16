@@ -11,15 +11,18 @@ import (
 //
 // They did not. config/webhook-enabled carried the guards and config/operator -- the overlay Argo CD
 // reconciles -- did not, so a cluster built on a laptop refused an unaccounted device holder and the
-// GitOps-managed one admitted it. The first attempt to fix that by adding the guards INSIDE config/operator
-// then hit the trap this test also covers: that overlay sets a namePrefix, the webhook manifests spell their
-// names out in full, and the result was
-// gpu-platform-control-plane-gpu-platform-control-plane-webhook-service -- a Service the Certificate's
-// dnsNames do not cover, so with failurePolicy Fail every governed write in the cluster would have been
-// refused. It was found by diffing the two renders by hand. This is that diff, kept.
+// GitOps-managed one admitted it.
+// The first attempt to fix that by adding the guards INSIDE config/operator then hit the trap this test also
+// covers: that overlay sets a namePrefix, the webhook manifests spell their names out in full, and the
+// result was gpu-platform-control-plane-gpu-platform-control-plane-webhook-service -- a Service the
+// Certificate's dnsNames do not cover, so with failurePolicy Fail every governed write in the cluster would
+// have been refused.
+// It was found by diffing the two renders by hand.
+// This is that diff, kept.
 //
-// config/default, the install `make deploy` applies, is the third path. It left the guards out until
-// 2026-11-13, so the default install admitted what the GitOps one refused.
+// config/default, the install `make deploy` applies, is the third path.
+// It left the guards out until 2026-11-13, so the default install admitted what the GitOps one
+// refused.
 //
 // Mutation that turns this red: move the webhook-component include from config/operator-webhook into
 // config/operator, or drop it from config/operator-webhook or config/default.

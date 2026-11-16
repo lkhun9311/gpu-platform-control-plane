@@ -13,7 +13,8 @@ import (
 )
 
 // stubBlockChars is the stub's stand-in for one engine block: vLLM's 16 tokens at the gateway's four characters a
-// token. The stub has no tokenizer, so this is a model of the engine's cache, not a copy of it.
+// token.
+// The stub has no tokenizer, so this is a model of the engine's cache, not a copy of it.
 const stubBlockChars = 64
 
 // stubPrefixCache models vLLM's automatic prefix caching closely enough to rehearse a routing study: a chain of
@@ -37,8 +38,8 @@ func newStubPrefixCache(capacityTokens int) *stubPrefixCache {
 }
 
 // lookup counts the prompt's blocks as queried, its leading held blocks as hits, and then holds every block of it,
-// as the engine does once it has computed them. It returns the tokens that were not cached, which the stub's
-// prefill delay is charged for.
+// as the engine does once it has computed them.
+// It returns the tokens that were not cached, which the stub's prefill delay is charged for.
 func (c *stubPrefixCache) lookup(prompt string) (uncachedTokens int) {
 	n := len(prompt) / stubBlockChars
 	chain := make([]uint64, n)
@@ -123,7 +124,8 @@ type stubPrefill struct {
 // client went away during the wait.
 //
 // The lookup happens when the prefill starts rather than on arrival, as the engine's does: a request waiting behind a
-// serial prefill finds whatever that prefill left in the cache. A stub without a modelled cache has no prefill to wait.
+// serial prefill finds whatever that prefill left in the cache.
+// A stub without a modelled cache has no prefill to wait.
 func (p *stubPrefill) run(cache *stubPrefixCache, raw []byte, wait func(time.Duration) bool) bool {
 	if p == nil || cache == nil {
 		return true

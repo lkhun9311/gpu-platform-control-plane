@@ -83,39 +83,44 @@ var (
 	// Stated here rather than only in a design document because a reader arriving at a latency histogram
 	// reasonably assumes something acts on it, and here nothing does. 실행/W04-사전등록.md:18 says why: this
 	// project has no user and no product owner, so these are benchmark thresholds and not service objectives,
-	// and a budget with no consumer is decoration. Decoration in a metrics path is worse than an absence,
-	// because it reads as a control.
+	// and a budget with no consumer is decoration.
+	// Decoration in a metrics path is worse than an absence, because it reads as a control.
 	//
 	// What would change it is a consumer -- a release gate, an autoscaler input, an alert someone answers.
 	// Until one exists, docs/02_CONTROL_PLANE_API.md:75's advertised InferenceDeployment.spec.slo stays
 	// unbuilt on purpose: a field whose value nothing reads is a schema to honour forever in exchange for
-	// nothing. See docs/superpowers/specs/2026-09-21-the-five-decisions-settled.md.
+	// nothing.
+	// See docs/superpowers/specs/2026-09-21-the-five-decisions-settled.md.
 
 	// timeToFirstByte observes how long the client waited before ANY byte of the response arrived.
 	//
-	// requestDuration cannot stand in for it. That one is observed after ServeHTTP returns, so for a stream it
-	// measures until the stream closed and is dominated by how many tokens were asked for: two models whose
-	// serving begins equally fast differ there entirely because of output length.
+	// requestDuration cannot stand in for it.
+	// That one is observed after ServeHTTP returns, so for a stream it measures until the stream closed and is
+	// dominated by how many tokens were asked for: two models whose serving begins equally fast differ there
+	// entirely because of output length.
 	//
 	// This is first BYTE, not first token, and the distinction is not pedantic -- the headers precede the first
-	// token on a streaming response, so this is a LOWER bound on time-to-first-token. That makes it usable for
-	// one honest statement and no more: a request over the bar here had certainly not produced a token by then.
+	// token on a streaming response, so this is a LOWER bound on time-to-first-token.
+	// That makes it usable for one honest statement and no more: a request over the bar here had certainly not
+	// produced a token by then.
 	// A request under it may still have been slow to its first token.
 	//
-	// A gateway-authored error counts too, and that is not a defect. A 502 or 504 envelope from proxy.go's
-	// ErrorHandler is a byte the client received, so it lands here with a genuine latency. Excluding it would
-	// mean the series silently described only successes, and a first-byte figure that improves when the
-	// backend starts failing is worse than none.
+	// A gateway-authored error counts too, and that is not a defect.
+	// A 502 or 504 envelope from proxy.go's ErrorHandler is a byte the client received, so it lands here with
+	// a genuine latency.
+	// Excluding it would mean the series silently described only successes, and a first-byte figure that
+	// improves when the backend starts failing is worse than none.
 	//
-	// The buckets are finer than requestDuration's and stop at 30s, because a first byte that has not arrived
-	// in half a minute is a failure rather than a slow success, and spending edges above that buys resolution
-	// where no decision lives. 1.5 is an edge on purpose: docs/02_CONTROL_PLANE_API.md:75 advertises
-	// ttftP95Ms: 1500, so the fraction at that value is COUNTED rather than interpolated between neighbours --
-	// which is the difference between reporting a measurement and reporting an estimate of one. Putting the
-	// edge there fixes no threshold; docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md
-	// still declines to set a bar, and no alert reads this series.
-	// admissionWait is how long the admission decision took, which for a holding admitter is how long the request
-	// was held; it is part of request_duration_seconds and time_to_first_byte_seconds too, which start before it.
+	// The buckets are finer than requestDuration's and stop at 30s, because a first byte that has not arrived in
+	// half a minute is a failure rather than a slow success, and spending edges above that buys resolution where
+	// no decision lives. 1.5 is an edge on purpose: docs/02_CONTROL_PLANE_API.md:75 advertises ttftP95Ms: 1500,
+	// so the fraction at that value is COUNTED rather than interpolated between neighbours -- which is the
+	// difference between reporting a measurement and reporting an estimate of one.
+	// Putting the edge there fixes no threshold;
+	// docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md still declines to set a bar, and
+	// no alert reads this series. admissionWait is how long the admission decision took, which for a holding
+	// admitter is how long the request was held; it is part of request_duration_seconds and
+	// time_to_first_byte_seconds too, which start before it.
 	admissionWait = promauto.With(metrics.Registry).NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    metricPrefix + "admission_wait_seconds",
@@ -151,13 +156,15 @@ var (
 
 	// backendFallbacks counts requests a second backend served after the first failed, and it is separate from
 	// upstream_errors_total on purpose: that counter rises on every failed attempt, including the ones a
-	// fallback then rescued, so on its own it cannot tell a degraded model from a broken one. The ratio
-	// between them is what says whether redundancy is absorbing the failures or merely counting them.
+	// fallback then rescued, so on its own it cannot tell a degraded model from a broken one.
+	// The ratio between them is what says whether redundancy is absorbing the failures or merely counting
+	// them.
 	//
-	// "Served" here means a 2xx or 3xx. It used to mean anything below 500, which counted a 401 or a 404 from
-	// the spare as redundancy working: the request did reach a second backend, but nothing was rescued, and
-	// on a model whose clients are sending bad requests the ratio would report healthy redundancy for a
-	// fallback path that has never actually served an answer.
+	// "Served" here means a 2xx or 3xx.
+	// It used to mean anything below 500, which counted a 401 or a 404 from the spare as redundancy working:
+	// the request did reach a second backend, but nothing was rescued, and on a model whose clients are
+	// sending bad requests the ratio would report healthy redundancy for a fallback path that has never
+	// actually served an answer.
 	backendFallbacks = promauto.With(metrics.Registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: metricPrefix + "backend_fallbacks_total",
@@ -179,19 +186,22 @@ var (
 	// backendAttempts counts requests the gateway actually handed to a backend, which is the population every
 	// other question about serving has to be asked over.
 	//
-	// requests_total cannot answer it. Its four record sites all feed the same series, and the label set does
-	// not separate them: a 413 or a 429 refused at step 7 carries the resolved model name (server.go:485, :488),
-	// exactly as a request that was tried and failed does. Deriving the split needs a reader who knows which
-	// (code, model-shape) pairs end before step 8 -- and a judgement that lives in the reader rather than in the
-	// series is the thing docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md exists to
-	// refuse.
+	// requests_total cannot answer it.
+	// Its four record sites all feed the same series, and the label set does not separate them: a 413 or a 429
+	// refused at step 7 carries the resolved model name (server.go:485, :488), exactly as a request that was
+	// tried and failed does.
+	// Deriving the split needs a reader who knows which (code, model-shape) pairs end before step 8 -- and a
+	// judgement that lives in the reader rather than in the series is the thing
+	// docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md exists to refuse.
 	//
-	// admission_decisions_total does not answer it either. It is recorded at step 7, so everything that ends
-	// earlier -- 401, 403, the RPM limiter's 429, a routing failure -- never reaches it, and passing step 7 is
-	// not the same as being attempted: the two refusals above sit between it and the first attempt.
+	// admission_decisions_total does not answer it either.
+	// It is recorded at step 7, so everything that ends earlier -- 401, 403, the RPM limiter's 429, a routing
+	// failure -- never reaches it, and passing step 7 is not the same as being attempted: the two refusals
+	// above sit between it and the first attempt.
 	//
-	// No threshold is implied by this counter. It says what was tried, not what should have succeeded, and
-	// choosing a bar is deliberately left to a stated service objective that does not read any run's results.
+	// No threshold is implied by this counter.
+	// It says what was tried, not what should have succeeded, and choosing a bar is deliberately left to a
+	// stated service objective that does not read any run's results.
 	backendAttempts = promauto.With(metrics.Registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: metricPrefix + "backend_attempts_total",
@@ -250,13 +260,14 @@ var (
 	//
 	// Every other kv-aware series below is a Vec that only acquires a child once the guard has
 	// actually observed a backend, so all of them are simply ABSENT when the mode is "off" — and
-	// equally absent when the mode is "kv-aware" but the scraper never started or died. Prometheus
-	// cannot tell those two apart, which means an alert written over the guard's own gauges goes
-	// quiet in exactly the case it exists to catch.
+	// equally absent when the mode is "kv-aware" but the scraper never started or died.
+	// Prometheus cannot tell those two apart, which means an alert written over the guard's own
+	// gauges goes quiet in exactly the case it exists to catch.
 	//
 	// This series is set once at startup, before any request or scrape, so it is present whether or
-	// not the guard ever reports. It is what lets an alert say "the guard is configured on and is
-	// telling us nothing" rather than "the guard is telling us nothing".
+	// not the guard ever reports.
+	// It is what lets an alert say "the guard is configured on and is telling us nothing" rather
+	// than "the guard is telling us nothing".
 	admissionModeActive = promauto.With(metrics.Registry).NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: metricPrefix + "admission_mode_active",
@@ -269,10 +280,11 @@ var (
 	// while ENGAGED, 0 while RELEASED.
 	//
 	// Design rationale (design spec Metrics section, arm C): a gauge rather than a counter,
-	// since this is a current state, not an accumulating count. It reflects the pressure state
-	// machine's internal engaged flag exactly as last published, regardless of telemetry
-	// freshness; gpuaas_gateway_backend_telemetry_fresh is the series that tells a reader
-	// whether this value (and the two below) are still trustworthy.
+	// since this is a current state, not an accumulating count.
+	// It reflects the pressure state machine's internal engaged flag exactly as last
+	// published, regardless of telemetry freshness; gpuaas_gateway_backend_telemetry_fresh is
+	// the series that tells a reader whether this value (and the two below) are still
+	// trustworthy.
 	admissionGuardEngaged = promauto.With(metrics.Registry).NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: metricPrefix + "admission_guard_engaged",

@@ -25,13 +25,15 @@ import (
 
 // The probe prompts must land on opposite sides of the guard's threshold, and the margin is four characters.
 //
-// The numbers live in cmd/benchharness, and the arithmetic that decides them lives here. If either moves
-// without the other, the probes stop probing: both land on the same side, both get the same decision, and
-// the report shows a threshold that was never tested while looking exactly like one that was.
+// The numbers live in cmd/benchharness, and the arithmetic that decides them lives here.
+// If either moves without the other, the probes stop probing: both land on the same side, both get the
+// same decision, and the report shows a threshold that was never tested while looking exactly like one
+// that was.
 func TestProbePromptsStraddleTheGuardThreshold(t *testing.T) {
 	const threshold = 4096
-	// Read from the package the generator builds its tenants from, NOT transcribed. Transcribing them is how
-	// the first version of this test passed while both probes sat on the same side of the threshold.
+	// Read from the package the generator builds its tenants from, NOT transcribed.
+	// Transcribing them is how the first version of this test passed while both probes sat on the same side
+	// of the threshold.
 	under, over := ProbeUnderChars, ProbeOverChars
 
 	if got := defaultEstInputTokens(under); got != threshold-1 {
@@ -54,13 +56,14 @@ func TestProbePromptsStraddleTheGuardThreshold(t *testing.T) {
 // The harness and the gateway each implement the estimate, and nothing else keeps them in step.
 //
 // Every admission-match number depends on the two agreeing: the harness scores a prompt to decide what work
-// was OFFERED, and the gateway scores the same prompt to decide what to admit. Drift would not fail
-// anything -- it would silently move the offered-work denominator away from the admitted-work numerator, and
-// the arms would be declared matched or mismatched on an accounting error.
+// was OFFERED, and the gateway scores the same prompt to decide what to admit.
+// Drift would not fail anything -- it would silently move the offered-work denominator away from the
+// admitted-work numerator, and the arms would be declared matched or mismatched on an accounting error.
 //
 // Reading the other package's source is crude, and it is what is available: the gateway's estimator is
-// unexported and in a package this one must not import. The repository does the same thing elsewhere, for
-// the same reason -- a test that transcribes the other side's constant checks only the transcription.
+// unexported and in a package this one must not import.
+// The repository does the same thing elsewhere, for the same reason -- a test that transcribes the other
+// side's constant checks only the transcription.
 func TestTheHarnessAndTheGatewayScoreAPromptTheSameWay(t *testing.T) {
 	src, err := os.ReadFile("../gateway/proxy.go")
 	if err != nil {
@@ -88,8 +91,9 @@ func TestTheHarnessAndTheGatewayScoreAPromptTheSameWay(t *testing.T) {
 // Summarize must FILL the probe tally from the rows, which the renderer test cannot show.
 //
 // That test builds an ArmSummary by hand, so deleting the aggregation entirely left it passing: the
-// renderer was proven correct about a field nothing populated. This is the same shape as a prompt helper
-// that is correct while the sender never calls it, which this harness has already been bitten by once.
+// renderer was proven correct about a field nothing populated.
+// This is the same shape as a prompt helper that is correct while the sender never calls it, which this
+// harness has already been bitten by once.
 func TestSummarizeFillsTheProbeTallyFromTheRows(t *testing.T) {
 	rows := []RawRow{
 		{Arm: "kv-aware", Tenant: ProbeUnderTenant, IsNoisy: true, EstInputTokens: 4095, HTTPStatus: 200, FirstTokenUnixNanos: 2, SendUnixNanos: 1, EndUnixNanos: 3},

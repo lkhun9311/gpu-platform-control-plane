@@ -16,22 +16,24 @@ limitations under the License.
 
 // Command queueload fills a namespace with MLTrainingJobs and watches the operator's workqueue drain.
 //
-// It exists because the previous attempt at this measurement did not measure it. That harness created
-// objects with `kubectl apply` in batches and reached 75 objects per second, while the operator absorbed
-// 143 reconciles per second — so the queue never had anything in it and the recorded peak depth was zero.
+// It exists because the previous attempt at this measurement did not measure it.
+// That harness created objects with `kubectl apply` in batches and reached 75 objects per second, while
+// the operator absorbed 143 reconciles per second — so the queue never had anything in it and the
+// recorded peak depth was zero.
 // A load test whose load is below the system's service rate measures the load generator.
 //
 // Two things are different here.
 //
 // The client is concurrent and in-process: no per-object process start, no repeated TLS handshake, one
-// client reused across workers. That is what makes it possible to offer work faster than the operator
-// retires it.
+// client reused across workers.
+// That is what makes it possible to offer work faster than the operator retires it.
 //
 // The queue depth is read from the operator's own /metrics endpoint at an interval the caller sets, rather
-// than from Prometheus. Prometheus scrapes on its own schedule — 15s here — so sampling it every 5s reports
-// the same scraped value three times and cannot see a spike that opens and closes between scrapes. Reading
-// the endpoint directly makes the sampling interval the caller's to choose, and the harness records what it
-// actually achieved so a peak is never quoted at a resolution it did not have.
+// than from Prometheus.
+// Prometheus scrapes on its own schedule — 15s here — so sampling it every 5s reports the same scraped
+// value three times and cannot see a spike that opens and closes between scrapes.
+// Reading the endpoint directly makes the sampling interval the caller's to choose, and the harness records
+// what it actually achieved so a peak is never quoted at a resolution it did not have.
 package main
 
 import (
@@ -65,11 +67,11 @@ var scheme = runtime.NewScheme()
 
 // bearer authenticates to the metrics endpoint, and metricsClient skips certificate verification.
 //
-// Both are deliberate and both are why this tool is a harness rather than a component. The operator serves
-// metrics over TLS with a self-signed certificate and requires a token bound to the metrics-reader role, so
-// a measurement client either carries the CA and a token or it reads nothing. Skipping verification is
-// acceptable here because the endpoint is a localhost port-forward the operator of this harness created; it
-// would not be acceptable anywhere that decision was not the caller's.
+// Both are deliberate and both are why this tool is a harness rather than a component.
+// The operator serves metrics over TLS with a self-signed certificate and requires a token bound to the
+// metrics-reader role, so a measurement client either carries the CA and a token or it reads nothing.
+// Skipping verification is acceptable here because the endpoint is a localhost port-forward the operator of
+// this harness created; it would not be acceptable anywhere that decision was not the caller's.
 var (
 	bearer        string
 	metricsClient = &http.Client{
@@ -152,10 +154,10 @@ func run(ns, queue, metricsURL, out string, count, concurrency int, sampleEvery 
 	}
 	// Refused here, before anything is created, because every later number is derived from these series.
 	//
-	// The endpoint answering 200 says only that something is serving metrics. If the three families this
-	// tool reads are absent -- renamed, relabelled, or a different process's registry -- the run completes
-	// and reports that the operator was never the bottleneck, which is a claim about the operator made
-	// without reading it.
+	// The endpoint answering 200 says only that something is serving metrics.
+	// If the three families this tool reads are absent -- renamed, relabelled, or a different process's
+	// registry -- the run completes and reports that the operator was never the bottleneck, which is a
+	// claim about the operator made without reading it.
 	if missing := before.missingSeries(); len(missing) > 0 {
 		return fmt.Errorf("%s served no %s: this run would measure nothing and report that the queue stayed empty",
 			metricsURL, strings.Join(missing, ", "))
@@ -214,7 +216,8 @@ func run(ns, queue, metricsURL, out string, count, concurrency int, sampleEvery 
 		}
 	}()
 
-	// Create concurrently. This is the whole difference from the previous harness.
+	// Create concurrently.
+	// This is the whole difference from the previous harness.
 	fmt.Printf("  creating %d MLTrainingJobs with %d concurrent writers\n", count, concurrency)
 	createStart := time.Now()
 	var created, failed atomic.Int64
@@ -372,9 +375,10 @@ func readMetrics(url string) (metrics, error) {
 			continue
 		}
 		// The two families label the same controller differently: workqueue series carry name=, and
-		// controller-runtime's reconcile counter carries controller=. The first version of this filter
-		// required name= on all three and reported zero reconciles while draining six hundred items — a
-		// number obviously wrong, which is the only reason it was caught before being written down.
+		// controller-runtime's reconcile counter carries controller=.
+		// The first version of this filter required name= on all three and reported zero reconciles
+		// while draining six hundred items — a number obviously wrong, which is the only reason it was
+		// caught before being written down.
 		switch {
 		case strings.HasPrefix(line, "workqueue_depth") && strings.Contains(line, `name="mltrainingjob"`):
 			v, ok := intValue(line)
@@ -405,12 +409,15 @@ func readMetrics(url string) (metrics, error) {
 
 // missingSeries names the series that never appeared, so "nothing happened" can be told from "nothing was read".
 //
-// Every number this tool prints is derived from these three families. When none of them appears -- a renamed
-// metric, a different controller name, an endpoint that serves someone else's registry -- every field stays
-// at its zero value and the run reports `the queue never held anything: this run measured the client, not the
-// operator`. That sentence is a finding. Produced by an unread endpoint it is a fabrication, and the only
-// reason the last instance of this was caught is that "reconciles 0 while draining six hundred items" was
-// obviously wrong (see the label note above). A plausible zero would not have been.
+// Every number this tool prints is derived from these three families.
+// When none of them appears -- a renamed metric, a different controller name, an endpoint that serves someone
+// else's registry -- every field stays at its zero value and the run reports `the queue never held anything:
+// this run measured the client, not the operator`.
+// That sentence is a finding.
+// Produced by an unread endpoint it is a fabrication, and the only reason the last instance of this was
+// caught is that "reconciles 0 while draining six hundred items" was obviously wrong (see the label note
+// above).
+// A plausible zero would not have been.
 func (m metrics) missingSeries() []string {
 	var missing []string
 	if !m.SawDepth {
@@ -427,10 +434,11 @@ func (m metrics) missingSeries() []string {
 
 // intValue parses a Prometheus sample's value, and says when it could not.
 //
-// It used to return 0 on both failure paths. A malformed sample and a genuine zero then produced the same
-// number, and zero is the most believable reading this tool can print: the verdict for an empty queue is
-// "the operator was never the bottleneck". A parse that silently becomes a measurement is the shape this
-// repository keeps finding, so the failure is now returned rather than rounded off.
+// It used to return 0 on both failure paths.
+// A malformed sample and a genuine zero then produced the same number, and zero is the most believable
+// reading this tool can print: the verdict for an empty queue is "the operator was never the bottleneck".
+// A parse that silently becomes a measurement is the shape this repository keeps finding, so the failure
+// is now returned rather than rounded off.
 func intValue(line string) (int, bool) {
 	_, after, ok := strings.CutLast(line, " ")
 	if !ok {

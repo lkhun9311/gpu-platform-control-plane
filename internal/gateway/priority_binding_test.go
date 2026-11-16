@@ -17,8 +17,9 @@ import (
 
 // The controller renders every engine it renders with priority scheduling, so a request that can only reach such
 // engines must carry its tier in any mode; without it every request arrives at one priority and the policy does
-// nothing. The hold-cap product study measured the cost on EKS: the product's Off, which bound nothing, left the
-// premium tail at 6 to 10 s.
+// nothing.
+// The hold-cap product study measured the cost on EKS: the product's Off, which bound nothing, left the premium
+// tail at 6 to 10 s.
 var _ = Describe("priority binding on rendered engines", func() {
 	body := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hello"}],"stream":true}`
 
@@ -150,7 +151,8 @@ var _ = Describe("priority binding on rendered engines", func() {
 	})
 
 	// The spec says what is wanted; only the controller's condition, for the current generation, says the rendered
-	// engine is the one serving. Mutation that must turn this red: return true for any spec.engine.
+	// engine is the one serving.
+	// Mutation that must turn this red: return true for any spec.engine.
 	It("reads a rendered engine from the controller's condition, not from the spec alone", func() {
 		infd := func(cond *metav1.Condition) *platformv1.InferenceDeployment {
 			d := &platformv1.InferenceDeployment{Spec: platformv1.InferenceDeploymentSpec{

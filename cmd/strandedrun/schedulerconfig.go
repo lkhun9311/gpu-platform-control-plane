@@ -48,29 +48,33 @@ const SchedulerKubeconfigPath = "/etc/kubernetes/scheduler.conf"
 // Arm is which of the study's two configurations a run installs, stated explicitly.
 //
 // The registration's amendment offered two ways to define the reference and chose one: "the reference is the
-// untouched default and the treatment is *the whole configuration change* including the resource list". The
-// instrument implemented the other branch for four PRs -- GPUAware was the only constructor, so both arms were
-// GPU-aware and an unconfigured scheduler could not be expressed at all. This type is the choice made sayable.
+// untouched default and the treatment is *the whole configuration change* including the resource list".
+// The instrument implemented the other branch for four PRs -- GPUAware was the only constructor, so both arms
+// were GPU-aware and an unconfigured scheduler could not be expressed at all.
+// This type is the choice made sayable.
 //
-// A mode rather than a nil profile or an empty resource list. An absent value has to mean "nobody said", never
-// "untouched": Validate() refuses a profile whose scoring list omits nvidia.com/gpu precisely because that is
-// the treatment-is-inert failure, and letting emptiness mean the reference would turn that guard into a
-// constructor for it.
+// A mode rather than a nil profile or an empty resource list.
+// An absent value has to mean "nobody said", never "untouched": Validate() refuses a profile whose scoring
+// list omits nvidia.com/gpu precisely because that is the treatment-is-inert failure, and letting emptiness
+// mean the reference would turn that guard into a constructor for it.
 type Arm string
 
 const (
-	// ArmUnset is the zero value and is refused. Neither arm may be reached by defaulting.
+	// ArmUnset is the zero value and is refused.
+	// Neither arm may be reached by defaulting.
 	ArmUnset Arm = ""
 	// ArmUntouched installs no scheduler configuration at all: the scheduler the pinned node image ships,
-	// governed by its own defaults. It is the reference the amendment chose.
+	// governed by its own defaults.
+	// It is the reference the amendment chose.
 	//
-	// "Untouched" is scoped to the SCHEDULER CONFIGURATION. The cluster still has this study's deliberate
-	// worker capacities and its fake device plugins -- those are the environment both arms share, not part of
-	// the treatment.
+	// "Untouched" is scoped to the SCHEDULER CONFIGURATION.
+	// The cluster still has this study's deliberate worker capacities and its fake device plugins -- those
+	// are the environment both arms share, not part of the treatment.
 	ArmUntouched Arm = "S-default"
-	// ArmConfigured installs the registered GPU-aware profile. The contrast against ArmUntouched measures the
-	// whole configuration change -- the mount, the resource list and the strategy together -- and therefore
-	// cannot attribute a difference to MostAllocated alone. That narrower attribution needs its own comparison.
+	// ArmConfigured installs the registered GPU-aware profile.
+	// The contrast against ArmUntouched measures the whole configuration change -- the mount, the resource list
+	// and the strategy together -- and therefore cannot attribute a difference to MostAllocated alone.
+	// That narrower attribution needs its own comparison.
 	ArmConfigured Arm = "S-gpu-most"
 )
 
@@ -93,9 +97,10 @@ func (a Arm) InstallsSchedulerConfig() bool { return a == ArmConfigured }
 
 // ArmProfile pairs an arm with the profile it installs, and refuses the combinations that would misdescribe it.
 //
-// The untouched arm must carry NO profile content. Accepting a strategy or a resource list there would let a
-// run record itself as the reference while installing something, which is the same class of defect as a
-// treatment that silently does not apply -- read from the other end.
+// The untouched arm must carry NO profile content.
+// Accepting a strategy or a resource list there would let a run record itself as the reference while
+// installing something, which is the same class of defect as a treatment that silently does not apply --
+// read from the other end.
 type ArmProfile struct {
 	Arm Arm
 	// Profile is meaningful only for ArmConfigured and must be the zero value for ArmUntouched.
@@ -116,9 +121,9 @@ func (ap ArmProfile) Validate() error {
 		return err
 	}
 	if ap.Arm == ArmUntouched {
-		// Field by field, because SchedulerProfile holds a slice and Go will not compare it. Naming the three
-		// fields also means a field added later is a compile-time reminder to decide whether the reference may
-		// carry it -- a `!= empty` comparison would have silently accepted the new one.
+		// Field by field, because SchedulerProfile holds a slice and Go will not compare it.
+		// Naming the three fields also means a field added later is a compile-time reminder to decide whether
+		// the reference may carry it -- a `!= empty` comparison would have silently accepted the new one.
 		if ap.Profile.Strategy != "" || len(ap.Profile.Resources) > 0 || ap.Profile.SchedulerName != "" {
 			return fmt.Errorf("arm %s carries scheduler profile content (strategy %q, %d resource(s), "+
 				"schedulerName %q); the reference installs no configuration, and a run that recorded itself as "+
@@ -134,14 +139,14 @@ func (ap ArmProfile) Validate() error {
 //
 // The amendment to the registration requires the complete resource list, the weights, the scheduler version and
 // the pods' schedulerName to be registered rather than assumed, for one reason: NodeResourcesFit scores **cpu
-// and memory** by default. Selecting MostAllocated without naming nvidia.com/gpu activates the named strategy
-// and packs nothing, so three arms report the same number and it reads as a null result rather than as an
-// unapplied treatment.
+// and memory** by default.
+// Selecting MostAllocated without naming nvidia.com/gpu activates the named strategy and packs nothing, so
+// three arms report the same number and it reads as a null result rather than as an unapplied treatment.
 type SchedulerProfile struct {
 	// Strategy is the NodeResourcesFit scoring type.
 	Strategy ScoringStrategy
-	// Resources are the resource names the strategy scores over, with their weights. The study's whole claim
-	// rests on GPUResourceName being present here.
+	// Resources are the resource names the strategy scores over, with their weights.
+	// The study's whole claim rests on GPUResourceName being present here.
 	Resources []ResourceWeight
 	// SchedulerName is the value pods must carry in spec.schedulerName for this profile to govern them.
 	SchedulerName string
@@ -221,8 +226,9 @@ func (p SchedulerProfile) resourceNames() string {
 //
 // Rendered rather than kept as a checked-in file, because the file and the Go value would then be two
 // statements of one fact and nothing would compare them -- the shape this repository has been bitten by more
-// than once. Validate() is called here rather than being left to the caller, so an invalid profile cannot reach
-// a cluster through this path at all.
+// than once.
+// Validate() is called here rather than being left to the caller, so an invalid profile cannot reach a cluster
+// through this path at all.
 func (p SchedulerProfile) KubeSchedulerConfigurationYAML() (string, error) {
 	if err := p.Validate(); err != nil {
 		return "", err
@@ -235,12 +241,14 @@ func (p SchedulerProfile) KubeSchedulerConfigurationYAML() (string, error) {
 	// Measured, not read: the first cluster this renderer built came up with the profile mounted correctly and
 	// the scheduler crash-looping eight times with `Neither --kubeconfig nor --master was specified`. kubeadm
 	// passes BOTH --config and --kubeconfig, and kube-scheduler ignores the flag once --config is given: the
-	// kubeconfig has to come from inside the file. Nothing scheduled after that, so kindnet stayed Pending,
-	// every node stayed NotReady, and the device plugins that depend on them looked like the failure.
+	// kubeconfig has to come from inside the file.
+	// Nothing scheduled after that, so kindnet stayed Pending, every node stayed NotReady, and the device
+	// plugins that depend on them looked like the failure.
 	//
-	// That is worse than the silent-treatment failure this study is arranged around. A treatment that does not
-	// apply produces arms that agree; a treatment that removes the scheduler produces a cluster where nothing
-	// runs and the first thing a reader blames is whatever they were installing at the time.
+	// That is worse than the silent-treatment failure this study is arranged around.
+	// A treatment that does not apply produces arms that agree; a treatment that removes the scheduler
+	// produces a cluster where nothing runs and the first thing a reader blames is whatever they were
+	// installing at the time.
 	fmt.Fprintf(&b, "clientConnection:\n  kubeconfig: %s\n", SchedulerKubeconfigPath)
 	b.WriteString("profiles:\n")
 	fmt.Fprintf(&b, "  - schedulerName: %s\n", p.SchedulerName)

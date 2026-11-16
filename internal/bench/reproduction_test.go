@@ -38,8 +38,9 @@ func set(f ...ReproductionFacts) map[string]ReproductionFacts {
 	return m
 }
 
-// A fully recorded target that matches passes. Without this the refusals below prove nothing: a function that
-// refused everything would satisfy all of them.
+// A fully recorded target that matches passes.
+// Without this the refusals below prove nothing: a function that refused everything would satisfy all of
+// them.
 func TestReproductionRefusalAcceptsAnIdenticalPlan(t *testing.T) {
 	tgt := set(facts(ArmR1), facts(ArmShared), facts(ArmTimeSlicing))
 	if err := ReproductionRefusal(tgt, tgt); err != nil {
@@ -102,8 +103,9 @@ func TestReproductionRefusalCatchesThePromptLength(t *testing.T) {
 	}
 }
 
-// UNKNOWN is not a match. This is the rule the review insisted on and the one a passing-by-default
-// implementation would quietly drop.
+// UNKNOWN is not a match.
+// This is the rule the review insisted on and the one a passing-by-default implementation would
+// quietly drop.
 func TestReproductionRefusalTreatsAnUnrecordedFieldAsUnknown(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -135,7 +137,8 @@ func TestReproductionRefusalTreatsAnUnrecordedFieldAsUnknown(t *testing.T) {
 //
 // They were read only by unrecordedFields, so a plan on a different gateway build, engine image or tokenizer
 // revision was accepted as a reproduction while the struct's comment said these fields say "which build
-// produced the numbers". An external review found it on 2026-10-02; nothing here had asserted it.
+// produced the numbers".
+// An external review found it on 2026-10-02; nothing here had asserted it.
 //
 // Mutation that turns this red: drop any arm of the provenance switch in ReproductionRefusal, or revert
 // factsDiffer to its seven-field form.
@@ -164,8 +167,9 @@ func TestReproductionRefusalComparesTheProvenanceFields(t *testing.T) {
 					t.Errorf("the refusal does not say %q: %v", w, err)
 				}
 			}
-			// A difference is not an UNKNOWN. The two call for different actions -- fix the plan versus
-			// abandon the claim -- and the first version of this comparison collapsed them.
+			// A difference is not an UNKNOWN.
+			// The two call for different actions -- fix the plan versus abandon the claim -- and the
+			// first version of this comparison collapsed them.
 			if strings.Contains(err.Error(), "UNKNOWN") {
 				t.Errorf("a field that DIFFERS was reported as UNKNOWN, which tells the operator to abandon a claim they could fix: %v", err)
 			}
@@ -175,8 +179,9 @@ func TestReproductionRefusalComparesTheProvenanceFields(t *testing.T) {
 
 // A plan that records less than its target is refused, and refused as its own class.
 //
-// The target predating a field is UNKNOWN. This run omitting a field the target HAS is neither UNKNOWN nor a
-// value difference: it is fixable before launch by writing the manifest, and the message says so.
+// The target predating a field is UNKNOWN.
+// This run omitting a field the target HAS is neither UNKNOWN nor a value difference: it is fixable before
+// launch by writing the manifest, and the message says so.
 func TestReproductionRefusalRefusesAPlanThatRecordsLessThanItsTarget(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -261,10 +266,11 @@ func TestReproductionRefusalRefusesEmptySides(t *testing.T) {
 // A target whose trace was edited after its manifest was written must be refused, not trusted.
 //
 // This exists because a mutation found nothing: deleting the checksum comparison in
-// ReproductionFactsFromArchive left every test green. Every other fixture here carries a correct checksum, so
-// the guard was real and unreached -- and an unreached guard is one whose removal nobody would notice. The
-// violation IS constructible, unlike the ladder refusals this project left out for being unreachable, so the
-// fixture is the fix rather than deleting the check.
+// ReproductionFactsFromArchive left every test green.
+// Every other fixture here carries a correct checksum, so the guard was real and unreached -- and an
+// unreached guard is one whose removal nobody would notice.
+// The violation IS constructible, unlike the ladder refusals this project left out for being unreachable, so
+// the fixture is the fix rather than deleting the check.
 func TestReproductionFactsFromArchiveRefusesATamperedTrace(t *testing.T) {
 	dir := t.TempDir()
 	trace := filepath.Join(dir, "trace-shared-1.jsonl")
@@ -303,9 +309,10 @@ func TestReproductionFactsFromArchiveRefusesATamperedTrace(t *testing.T) {
 
 // THE REAL ARCHIVES, which is the case that was missed for real money.
 //
-// Both runs are in this repository. The ninth pilot is the target the 2026-10-02 run was registered as
-// reproducing, and the refusal has to fire on the facts that actually differed -- the timeout and the trace --
-// before it ever gets to the fields the pilot never recorded.
+// Both runs are in this repository.
+// The ninth pilot is the target the 2026-10-02 run was registered as reproducing, and the refusal has to fire
+// on the facts that actually differed -- the timeout and the trace -- before it ever gets to the fields the
+// pilot never recorded.
 //
 // Skipped rather than failed when the archives are absent: they are gitignored run outputs, so a clean
 // checkout has neither, and a test that failed there would be failing about the checkout.

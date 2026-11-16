@@ -134,12 +134,13 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			Expect(metav1.IsControlledBy(lq, got)).To(BeTrue())
 		})
 
-		// Synced answers a narrower question than a reader assumes: it says the objects were WRITTEN. A
-		// ClusterQueue written exactly as specified can still admit nothing — most obviously when the shared
-		// ResourceFlavor it references is absent, which Kueue reports as Active=False FlavorNotFound.
+		// Synced answers a narrower question than a reader assumes: it says the objects were WRITTEN.
+		// A ClusterQueue written exactly as specified can still admit nothing — most obviously when the
+		// shared ResourceFlavor it references is absent, which Kueue reports as Active=False FlavorNotFound.
 		//
-		// That happened on a live cluster. The policy read Synced=True, phase=Synced, and every training Job
-		// submitted to it sat suspended forever with the tenant's quota apparently in place.
+		// That happened on a live cluster.
+		// The policy read Synced=True, phase=Synced, and every training Job submitted to it sat suspended
+		// forever with the tenant's quota apparently in place.
 		//
 		// envtest runs no Kueue controller, so the Active condition is written by hand here — which is the
 		// right fidelity for this spec: what is under test is whether the POLICY reads it, not whether Kueue
@@ -173,7 +174,8 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			got := &platformv1.GPUQuotaPolicy{}
 			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 
-			// Synced stays true, because it IS synced. The two facts are reported separately on purpose.
+			// Synced stays true, because it IS synced.
+			// The two facts are reported separately on purpose.
 			synced := meta.FindStatusCondition(got.Status.Conditions, conditionSynced)
 			Expect(synced).NotTo(BeNil())
 			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
@@ -187,12 +189,14 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 		})
 
 		It("says Unknown, not False, while the ClusterQueue has published no Active condition", func() {
-			// The queue exists and has answered nothing yet. Kueue writes Active on its own schedule, and
-			// there is no Kueue controller in envtest, so this is the state right after the queue is created.
+			// The queue exists and has answered nothing yet.
+			// Kueue writes Active on its own schedule, and there is no Kueue controller in envtest, so this
+			// is the state right after the queue is created.
 			//
 			// It used to report Admitting=False/ClusterQueueInactive -- the same answer Kueue gives when a
-			// queue authoritatively admits nothing. An operator reading False could not tell "not yet" from
-			// "no", and the two call for opposite responses: wait, or go find the missing ResourceFlavor.
+			// queue authoritatively admits nothing.
+			// An operator reading False could not tell "not yet" from "no", and the two call for opposite
+			// responses: wait, or go find the missing ResourceFlavor.
 			policy := &platformv1.GPUQuotaPolicy{
 				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
@@ -273,7 +277,8 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 
 		// trainingQuota is immutable because flipping it moved the ceiling between ledgers in one reconcile: from
 		// false to true the ResourceQuota went and the GPU Pods it was charging kept running with Kueue never
-		// counting them. Both directions are refused by the API server, and nothing the controller had synced moves.
+		// counting them.
+		// Both directions are refused by the API server, and nothing the controller had synced moves.
 		//
 		// Mutation that turns this red: delete the XValidation rule on GPUQuotaPolicySpec, and regenerate the CRD.
 		It("refuses flipping trainingQuota from true to false and leaves the queues in place", func() {

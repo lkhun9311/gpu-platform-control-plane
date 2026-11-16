@@ -61,9 +61,10 @@ var _ = Describe("HTTPSender", func() {
 		// The bytes a vLLM 0.27.1 server actually wrote; see testdata/PROVENANCE.txt.
 		//
 		// Its first frame is "delta":{"role":"assistant","content":""} -- text-free, and emitted before the
-		// model has produced anything. Serving it, then pausing, then serving the six token frames means a
-		// sender that stamped first-token on any frame would report a TTFT from before the pause. The pause
-		// is the assertion: it is what makes the two behaviours distinguishable in the number.
+		// model has produced anything.
+		// Serving it, then pausing, then serving the six token frames means a sender that stamped
+		// first-token on any frame would report a TTFT from before the pause.
+		// The pause is the assertion: it is what makes the two behaviours distinguishable in the number.
 		raw, err := os.ReadFile("testdata/vllm_sse_stream.txt")
 		Expect(err).NotTo(HaveOccurred())
 		frames := strings.SplitAfter(string(raw), "\n\n")
@@ -91,20 +92,22 @@ var _ = Describe("HTTPSender", func() {
 
 		Expect(res.HTTPStatus).To(Equal(200))
 		Expect(res.ErrorKind).To(BeEmpty())
-		// Six token frames for max_tokens: 6. The role frame is not one of them, and neither is [DONE].
+		// Six token frames for max_tokens: 6.
+		// The role frame is not one of them, and neither is [DONE].
 		Expect(res.OutputTokens).To(Equal(6))
 		Expect(time.Unix(0, res.FirstTokenUnixNanos)).To(BeTemporally(">=", start.Add(prefillPause)))
 		// Why the engine stopped, which this file has carried all along and the parser used to discard.
 		//
 		// The capture's final content frame says "finish_reason":"length" -- the output cap cut it at six
-		// tokens. Without the field, a run whose cap truncated every answer and one whose model finished on
-		// its own recorded the same silence, while the cap is one of the five load quantities the study
-		// freezes.
+		// tokens.
+		// Without the field, a run whose cap truncated every answer and one whose model finished on its own
+		// recorded the same silence, while the cap is one of the five load quantities the study freezes.
 		//
-		// This asserts ONLY that the reason is read. It does not establish that a later null cannot
-		// overwrite it: the capture has no frame carrying `choices` after the one with the reason, so there
-		// is nothing here to overwrite with. I wrote that it tested both and it does not. The spec below
-		// constructs the stream that can tell them apart.
+		// This asserts ONLY that the reason is read.
+		// It does not establish that a later null cannot overwrite it: the capture has no frame carrying
+		// `choices` after the one with the reason, so there is nothing here to overwrite with.
+		// I wrote that it tested both and it does not.
+		// The spec below constructs the stream that can tell them apart.
 		Expect(res.FinishReason).To(Equal("length"))
 	})
 
@@ -112,13 +115,15 @@ var _ = Describe("HTTPSender", func() {
 		// A CONSTRUCTED stream, not a capture, and it says so because that is the honest label.
 		//
 		// The captured vLLM stream ends on the frame that names the reason, so it cannot distinguish "the
-		// last non-empty value wins" from "whatever the last frame said". The parser takes the former, and
-		// removing that condition left every test green -- a rule nothing could falsify. This stream puts a
-		// content frame with "finish_reason":null AFTER the one that says "length", which is the only shape
-		// in which the two readings differ.
+		// last non-empty value wins" from "whatever the last frame said".
+		// The parser takes the former, and removing that condition left every test green -- a rule nothing
+		// could falsify.
+		// This stream puts a content frame with "finish_reason":null AFTER the one that says "length",
+		// which is the only shape in which the two readings differ.
 		//
-		// No claim is made that a real engine emits this order. The claim is that if one did, a run whose
-		// output cap truncated every answer would still be recorded as truncated rather than as silent.
+		// No claim is made that a real engine emits this order.
+		// The claim is that if one did, a run whose output cap truncated every answer would still be
+		// recorded as truncated rather than as silent.
 		frames := []string{
 			`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}`,
 			`data: {"choices":[{"index":0,"delta":{"content":"a"},"finish_reason":null}]}`,
@@ -150,9 +155,9 @@ var _ = Describe("HTTPSender", func() {
 	It("puts the corpus text on the wire, which is the only place the payload can be checked", func() {
 		// PromptText being correct proves nothing on its own: the sender could still build its own payload,
 		// and for the whole life of this harness it did -- strings.Repeat("x", n), which a byte-pair
-		// tokenizer collapses by a factor that depends on the served model's vocabulary. Reverting the
-		// sender to that passed every other test in this package, including all of PromptText's own, so
-		// this reads the body the server actually received.
+		// tokenizer collapses by a factor that depends on the served model's vocabulary.
+		// Reverting the sender to that passed every other test in this package, including all of
+		// PromptText's own, so this reads the body the server actually received.
 		var gotContent string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var req struct {
@@ -202,8 +207,9 @@ var _ = Describe("HTTPSender", func() {
 		res := sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 100, MaxOutputTokens: 8}, time.Now().UnixNano())
 
 		Expect(res.ErrorKind).To(Equal("timeout"))
-		// No first token, because this server stalls BEFORE the headers. That zero is half of how a reader
-		// tells the two timeout expiries apart afterwards, and the spec below is the other half.
+		// No first token, because this server stalls BEFORE the headers.
+		// That zero is half of how a reader tells the two timeout expiries apart afterwards, and the spec
+		// below is the other half.
 		Expect(res.FirstTokenUnixNanos).To(BeZero())
 		Expect(res.HTTPStatus).To(BeZero())
 	})
@@ -212,18 +218,21 @@ var _ = Describe("HTTPSender", func() {
 		// The second of the two expiries TimeoutMs can produce, and the one no archive on disk contains.
 		//
 		// The deadline covers the whole request, so a response that starts in time and then stops also
-		// expires -- with a first token already stamped. The fifteen-cell archive has 71,215 rows and ZERO
-		// with errorKind at all, so nothing there distinguishes this from the stall-before-headers case
-		// above; a rule read off the code and not falsifiable by the data is a rule this file has to pin.
+		// expires -- with a first token already stamped.
+		// The fifteen-cell archive has 71,215 rows and ZERO with errorKind at all, so nothing there
+		// distinguishes this from the stall-before-headers case above; a rule read off the code and not
+		// falsifiable by the data is a rule this file has to pin.
 		//
 		// What the pair establishes: for a timeout row, firstTokenUnixNanos > 0 means the stream stalled
-		// mid-response and 0 means nothing arrived. That is the derivation the archive README now states.
+		// mid-response and 0 means nothing arrived.
+		// That is the derivation the archive README now states.
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			f := w.(http.Flusher)
 			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"a\"}}]}\n\n")
 			f.Flush()
-			// Then nothing, past the deadline. The request is cut while the body is still open.
+			// Then nothing, past the deadline.
+			// The request is cut while the body is still open.
 			time.Sleep(300 * time.Millisecond)
 		}))
 		defer srv.Close()
@@ -232,8 +241,9 @@ var _ = Describe("HTTPSender", func() {
 		res := sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 100, MaxOutputTokens: 8}, time.Now().UnixNano())
 
 		Expect(res.ErrorKind).To(Equal("timeout"))
-		// The token that did arrive is KEPT. Discarding it would turn a measured prefill into a silence and
-		// make this row indistinguishable from a request that never got a response.
+		// The token that did arrive is KEPT.
+		// Discarding it would turn a measured prefill into a silence and make this row indistinguishable
+		// from a request that never got a response.
 		Expect(res.FirstTokenUnixNanos).NotTo(BeZero())
 		Expect(res.HTTPStatus).To(Equal(200))
 		Expect(res.OutputTokens).To(Equal(1))
@@ -271,12 +281,15 @@ var _ = Describe("HTTPSender", func() {
 	})
 
 	// The spec above pools only the path where the request succeeded, which is not the path these arms are
-	// about. An admission guard protects capacity BY returning 429, so a run that actually exercises the
-	// guard is mostly rejections — and the sender used to return on a non-200 without reading the body,
-	// which marks the connection unusable. Every rejection then cost a fresh handshake, inside the latency
-	// the harness reports: precisely the instrument artifact the pool was introduced to remove, present on
-	// the arm it was introduced to measure. Nothing caught it because the evidence trace behind the
-	// 431-to-6 claim recorded zero rejections in every arm.
+	// about.
+	// An admission guard protects capacity BY returning 429, so a run that actually exercises the guard is
+	// mostly rejections — and the sender used to return on a non-200 without reading the body, which marks
+	// the connection unusable.
+	// Every rejection then cost a fresh handshake, inside the latency the harness reports: precisely the
+	// instrument artifact the pool was introduced to remove, present on the arm it was introduced to
+	// measure.
+	// Nothing caught it because the evidence trace behind the 431-to-6 claim recorded zero rejections in
+	// every arm.
 	//
 	// Mutation that turns this red: drop the drain from the non-200 branch of Send, and conns becomes 5.
 	It("reuses one connection across sequential rejections, not only across successful streams", func() {
@@ -312,8 +325,9 @@ var _ = Describe("HTTPSender", func() {
 			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"t\"}}]}\n\n")
 			f.Flush()
 			// The short tail a real vLLM stream ends with, which Go 1.27's drain on Close reads to EOF and then
-			// reuses the connection. This spec once needed a 64 KiB and then a 1 MiB tail to be deterministic,
-			// and over a tail that size no mode could reuse anything, so it never told legacy from drain-only.
+			// reuses the connection.
+			// This spec once needed a 64 KiB and then a 1 MiB tail to be deterministic, and over a tail that
+			// size no mode could reuse anything, so it never told legacy from drain-only.
 			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 			f.Flush()
 		}))
@@ -420,10 +434,10 @@ var _ = Describe("HTTPSender", func() {
 var _ = Describe("the gateway's own decision in the evidence", func() {
 	// The 2026-09-03 run recorded a status and nothing else, so two analyses had to be reconstructed from
 	// configuration the evidence did not contain: which population a request belonged to (the gateway gates on
-	// tier AND input size, a raw row carried only input size) and why 1,788 requests were refused. The gateway
-	// now reports both on the response, and they are only useful if they survive into the raw row -- on the
-	// refusal path especially, which is exactly where they matter and exactly the path a streaming reader
-	// never touches.
+	// tier AND input size, a raw row carried only input size) and why 1,788 requests were refused.
+	// The gateway now reports both on the response, and they are only useful if they survive into the raw row
+	// -- on the refusal path especially, which is exactly where they matter and exactly the path a streaming
+	// reader never touches.
 	send := func(h http.HandlerFunc) SendResult {
 		srv := httptest.NewServer(h)
 		defer srv.Close()
@@ -467,8 +481,9 @@ var _ = Describe("the gateway's own decision in the evidence", func() {
 	})
 
 	// The product study's arms differ in whether the gateway binds priority, and the client sends none, so the
-	// bound value exists only on the response. Mutation that turns these red: drop the EnginePriority line from
-	// withAdmissionDecision, or from the RawRow literal in Replay.
+	// bound value exists only on the response.
+	// Mutation that turns these red: drop the EnginePriority line from withAdmissionDecision, or from the
+	// RawRow literal in Replay.
 	It("records the priority the gateway bound, and nothing when it bound none", func() {
 		bound := send(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("X-Engine-Priority", "1")
@@ -479,8 +494,9 @@ var _ = Describe("the gateway's own decision in the evidence", func() {
 		Expect(unbound.EnginePriority).To(BeEmpty())
 	})
 
-	// The routing study's per-backend endpoints exist only in these headers. Mutation that turns this red: drop any
-	// Routing line from withAdmissionDecision or from the RawRow literal in Replay.
+	// The routing study's per-backend endpoints exist only in these headers.
+	// Mutation that turns this red: drop any Routing line from withAdmissionDecision or from the RawRow literal in
+	// Replay.
 	It("carries the gateway's routing headers into the raw row", func() {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("X-Routing-Policy", "PrefixAffinity")
@@ -513,9 +529,10 @@ var _ = Describe("the gateway's own decision in the evidence", func() {
 
 var _ = Describe("the engine's own count of the prompt", func() {
 	// The design's admission-match criterion is defined over the served tokenizer's count, and every run so
-	// far scored it on ceil(chars/4). The engine knows the real number and will report it when asked, so the
-	// harness asks -- on every admitted request, which makes it a check on the trace's own measurement rather
-	// than a second guess at it.
+	// far scored it on ceil(chars/4).
+	// The engine knows the real number and will report it when asked, so the harness asks -- on every
+	// admitted request, which makes it a check on the trace's own measurement rather than a second guess at
+	// it.
 	It("asks for usage and records the prompt token count from the final chunk", func() {
 		var asked bool
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -563,13 +580,15 @@ var _ = Describe("the engine's own count of the prompt", func() {
 var _ = Describe("the priority a request carries", func() {
 	// vLLM's scheduling-policy=priority reads a per-request `priority` field, and it is the only axis that
 	// moved the tail in the microtest: at a 512-token batch budget it took a short request behind a long one
-	// from 13.79x its uncontended time to 1.57x. The Go sender had no support for it at all, so the arms
-	// runner could not test the one setting that worked -- only the microtest's inline script could.
+	// from 13.79x its uncontended time to 1.57x.
+	// The Go sender had no support for it at all, so the arms runner could not test the one setting that
+	// worked -- only the microtest's inline script could.
 	//
 	// Priority comes from a per-tenant map rather than from the trace row, because it is a property of the
-	// tenant's contract. That is the same rule internal/gateway states for tier: not something a caller
-	// asserts about itself. A benchmark that let each row name its own priority would be measuring a
-	// mechanism no deployment would ship.
+	// tenant's contract.
+	// That is the same rule internal/gateway states for tier: not something a caller asserts about itself.
+	// A benchmark that let each row name its own priority would be measuring a mechanism no deployment
+	// would ship.
 	capture := func(priorities map[string]int, tenant string) map[string]any {
 		var got map[string]any
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

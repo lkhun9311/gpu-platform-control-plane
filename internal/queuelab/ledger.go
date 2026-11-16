@@ -46,18 +46,20 @@ type LifecycleEvent struct {
 	//
 	// Without it the ledger cannot tell the two arms apart at the moment that matters: Reason is the Pod
 	// phase, and "Failed" covers both a workload that honoured SIGTERM and exited promptly and one that
-	// ignored it until the grace period ran out and was killed. The canary qualifies that contrast by exit
-	// status; until this field the run could not observe it.
+	// ignored it until the grace period ran out and was killed.
+	// The canary qualifies that contrast by exit status; until this field the run could not observe it.
 	ExitCode *int32 `json:"exitCode,omitempty"`
 	// Iterations is how much work the attempt had completed when it stopped, absent when no single container's
-	// terminated status carried a count. It is what makes a discarded GPU-second a discarded unit of work.
+	// terminated status carried a count.
+	// It is what makes a discarded GPU-second a discarded unit of work.
 	Iterations *int `json:"iterations,omitempty"`
 	// WorkloadKind and DeviceStatus are the workload's own account of which loop produced Iterations, and they
 	// are in the LEDGER rather than derived at write time on purpose.
 	//
 	// The record's workload provenance is the claim "this run's device was used", and a claim whose support
-	// lives only in the writer is a claim the artifact cannot be audited for. Carrying the tokens here means a
-	// reader holding nothing but the JSON can re-derive the provenance from the same evidence the writer had.
+	// lives only in the writer is a claim the artifact cannot be audited for.
+	// Carrying the tokens here means a reader holding nothing but the JSON can re-derive the provenance from
+	// the same evidence the writer had.
 	//
 	// Absent together with Iterations, for the same reason: they are readings of ONE message.
 	WorkloadKind string `json:"workloadKind,omitempty"`
@@ -66,8 +68,9 @@ type LifecycleEvent struct {
 	// Iterations CHECKABLE rather than merely recorded.
 	//
 	// internal/queuelab/oracle.go predicts it from the count, so a reader holding nothing but this JSON can
-	// re-derive whether the attempt did the work its count claims. That is the same argument WorkloadKind
-	// carries: a claim whose support lives only in the writer is a claim the artifact cannot be audited for.
+	// re-derive whether the attempt did the work its count claims.
+	// That is the same argument WorkloadKind carries: a claim whose support lives only in the writer is a
+	// claim the artifact cannot be audited for.
 	//
 	// Absent when the message carried none, and meaningless on the device path -- that loop never touches the
 	// value, so a resumed and an uninterrupted attempt would both report the seed and agree for the wrong
@@ -75,9 +78,9 @@ type LifecycleEvent struct {
 	Accumulator *float64 `json:"accumulator,omitempty"`
 	// Resumed is the iteration count this attempt started from, and zero is a claim rather than an absence.
 	//
-	// It is what lets discarded work be counted ONCE. An attempt that reports 2698 after resuming at 1370
-	// performed 1328 iterations; charging the full count to it would count the first stretch twice, in a
-	// figure the whole study is denominated in.
+	// It is what lets discarded work be counted ONCE.
+	// An attempt that reports 2698 after resuming at 1370 performed 1328 iterations; charging the full
+	// count to it would count the first stretch twice, in a figure the whole study is denominated in.
 	//
 	// Absent for every attempt written before the resume arm existed, and absent together with the fields
 	// beside it when the message could not be read -- they are readings of ONE message.
@@ -86,8 +89,9 @@ type LifecycleEvent struct {
 	//
 	// In the LEDGER rather than derived at write time, for the reason WorkloadKind is: the record's claim
 	// about a resume arm is only as good as the evidence a reader holding nothing but this JSON can re-derive
-	// it from. A checkpointing arm whose file never landed did not run a weaker version of the experiment --
-	// it ran a different one, and cmd/queuelabrun/record.go refuses the document rather than noting it.
+	// it from.
+	// A checkpointing arm whose file never landed did not run a weaker version of the experiment -- it ran a
+	// different one, and cmd/queuelabrun/record.go refuses the document rather than noting it.
 	//
 	// Absent for every attempt written before the field existed, and absent together with the fields beside
 	// it when the message could not be read -- they are readings of ONE message.
@@ -97,55 +101,64 @@ type LifecycleEvent struct {
 	// because full duty was all the workload could do.
 	DutyCycle *float64 `json:"dutyCycle,omitempty"`
 	// SleptNs and WindowNs are the workload's own measurement of how it spent its service, against DutyCycle's
-	// report of what it was CONFIGURED to do. The pair is what makes the configured value checkable at all.
+	// report of what it was CONFIGURED to do.
+	// The pair is what makes the configured value checkable at all.
 	//
 	// Nanoseconds spent inside the workload's time.sleep calls, over the window from its start to the snapshot
-	// that reported them. Absent together for every event written before the workload could measure, and a
-	// measured zero is a different claim from that absence: a full-duty attempt slept none of its service and
-	// says so, while an older build could not say anything. Reading absence as zero would report every
-	// historical run as having computed throughout, which is exactly the false measurement this field replaces.
+	// that reported them.
+	// Absent together for every event written before the workload could measure, and a measured zero is a
+	// different claim from that absence: a full-duty attempt slept none of its service and says so, while an
+	// older build could not say anything.
+	// Reading absence as zero would report every historical run as having computed throughout, which is exactly
+	// the false measurement this field replaces.
 	//
-	// Not GPU utilisation. The complement of SleptNs/WindowNs is not device compute time -- the rest of the
-	// window also holds descheduling, sleep overrun, interpreter overhead and kernel-launch latency. Compared
-	// against 1-DutyCycle rather than DutyCycle, and never required to equal it.
+	// Not GPU utilisation.
+	// The complement of SleptNs/WindowNs is not device compute time -- the rest of the window also holds
+	// descheduling, sleep overrun, interpreter overhead and kernel-launch latency.
+	// Compared against 1-DutyCycle rather than DutyCycle, and never required to equal it.
 	SleptNs  *int64 `json:"sleptNs,omitempty"`
 	WindowNs *int64 `json:"windowNs,omitempty"`
 	// Job is the trace job name this event belongs to, resolved by the collector through the UID chain.
 	Job string `json:"job"`
 	// ComponentStampUnixNanos is the cluster component's own wall clock for the state this event describes:
 	// the kubelet's finishedAt for a stop, its Ready condition transition for a running Pod, Kueue's Admitted
-	// transition for an admission. Absent when the component published none.
+	// transition for an admission.
+	// Absent when the component published none.
 	//
 	// It is beside ElapsedNs, which is when this collector HEARD about the state, and the gap between them is
-	// what ObservedSkewNs carries. Both are kept because a reader holding only one of them cannot tell a slow
-	// cluster from a slow watch.
+	// what ObservedSkewNs carries.
+	// Both are kept because a reader holding only one of them cannot tell a slow cluster from a slow watch.
 	ComponentStampUnixNanos *int64 `json:"componentStampUnixNanos,omitempty"`
 	// ObservedSkewNs is the gap between the kubelet's stamp and this collector's arrival time, in the
 	// collector's own frame.
 	//
-	// It is deliberately NOT called a delivery lag, and the difference matters. The two times come from
-	// different machines with unsynchronised clocks, and the kubelet's is truncated to the second, so this
-	// number is (true propagation) + (clock offset between the two hosts) + (up to a second of truncation)
-	// and nothing here can separate the three. Calling it a lag would claim a measurement of propagation
-	// that this harness cannot make without clock synchronisation or distributed tracing.
+	// It is deliberately NOT called a delivery lag, and the difference matters.
+	// The two times come from different machines with unsynchronised clocks, and the kubelet's is
+	// truncated to the second, so this number is (true propagation) + (clock offset between the two hosts)
+	// + (up to a second of truncation) and nothing here can separate the three.
+	// Calling it a lag would claim a measurement of propagation that this harness cannot make without
+	// clock synchronisation or distributed tracing.
 	//
 	// What it IS good for is a bound: an interval whose endpoints carry skew of this size is not resolved
-	// below it. That is the use it is put to, and the only one it supports.
+	// below it.
+	// That is the use it is put to, and the only one it supports.
 	//
 	// It can come out negative, which is reported rather than clamped — a negative value is direct evidence
 	// of clock offset, and hiding it would turn a known unknown into an unknown one.
 	ObservedSkewNs *int64 `json:"observedSkewNs,omitempty"`
 	// Tenant and GPUCount used to sit here, described as the submitting tenant and the quota occupancy is
-	// weighted by. Nothing ever wrote them: LedgerBuilder.Observe is the only constructor of a LifecycleEvent
-	// and it never set either, so every event in every record this build has ever produced carried "" and 0
-	// under two sentences saying otherwise.
+	// weighted by.
+	// Nothing ever wrote them: LedgerBuilder.Observe is the only constructor of a LifecycleEvent and it never
+	// set either, so every event in every record this build has ever produced carried "" and 0 under two
+	// sentences saying otherwise.
 	//
 	// They are removed rather than populated because the builder is a pure observer of Kubernetes objects and
 	// neither value is one: both are properties of the TRACE, which the record already carries as arm and
-	// dose, and Reconstruct weights from the trace-seeded timeline for exactly that reason. Populating them
-	// would mean handing the builder the trace so it could copy back what the reader already has.
-	// ObjectUID is the observed object's UID; for Pod events it is the attempt identity that preemption
-	// waste is paired on, so a duplicate delta or an unrelated Pod stop cannot truncate another attempt.
+	// dose, and Reconstruct weights from the trace-seeded timeline for exactly that reason.
+	// Populating them would mean handing the builder the trace so it could copy back what the reader already
+	// has.
+	// ObjectUID is the observed object's UID; for Pod events it is the attempt identity that preemption waste
+	// is paired on, so a duplicate delta or an unrelated Pod stop cannot truncate another attempt.
 	ObjectUID string `json:"objectUID,omitempty"`
 	// ResourceVersion and Reason carry the condition provenance so a duplicate delta or the preemption
 	// mechanism (e.g. InCohortReclamation) can be checked.
@@ -160,10 +173,11 @@ const (
 	// EventSubmitted is the MLTrainingJob API acceptance (the offered-work clock start).
 	//
 	// It is written by the submitting path right after a successful Create, not by a watch, so unlike every
-	// other event here its instant is a local fact rather than a delivery time. That is what lets Reconstruct
-	// treat a Pod Ready before it as impossible evidence: the comparison holds because only one side of it
-	// came off a watch. The admission comparison is NOT of that kind — Admitted is watch-observed, so an
-	// admission delivered before this event is legal cross-watch reordering and is folded, not refused.
+	// other event here its instant is a local fact rather than a delivery time.
+	// That is what lets Reconstruct treat a Pod Ready before it as impossible evidence: the comparison holds
+	// because only one side of it came off a watch.
+	// The admission comparison is NOT of that kind — Admitted is watch-observed, so an admission delivered
+	// before this event is legal cross-watch reordering and is folded, not refused.
 	EventSubmitted EventType = "Submitted"
 	// EventAdmitted is the Workload reaching Admitted=True.
 	EventAdmitted EventType = "Admitted"
@@ -199,7 +213,8 @@ const (
 // ran rather than to whichever stop happened to be recorded next.
 type attempt struct {
 	// readyStampNs is the KUBELET's own clock for the readiness this attempt reached, beside readyNs which
-	// is when the collector heard about it. Zero when the component published none.
+	// is when the collector heard about it.
+	// Zero when the component published none.
 	readyStampNs int64
 	uid          string
 	readyNs      int64
@@ -208,9 +223,10 @@ type attempt struct {
 	stopReason   string // the terminal Pod phase, which is what makes a stop attributable or not
 }
 
-// jobTimeline reconstructs one job's story from its events. It is SEEDED from the frozen trace row, not
-// discovered from whatever events arrived, so a job whose events were all missed still appears (censored)
-// in the denominators rather than silently vanishing and flattering the worse arm.
+// jobTimeline reconstructs one job's story from its events.
+// It is SEEDED from the frozen trace row, not discovered from whatever events arrived, so a job whose
+// events were all missed still appears (censored) in the denominators rather than silently vanishing and
+// flattering the worse arm.
 type jobTimeline struct {
 	tenant      string
 	gpuCount    int
@@ -221,7 +237,8 @@ type jobTimeline struct {
 	admitted    bool
 	admitNs     int64
 	// admitStampNs is KUEUE's own clock for the admission, beside admitNs which is when the collector heard
-	// about it. Zero when the component published none.
+	// about it.
+	// Zero when the component published none.
 	admitStampNs int64
 	completed    bool
 	completedNs  int64
@@ -248,9 +265,10 @@ type WorkloadOutcome struct {
 	// AdmitToReadyStampNs is the same interval measured on the CLUSTER COMPONENTS' own clocks -- Kueue's
 	// Admitted transition to the kubelet's Ready transition -- rather than on this collector's.
 	//
-	// nil when either component published no timestamp. It exists because the arrival-based figure below
-	// scattered across a second between otherwise identical runs while this one did not move at all, which
-	// is how the scatter was identified as watch jitter rather than as the cluster behaving differently.
+	// nil when either component published no timestamp.
+	// It exists because the arrival-based figure below scattered across a second between otherwise
+	// identical runs while this one did not move at all, which is how the scatter was identified as watch
+	// jitter rather than as the cluster behaving differently.
 	AdmitToReadyStampNs *int64
 	// AdmitToReadyNs is admission -> first observed Pod Ready, a client-observed propagation gap; valid only
 	// when the row was both Admitted and Executed.
@@ -268,30 +286,33 @@ type WorkloadOutcome struct {
 	// A Failed terminal phase is evidence that the attempt was cut short, not evidence that the PREEMPTION is
 	// what cut it short: an unrelated crash after the preemption decision reaches the same Failed phase and is
 	// charged identically, so this field rests on the assumption that a Failed phase following a preemption
-	// decision was caused by it, an assumption the ledger has no independent way to confirm or refute. Nothing
-	// else in this file may charge waste. A workload that ignores SIGTERM keeps running after the preemption
-	// decision and reaches a terminal Succeeded phase on its own; charging that run as discarded work reports
-	// a completed job as destroyed progress, which is exactly the error this field's earlier definition
-	// produced.
+	// decision was caused by it, an assumption the ledger has no independent way to confirm or refute.
+	// Nothing else in this file may charge waste.
+	// A workload that ignores SIGTERM keeps running after the preemption decision and reaches a terminal
+	// Succeeded phase on its own; charging that run as discarded work reports a completed job as destroyed
+	// progress, which is exactly the error this field's earlier definition produced.
 	WastedGPUSeconds float64
 	// UnattributedOccupancyGPUSeconds is the occupancy of preempted attempts whose loss could NOT be
 	// established from Pod state: those observed to terminate as Succeeded (so their work was not cut short),
-	// and those with no terminal phase observed at all (so nothing says either way). It is reported, never
-	// folded into waste.
+	// and those with no terminal phase observed at all (so nothing says either way).
+	// It is reported, never folded into waste.
 	//
 	// It MIXES an exact value with a horizon-truncated lower bound and does not distinguish them: an attempt
 	// whose Succeeded stop was observed in-horizon contributes its exact interval, while a post-horizon stop
-	// or an unobserved one contributes only ready->horizon. AttributionUnknown implies at least one truncated
-	// contribution; the converse does not hold, so read the whole quantity as ">=" whenever the run has any
-	// ineffective preemption. A separate censoring flag was rejected in favour of this note because the field
-	// set is already the hard part of reading this report.
+	// or an unobserved one contributes only ready->horizon.
+	// AttributionUnknown implies at least one truncated contribution; the converse does not hold, so read the
+	// whole quantity as ">=" whenever the run has any ineffective preemption.
+	// A separate censoring flag was rejected in favour of this note because the field set is already the hard
+	// part of reading this report.
 	UnattributedOccupancyGPUSeconds float64
 	// PreemptionIneffective is true when at least one preemption decision is KNOWN not to have stopped its
 	// target: the attempt reached a Succeeded terminal phase, or the row completed on what was its only
-	// attempt. Either way the platform decided to reclaim and the workload did not comply.
+	// attempt.
+	// Either way the platform decided to reclaim and the workload did not comply.
 	PreemptionIneffective bool
 	// WasteLowerBoundGPUSeconds is >= WastedGPUSeconds: it also counts attempts whose FAILED terminal phase
-	// was truncated by the horizon, charged only up to the horizon. It is a lower bound, never exact.
+	// was truncated by the horizon, charged only up to the horizon.
+	// It is a lower bound, never exact.
 	WasteLowerBoundGPUSeconds float64
 	// WasteCensored is true when at least one preempted attempt's Failed terminal phase fell outside the
 	// horizon, so an ATTRIBUTABLE loss is being reported over a truncated interval and the exact total
@@ -329,7 +350,8 @@ type WorkloadOutcome struct {
 	// ReExecuted is true when the row ran more than one attempt.
 	ReExecuted bool
 	// TotalOccupancyGPUSeconds is gpuCount-weighted execution time summed over ALL attempts, censored
-	// attempts charged only to the horizon. It is the row's real cost to the pool regardless of attribution.
+	// attempts charged only to the horizon.
+	// It is the row's real cost to the pool regardless of attribution.
 	TotalOccupancyGPUSeconds float64
 	// ServiceDurationSec is the row's declared uninterrupted service time, carried from the frozen trace.
 	//
@@ -350,23 +372,25 @@ type LabResult struct {
 	// UnfinishedAtHorizon is the count still pending or running at the horizon; excluding these from
 	// latency percentiles would flatter the worse policy, so they are reported explicitly.
 	UnfinishedAtHorizon int
-	// AdmittedWaitP95Ns is the p95 admission latency over ADMITTED jobs only, in ns. It is a SECONDARY
-	// statistic: on a censored arm it is admitted-survivor-biased (0 admissions reads as 0), so it must be
-	// read together with WaitP95FullyObserved and the censored waits, never in place of them.
+	// AdmittedWaitP95Ns is the p95 admission latency over ADMITTED jobs only, in ns.
+	// It is a SECONDARY statistic: on a censored arm it is admitted-survivor-biased (0 admissions reads as
+	// 0), so it must be read together with WaitP95FullyObserved and the censored waits, never in place of
+	// them.
 	AdmittedWaitP95Ns int64
 	// WaitP95FullyObserved is true only when EVERY offered job was admitted, which is the only case where
-	// the admitted-only p95 equals the offered-work p95. Any unadmitted job is right-censored with an
-	// unknown true wait that could occupy the p95 rank, so an admission fraction below 100% cannot make the
-	// admitted-only p95 a defensible estimate of the offered-work p95; when false, treat AdmittedWaitP95Ns
-	// as a within-survivors descriptor only.
+	// the admitted-only p95 equals the offered-work p95.
+	// Any unadmitted job is right-censored with an unknown true wait that could occupy the p95 rank, so an
+	// admission fraction below 100% cannot make the admitted-only p95 a defensible estimate of the
+	// offered-work p95; when false, treat AdmittedWaitP95Ns as a within-survivors descriptor only.
 	WaitP95FullyObserved bool
 	// Spread is how finely this run's own observations can distinguish an interval, or nil when the events
 	// bounded nothing.
 	//
 	// It sits on the result beside the magnitudes it qualifies because the failure it exists to prevent is a
 	// reader holding a magnitude WITHOUT it: a 0.9 second residual was published from this lab as a
-	// measurement while the run's own spread ran from 0.4 to 2.4 seconds. Every consumer of the totals below
-	// is expected to ask Spread.Resolves before calling a difference an effect.
+	// measurement while the run's own spread ran from 0.4 to 2.4 seconds.
+	// Every consumer of the totals below is expected to ask Spread.Resolves before calling a difference an
+	// effect.
 	Spread *ObservationSpread
 	// TotalWastedGPUSeconds is the run's total EXACT discarded (restart-from-zero) work.
 	TotalWastedGPUSeconds float64
@@ -389,8 +413,9 @@ type LabResult struct {
 	// TotalUncreditedAttributionUnknownOccupancyGPUSeconds is the run-level sum of
 	// UncreditedAttributionUnknownOccupancyGPUSeconds: occupancy whose cause is genuinely unestablished, as
 	// opposed to TotalUnattributedOccupancyGPUSeconds, which also includes occupancy a Succeeded stop or a
-	// credited completion DOES explain. A banner stating that the evidence "supports neither conclusion" must
-	// report this figure, not the combined one, or it describes seconds the ledger has already accounted for.
+	// credited completion DOES explain.
+	// A banner stating that the evidence "supports neither conclusion" must report this figure, not the
+	// combined one, or it describes seconds the ledger has already accounted for.
 	TotalUncreditedAttributionUnknownOccupancyGPUSeconds float64
 	// AnyUncreditedAttributionUnknown is true when at least one row carries occupancy of that kind, gating the
 	// "neither" banner so it is never printed about a row the PreemptionIneffective line already explains.
@@ -411,9 +436,10 @@ type LabResult struct {
 //
 // It is SEEDED from the frozen trace: every offered row gets exactly one timeline whether or not its events
 // arrived, so a job pending or missed at the horizon becomes an unfinished, right-censored outcome rather
-// than a silent omission. It returns an error rather than a number on evidence that could not have come from
-// a real run, because for an experiment tool a plausible wrong number is worse than a refusal. What it
-// refuses is exactly this:
+// than a silent omission.
+// It returns an error rather than a number on evidence that could not have come from a real run, because for
+// an experiment tool a plausible wrong number is worse than a refusal.
+// What it refuses is exactly this:
 //
 //   - shape: a duplicate job name in the trace, an event for a job not in the trace, an unknown event type,
 //     a negative elapsed time, a Pod event with no Pod UID, and an AttemptStopped whose reason is neither
@@ -428,14 +454,17 @@ type LabResult struct {
 // It deliberately does NOT refuse orderings that are legal cross-watch reordering, and this is the part that
 // changed: Workload, Job and Pod arrive on three independent watches, so an Admitted delivered before its
 // Submitted, a Completed delivered before its Admitted, and a preemption delivered after the Pod it stopped
-// are all realistic deliveries rather than impossible evidence. Earlier revisions rejected the first two and
-// paired preemptions by comparing instants across watches; both discarded valid runs. Preemptions are paired
-// to attempts ordinally now (see pairPreemptionsToAttempts), never by instant comparison.
+// are all realistic deliveries rather than impossible evidence.
+// Earlier revisions rejected the first two and paired preemptions by comparing instants across watches; both
+// discarded valid runs.
+// Preemptions are paired to attempts ordinally now (see pairPreemptionsToAttempts), never by instant
+// comparison.
 //
 // It assumes its input came from a fail-closed collector that observes every terminal Pod transition and
-// invalidates a run on any unexplained one (the live runner's contract). That precondition is what makes
-// "no in-horizon stop" mean the attempt still held the GPU at the horizon, so the censored waste lower
-// bound is a true lower bound rather than a guess; on a raw hand-authored ledger that guarantee is absent.
+// invalidates a run on any unexplained one (the live runner's contract).
+// That precondition is what makes "no in-horizon stop" mean the attempt still held the GPU at the horizon,
+// so the censored waste lower bound is a true lower bound rather than a guess; on a raw hand-authored
+// ledger that guarantee is absent.
 func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, horizonElapsedNs int64) (LabResult, error) {
 	byJob := map[string]*jobTimeline{}
 	order := make([]string, 0, len(trace))
@@ -459,15 +488,17 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 	}
 
 	// The spread is derived from the same events the intervals below are, so a reader can never hold one
-	// without the other. Carrying it on the result rather than computing it in the runner is what stops a
-	// second, looser derivation appearing beside a number that was already published once without one.
+	// without the other.
+	// Carrying it on the result rather than computing it in the runner is what stops a second, looser
+	// derivation appearing beside a number that was already published once without one.
 	res := LabResult{Arm: arm, Offered: len(trace), Spread: SpreadOf(events)}
 	var admitWaits []float64
 	for _, job := range order {
 		t := byJob[job]
 		if !t.submitted {
-			// Every offered row must carry exactly one Submitted (written after a successful Create). Its
-			// absence means the job was never created, which invalidates the run rather than censoring it.
+			// Every offered row must carry exactly one Submitted (written after a successful Create).
+			// Its absence means the job was never created, which invalidates the run rather than censoring
+			// it.
 			return LabResult{}, fmt.Errorf("job %q has no Submitted event; the run is invalid", job)
 		}
 		out := WorkloadOutcome{Job: job, Tenant: t.tenant, ServiceDurationSec: t.durationSec}
@@ -513,9 +544,10 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 
 	sort.Float64s(admitWaits)
 	res.AdmittedWaitP95Ns = int64(percentileNs(admitWaits, 0.95))
-	// The admitted-only p95 equals the offered-work p95 only when nothing is censored. With any unadmitted
-	// job the offered p95 is not identifiable from admitted data, so the fully-observed flag is exactly
-	// "every offered job was admitted", not an admission-fraction threshold.
+	// The admitted-only p95 equals the offered-work p95 only when nothing is censored.
+	// With any unadmitted job the offered p95 is not identifiable from admitted data, so the
+	// fully-observed flag is exactly "every offered job was admitted", not an admission-fraction
+	// threshold.
 	res.WaitP95FullyObserved = res.Offered > 0 && res.Admitted == res.Offered
 	return res, nil
 }
@@ -524,9 +556,9 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 // evidence that could not have happened in a real run.
 //
 // Shape validation (known job, known type, Pod events carry a UID, non-negative timestamp) runs BEFORE the
-// horizon rule, so a corrupt event is rejected whether it lands before or after the horizon. Only a valid
-// post-horizon AttemptStopped is then folded, as the causal tail that closes a pre-horizon preemption; any
-// other post-horizon delta is validated but not folded into in-horizon state.
+// horizon rule, so a corrupt event is rejected whether it lands before or after the horizon.
+// Only a valid post-horizon AttemptStopped is then folded, as the causal tail that closes a pre-horizon
+// preemption; any other post-horizon delta is validated but not folded into in-horizon state.
 func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedNs int64) error {
 	if e.ElapsedNs < 0 {
 		return fmt.Errorf("job %q event has negative elapsed time %d", e.Job, e.ElapsedNs)
@@ -547,8 +579,9 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 		}
 		// The stop reason is the ONLY evidence that separates discarded work from a run that finished its own
 		// service, so attribution must not be a blacklist that exempts one literal and charges everything else
-		// as preemption waste. ClassifyPod can emit only the two terminal phases, so any other value means the
-		// evidence is not interpretable and a plausible wrong number is worse than a refusal.
+		// as preemption waste.
+		// ClassifyPod can emit only the two terminal phases, so any other value means the evidence is not
+		// interpretable and a plausible wrong number is worse than a refusal.
 		if e.Reason != StopReasonSucceeded && e.Reason != StopReasonFailed {
 			return fmt.Errorf("job %q AttemptStopped has uninterpretable reason %q; want %q or %q",
 				e.Job, e.Reason, StopReasonSucceeded, StopReasonFailed)
@@ -597,11 +630,12 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 			//
 			// The gate above folds a post-horizon AttemptStopped — deliberately, because an attempt that was
 			// running when the window closed needs its end to charge occupancy correctly — while dropping every
-			// other post-horizon event, PodReady included. So a retry Pod that became Ready after the horizon
-			// and stopped shortly after arrived here with no attempt to attach to, and the run was refused
-			// under dispReconstructRefused with a reason that reads as a broken ledger. Both events are
-			// deliverable in the interval between waitForHorizon returning and the watches being cancelled, so
-			// the window is narrow and real.
+			// other post-horizon event, PodReady included.
+			// So a retry Pod that became Ready after the horizon and stopped shortly after arrived here with no
+			// attempt to attach to, and the run was refused under dispReconstructRefused with a reason that
+			// reads as a broken ledger.
+			// Both events are deliverable in the interval between waitForHorizon returning and the watches
+			// being cancelled, so the window is narrow and real.
 			//
 			// Inside the horizon this stays an error, and that is the half worth keeping: a stop for a Pod
 			// never seen Ready within the measured window IS a malformed sequence, and folding it silently
@@ -630,10 +664,12 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 //
 // An observed stop is authoritative regardless of the horizon: an in-horizon stop ends the interval exactly
 // there, and a post-horizon one still bounds it at the horizon because the attempt is known to have held the
-// GPU through the boundary. Only when NO stop was observed does a completion help: a Job's Complete
-// condition is observed only after its Pod has terminated, so an unstopped attempt on an otherwise-completed
-// row could not still have been running past that completion, making it a sound and still-conservative upper
-// bound tighter than the horizon. With neither a stop nor a completion, the horizon is what remains.
+// GPU through the boundary.
+// Only when NO stop was observed does a completion help: a Job's Complete condition is observed only after
+// its Pod has terminated, so an unstopped attempt on an otherwise-completed row could not still have been
+// running past that completion, making it a sound and still-conservative upper bound tighter than the
+// horizon.
+// With neither a stop nor a completion, the horizon is what remains.
 func occupancyEnd(t *jobTimeline, a *attempt, horizonElapsedNs int64) int64 {
 	end := horizonElapsedNs
 	switch {
@@ -647,14 +683,16 @@ func occupancyEnd(t *jobTimeline, a *attempt, horizonElapsedNs int64) int64 {
 	// Clamped up to readyNs, never below it, because the endpoint can legally be observed first.
 	//
 	// completedNs comes from the JOB watch and readyNs from the POD watch, and the ledger already states that
-	// ordering across independent watches proves nothing about what happened. So a completion seen before its
-	// own attempt's Ready is not impossible evidence — it is the reordering this design accepts — and the
-	// subtraction below it would produce NEGATIVE occupancy, which does not merely misreport this attempt: it
-	// silently cancels another attempt's real cost out of the row's total, with nothing flagged.
+	// ordering across independent watches proves nothing about what happened.
+	// So a completion seen before its own attempt's Ready is not impossible evidence — it is the reordering
+	// this design accepts — and the subtraction below it would produce NEGATIVE occupancy, which does not
+	// merely misreport this attempt: it silently cancels another attempt's real cost out of the row's total,
+	// with nothing flagged.
 	//
 	// Refusing the run instead would discard legitimate measurements over an ordering the harness has already
-	// decided it cannot read. Clamping keeps the accounting non-negative and treats the interval as the
-	// zero-width evidence it actually is.
+	// decided it cannot read.
+	// Clamping keeps the accounting non-negative and treats the interval as the zero-width evidence it
+	// actually is.
 	//
 	// The same-watch case is deliberately NOT handled here: a Pod stopping before it was Ready comes from one
 	// watch, is therefore impossible rather than reordered, and chargeWaste refuses the run over it.
@@ -667,10 +705,11 @@ func occupancyEnd(t *jobTimeline, a *attempt, horizonElapsedNs int64) int64 {
 // chargeWaste runs the per-job ordering checks and the attempt-paired preemption accounting, writing the
 // exact and lower-bound waste onto out.
 func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) error {
-	// Only checks that hold REGARDLESS of delivery order belong here. Workload, Job and Pod arrive on three
-	// independent watches, so comparing their observed instants proves nothing about what happened first —
-	// a promptly stopped Pod really can be delivered before the preemption that stopped it. What remains
-	// impossible under any ordering is a completion with no admission evidence at all.
+	// Only checks that hold REGARDLESS of delivery order belong here.
+	// Workload, Job and Pod arrive on three independent watches, so comparing their observed instants
+	// proves nothing about what happened first — a promptly stopped Pod really can be delivered before the
+	// preemption that stopped it.
+	// What remains impossible under any ordering is a completion with no admission evidence at all.
 	if t.completed && !t.admitted {
 		return fmt.Errorf("completed with no admission evidence")
 	}
@@ -708,14 +747,16 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 			// error sources and neither dominates.
 			//
 			// The arrival figure is fine-grained and carries the delivery lag of two independent watches,
-			// which the recorded runs put at whole seconds. This one has no watch lag at all, and instead
-			// carries up to a second of truncation at each end plus the offset between Kueue's clock and
-			// the kubelet's. The offset is a CONSTANT for a given pair of machines, so it cancels in a
-			// difference between two arms measured on the same node -- and does not cancel between nodes,
-			// which is why a node comparison must not use this figure.
+			// which the recorded runs put at whole seconds.
+			// This one has no watch lag at all, and instead carries up to a second of truncation at each
+			// end plus the offset between Kueue's clock and the kubelet's.
+			// The offset is a CONSTANT for a given pair of machines, so it cancels in a difference
+			// between two arms measured on the same node -- and does not cancel between nodes, which is
+			// why a node comparison must not use this figure.
 			//
-			// Where they agree, that is corroboration from two directions. Where they disagree by more than
-			// both bounds allow, something is wrong and the run should not be published either way.
+			// Where they agree, that is corroboration from two directions.
+			// Where they disagree by more than both bounds allow, something is wrong and the run should not
+			// be published either way.
 			if t.admitStampNs != 0 && firstReadyStamp != 0 {
 				v := firstReadyStamp - t.admitStampNs
 				out.AdmitToReadyStampNs = &v
@@ -726,8 +767,9 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 		a := t.attempts[uid]
 		if a.stopped && a.stopNs < a.readyNs {
 			// A Pod's Ready and its terminal phase come from the SAME watch, so unlike the cross-watch gaps
-			// above this ordering is not legal reordering but impossible evidence. Charging it would produce
-			// negative occupancy that silently cancels another attempt's real cost with no flag raised.
+			// above this ordering is not legal reordering but impossible evidence.
+			// Charging it would produce negative occupancy that silently cancels another attempt's real cost
+			// with no flag raised.
 			return fmt.Errorf("attempt %s stopped at %d before it was Ready at %d", a.uid, a.stopNs, a.readyNs)
 		}
 		end := occupancyEnd(t, a, horizonElapsedNs)
@@ -741,20 +783,22 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 		return err
 	}
 	// No per-attempt "consumed" flag: pairPreemptionsToAttempts returns each ordinal attempt once, so a single
-	// pass cannot charge one twice. A mutable guard here read as double-charge protection while providing none,
-	// and it would only start mattering if pairing ever became incremental or multi-pass.
+	// pass cannot charge one twice.
+	// A mutable guard here read as double-charge protection while providing none, and it would only start
+	// mattering if pairing ever became incremental or multi-pass.
 	for _, a := range paired {
 		gpu := float64(t.gpuCount)
-		// The attempt's in-horizon occupancy, which every arm below charges somewhere. It is the SAME endpoint
-		// rule the occupancy loop above uses, so no arm can charge more than the row's own occupancy and a
-		// double-charge cannot hide behind two different interval definitions.
+		// The attempt's in-horizon occupancy, which every arm below charges somewhere.
+		// It is the SAME endpoint rule the occupancy loop above uses, so no arm can charge more than the row's
+		// own occupancy and a double-charge cannot hide behind two different interval definitions.
 		end := occupancyEnd(t, a, horizonElapsedNs)
 		charged := gpu * float64(end-a.readyNs) / 1e9
 		switch {
 		case a.stopped && a.stopReason == StopReasonSucceeded:
 			// The attempt reached a successful terminal phase, so it finished its own service rather than
-			// being stopped by the preemption. Its occupancy is real but it is not discarded work, and folding
-			// it into waste would report a completed run as destroyed progress: the published error verbatim.
+			// being stopped by the preemption.
+			// Its occupancy is real but it is not discarded work, and folding it into waste would report a
+			// completed run as destroyed progress: the published error verbatim.
 			// This holds whether the stop landed in-horizon or beyond it, because the reason refutes loss
 			// wherever it is read.
 			out.UnattributedOccupancyGPUSeconds += charged
@@ -766,23 +810,25 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 			out.WasteLowerBoundGPUSeconds += charged
 		case a.stopped:
 			// A Failed terminal phase beyond the horizon: the loss IS attributable, only its interval is
-			// truncated, which is exactly what WasteCensored means. The attempt is known to have held the GPU
-			// through the boundary, so Ready->horizon is a true lower bound on the discarded work.
+			// truncated, which is exactly what WasteCensored means.
+			// The attempt is known to have held the GPU through the boundary, so Ready->horizon is a true
+			// lower bound on the discarded work.
 			out.WasteLowerBoundGPUSeconds += charged
 			out.WasteCensored = true
 		default:
 			// No terminal phase was observed at all, so Pod state cannot say whether the preemption stopped
-			// this attempt or it ran on and succeeded. Presuming loss here is what published completed work as
-			// discarded, and it is backwards on the very arm this study characterises, where an ignoring
-			// workload is more likely than not to finish. So the occupancy is charged as unattributed and the
-			// cause is reported as unknown rather than guessed.
+			// this attempt or it ran on and succeeded.
+			// Presuming loss here is what published completed work as discarded, and it is backwards on the
+			// very arm this study characterises, where an ignoring workload is more likely than not to finish.
+			// So the occupancy is charged as unattributed and the cause is reported as unknown rather than
+			// guessed.
 			out.UnattributedOccupancyGPUSeconds += charged
 			out.AttributionUnknown = true
 			if t.completed && len(t.attemptSeq) == 1 {
 				// With exactly ONE attempt the row's completion can only have happened on this attempt, so it
-				// was not stopped. Gated strictly on the count: with several attempts a completion says
-				// nothing about which one it belongs to, and crediting it would be inference from adjacency
-				// again.
+				// was not stopped.
+				// Gated strictly on the count: with several attempts a completion says nothing about which
+				// one it belongs to, and crediting it would be inference from adjacency again.
 				out.PreemptionIneffective = true
 			} else {
 				// This charge was NOT credited, so unlike the branch above its cause is still genuinely
@@ -799,9 +845,9 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 // attemptsInStartOrder returns the row's attempts ordered by when their Pod became Ready.
 //
 // Ordering attempts among THEMSELVES is legal: every Ready observation comes from the same Pod watch, whose
-// deliveries are ordered. What is illegal is comparing one of those instants against a preemption instant
-// from the Workload watch, which is why the ordering is computed here once rather than inside a pairing
-// predicate.
+// deliveries are ordered.
+// What is illegal is comparing one of those instants against a preemption instant from the Workload watch,
+// which is why the ordering is computed here once rather than inside a pairing predicate.
 func attemptsInStartOrder(t *jobTimeline) []*attempt {
 	out := make([]*attempt, 0, len(t.attemptSeq))
 	for _, uid := range t.attemptSeq {
@@ -824,8 +870,9 @@ func attemptsInStartOrder(t *jobTimeline) []*attempt {
 //
 // It compares one attempt's stop instant against the NEXT attempt's Ready instant, and both come from the
 // same Pod watch, so unlike a decision-to-attempt comparison this ordering is trustworthy evidence, not a
-// delivery-latency artifact. A row runs with Parallelism: 1, one attempt at a time, so the earlier attempt
-// must have stopped before the later one became Ready.
+// delivery-latency artifact.
+// A row runs with Parallelism: 1, one attempt at a time, so the earlier attempt must have stopped before
+// the later one became Ready.
 // An attempt with no observed stop cannot be shown to have ended, so it is treated as still open: a later
 // attempt becoming Ready while an earlier one has no observed stop is also an overlap, not a pass by
 // default.
@@ -846,12 +893,14 @@ func attemptsDoNotOverlap(t *jobTimeline) error {
 // It never compares a decision instant against an attempt instant, because those come from different
 // watches: a victim that honors SIGTERM and stops within a second can have its Pod terminal delivered
 // BEFORE the Workload preemption, and an instant comparison would reject the real victim as already
-// stopped. Both orderings it does use are within a single watch and therefore trustworthy — decisions
-// among decisions, attempts among attempts.
+// stopped.
+// Both orderings it does use are within a single watch and therefore trustworthy — decisions among
+// decisions, attempts among attempts.
 //
 // Ordinal pairing is what the mechanism actually does: a row runs one attempt at a time, so the k-th
-// preemption is the one that stopped the k-th attempt. A row that was preempted once and then re-executed
-// has two attempts and one decision, and only the first attempt is charged — the retry was not preempted.
+// preemption is the one that stopped the k-th attempt.
+// A row that was preempted once and then re-executed has two attempts and one decision, and only the
+// first attempt is charged — the retry was not preempted.
 func pairPreemptionsToAttempts(t *jobTimeline, decisions int) ([]*attempt, error) {
 	ordered := attemptsInStartOrder(t)
 	if decisions > len(ordered) {

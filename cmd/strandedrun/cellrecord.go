@@ -25,17 +25,20 @@ import (
 
 // CellRecord is one attempt at one cell of the campaign, as its evidence was recorded.
 //
-// A cell is an (arm, repetition) pair, and an attempt is one run at it. The record is judged rather than
-// produced here: the shell performs the submissions and the readings, this decides whether what came back is a
-// cell the campaign may count. Every subcommand in this tool works that way, and the reason is that a verdict
-// reached from a recorded reading can be re-reached later, when the cluster is gone.
+// A cell is an (arm, repetition) pair, and an attempt is one run at it.
+// The record is judged rather than produced here: the shell performs the submissions and the readings, this
+// decides whether what came back is a cell the campaign may count.
+// Every subcommand in this tool works that way, and the reason is that a verdict reached from a recorded
+// reading can be re-reached later, when the cluster is gone.
 type CellRecord struct {
 	Arm Arm `json:"arm"`
 	// Repetition is which of the protocol's repetitions this is, 1-based.
 	Repetition int `json:"repetition"`
-	// Attempt is 1 for the first run at this cell and 2 for its replacement. The protocol registers how many.
+	// Attempt is 1 for the first run at this cell and 2 for its replacement.
+	// The protocol registers how many.
 	Attempt int `json:"attempt"`
-	// ArmQualification is qualify-arm's verdict. A cell with no qualification evidence is not a cell.
+	// ArmQualification is qualify-arm's verdict.
+	// A cell with no qualification evidence is not a cell.
 	ArmQualification ArmVerdict `json:"arm_verdict"`
 	// Treatment is check-treatment's verdict, required for the treatment arm and refused for the reference --
 	// where it would be evidence about a configuration the arm does not install.
@@ -44,16 +47,17 @@ type CellRecord struct {
 	Censuses []StrandingReport `json:"censuses"`
 	// InvalidatedBecause is empty for a cell that stands, and otherwise names the protocol's reason.
 	//
-	// It must be one of the protocol's registered invalidation reasons. An operator who discards a cell for a
-	// reason nobody registered is retaking on the outcome, whatever the reason sounds like -- which is why this
-	// is a registered enum rather than free text, and why the ones the protocol says do NOT invalidate are
-	// refused here explicitly.
+	// It must be one of the protocol's registered invalidation reasons.
+	// An operator who discards a cell for a reason nobody registered is retaking on the outcome, whatever the
+	// reason sounds like -- which is why this is a registered enum rather than free text, and why the ones the
+	// protocol says do NOT invalidate are refused here explicitly.
 	InvalidatedBecause string `json:"invalidated_because,omitempty"`
 	// ProtocolSHA256 is the hash of the protocol file the cell was performed against, written by the performer.
 	//
 	// The second campaign requires it: two of its conditions both register four submissions named s1 to s4, so a
 	// record filed under the wrong condition passes check-cell against the other's file unchanged, and only the
-	// file it was performed against tells them apart. The first campaign's records predate it and carry none.
+	// file it was performed against tells them apart.
+	// The first campaign's records predate it and carry none.
 	ProtocolSHA256 string `json:"protocol_sha256,omitempty"`
 }
 
@@ -62,10 +66,11 @@ func (r CellRecord) Valid() bool { return r.InvalidatedBecause == "" }
 
 // CheckCell refuses a record the campaign could not honestly count, or honestly discard.
 //
-// The two halves matter equally. A record that claims to be a valid cell while missing evidence would put a
-// figure into the comparison that nothing supports; a record that claims to be invalid for an unregistered
-// reason would take a figure OUT of the comparison on grounds chosen after seeing it. The second is the one a
-// campaign fails quietly, because discarding a cell looks like diligence.
+// The two halves matter equally.
+// A record that claims to be a valid cell while missing evidence would put a figure into the comparison that
+// nothing supports; a record that claims to be invalid for an unregistered reason would take a figure OUT of
+// the comparison on grounds chosen after seeing it.
+// The second is the one a campaign fails quietly, because discarding a cell looks like diligence.
 func (p Protocol) CheckCell(r CellRecord) error {
 	arm, err := p.ArmByName(r.Arm)
 	if err != nil {
@@ -112,10 +117,10 @@ func (p Protocol) CheckCell(r CellRecord) error {
 	}
 
 	if !r.Valid() {
-		// An invalid attempt is retained with its reason and is not required to be complete. Requiring a full
-		// census series here would push an operator towards inventing the missing readings rather than
-		// recording that the attempt failed -- and the protocol publishes every attempt precisely so that a
-		// failed one can be seen to have failed.
+		// An invalid attempt is retained with its reason and is not required to be complete.
+		// Requiring a full census series here would push an operator towards inventing the missing readings
+		// rather than recording that the attempt failed -- and the protocol publishes every attempt precisely
+		// so that a failed one can be seen to have failed.
 		return nil
 	}
 
@@ -148,12 +153,14 @@ func (p Protocol) checkInvalidationReason(r CellRecord) error {
 	//
 	// Protocol.Validate refuses a reason that appears in both lists, so a reason registered as
 	// not-invalidating is never also registered as invalidating -- which means the check below would refuse it
-	// too, as unregistered. Measured by disabling this branch: a discard for `a_tie_between_nodes` was still
-	// refused, with "not a registered invalidation reason".
+	// too, as unregistered.
+	// Measured by disabling this branch: a discard for `a_tie_between_nodes` was still refused, with "not a
+	// registered invalidation reason".
 	//
-	// It is not a second gate and must not be read as one. It stays because the two refusals tell an operator
-	// different things: "not registered" reads as a typo to fix, and this one says the discard is selecting on
-	// the outcome -- which is the thing they must not do, however they spell it.
+	// It is not a second gate and must not be read as one.
+	// It stays because the two refusals tell an operator different things: "not registered" reads as a typo to
+	// fix, and this one says the discard is selecting on the outcome -- which is the thing they must not do,
+	// however they spell it.
 	if slices.Contains(p.DoesNotInvalidateACell, reason) {
 		return fmt.Errorf("the cell was discarded for %q, which the protocol registers as NOT invalidating; "+
 			"discarding the attempts that report a tie or an identical outcome is selecting on the outcome, "+
@@ -169,13 +176,15 @@ func (p Protocol) checkInvalidationReason(r CellRecord) error {
 
 // checkCensusSeries refuses a series whose readings do not account for the registered submissions.
 //
-// Step k must account for exactly the protocol's first k submissions. A census names them in three places --
-// placed, blocked and unsatisfiable -- and their union is where an omitted submission shows up, because a
-// reading that simply leaves one out is internally consistent and balances.
+// Step k must account for exactly the protocol's first k submissions.
+// A census names them in three places -- placed, blocked and unsatisfiable -- and their union is where an
+// omitted submission shows up, because a reading that simply leaves one out is internally consistent and
+// balances.
 //
 // This assumes the protocol registers no releases, which it does not: a released submission would legitimately
-// appear in none of the three. If a release is ever registered, this check has to be amended rather than
-// loosened, and the registration page says so.
+// appear in none of the three.
+// If a release is ever registered, this check has to be amended rather than loosened, and the registration
+// page says so.
 func (p Protocol) checkCensusSeries(r CellRecord) error {
 	seenSteps := map[string]bool{}
 	for i, c := range r.Censuses {
@@ -230,7 +239,8 @@ func keysNotIn(a, b map[string]bool) []string {
 //
 // Per-cell checks cannot see this: every attempt can be individually well formed while the campaign as a whole
 // has retaken a cell three times, or lost the record of a failed attempt, or reported a comparison from five
-// cells. The stopping rule lives here.
+// cells.
+// The stopping rule lives here.
 func (p Protocol) CheckCampaign(records []CellRecord) error {
 	attempts := map[string][]CellRecord{}
 	for i, r := range records {
@@ -258,8 +268,9 @@ func (p Protocol) CheckCampaign(records []CellRecord) error {
 					"one cell ends the campaign with the history published instead",
 					key, len(got), 1+p.Matrix.ReplacementsPerInvalidCell)
 			}
-			// Every attempt before the last must be invalid, and the last must stand. A valid attempt followed
-			// by another is a cell that was run again after it had already produced a figure.
+			// Every attempt before the last must be invalid, and the last must stand.
+			// A valid attempt followed by another is a cell that was run again after it had already produced a
+			// figure.
 			for i, r := range got[:len(got)-1] {
 				if r.Valid() {
 					return fmt.Errorf("cell %s attempt %d stands and is followed by another; running a cell "+

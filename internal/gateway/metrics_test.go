@@ -33,13 +33,14 @@ import (
 // What was missing is different in each case.
 //
 // proxy_test.go's "metrics endpoint" spec drives a 200, a 429 and a 502 and then asserts that four series
-// NAMES appear in /metrics. That pins the documented series list against the code, which is what it says it
-// is for — but a counter incremented under the wrong label, or not at all, leaves every one of those names
-// present and the spec green.
+// NAMES appear in /metrics.
+// That pins the documented series list against the code, which is what it says it is for — but a counter
+// incremented under the wrong label, or not at all, leaves every one of those names present and the spec
+// green.
 //
-// So these assert values, in the style kvguard_test.go already uses. The sentinel-label case is deliberately
-// not repeated here: proxy_test.go:769 already covers it, and more strictly, by scraping /metrics and
-// checking neither probe name appears anywhere in the body.
+// So these assert values, in the style kvguard_test.go already uses.
+// The sentinel-label case is deliberately not repeated here: proxy_test.go:769 already covers it, and more
+// strictly, by scraping /metrics and checking neither probe name appears anywhere in the body.
 
 // requestsFor reads one requests_total cell.
 //
@@ -50,13 +51,14 @@ func requestsFor(tenant, model string, code int) float64 {
 }
 
 var _ = Describe("requests_total cells", func() {
-	// Each spec takes a before/after reading. The registry is shared across the suite, so an absolute value
-	// would depend on spec ordering; a delta does not.
+	// Each spec takes a before/after reading.
+	// The registry is shared across the suite, so an absolute value would depend on spec ordering; a delta
+	// does not.
 
 	It("counts an unauthenticated request under the empty tenant and model", func() {
-		// server.go answers 401 before a tenant exists, so the labels it can honestly supply are empty. This
-		// pins that: a future version reaching for a tenant name here would have to invent one, and inventing
-		// it is how an unauthenticated caller starts choosing label values.
+		// server.go answers 401 before a tenant exists, so the labels it can honestly supply are empty.
+		// This pins that: a future version reaching for a tenant name here would have to invent one, and
+		// inventing it is how an unauthenticated caller starts choosing label values.
 		s := newProxyServer("", 60)
 		before := requestsFor("", "", http.StatusUnauthorized)
 
@@ -71,11 +73,12 @@ var _ = Describe("requests_total cells", func() {
 var _ = Describe("rate_limited_total and requests{code=429}", func() {
 	// server.go: "Counted separately from requests{code=429}; the two answer different questions."
 	//
-	// Nothing checked that they stay separate. One counts refusals by the RPM limiter; the other counts every
-	// 429 the gateway emits, which since M5 also includes admission-guard refusals. Making either a function
-	// of the other — or dropping one increment — keeps both series present in /metrics and every existing
-	// spec green, while the ratio an operator reads to tell "over budget" from "backend under pressure"
-	// quietly stops meaning anything.
+	// Nothing checked that they stay separate.
+	// One counts refusals by the RPM limiter; the other counts every 429 the gateway emits, which since M5
+	// also includes admission-guard refusals.
+	// Making either a function of the other — or dropping one increment — keeps both series present in
+	// /metrics and every existing spec green, while the ratio an operator reads to tell "over budget" from
+	// "backend under pressure" quietly stops meaning anything.
 
 	It("both move when the RPM limiter refuses a request", func() {
 		// Burst 1 so the second request in the window is refused by the bucket rather than anything after it.
@@ -97,8 +100,9 @@ var _ = Describe("rate_limited_total and requests{code=429}", func() {
 	})
 
 	It("only requests_total moves when the refusal is not the limiter's", func() {
-		// A malformed body is refused at step 5, after a token has already been taken. Nothing here is a
-		// rate-limit event, and counting it as one would inflate the numerator of that same ratio.
+		// A malformed body is refused at step 5, after a token has already been taken.
+		// Nothing here is a rate-limit event, and counting it as one would inflate the numerator of that
+		// same ratio.
 		s := newProxyServer("", 60)
 		beforeRequests := requestsFor(testTenant, "", http.StatusBadRequest)
 		beforeLimited := testutil.ToFloat64(rateLimited.WithLabelValues(testTenant))

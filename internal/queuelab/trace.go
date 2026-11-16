@@ -57,12 +57,13 @@ type TrainingTraceRow struct {
 	DurationSec int `json:"durationSec"`
 	// Duty is the fraction of its service time this row's workload spends computing, 0 meaning the default.
 	//
-	// It exists to make one reading decidable that the first hardware session could not decide. That session
-	// found reserved GPU-seconds and observed device-seconds agreeing to within a tenth of the run's floor,
-	// which sounds like reservation being a good proxy for use -- but the trace workload computes
-	// continuously by construction, so agreement was the only answer it could give. A row that holds its card
-	// and idles for a KNOWN fraction of its service turns that reading from "did they happen to agree" into
-	// "does the instrument recover a planted difference", which is the question the axis is for.
+	// It exists to make one reading decidable that the first hardware session could not decide.
+	// That session found reserved GPU-seconds and observed device-seconds agreeing to within a tenth of the
+	// run's floor, which sounds like reservation being a good proxy for use -- but the trace workload
+	// computes continuously by construction, so agreement was the only answer it could give.
+	// A row that holds its card and idles for a KNOWN fraction of its service turns that reading from "did
+	// they happen to agree" into "does the instrument recover a planted difference", which is the question
+	// the axis is for.
 	//
 	// Zero rather than one is the unset value because a zero-valued struct must render what this trace has
 	// always rendered. orFull maps it.
@@ -72,8 +73,9 @@ type TrainingTraceRow struct {
 // DutyCycle is the fraction of a row's service time spent computing, in (0, 1].
 //
 // A card is allocated to a Pod for the whole of its service whatever this is: allocation is Kubernetes'
-// answer and it does not consult the workload. The duty is what the DEVICE was doing inside that
-// allocation, which is exactly the difference between a reserved GPU-second and an observed device-second.
+// answer and it does not consult the workload.
+// The duty is what the DEVICE was doing inside that allocation, which is exactly the difference between a
+// reserved GPU-second and an observed device-second.
 type DutyCycle float64
 
 // FullDuty is the historical behaviour: compute for the whole service time.
@@ -82,9 +84,9 @@ const FullDuty DutyCycle = 1
 // QuarterDuty is the planted difference the idling study asks the instrument to recover.
 //
 // A quarter rather than a half because the question is whether reservation and occupancy can be told apart
-// at all, and the answer is clearest when the gap is large against the run's own floor. It is not so small
-// that the victim's device work becomes hard to observe: at a quarter of a fifty-second hold the card is
-// still busy for about twelve seconds, which is many scrape intervals.
+// at all, and the answer is clearest when the gap is large against the run's own floor.
+// It is not so small that the victim's device work becomes hard to observe: at a quarter of a fifty-second
+// hold the card is still busy for about twelve seconds, which is many scrape intervals.
 const QuarterDuty DutyCycle = 0.25
 
 // orFull maps the zero value to FullDuty, so a trace row that says nothing renders what it always did.
@@ -98,7 +100,8 @@ func (d DutyCycle) orFull() DutyCycle {
 // validate refuses a duty the workload cannot honour, rather than clamping one.
 //
 // Clamping would let a trace ask for 1.5 and get 1.0, and the record would then report a duty the run did
-// not have. A refused trace is a trace nobody ran; a clamped one is a wrong number.
+// not have.
+// A refused trace is a trace nobody ran; a clamped one is a wrong number.
 func (d DutyCycle) validate() error {
 	if d <= 0 || d > 1 {
 		return fmt.Errorf("duty cycle %v is not in (0, 1]; a row that never computes cannot be told from one "+
@@ -109,12 +112,13 @@ func (d DutyCycle) validate() error {
 
 // ReclaimScenario builds the trace for the reclaim study (Never vs Any).
 //
-// Capacity is one nominal unit per tenant in a shared cohort (total 2). Tenant A fills its own unit, then
-// borrows tenant B's idle unit, then tenant B submits and forces the borrowed unit's fate.
+// Capacity is one nominal unit per tenant in a shared cohort (total 2).
+// Tenant A fills its own unit, then borrows tenant B's idle unit, then tenant B submits and forces the
+// borrowed unit's fate.
 //
 // lateReturn places tenant B's arrival near the end of the borrowed job's service, where preempting it
-// discards almost a whole job of work; an early return makes preemption nearly free. That contrast is the
-// study's whole point, so both are generated from the same builder.
+// discards almost a whole job of work; an early return makes preemption nearly free.
+// That contrast is the study's whole point, so both are generated from the same builder.
 func ReclaimScenario(lateReturn bool, durationSec int) []TrainingTraceRow {
 	ownerOffsetMs := int64(5_000)
 	if lateReturn {
@@ -130,9 +134,11 @@ func ReclaimScenario(lateReturn bool, durationSec int) []TrainingTraceRow {
 
 // FIFOHeadOfLineScenario builds the trace for the FIFO study (StrictFIFO vs BestEffortFIFO).
 //
-// Capacity is 2 units for one tenant's queue. A long 1-GPU job holds one unit; a 2-GPU job then queues at
-// the head and cannot currently fit; several 1-GPU jobs arrive behind it. StrictFIFO leaves the free unit
-// idle to protect the head job's position, while BestEffortFIFO lets the younger fitting jobs bypass it.
+// Capacity is 2 units for one tenant's queue.
+// A long 1-GPU job holds one unit; a 2-GPU job then queues at the head and cannot currently fit; several
+// 1-GPU jobs arrive behind it.
+// StrictFIFO leaves the free unit idle to protect the head job's position, while BestEffortFIFO lets the
+// younger fitting jobs bypass it.
 //
 // The critical arrivals are spaced far enough apart that the asynchronous MLTrainingJob -> Job -> Workload
 // creation cannot randomly reverse their intended queue order.
@@ -170,7 +176,8 @@ const terminationGraceSec = 30
 // DoseRegime names which side of the termination grace period the victim's remaining service falls on.
 //
 // It exists because the two sides measure different things, and the earlier guard permitted only one of them
-// while its own comment described the other. What an IGNORING victim costs the owner is:
+// while its own comment described the other.
+// What an IGNORING victim costs the owner is:
 //
 //	DoseSelfCompleting  the victim's remaining service — the grace period never expires, so the platform's
 //	                    configured patience is irrelevant and could be any value without changing the result
@@ -178,10 +185,10 @@ const terminationGraceSec = 30
 //	                    victim's job would otherwise have run
 //
 // Only the second is what a termination CONTRACT binds, and it is the operationally ordinary one: real
-// training jobs are long, so remaining service exceeds any sane grace period almost always. The first is
-// still worth running, because it is the regime that reproduces the confound this lineage was built on — a
-// preempted victim completing successfully, its work uncredited, the row re-executing from zero — which
-// cannot happen at all when the grace period cuts the victim short first.
+// training jobs are long, so remaining service exceeds any sane grace period almost always.
+// The first is still worth running, because it is the regime that reproduces the confound this lineage was
+// built on — a preempted victim completing successfully, its work uncredited, the row re-executing from
+// zero — which cannot happen at all when the grace period cuts the victim short first.
 //
 // The regime is declared by the caller rather than inferred from the arithmetic, so a dose that does not
 // produce the regime the run says it is measuring is refused instead of quietly measuring the other one.

@@ -64,9 +64,9 @@ const (
 // The first six are preconditions: false on any of them is INVALID, and PASS needs each one true.
 // A precondition left unwritten is unknown, which blocks PASS without making the run INVALID, except for the two the
 // amendment makes INVALID by absence: a LaunchTime the instance never confirmed reading, since every deadline counts
-// from it, and a termination nobody confirmed.
-// schedulable is false only when an engine Pod could not be scheduled for a reason the diagnostics name and that is
-// not the device; a Pod the device refused is evidence about MPS, not a broken apparatus.
+// from it, and a termination nobody confirmed. schedulable is false only when an engine Pod could not be scheduled
+// for a reason the diagnostics name and that is not the device; a Pod the device refused is evidence about MPS, not
+// a broken apparatus.
 var mpsPreconditions = []string{
 	"launch_time_read",
 	"overlay_pinned",

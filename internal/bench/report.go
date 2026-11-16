@@ -39,9 +39,9 @@ const httpStatusInputExceedsBurst = 413
 // httpStatusProfileViolation is the status the gateway returns for a body that parses but sits outside the
 // registered benchmark request shape.
 //
-// 422 rather than 400, because the JSON is fine and only the shape is wrong. The refusal happens before the
-// guard is consulted, so it belongs with 401 and 403 rather than with the bucket's own refusals: counting it as
-// shedding would credit the guard with a decision it never made.
+// 422 rather than 400, because the JSON is fine and only the shape is wrong.
+// The refusal happens before the guard is consulted, so it belongs with 401 and 403 rather than with the
+// bucket's own refusals: counting it as shedding would credit the guard with a decision it never made.
 const httpStatusProfileViolation = 422
 
 // httpStatusUnauthorized and httpStatusForbidden are the statuses the gateway returns before admission runs.
@@ -51,9 +51,9 @@ const (
 	// httpStatusOK is "the engine answered this request", which is a different fact from "the guard allowed
 	// it" and is the one the token tallies need.
 	//
-	// Named rather than written as 200 in each place that asks. It was a literal in tallyDelivered and the
-	// declared-load tally needed the same test; two copies of one predicate is how a pair of checks drift
-	// into disagreeing about which rows they cover.
+	// Named rather than written as 200 in each place that asks.
+	// It was a literal in tallyDelivered and the declared-load tally needed the same test; two copies of
+	// one predicate is how a pair of checks drift into disagreeing about which rows they cover.
 	httpStatusOK = 200
 	// httpStatusServiceUnavailable is how the gateway refuses a request it has no room to hold; refusedForHold reads it with its reason.
 	httpStatusServiceUnavailable = 503
@@ -72,18 +72,21 @@ const errKindRejected = "rejected"
 //
 // Latency percentiles are in milliseconds, computed from the client-side raw timestamps.
 // thresholdProbePrefix names the probe tenants the trace generator creates to straddle the guard's
-// eligibility threshold. Matching on a prefix rather than an exact pair keeps the report from having to be
-// edited every time a probe is added, and keeps the two files from disagreeing about a literal.
+// eligibility threshold.
+// Matching on a prefix rather than an exact pair keeps the report from having to be edited every time a
+// probe is added, and keeps the two files from disagreeing about a literal.
 const thresholdProbePrefix = "standard-probe-"
 
 // The threshold probes, defined here because the report keys on them and the trace generator builds them.
 //
 // They lived in cmd/benchharness first, and the test for them transcribed the numbers -- so setting both
 // probes to the same length passed everything while silently removing the only traffic that touches the
-// threshold. One definition, read by both sides, is what makes that mutation fail.
+// threshold.
+// One definition, read by both sides, is what makes that mutation fail.
 //
 // The gateway scores (chars+3)/4, so these land one point either side of a 4096 threshold: 16,380 scores
-// 4,095 and passes an engaged guard, 16,384 scores 4,096 and does not. Four characters apart.
+// 4,095 and passes an engaged guard, 16,384 scores 4,096 and does not.
+// Four characters apart.
 const (
 	ProbeUnderTenant = thresholdProbePrefix + "under"
 	ProbeOverTenant  = thresholdProbePrefix + "over"
@@ -98,7 +101,8 @@ func isThresholdProbe(tenant string) bool { return strings.HasPrefix(tenant, thr
 //
 // It reads the status rather than RawRow.ErrorKind because the replay client labelled only 429 "rejected" and
 // left 413 under the generic "http", so evidence already on disk carries the wrong label and the status is the
-// only field that was right at the time. Scoring off the status lets a finished paid run be re-scored.
+// only field that was right at the time.
+// Scoring off the status lets a finished paid run be re-scored.
 //
 // Counting only 429 made the arm that shed hardest the one that reported shedding nothing: a static-cap replay
 // refused 447 noisy requests with 413 and printed rejected=0, having filed all 447 under Failed instead.
@@ -117,8 +121,9 @@ const tierStandard = "standard"
 // admissionUnknown reports whether this request left no record of what the guard decided about it.
 //
 // A transport error or a timeout means no response arrived, so there are no headers to read and no status to
-// classify. It is the admission-side twin of a censored latency observation, and it is treated the same way:
-// removed from the measurement rather than guessed at, counted, and disqualifying past a threshold.
+// classify.
+// It is the admission-side twin of a censored latency observation, and it is treated the same way: removed
+// from the measurement rather than guessed at, counted, and disqualifying past a threshold.
 func admissionUnknown(r RawRow) bool {
 	return r.HTTPStatus == 0 || r.ErrorKind == errKindTimeout
 }
@@ -134,8 +139,9 @@ func neverEvaluated(r RawRow) bool {
 // Counting both as shedding attributes a payload the caller sent wrong to the bucket, and the admitted-work
 // fraction is exactly the number that distinction changes.
 //
-// The gateway names the admission one in X-Admission-Reason, which the sender records on the row. A 413 with no
-// reason therefore did not reach admission: it is a malformed-request outcome, not work the guard declined.
+// The gateway names the admission one in X-Admission-Reason, which the sender records on the row.
+// A 413 with no reason therefore did not reach admission: it is a malformed-request outcome, not work the guard
+// declined.
 // Rows recorded before the gateway set that header carry no reason either, so this reads a 413 without one as
 // pre-admission -- which is the conservative direction for the fraction, since it removes the row from both
 // terms rather than crediting the guard with a refusal it may not have made.
@@ -165,8 +171,8 @@ func holdRefusals(r RawRow) int {
 
 // refusedBeforeAdmission reports whether the gateway turned the request away without the guard seeing it.
 //
-// 401 and 403 are decided on identity, and a 413 carrying no admission reason is decided on payload size. In
-// every case the guard never spoke, so the row belongs in neither term of the admitted-work fraction.
+// 401 and 403 are decided on identity, and a 413 carrying no admission reason is decided on payload size.
+// In every case the guard never spoke, so the row belongs in neither term of the admitted-work fraction.
 func refusedBeforeAdmission(r RawRow) bool {
 	return neverEvaluated(r) ||
 		r.HTTPStatus == httpStatusProfileViolation ||
@@ -184,8 +190,9 @@ type ProbeOutcome struct {
 	// Unevaluated is how many the gateway turned away before admission ran, so the threshold never judged them.
 	//
 	// A probe refused for its credentials is not a probe that passed the threshold, and the difference is the
-	// difference between evidence and none. Without this the section printed rejected=0 for probes the guard
-	// had never seen, which reads as the threshold having considered them and let them through.
+	// difference between evidence and none.
+	// Without this the section printed rejected=0 for probes the guard had never seen, which reads as the
+	// threshold having considered them and let them through.
 	Unevaluated int
 }
 
@@ -200,39 +207,44 @@ type ArmSummary struct {
 	// they count as failures, not completions.
 	TruncatedStreams int
 	// TerminationUnknown counts completions from rows that never recorded whether their stream ended: every row
-	// written before 2026-10-04. They stay in Completed, and the report prints how many rest on that silence.
+	// written before 2026-10-04.
+	// They stay in Completed, and the report prints how many rest on that silence.
 	TerminationUnknown int
 	// OfferedExactTokens and AdmittedExactTokens are the admitted-work fraction in the units the design
 	// actually specifies: the served tokenizer's own count, not ceil(chars/4).
 	//
-	// The estimate is not a neutral stand-in. This project's calibration measures it 36 percent low on a
-	// 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured), so a fraction built from it weighs
-	// the population differently than the criterion says to.
+	// The estimate is not a neutral stand-in.
+	// This project's calibration measures it 36 percent low on a 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated
+	// against 7,695 measured), so a fraction built from it weighs the population differently than the criterion says to.
 	OfferedExactTokens  int64
 	AdmittedExactTokens int64
 	// ExactTokensMissing counts eligible requests with no measured count, and ExactTokensContradicted counts
 	// those whose engine-reported count disagrees with the trace's.
 	//
-	// Either one disqualifies the admission-match check. The alternative is to fall back to the estimate,
-	// which is how the criterion came to be unevaluated for three paid runs without anyone noticing.
+	// Either one disqualifies the admission-match check.
+	// The alternative is to fall back to the estimate, which is how the criterion came to be unevaluated
+	// for three paid runs without anyone noticing.
 	ExactTokensMissing      int
 	ExactTokensContradicted int
 	// OutputTokens, OutputTokensPerSecond, TPOTMsP50/P99 and OutputTokensByTenant are what protection cost.
 	//
-	// Every check in this report is a TTFT ratio, and that is half an answer. The paid run's static-cap arm
-	// held the tail at the isolated arm's latency AND at its throughput -- 46.3 output tokens per second
-	// against 46.4 -- because it did not make the engine efficient, it discarded the long tenant's work
-	// entirely. The unprotected arm ran 24 percent faster in aggregate. None of that was visible.
+	// Every check in this report is a TTFT ratio, and that is half an answer.
+	// The paid run's static-cap arm held the tail at the isolated arm's latency AND at its throughput --
+	// 46.3 output tokens per second against 46.4 -- because it did not make the engine efficient, it
+	// discarded the long tenant's work entirely.
+	// The unprotected arm ran 24 percent faster in aggregate.
+	// None of that was visible.
 	//
 	// TPOT is the inter-token time a first-token metric cannot see: a guard that protects the first token and
-	// wrecks the stream after it would pass every check here. The rows have carried all of this from the
-	// start; only the report was not reading it.
+	// wrecks the stream after it would pass every check here.
+	// The rows have carried all of this from the start; only the report was not reading it.
 	OutputTokens int64
 	// ActiveSeconds is the wall clock the ARM occupied, and it is not derivable from pooled rows: a report
 	// pools four repetitions separated by washout pauses, so max(end) - min(send) over the pool charges the
-	// arm for minutes in which it sent nothing. Summarize fills this from the rows it is given, which is
-	// right for one repetition; a caller that pools MUST sum the per-repetition values instead, exactly as
-	// it already does for RepetitionCount and MinRepetitionTail.
+	// arm for minutes in which it sent nothing.
+	// Summarize fills this from the rows it is given, which is right for one repetition; a caller that
+	// pools MUST sum the per-repetition values instead, exactly as it already does for RepetitionCount and
+	// MinRepetitionTail.
 	ActiveSeconds         float64
 	OutputTokensPerSecond float64
 	TPOTMsP50             float64
@@ -244,27 +256,31 @@ type ArmSummary struct {
 	//
 	// Those tokens are counted, because the GPU produced them and the tenant received them, and dropping
 	// them would understate what a contending tenant got -- the exact quantity the share exists to
-	// measure. But a share that is a third truncated streams does not mean what an intact one means, and
-	// a quantity may not be described by a cause its ledger does not establish. So the amount is
-	// disclosed rather than folded in.
+	// measure.
+	// But a share that is a third truncated streams does not mean what an intact one means, and a
+	// quantity may not be described by a cause its ledger does not establish.
+	// So the amount is disclosed rather than folded in.
 	OutputTokensFromFailedStreams int64
 	// OutputTokensFromFailedStreamsByTenant is the same quantity per tenant, which is the form a reading needs.
 	//
 	// M5-c's reading 2 asks whether the contender's COMPLETED output fell below a fraction of its output
-	// under the control. OutputTokensByTenant does not answer that: the sender keeps HTTPStatus at 200 for a
-	// stream that broke after its headers arrived, so the tokens it managed to deliver are added there --
-	// which is the opposite of what tallyDelivered's own comment says it does. An arm that completes half
-	// the contender's responses and breaks the other half after fifteen of sixteen tokens then reports 97
-	// percent of the control's output instead of 50, and reading 2 never fires.
+	// under the control.
+	// OutputTokensByTenant does not answer that: the sender keeps HTTPStatus at 200 for a stream that broke
+	// after its headers arrived, so the tokens it managed to deliver are added there -- which is the
+	// opposite of what tallyDelivered's own comment says it does.
+	// An arm that completes half the contender's responses and breaks the other half after fifteen of
+	// sixteen tokens then reports 97 percent of the control's output instead of 50, and reading 2 never
+	// fires.
 	OutputTokensFromFailedStreamsByTenant map[string]int64
 	// TPOTMsP50ByTenant and TPOTMsP99ByTenant split the inter-token time by who received it.
 	//
 	// The arm-wide TPOT above pools every tenant, because it is accumulated before the premium-only filter,
-	// and that answers "how did this arm's streams behave". The pre-registered criterion asks something
-	// else: whether the PROTECTED tenant paid for its fast first token with a slow stream. On the paid
-	// evidence the arm-wide figure is 266.8 ms for arms whose premium and noisy streams need not resemble
-	// each other, and quoting it against a premium criterion would describe one tenant with another's
-	// number.
+	// and that answers "how did this arm's streams behave".
+	// The pre-registered criterion asks something else: whether the PROTECTED tenant paid for its fast
+	// first token with a slow stream.
+	// On the paid evidence the arm-wide figure is 266.8 ms for arms whose premium and noisy streams need
+	// not resemble each other, and quoting it against a premium criterion would describe one tenant with
+	// another's number.
 	TPOTMsP50ByTenant map[string]float64
 	TPOTMsP99ByTenant map[string]float64
 	// OutputCount is the contract OutputTokens, the shares and TPOT above were counted under.
@@ -319,22 +335,25 @@ type ArmSummary struct {
 	// InterContentFrameMsP50 and InterContentFrameMsP99 are (end - first content) / (content frames - 1).
 	//
 	// That is the per-request value TPOT used to be, kept under its own name because it measures frames, not
-	// tokens. Under OutputCountContentFrames it equals TPOT by construction; under OutputCountEngineTokens the
-	// two differ whenever a frame carries more than one token.
+	// tokens.
+	// Under OutputCountContentFrames it equals TPOT by construction; under OutputCountEngineTokens the two
+	// differ whenever a frame carries more than one token.
 	InterContentFrameMsP50         float64
 	InterContentFrameMsP99         float64
 	InterContentFrameMsP99ByTenant map[string]float64
 	// AdmissionLost is how many ELIGIBLE requests got no admission verdict at all, so the guard's behaviour
 	// toward them is unknown.
 	//
-	// A request that never received an HTTP response was not admitted and was not refused. Counting it as
-	// either invents an observation; counting it as admitted -- which is what happened -- let an arm whose
-	// traffic died in transport report a perfect admission match on work it never offered.
+	// A request that never received an HTTP response was not admitted and was not refused.
+	// Counting it as either invents an observation; counting it as admitted -- which is what happened --
+	// let an arm whose traffic died in transport report a perfect admission match on work it never
+	// offered.
 	AdmissionLost int
 	// HoldRefused is how many requests the gateway refused because it could hold no more, whatever their eligibility.
 	//
 	// Such a refusal is the gateway's capacity, not the policy under test: a 503 the harness used to count as admitted
-	// work in the fraction, and that it must never count as the guard shedding. A compared arm with any is invalid.
+	// work in the fraction, and that it must never count as the guard shedding.
+	// A compared arm with any is invalid.
 	HoldRefused int
 	// eligibleScored is how many eligible requests did get a verdict; AdmissionLost is judged against it.
 	eligibleScored int
@@ -345,13 +364,15 @@ type ArmSummary struct {
 	// Failed counts other non-completing requests (transport or stream errors).
 	Failed int
 	// RepetitionTTFTMsP99 is each repetition's own premium TTFT p99, attached by the caller that knows the
-	// split. The price-of-protection run's reading 3 compares a cell's improvement against the CONTROL'S
+	// split.
+	// The price-of-protection run's reading 3 compares a cell's improvement against the CONTROL'S
 	// repetition-to-repetition spread, so without these the reading has no threshold and must decline to
 	// decide rather than report a cell as failing to beat noise nobody measured.
 	RepetitionTTFTMsP99 []float64
 	// RepetitionIDs are the repetitions this arm pooled, in the order RepetitionTTFTMsP99 lists them, attached
-	// by the caller that read them from the raw file names. A count cannot stand in for them: an independent
-	// review showed R1 holding repetitions 1 and 2 beside a level holding 1 and 3 read as a paired comparison.
+	// by the caller that read them from the raw file names.
+	// A count cannot stand in for them: an independent review showed R1 holding repetitions 1 and 2 beside a
+	// level holding 1 and 3 read as a paired comparison.
 	RepetitionIDs []int
 	// DispositionByTenant is what happened to each tenant's offered requests, and it exists because a share
 	// alone cannot say why a share is small.
@@ -359,25 +380,28 @@ type ArmSummary struct {
 	// The price-of-protection run's reading 2 fires only when the contending tenant's missing work was
 	// REJECTED OR DISCARDED rather than delayed, and it says why in its own text: a reduced share is equally
 	// consistent with work discarded, work delayed past the window, and work starved but still queued, which
-	// are three findings and only one of them is deletion. The arm-wide Rejected/TimedOut/Failed counts above
-	// cannot separate them per tenant, so a reading built on those would be attributing a quantity to a cause
-	// its ledger does not establish -- which is the one thing this package's rules forbid outright.
+	// are three findings and only one of them is deletion.
+	// The arm-wide Rejected/TimedOut/Failed counts above cannot separate them per tenant, so a reading built
+	// on those would be attributing a quantity to a cause its ledger does not establish -- which is the one
+	// thing this package's rules forbid outright.
 	DispositionByTenant map[string]Disposition
 	// EstInputTokensByTenant is the estimated input tokens each tenant was OFFERED, summed over its rows.
 	//
 	// It exists because two runs of the same study, at the same rate and the same seed, can send prompts of
-	// different length and nothing on the page says so. Measured 2026-10-01: the ninth pilot offered premium
-	// prompts of 50 estimated tokens and the CR-driven run offered 294, a 5.9x difference in prefill, and the
-	// two produced headline ratios of 27.2x and 23.0x. The registration freezes the rate, the weights, the
-	// duration and the seed -- not the prompt length.
+	// different length and nothing on the page says so.
+	// Measured 2026-10-01: the ninth pilot offered premium prompts of 50 estimated tokens and the CR-driven
+	// run offered 294, a 5.9x difference in prefill, and the two produced headline ratios of 27.2x and 23.0x.
+	// The registration freezes the rate, the weights, the duration and the seed -- not the prompt length.
 	//
 	// traceChecksum already made the difference DETECTABLE; it is the sha256 of the trace and the trace
-	// records lengths. What it cannot do is make it LEGIBLE: two opaque hashes disagreeing does not tell a
-	// reader the prompts grew. promptCorpusSHA cannot either, and is not meant to -- the corpus pins the
-	// TEXT, which was identical in both runs.
+	// records lengths.
+	// What it cannot do is make it LEGIBLE: two opaque hashes disagreeing does not tell a reader the
+	// prompts grew. promptCorpusSHA cannot either, and is not meant to -- the corpus pins the TEXT, which
+	// was identical in both runs.
 	//
 	// Per tenant rather than per arm, because the premium and contender lengths move independently and the
-	// premium one is the study's primary endpoint. The divisor for a mean is DispositionByTenant[t].Offered.
+	// premium one is the study's primary endpoint.
+	// The divisor for a mean is DispositionByTenant[t].Offered.
 	EstInputTokensByTenant map[string]int64
 	// EngineInputTokensByTenant is, per tenant, how many rows reported each DISTINCT engine-reported input
 	// token count -- the engine's own prompt_tokens, not the gateway's ceil(chars/4) admission estimate.
@@ -385,37 +409,39 @@ type ArmSummary struct {
 	// Kept as a distribution rather than a sum because the question it answers is "did every request carry
 	// the declared length", and a sum cannot tell 23,275 rows of 256 from 23,274 of 255 plus one of 23,531.
 	//
-	// Counted over EVERY offered row rather than the eligible population. The gateway's eligibility rule is
-	// tier == standard AND estimate >= threshold, which excludes the premium tier by construction: a check
-	// built on the eligible rows could not see 69,825 of the ninth pilot's 71,215 requests, and premium is
-	// the study's primary endpoint.
+	// Counted over EVERY offered row rather than the eligible population.
+	// The gateway's eligibility rule is tier == standard AND estimate >= threshold, which excludes the
+	// premium tier by construction: a check built on the eligible rows could not see 69,825 of the ninth
+	// pilot's 71,215 requests, and premium is the study's primary endpoint.
 	EngineInputTokensByTenant map[string]map[int]int
 	// PromptLenCharsByTenant is, per tenant, how many rows carried each DISTINCT prompt length in characters.
 	//
 	// A DISTRIBUTION and not one length per tenant, for the reason EngineInputTokensByTenant beside it is
 	// one: a study that varies the prompt length needs to know whether two conditions were pooled, and more
-	// than one key IS that fact. Storing a single length plus a -1 sentinel would put the same claim in two
-	// representations -- the length and the "they disagree" marker -- and this repository has been bitten by
-	// a claim carried in two places where only one of them was guarded.
+	// than one key IS that fact.
+	// Storing a single length plus a -1 sentinel would put the same claim in two representations -- the
+	// length and the "they disagree" marker -- and this repository has been bitten by a claim carried in two
+	// places where only one of them was guarded.
 	//
 	// The trace-side PromptLenCharsByTenant keeps its -1 convention, and that is not a second vocabulary for
 	// the same thing: it reads what was GENERATED, this reads what was REPLAYED, and a study whose levels
 	// differ needs the second because the manifests are gone by the time anything scores the rows.
 	//
 	// Counted over EVERY offered row -- the tally runs before the loop's first `continue` -- because a
-	// request that failed still carries the length it was generated at. Reading only successful rows would
-	// miss a mixture whose second level is exactly the one that timed out.
+	// request that failed still carries the length it was generated at.
+	// Reading only successful rows would miss a mixture whose second level is exactly the one that timed
+	// out.
 	PromptLenCharsByTenant map[string]map[int]int
 	// PromptLenUnreportedByTenant counts, per tenant, rows carrying NO prompt length at all.
 	//
 	// Those are rows written before RawRow.PromptLenChars existed, which the three committed archives are.
-	// Kept apart from the distribution because absence is not a length: folding it in would make
-	// "every row carried 1,174" and "the rows that carried anything carried 1,174" the same reading, and the
-	// second licenses nothing about the rows that said nothing.
+	// Kept apart from the distribution because absence is not a length: folding it in would make "every row
+	// carried 1,174" and "the rows that carried anything carried 1,174" the same reading, and the second
+	// licenses nothing about the rows that said nothing.
 	//
-	// It is also not evidence of uniformity. A tenant whose distribution holds one key and whose unreported
-	// count is positive has rows that could have carried either level, and reading 4f says so rather than
-	// certifying the part it can see.
+	// It is also not evidence of uniformity.
+	// A tenant whose distribution holds one key and whose unreported count is positive has rows that could
+	// have carried either level, and reading 4f says so rather than certifying the part it can see.
 	PromptLenUnreportedByTenant map[string]int
 	// PromptLenInvalidByTenant counts, per tenant, rows carrying a NEGATIVE prompt length.
 	//
@@ -431,30 +457,34 @@ type ArmSummary struct {
 	EngineInputTokensUnreportedByTenant map[string]int
 	// EngineInputTokensInvalidByTenant counts, per tenant, rows carrying a NEGATIVE reported count.
 	//
-	// A negative is not a silence and not a disagreement: it is a measurement that cannot be a length. It
-	// blocks, because the instrument said something impossible and a reading that scored the rest would be
-	// certifying a trace whose accounting is broken. It is NOT treated as a disagreement, because "the load
-	// was not the declared one" is a claim about the load, and a negative is evidence about the recorder.
+	// A negative is not a silence and not a disagreement: it is a measurement that cannot be a length.
+	// It blocks, because the instrument said something impossible and a reading that scored the rest would
+	// be certifying a trace whose accounting is broken.
+	// It is NOT treated as a disagreement, because "the load was not the declared one" is a claim about the
+	// load, and a negative is evidence about the recorder.
 	//
-	// Classified BEFORE the response status is consulted. A negative on a failed row is still a broken
-	// value, and routing by status first would file it under the one bucket that does not block.
+	// Classified BEFORE the response status is consulted.
+	// A negative on a failed row is still a broken value, and routing by status first would file it
+	// under the one bucket that does not block.
 	EngineInputTokensInvalidByTenant map[string]int
 	// FinishReasonByTenant is, per tenant, how many rows carried each DISTINCT engine finish reason.
 	//
 	// vLLM reports "length" when the output cap cut the response and "stop" when the model ended on its
-	// own. The two are different experiments: a run where the cap truncated every answer measured the cap,
-	// not the model, and the output cap is one of the five load quantities this study freezes. Kept as a
-	// distribution rather than a flag because "every row hit the cap" and "most did" license different
-	// sentences, and a boolean cannot tell them apart.
+	// own.
+	// The two are different experiments: a run where the cap truncated every answer measured the cap, not
+	// the model, and the output cap is one of the five load quantities this study freezes.
+	// Kept as a distribution rather than a flag because "every row hit the cap" and "most did" license
+	// different sentences, and a boolean cannot tell them apart.
 	//
 	// Counted over EVERY offered row, for the same reason the engine input tokens are: the eligible
 	// population excludes the premium tier by construction, and premium is the study's primary endpoint.
 	FinishReasonByTenant map[string]map[string]int
 	// FinishReasonUnreportedByTenant counts, per tenant, rows the engine ANSWERED that named no reason.
 	//
-	// A gap in the instrument, not a normal stop. An engine that returned 200 and said nothing about why it
-	// stopped leaves "the cap was not reached" unsupported in either direction, and reading the silence as
-	// "stop" would turn a missing field into a measurement.
+	// A gap in the instrument, not a normal stop.
+	// An engine that returned 200 and said nothing about why it stopped leaves "the cap was not reached"
+	// unsupported in either direction, and reading the silence as "stop" would turn a missing field into a
+	// measurement.
 	FinishReasonUnreportedByTenant map[string]int
 	// FinishReasonUnansweredByTenant counts, per tenant, rows with no successful response at all.
 	//
@@ -466,10 +496,12 @@ type ArmSummary struct {
 	// all, so the engine had no opportunity to report a count.
 	//
 	// Separate from Unreported because the two silences are not the same fact and must not carry the same
-	// verdict. Measured 2026-10-03: the ten-cell archive has ONE row of 47,245 with HTTP 502, errorKind
-	// "http" and no response body. Such a row cannot carry prompt_tokens -- nothing went wrong with the
-	// accounting, the request simply failed -- and folding it in with the instrument gaps let a single
-	// transport failure disqualify a run's whole load-fidelity claim.
+	// verdict.
+	// Measured 2026-10-03: the ten-cell archive has ONE row of 47,245 with HTTP 502, errorKind "http" and
+	// no response body.
+	// Such a row cannot carry prompt_tokens -- nothing went wrong with the accounting, the request simply
+	// failed -- and folding it in with the instrument gaps let a single transport failure disqualify a
+	// run's whole load-fidelity claim.
 	//
 	// It is still COUNTED and still reported, because "the engine never answered 1 request" is a fact a
 	// reader of a load claim is entitled to, and because a check that drops rows it cannot score silently
@@ -490,19 +522,22 @@ type ArmSummary struct {
 	AdmittedInputTokens int64
 	// ThresholdProbe records how the guard's eligibility threshold behaved, keyed by tenant.
 	//
-	// The rest of this summary cannot show it. Contender and premium traffic sit thousands of tokens either
-	// side of the threshold, so their admission outcome is the same for any threshold in a wide range, and a
-	// report built only from them describes a guard whose configured number never mattered. The probe
-	// tenants straddle it by four characters; this is where their opposite outcomes become visible.
+	// The rest of this summary cannot show it.
+	// Contender and premium traffic sit thousands of tokens either side of the threshold, so their admission
+	// outcome is the same for any threshold in a wide range, and a report built only from them describes a
+	// guard whose configured number never mattered.
+	// The probe tenants straddle it by four characters; this is where their opposite outcomes become
+	// visible.
 	ThresholdProbe map[string]ProbeOutcome
 
 	// RepetitionCount and MinRepetitionTail describe the arm's repetitions rather than its pooled rows, and
 	// they exist because pooling hides a truncated repetition.
 	//
-	// TailSampleSize is computed over every row in the arm. An arm whose repetitions completed 500, 500, 500
-	// and 30 premium requests therefore reports 1,530 -- far above MinTailSamples -- while one quarter of the
-	// evidence is a p99 taken over thirty requests, which is that repetition's MAXIMUM. That fourth value is
-	// then resampled with equal weight by the incremental bootstrap.
+	// TailSampleSize is computed over every row in the arm.
+	// An arm whose repetitions completed 500, 500, 500 and 30 premium requests therefore reports 1,530 -- far
+	// above MinTailSamples -- while one quarter of the evidence is a p99 taken over thirty requests, which is
+	// that repetition's MAXIMUM.
+	// That fourth value is then resampled with equal weight by the incremental bootstrap.
 	//
 	// The floor is the same number and the same derivation as MinTailSamples, applied per repetition because
 	// that is the unit the bootstrap resamples: below 100, nearest-rank p99 lands on the maximum.
@@ -516,16 +551,18 @@ type ArmSummary struct {
 	//
 	// Censoring is a fraction, and pooling averages it away: a repetition that lost 1.50% of its premium
 	// requests sits beside two clean ones as 0.75% of the pool, under the 1% bar, and the readings that
-	// refuse a censored control never see it. A review reproduced exactly that on the eighth pilot's rows
-	// and reading 5 fired on a censored control. Attached by the caller that knows how the rows were split,
-	// for the same reason RepetitionCount is.
+	// refuse a censored control never see it.
+	// A review reproduced exactly that on the eighth pilot's rows and reading 5 fired on a censored
+	// control.
+	// Attached by the caller that knows how the rows were split, for the same reason RepetitionCount is.
 	AnyRepetitionCensored bool
 
 	// WorstRepetitionServedFractionByTenant is the lowest completed/offered any repetition reached, per tenant.
 	//
-	// A COUNT and a FRACTION are different questions and the floor only asked the first. Repetitions of
-	// 100/139 and 139/139 both clear a hundred-completion floor while the first lost 28% of its load, and a
-	// run whose contention was delivered that unevenly cannot be compared against one where it was not.
+	// A COUNT and a FRACTION are different questions and the floor only asked the first.
+	// Repetitions of 100/139 and 139/139 both clear a hundred-completion floor while the first lost 28% of
+	// its load, and a run whose contention was delivered that unevenly cannot be compared against one where
+	// it was not.
 	// Carried per tenant so the CONTROL is checked too: every ratio in this study is measured against
 	// `shared`, and a control that lost a third of its contender load is a weakened denominator.
 	WorstRepetitionServedFractionByTenant map[string]float64
@@ -533,8 +570,9 @@ type ArmSummary struct {
 	// MinRepetitionCompletedByTenant is the thinnest repetition's completed count, per tenant.
 	//
 	// MinRepetitionTail answers the same question for the premium tenant only, which left the contender's
-	// floor applicable to the POOL and nowhere else. Attached by the caller that knows how the rows were
-	// split, for the same reason RepetitionCount is: Summarize sees pooled rows and cannot tell.
+	// floor applicable to the POOL and nowhere else.
+	// Attached by the caller that knows how the rows were split, for the same reason RepetitionCount is:
+	// Summarize sees pooled rows and cannot tell.
 	MinRepetitionCompletedByTenant map[string]int
 
 	// MinRepetitionTail is the smallest premium-completion count among the arm's repetitions.
@@ -563,8 +601,9 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// Made here rather than lazily inside the row loop, where the other per-tenant maps are made.
 	//
 	// That loop sits at the gocyclo ceiling: one more `if m == nil` in it took Summarize from 30 to 31 and
-	// turned `make lint` red. An empty map for an arm with no rows is harmless -- formatOfferedLoad tests
-	// len() -- and a nil map would panic on the first write, so the initialisation cannot simply be dropped.
+	// turned `make lint` red.
+	// An empty map for an arm with no rows is harmless -- formatOfferedLoad tests len() -- and a nil map
+	// would panic on the first write, so the initialisation cannot simply be dropped.
 	s.EstInputTokensByTenant = map[string]int64{}
 	s.EngineInputTokensByTenant = map[string]map[int]int{}
 	s.EngineInputTokensUnreportedByTenant = map[string]int{}
@@ -608,13 +647,15 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		// rule -- against the tier the gateway itself reported, not one inferred from a tenant name.
 		//
 		// A row with no tier predates the gateway reporting it and is scored on the threshold alone, as it
-		// always was. Treating "not recorded" as "not standard" would empty the eligible population of every
-		// run already on disk and silently rewrite its numbers.
+		// always was.
+		// Treating "not recorded" as "not standard" would empty the eligible population of every run already
+		// on disk and silently rewrite its numbers.
 		//
 		// A request the gateway turned away before admission ran is outside that population entirely, in
-		// neither term of the fraction, because the guard never saw it. Counting it as offered-and-admitted
-		// scored 737,280 admitted tokens for an arm that admitted nothing: the paid run's probes estimate at
-		// exactly the 4,096 threshold, so all 180 of them per arm were eligible, and all 180 were 403.
+		// neither term of the fraction, because the guard never saw it.
+		// Counting it as offered-and-admitted scored 737,280 admitted tokens for an arm that admitted
+		// nothing: the paid run's probes estimate at exactly the 4,096 threshold, so all 180 of them per arm
+		// were eligible, and all 180 were 403.
 		if r.EstInputTokens >= threshold && eligibleTier(r) && !refusedBeforeAdmission(r) {
 			s.tallyEligibleWork(r)
 		}
@@ -633,9 +674,9 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			o.EstInputTokens = r.EstInputTokens
 			switch {
 			// A probe the guard never evaluated is not a probe that passed, and a 413 refused on body size is
-			// as unevaluated as a 403: both were decided before admission ran. Reading only 401/403 here left a
-			// body-limit refusal in neither bucket while still counting toward Total, so the section showed a
-			// probe population larger than the outcomes it could explain.
+			// as unevaluated as a 403: both were decided before admission ran.
+			// Reading only 401/403 here left a body-limit refusal in neither bucket while still counting toward
+			// Total, so the section showed a probe population larger than the outcomes it could explain.
 			case refusedBeforeAdmission(r):
 				o.Unevaluated++
 			case shedByAdmission(r):
@@ -694,11 +735,11 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			// counted as one.
 			//
 			// The censoring rule read only premiumTimedOut, so a run whose premium requests died on
-			// connection resets kept an uncensored tail. That is the failure mode of a node going away --
-			// a reclaimed Spot instance, an evicted engine Pod, an OOM kill, a network blip -- and none of
-			// them produce timeouts. An adversarial review demonstrated it by feeding this function an arm
-			// truncated at 120 premium completions with 380 transport failures, and the report printed
-			// "all checks passed".
+			// connection resets kept an uncensored tail.
+			// That is the failure mode of a node going away -- a reclaimed Spot instance, an evicted
+			// engine Pod, an OOM kill, a network blip -- and none of them produce timeouts.
+			// An adversarial review demonstrated it by feeding this function an arm truncated at 120
+			// premium completions with 380 transport failures, and the report printed "all checks passed".
 			//
 			// An admission refusal stays excluded because a rejection is the treatment, not a lost
 			// measurement: shedding is what the guard is for and it is accounted separately in Rejected.
@@ -727,15 +768,15 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// The tail is censored when more than 1% of the PREMIUM requests did not complete for a reason other than
 	// admission, since those missing requests are exactly the ones a p99 should capture.
 	//
-	// Timeouts and transport/stream errors are both counted. They are the same thing for this purpose -- a
-	// premium request whose latency is unknown and was probably long -- and separating them let a whole class
-	// of degraded run through uncensored.
-	// >= rather than >, because at exactly one percent the p99 is already gone.
+	// Timeouts and transport/stream errors are both counted.
+	// They are the same thing for this purpose -- a premium request whose latency is unknown and was probably
+	// long -- and separating them let a whole class of degraded run through uncensored. >= rather than >,
+	// because at exactly one percent the p99 is already gone.
 	//
 	// A nearest-rank p99 over n observations is the ceil(0.99n)-th, so it rests on the slowest n/100 of them.
-	// Losing exactly that many -- 18 of 1,840, which the old boundary waved through -- can remove the entire
-	// quantile mass the statistic is made of, and the ones that vanish are the ones that were slow enough to
-	// die. The reported p99 then is a p98 wearing the other name.
+	// Losing exactly that many -- 18 of 1,840, which the old boundary waved through -- can remove the entire quantile mass the statistic is made of, and the ones that vanish are the
+	// ones that were slow enough to die.
+	// The reported p99 then is a p98 wearing the other name.
 	// The time the arm occupied is taken from the rows rather than from a timer the runner kept, so a re-scored evidence file yields the same throughput as the run that produced it.
 	s.SetActiveSeconds(nanosToMs(activeSpanNanos(rows)) / 1000)
 	delivered.finish(&s)
@@ -883,10 +924,12 @@ type CI struct {
 	// Valid distinguishes "the interval is [0,0]" from "there is no interval".
 	//
 	// The zero CI used to be indistinguishable from a computed one, and the incremental gate reads
-	// `incrementalCI.Hi < 1.0`. When repetition counts differ between arms the caller skips the bootstrap and
-	// leaves the zero value, so Hi is 0.0 and the STRICTEST check in the design passes vacuously -- a
-	// truncated run disarms the gate instead of tripping it. Making the zero value invalid by construction is
-	// what stops that, rather than relying on every caller to remember.
+	// `incrementalCI.Hi < 1.0`.
+	// When repetition counts differ between arms the caller skips the bootstrap and leaves the zero value, so
+	// Hi is 0.0 and the STRICTEST check in the design passes vacuously -- a truncated run disarms the gate
+	// instead of tripping it.
+	// Making the zero value invalid by construction is what stops that, rather than relying on every caller
+	// to remember.
 	Valid bool
 
 	// InvalidReason says WHY there is no usable interval, because the two causes call for different actions.
@@ -913,10 +956,11 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 	}
 	if len(values) == 1 {
 		// A single repetition cannot bound its own variance, so the interval degenerates to the point estimate
-		// -- and a point estimate is not a confidence interval. It is returned for display and marked INVALID,
-		// because the incremental gate asks whether the interval's upper bound clears 1.0 and a degenerate
-		// "interval" answers that question vacuously. This function said as much in its own comment while
-		// returning a value the gate could not tell apart from a real one.
+		// -- and a point estimate is not a confidence interval.
+		// It is returned for display and marked INVALID, because the incremental gate asks whether the
+		// interval's upper bound clears 1.0 and a degenerate "interval" answers that question vacuously.
+		// This function said as much in its own comment while returning a value the gate could not tell apart
+		// from a real one.
 		return CI{Lo: values[0], Hi: values[0]}
 	}
 
@@ -943,12 +987,12 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 // admittedWorkFraction is the eligible EXACT input tokens admitted over those offered, which is the unit the
 // design registers the admission-match criterion in.
 //
-// It used to divide the ESTIMATED totals while ArmSummary already carried the exact ones and the comment on
-// those fields already said they were "the admitted-work fraction in the units the design actually specifies".
-// The estimate is not a neutral stand-in -- this project's own calibration measures it 36 percent low on a
-// 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured) -- so a fraction built from it weighs the
-// population differently than the criterion says to. The values were collected, validated, and then discarded
-// by the one function that decided the verdict.
+// It used to divide the ESTIMATED totals while ArmSummary already carried the exact ones and the comment on those fields already said they were "the
+// admitted-work fraction in the units the design actually specifies".
+// The estimate is not a neutral stand-in -- this project's own calibration measures it 36 percent low on a 200-character prompt and 30 percent high on a
+// 40,000-character one (10,000 estimated against 7,695 measured) -- so a fraction built from it weighs the population differently than the criterion
+// says to.
+// The values were collected, validated, and then discarded by the one function that decided the verdict.
 //
 // A zero denominator returns zero here and is turned into an explicit invalidation by the caller, because a
 // fraction of zero and a fraction that could not be computed are different facts and only one of them is a
@@ -986,8 +1030,9 @@ type Checks struct {
 	AdmissionMatchPass  bool
 	// AdmissionNotEvaluable marks the criterion as unanswerable rather than failed.
 	//
-	// The two are different findings and the report used to print the same 0.000 for both. A run whose exact
-	// accounting is incomplete has not shown the arms to be mismatched; it has shown that nobody can say.
+	// The two are different findings and the report used to print the same 0.000 for both.
+	// A run whose exact accounting is incomplete has not shown the arms to be mismatched; it has shown that
+	// nobody can say.
 	AdmissionNotEvaluable bool
 	// EstimateWeightedDelta is the same comparison in the ESTIMATE's unit, carried as a labelled diagnostic
 	// because every artifact recorded before this repair was certified on it.
@@ -1019,17 +1064,19 @@ func (c *Checks) invalidate(reason string) {
 // ⚠️ It is RETAINED PROVISIONALLY and is not a validity boundary for the interval this gate now reads.
 //
 // The 0.15 was placed between false-PASS rates measured against this package's own BootstrapCI, which
-// bootstraps the MEAN of per-repetition ratios (cmd/benchharness/power.go:63). The 2026-10-01 amendment
-// replaced that with a paired BLOCK bootstrap of the pooled p99 ratio, and no coverage has been measured for
-// the new estimator at any scatter. So "benchharness power" output reproduces the REPLACED statistic and must
-// not be cited as validation of the current one.
+// bootstraps the MEAN of per-repetition ratios (cmd/benchharness/power.go:63).
+// The 2026-10-01 amendment replaced that with a paired BLOCK bootstrap of the pooled p99 ratio, and no
+// coverage has been measured for the new estimator at any scatter.
+// So "benchharness power" output reproduces the REPLACED statistic and must not be cited as validation of the
+// current one.
 //
 // What still holds is narrow: with everything else fixed, the runs that pass with this rule are a subset of
 // those that pass without it, so it cannot raise the rate of a false PASS on one fixed experiment.
 //
 // The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the isolation-like ones, so this
-// is not expected to bind. It exists because the failure mode is a gate that PASSES when it should not, and
-// a run is not entitled to assume its variability stayed where the pilot's was.
+// is not expected to bind.
+// It exists because the failure mode is a gate that PASSES when it should not, and a run is not entitled to
+// assume its variability stayed where the pilot's was.
 //
 // The full argument, including which earlier claim the amendment withdrew, is beside the test that exercises
 // this function in report_test.go -- kept in one place on purpose, because the same correction was already
@@ -1075,15 +1122,17 @@ func (s ArmSummary) AdmissionScored() int {
 // MinTailSamples is the smallest premium-completion count at which the reported p99 is not simply the
 // largest observation.
 //
-// It is derived, not chosen. The percentile is nearest-rank: index ceil(0.99*n)-1, clamped to n-1. Solve
-// ceil(0.99*n)-1 < n-1 and the smallest integer that satisfies it is 100 -- at n=99 the index lands on 98
-// of 0..98, the maximum, and every value below 99 does the same. So a run with fewer than 100 premium
-// completions reports its slowest request and calls it a tail.
+// It is derived, not chosen.
+// The percentile is nearest-rank: index ceil(0.99*n)-1, clamped to n-1.
+// Solve ceil(0.99*n)-1 < n-1 and the smallest integer that satisfies it is 100 -- at n=99 the index lands
+// on 98 of 0..98, the maximum, and every value below 99 does the same.
+// So a run with fewer than 100 premium completions reports its slowest request and calls it a tail.
 //
-// This mattered because nothing read TailSampleSize. It was computed, stored, asserted on in unit tests,
-// and never consulted by any production path: not printed, not gating validity. A sixty-second run at a
-// rate the engine cannot serve yields a few dozen completions, and the report would have presented that
-// maximum with exactly the authority of a p99 over five thousand.
+// This mattered because nothing read TailSampleSize.
+// It was computed, stored, asserted on in unit tests, and never consulted by any production path: not
+// printed, not gating validity.
+// A sixty-second run at a rate the engine cannot serve yields a few dozen completions, and the report
+// would have presented that maximum with exactly the authority of a p99 over five thousand.
 const MinTailSamples = 100
 
 // EvaluateChecks computes the design's pre-registered checks from the four arms' aggregated p99 values and admission-work fractions.
@@ -1109,8 +1158,9 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 			c.invalidate(fmt.Sprintf("arm %s tail is censored (>1%% of premium requests did not complete), so its p99 is only a lower bound", s.Arm))
 		}
 		// The criterion is defined over exact tokens, so a population that cannot supply them cannot be
-		// scored against it. Refusing is the point: falling back to the estimate is what made three paid
-		// runs report a number nobody had asked for.
+		// scored against it.
+		// Refusing is the point: falling back to the estimate is what made three paid runs report a
+		// number nobody had asked for.
 		if s.ExactTokensMissing > 0 {
 			c.invalidate(fmt.Sprintf("arm %s has %d eligible requests with no measured input-token count, and the admission-match criterion is defined over the served tokenizer's own count rather than the ceil(chars/4) estimate", s.Arm, s.ExactTokensMissing))
 		}
@@ -1124,8 +1174,9 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 				s.Arm, s.HoldRefused))
 		}
 		// An eligible request with no admission verdict is unknown work, not admitted work, and the
-		// admitted-work fraction is what the whole matched comparison rests on. The threshold is the tail's:
-		// past one percent the fraction is describing a population it could not see.
+		// admitted-work fraction is what the whole matched comparison rests on.
+		// The threshold is the tail's: past one percent the fraction is describing a population it could not
+		// see.
 		if eligible := s.AdmissionLost + s.AdmissionScored(); eligible > 0 &&
 			float64(s.AdmissionLost)/float64(eligible) >= MaxLostAdmissionFraction {
 			c.invalidate(fmt.Sprintf("arm %s lost the admission verdict for %d of %d eligible requests (>%.0f%%), so its admitted-work fraction is measured over a population it could not see",
@@ -1142,7 +1193,8 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 		c.IncrementalRatio = kvAware.TTFTMsP99 / staticCap.TTFTMsP99
 	}
 	c.IncrementalRatioCI = incrementalCI
-	// An absent interval fails the gate rather than satisfying it. See the comment on CI.Valid.
+	// An absent interval fails the gate rather than satisfying it.
+	// See the comment on CI.Valid.
 	c.IncrementalValuePass = c.IncrementalRatio <= 0.90 && incrementalCI.Valid && incrementalCI.Hi < 1.0
 	if !incrementalCI.Valid {
 		why := incrementalCI.InvalidReason
@@ -1168,8 +1220,9 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 	}
 	wB := admittedWorkFraction(staticCap)
 	wC := admittedWorkFraction(kvAware)
-	// C's admitted work is the denominator of |wB-wC|/wC. Zero there is not a match of zero, it is a quantity
-	// the evidence cannot express, and leaving the delta at zero would have printed 0.000 beside a PASS.
+	// C's admitted work is the denominator of |wB-wC|/wC.
+	// Zero there is not a match of zero, it is a quantity the evidence cannot express, and leaving the delta
+	// at zero would have printed 0.000 beside a PASS.
 	if kvAware.AdmittedExactTokens <= 0 {
 		c.AdmissionNotEvaluable = true
 		c.invalidate("arm kv-aware admitted no measured exact input tokens, so |wB-wC|/wC has no denominator and the arms cannot be shown to be admission-matched")
@@ -1194,14 +1247,16 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 // Split out of Summarize only to keep that function under the complexity limit; the eligibility test stays
 // at the call site because that predicate IS the population definition and belongs where it is read.
 func (s *ArmSummary) tallyEligibleWork(r RawRow) {
-	// Out of both terms too: the policy neither admitted nor refused it, the gateway had no room to ask. HoldRefused counts it.
+	// Out of both terms too: the policy neither admitted nor refused it, the gateway had no room to ask.
+	// HoldRefused counts it.
 	if refusedForHold(r) {
 		return
 	}
 	if admissionUnknown(r) {
-		// Out of both terms. The guard may have admitted this request and the connection died after, or it
-		// may never have arrived; the evidence cannot say which, and a fraction built on a guess is worse
-		// than one that reports how much it could not see.
+		// Out of both terms.
+		// The guard may have admitted this request and the connection died after, or it may never have
+		// arrived; the evidence cannot say which, and a fraction built on a guess is worse than one that
+		// reports how much it could not see.
 		s.AdmissionLost++
 		return
 	}
@@ -1226,19 +1281,21 @@ func (s *ArmSummary) tallyEligibleWork(r RawRow) {
 // tallyEngineInputTokens records one row's engine-reported input-token count against its tenant.
 //
 // Unconditional, and deliberately OUTSIDE the eligible-population guard its caller applies to the
-// admitted-work tallies. This is the only tally whose population is every request the trace offered, and
-// that is the whole point: the eligible population is what the admission guard gated, and the declared load
-// is what the registration froze. Scoring the second over the first silently drops the premium tier.
+// admitted-work tallies.
+// This is the only tally whose population is every request the trace offered, and that is the whole point:
+// the eligible population is what the admission guard gated, and the declared load is what the registration
+// froze.
+// Scoring the second over the first silently drops the premium tier.
 //
 // The nil-map checks live here rather than at the call site because Summarize's row loop sits at the
 // complexity ceiling -- one more `if` in it has already turned `make lint` red once.
 // tallyFinishReasons records why the engine stopped, keeping the three silences apart.
 //
 // The order matters and mirrors tallyEngineInputTokens: a reported reason is a reading, no reason on a
-// successful response is an instrument gap, and no successful response at all is unobservable. Collapsing
-// the last two would let a run whose requests never completed report the same thing as one whose engine
-// answered without saying why -- and reading either as "stop" would make a missing field into evidence that
-// the output cap was never reached.
+// successful response is an instrument gap, and no successful response at all is unobservable.
+// Collapsing the last two would let a run whose requests never completed report the same thing as one whose
+// engine answered without saying why -- and reading either as "stop" would make a missing field into
+// evidence that the output cap was never reached.
 func (s *ArmSummary) tallyFinishReasons(r RawRow) {
 	if r.FinishReason != "" {
 		seen := s.FinishReasonByTenant[r.Tenant]
@@ -1260,14 +1317,16 @@ func (s *ArmSummary) tallyFinishReasons(r RawRow) {
 //
 // The branching lives here and not in Summarize's row loop on purpose: that loop sits at the gocyclo
 // ceiling, and the comment on the initialisation block above records that one more `if` in it took
-// Summarize from 30 to 31 and turned `make lint` red. A method costs the loop one call.
+// Summarize from 30 to 31 and turned `make lint` red.
+// A method costs the loop one call.
 //
-// THREE DESTINATIONS, because an earlier version of this had one. It returned early on
-// `PromptLenChars <= 0`, which threw absences and negatives away together and left the distribution unable
-// to tell `[200, 200]` from `[200, absent]` -- so a reading built on it would have certified "one length"
-// over rows half of which said nothing. An external review derived that counter-example from the branch
-// itself, before any run. The negative is checked first for the reason the engine-token tally checks it
-// first: it is a defect in the recorder, and routing by anything else files it where it does not block.
+// THREE DESTINATIONS, because an earlier version of this had one.
+// It returned early on `PromptLenChars <= 0`, which threw absences and negatives away together and left
+// the distribution unable to tell `[200, 200]` from `[200, absent]` -- so a reading built on it would have
+// certified "one length" over rows half of which said nothing.
+// An external review derived that counter-example from the branch itself, before any run.
+// The negative is checked first for the reason the engine-token tally checks it first: it is a defect in
+// the recorder, and routing by anything else files it where it does not block.
 func (s *ArmSummary) tallyPromptLen(r RawRow) {
 	if r.PromptLenChars < 0 {
 		s.PromptLenInvalidByTenant[r.Tenant]++
@@ -1298,12 +1357,14 @@ func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
 	// A NEGATIVE count is neither silence nor disagreement, and it is classified before the status is read.
 	//
 	// It cannot be a prompt length, so scoring it against the declared value would be comparing the
-	// declaration to a defect in the recorder. Checked here rather than after the status, because a negative
-	// on a failed row is still a broken value and the failed-row bucket is the one that does not block.
+	// declaration to a defect in the recorder.
+	// Checked here rather than after the status, because a negative on a failed row is still a broken value
+	// and the failed-row bucket is the one that does not block.
 	//
 	// This branch exists because the predicate used to be `EngineInputTokens <= 0`, which swept negatives in
-	// with the silences. Narrowing it to `> 0` for the three-bucket split would have let a negative on a
-	// non-200 row pass without a word.
+	// with the silences.
+	// Narrowing it to `> 0` for the three-bucket split would have let a negative on a non-200 row pass
+	// without a word.
 	if r.EngineInputTokens < 0 {
 		s.EngineInputTokensInvalidByTenant[r.Tenant]++
 		return
@@ -1312,9 +1373,9 @@ func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
 	// TWO silences, and only one of them is the instrument's fault.
 	//
 	// A row with no successful response obtained no count -- the ten-cell archive's one HTTP 502 of 47,245
-	// rows is exactly that, and the first version of this function made it disqualify the whole run. A row
-	// the engine ANSWERED and still did not count is a hole in the accounting, and that one a declared-load
-	// check genuinely cannot see past.
+	// rows is exactly that, and the first version of this function made it disqualify the whole run.
+	// A row the engine ANSWERED and still did not count is a hole in the accounting, and that one a
+	// declared-load check genuinely cannot see past.
 	//
 	// Keyed on the response rather than on the error kind, because the kinds are open-ended: errKindTimeout
 	// and errKindRejected are named, "http" is not, and a predicate listing kinds would silently reclassify
@@ -1387,9 +1448,11 @@ func (d *deliveredSamples) finish(s *ArmSummary) {
 	// Sorted here for the same reason ttft and e2e are sorted in Summarize: percentile is nearest-rank over an
 	// ORDERED slice, and handing it arrival order returns whichever sample happens to sit at that index.
 	//
-	// This shipped unsorted. The metric's own test used a single observation, and with one sample every
-	// ordering is the same ordering, so nothing failed. Three samples arriving as 100, 1, 2 ms reported a
-	// p99 of 2 -- not a tail, and not even the second largest value.
+	// This shipped unsorted.
+	// The metric's own test used a single observation, and with one sample every ordering is the same
+	// ordering, so nothing failed.
+	// Three samples arriving as 100, 1, 2 ms reported a p99 of 2 -- not a tail, and not even the second
+	// largest value.
 	sort.Float64s(d.tpot)
 	s.TPOTSamples = len(d.tpot)
 	s.InterContentFrameSamples = len(d.interFrame)
@@ -1447,8 +1510,9 @@ func (s *ArmSummary) tallyDelivered(r RawRow, d *deliveredSamples) {
 	// A stream that broke partway is not a measurement of inter-token time.
 	//
 	// The sender keeps HTTPStatus at 200 for these, because the response headers did arrive, and records
-	// the failure in ErrorKind instead. EndUnixNanos is then the moment the stream died -- for a timeout,
-	// the deadline -- so (end - firstToken) / (tokens - 1) reports the deadline divided by a token count.
+	// the failure in ErrorKind instead.
+	// EndUnixNanos is then the moment the stream died -- for a timeout, the deadline -- so (end -
+	// firstToken) / (tokens - 1) reports the deadline divided by a token count.
 	// A 30-second timeout after two tokens enters the tail as a 30,000 ms inter-token time.
 	//
 	// That matters because reading 1 fails a cell whose TPOT p99 exceeds 1.25x the isolated baseline, so
@@ -1558,16 +1622,17 @@ func (s *ArmSummary) SetActiveSeconds(seconds float64) {
 // It states explicitly when the comparison is invalid (admission match missed) or the tail is censored, so a reader is never handed a clean-looking number that the methodology already disqualified.
 // FormatReport renders the measurements, and the criteria only when there were criteria.
 //
-// checks is a POINTER because "not evaluated" has to be unrepresentable as a zero value. It used to be
-// passed by value, and a study whose readings are not implemented was handed an empty Checks{} -- which
-// rendered as three lines of `0.000 FAIL` under the heading "Pre-registered checks", followed by
-// "VERDICT: not all checks passed". Nothing had been evaluated. The caller was careful and said so on
-// stderr, and the page still printed a verdict a skimming reader would take for the study's result.
-// A nil pointer cannot be mistaken for a run that failed everything.
-// medianOf is the registered median convention: the mean of the two central order statistics for an even
-// count, which the design spec's third 2026-09-30 amendment froze "because it makes B and C continuous in
-// the observations; taking the lower of the two would bias both arms downward by an amount that depends on
-// the spread".
+// checks is a POINTER because "not evaluated" has to be unrepresentable as a zero value.
+// It used to be passed by value, and a study whose readings are not implemented was handed an empty
+// Checks{} -- which rendered as three lines of `0.000 FAIL` under the heading "Pre-registered checks",
+// followed by "VERDICT: not all checks passed".
+// Nothing had been evaluated.
+// The caller was careful and said so on stderr, and the page still printed a verdict a skimming reader
+// would take for the study's result.
+// A nil pointer cannot be mistaken for a run that failed everything. medianOf is the registered median
+// convention: the mean of the two central order statistics for an even count, which the design spec's
+// third 2026-09-30 amendment froze "because it makes B and C continuous in the observations; taking the
+// lower of the two would bias both arms downward by an amount that depends on the spread".
 func medianOf(v []float64) float64 {
 	if len(v) == 0 {
 		return 0
@@ -1586,13 +1651,15 @@ func medianOf(v []float64) float64 {
 // Over the UNION of tenants across arms, not the first arm that has any.
 //
 // The first version took the first arm carrying the map, on the argument that every arm of a frozen matrix
-// replays the same premium trace so one arm's figure is the run's. That argument is true for premium and
-// silently wrong for the contender: the ISOLATED arm has no contender at all, R1 sorts first, and the line
-// printed "premium-1 294 tok" while the contender's 10,645 -- half the prefill work on the card -- was
-// missing from a line whose whole job is to say what load was offered.
+// replays the same premium trace so one arm's figure is the run's.
+// That argument is true for premium and silently wrong for the contender: the ISOLATED arm has no
+// contender at all, R1 sorts first, and the line printed "premium-1 294 tok" while the contender's 10,645
+// -- half the prefill work on the card -- was missing from a line whose whole job is to say what load was
+// offered.
 //
-// A tenant whose arms disagree is shown as a RANGE rather than averaged away. Two arms of a frozen matrix
-// are supposed to offer the same prompts; if they did not, that is the thing this line exists to surface.
+// A tenant whose arms disagree is shown as a RANGE rather than averaged away.
+// Two arms of a frozen matrix are supposed to offer the same prompts; if they did not, that is the thing
+// this line exists to surface.
 func formatOfferedLoad(summaries []ArmSummary) string {
 	means := map[string][]int64{}
 	for _, s := range summaries {
@@ -1634,12 +1701,13 @@ func formatOfferedLoad(summaries []ArmSummary) string {
 func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64) string {
 	var b strings.Builder
 	b.WriteString("M5-b benchmark report\n\n")
-	// reps is printed for the same reason tailN is. The incremental interval below is a bootstrap over
-	// REPETITIONS -- BootstrapCI resamples whole repetitions, so the repetition count IS the n of the only
-	// interval this study reports. Without it on the page, a CI built from two blocks is typographically
-	// indistinguishable from one built from four, and the two mean very different things: with two blocks
-	// the nearest-rank 2.5/97.5 percentiles land on the smaller and larger of exactly two numbers, so the
-	// printed interval is their range and not a 95% interval at all.
+	// reps is printed for the same reason tailN is.
+	// The incremental interval below is a bootstrap over REPETITIONS -- BootstrapCI resamples whole
+	// repetitions, so the repetition count IS the n of the only interval this study reports.
+	// Without it on the page, a CI built from two blocks is typographically indistinguishable from one
+	// built from four, and the two mean very different things: with two blocks the nearest-rank 2.5/97.5
+	// percentiles land on the smaller and larger of exactly two numbers, so the printed interval is their
+	// range and not a 95% interval at all.
 	//
 	// A reader who cannot see the block count has no way to tell those apart, which is the same defect the
 	// tailN column exists to prevent one level down.
@@ -1647,9 +1715,9 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	//
 	// Without this line two runs of this study are typographically identical on the page while having sent
 	// prompts 5.9x apart -- which is how a 27.2x and a 23.0x came to sit in two documents as though they
-	// were the same measurement. Estimated tokens rather than characters because the estimator
-	// (ceil(chars/4)) has no inverse: 294 tokens is what the arm actually offered, and it is what
-	// distinguishes the two runs.
+	// were the same measurement.
+	// Estimated tokens rather than characters because the estimator (ceil(chars/4)) has no inverse: 294
+	// tokens is what the arm actually offered, and it is what distinguishes the two runs.
 	if load := formatOfferedLoad(summaries); load != "" {
 		b.WriteString(load)
 	}
@@ -1674,18 +1742,20 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	//
 	// Every check below is a TTFT ratio, and the paid run showed that is half an answer: the arm that held
 	// the tail best also served the fewest tokens, because it was discarding one tenant's work rather than
-	// making the engine efficient. An arm's throughput and its tenants' shares belong next to its tail.
+	// making the engine efficient.
+	// An arm's throughput and its tenants' shares belong next to its tail.
 	// EVERY per-repetition p99, because the registration demands it and a pooled tail hides its sample.
 	//
 	// The design spec's third 2026-09-30 amendment fixes the reported object as the ratio of MEDIAN
 	// per-repetition victim TTFT p99s, and says of the interval: "The report this points at must publish
-	// every per-repetition p99 so a reader can see the sample it came from." Nothing printed them. The
-	// values existed -- RepetitionTTFTMsP99 is filled by the caller and read by repetitionSpread for a
-	// range check -- and went no further than that check.
+	// every per-repetition p99 so a reader can see the sample it came from." Nothing printed them.
+	// The values existed -- RepetitionTTFTMsP99 is filled by the caller and read by repetitionSpread for
+	// a range check -- and went no further than that check.
 	//
 	// Without this block a reader sees one number per arm and cannot tell five tight repetitions from five
-	// scattered ones, which is the whole difference between a measurement and an anecdote. It also makes
-	// the registered estimand computable from the page: the median of this row IS baselineP99Ms.
+	// scattered ones, which is the whole difference between a measurement and an anecdote.
+	// It also makes the registered estimand computable from the page: the median of this row IS
+	// baselineP99Ms.
 	if any := func() bool {
 		for _, s := range summaries {
 			if len(s.RepetitionTTFTMsP99) > 0 {
@@ -1711,14 +1781,16 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	}
 
 	// B, C and R themselves, because the block above made them derivable and left the arithmetic to the
-	// reader. The amendment names the three fields it freezes, and a page that prints the sample but not the
+	// reader.
+	// The amendment names the three fields it freezes, and a page that prints the sample but not the
 	// estimand still has nobody computing what the registration decided.
 	b.WriteString(FormatRegisteredEstimand(summaries))
 
 	b.WriteString("\nWhat it cost\n")
 	// premTPOT99 is printed beside the arm-wide figure because the pre-registered criterion is about the
-	// PROTECTED tenant's stream, and the arm-wide number pools every tenant. On the paid evidence they
-	// differ by 57 ms on one arm, which is the difference between quoting the right tenant and the wrong one.
+	// PROTECTED tenant's stream, and the arm-wide number pools every tenant.
+	// On the paid evidence they differ by 57 ms on one arm, which is the difference between quoting the right
+	// tenant and the wrong one.
 	fmt.Fprintf(&b, "%-*s %10s %10s %10s %10s %10s\n", ArmColumnWidth,
 		"arm", "out tok/s", "tpotP50", "tpotP99", "premTPOT99", "tenant shares")
 	for _, s := range summaries {
@@ -1778,12 +1850,13 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	}
 
 	if checks == nil {
-		// No heading that looks like a results table, and no VERDICT line. The measurements above stand on
-		// their own; what must not happen is a reader coming away with a judgement nobody made.
-		// Deliberately says nothing about whether the study has criteria of its own. The three checks below
-		// are M5-b's, and a study that does not use them may still have readings, which are rendered
-		// separately by FormatPriceOfProtection. Claiming here that a run was not evaluated would be the
-		// same defect one level along.
+		// No heading that looks like a results table, and no VERDICT line.
+		// The measurements above stand on their own; what must not happen is a reader coming away with a
+		// judgement nobody made.
+		// Deliberately says nothing about whether the study has criteria of its own.
+		// The three checks below are M5-b's, and a study that does not use them may still have readings,
+		// which are rendered separately by FormatPriceOfProtection.
+		// Claiming here that a run was not evaluated would be the same defect one level along.
 		b.WriteString("\nPre-registered checks: NOT APPLICABLE. The three checks above this line are the M5-b\n")
 		b.WriteString("  gateway study's, and this evidence is not from it. Nothing here is a verdict on these arms.\n")
 		return b.String()
@@ -1794,8 +1867,8 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	fmt.Fprintf(&b, "  incremental value    C/B  = %.3f  CI[%.3f, %.3f]  (<= 0.90, CI hi < 1.0)  %s\n",
 		checks.IncrementalRatio, checks.IncrementalRatioCI.Lo, checks.IncrementalRatioCI.Hi, pass(checks.IncrementalValuePass))
 	if checks.AdmissionNotEvaluable {
-		// A numeric delta here would be read as a measurement. There is none: the exact-token accounting the
-		// criterion is defined over could not supply one.
+		// A numeric delta here would be read as a measurement.
+		// There is none: the exact-token accounting the criterion is defined over could not supply one.
 		fmt.Fprintf(&b, "  admission match      NOT EVALUABLE in exact tokens  (estimate-weighted |B-C|/C = %.3f, not the criterion)\n", checks.EstimateWeightedDelta)
 	} else {
 		fmt.Fprintf(&b, "  admission match      |B-C|/C = %.3f  (<= %.3f)  %s  (estimate-weighted %.3f)\n",

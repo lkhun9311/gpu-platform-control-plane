@@ -33,15 +33,15 @@ import (
 
 // GPUJobValidator refuses a Job whose Pods this platform would never admit.
 //
-// It exists because refusing the Pod is too late. Kueue admits a Job by looking at the Job, and a Job whose
-// Pods are rejected keeps its admission: the Job controller retries, every Pod is refused, and the Workload
-// sits admitted holding quota.
+// It exists because refusing the Pod is too late.
+// Kueue admits a Job by looking at the Job, and a Job whose Pods are rejected keeps its admission: the Job
+// controller retries, every Pod is refused, and the Workload sits admitted holding quota.
 //
-// Measured on this cluster before this guard existed. A Job with terminationGracePeriodSeconds 600 took the
-// ClusterQueue from used=1 to used=2 within twenty seconds and still held it four minutes later, with
-// job.status.failed stuck at 0 — an admission rejection is not a Pod failure, so backoffLimit never advances
-// and nothing ever gives the reservation back. A tenant submitting such Jobs holds a budget indefinitely
-// while running nothing.
+// Measured on this cluster before this guard existed.
+// A Job with terminationGracePeriodSeconds 600 took the ClusterQueue from used=1 to used=2 within twenty
+// seconds and still held it four minutes later, with job.status.failed stuck at 0 — an admission rejection
+// is not a Pod failure, so backoffLimit never advances and nothing ever gives the reservation back.
+// A tenant submitting such Jobs holds a budget indefinitely while running nothing.
 //
 // So the rules that decide a Pod's fate are applied to the template that would produce it, at the point
 // where the reservation is made rather than after.
@@ -88,16 +88,18 @@ func (v *GPUJobValidator) Handle(ctx context.Context, req admission.Request) adm
 		}
 	}
 
-	// The queue label is checked HERE and not on the Pod, because here it is answerable. Kueue reads it from
-	// the Job, and a Job without it is never admitted — so its Pods are refused by the Pod guard for a reason
-	// the user cannot act on from the Pod. Saying it at the Job is saying it where the field is.
+	// The queue label is checked HERE and not on the Pod, because here it is answerable.
+	// Kueue reads it from the Job, and a Job without it is never admitted — so its Pods are refused by the
+	// Pod guard for a reason the user cannot act on from the Pod.
+	// Saying it at the Job is saying it where the field is.
 	if job.Labels[kueueQueueLabel] == "" {
 		// Unless this namespace is metered by a ResourceQuota instead, in which case there is no queue to name.
 		//
 		// A policy with trainingQuota off keeps the namespace ResourceQuota capping devices and creates no
 		// queues, so this branch was refusing the ordinary path of every tenant that never asked for Kueue --
-		// while its policy reported Synced. The refusal is right where Kueue is the authority and wrong where
-		// it is not, so the question the guard asks is now which of the two holds the budget.
+		// while its policy reported Synced.
+		// The refusal is right where Kueue is the authority and wrong where it is not, so the question the guard
+		// asks is now which of the two holds the budget.
 		// It answers "metered" only once the policy's ResourceQuota is owned, unscoped and initialised, so a Job
 		// submitted in the seconds after a policy is created is refused and must be retried.
 		metered, err := meteredByResourceQuota(ctx, v.Reader, req.Namespace)

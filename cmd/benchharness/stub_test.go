@@ -196,8 +196,9 @@ func TestStubStatsResetKeepsLiveState(t *testing.T) {
 //
 // The handler used a bare time.Sleep for the first-token and inter-token delays, which ignores r.Context(),
 // so a request the harness had already timed out kept its goroutine asleep for the whole configured response
-// while stats counted it as in flight. That is not a cosmetic leak: peakInFlight is what PoolSizeForTrace
-// derives the sender's pool from, so a timeout-heavy arm inflated the instrument's own sizing.
+// while stats counted it as in flight.
+// That is not a cosmetic leak: peakInFlight is what PoolSizeForTrace derives the sender's pool from, so a
+// timeout-heavy arm inflated the instrument's own sizing.
 //
 // The assertion is on inFlight rather than on wall clock, because a handler that returned promptly but left
 // the counter up would be the same defect wearing a different face.
@@ -323,8 +324,9 @@ func TestStubProfileValidationRefusesWhatWouldSilentlyChangeTheExperiment(t *tes
 // "token=4" for "tokens=4" reads correctly to a human, was not a parameter this understood, and left the
 // default in place — so the CR described one profile and the stub served another, with nothing downstream
 // able to notice because the default is itself a valid profile. validate() cannot catch it for that exact
-// reason. A malformed stub:// URI had the same shape: the parse error was folded into "not a stub URI" and
-// the defaults ran.
+// reason.
+// A malformed stub:// URI had the same shape: the parse error was folded into "not a stub URI" and the
+// defaults ran.
 //
 // The real-storage case is asserted alongside, because refusing everything unparseable would break the
 // passthrough this function exists to preserve — and that is the way to "fix" this that looks right and
@@ -345,8 +347,9 @@ func TestApplyModelPathRefusesATypoInsteadOfServingTheDefaults(t *testing.T) {
 		{"an unknown parameter beside correct ones", "stub://x?tokens=4&itl_ms=3", true, 0},
 		{"parameters that do not parse", "stub://x?tokens=%zz", true, 0},
 		// Two distinct failure points, and the earlier fixture only reached the second: "tokens=%zz" parses
-		// as a URL and fails in ParseQuery, while a bad host fails url.Parse itself. Without this row the
-		// parse-error branch had no test and folding it back into the scheme check killed nothing.
+		// as a URL and fails in ParseQuery, while a bad host fails url.Parse itself.
+		// Without this row the parse-error branch had no test and folding it back into the scheme check
+		// killed nothing.
 		{"a URI announcing our scheme that does not parse at all", "stub://%zz", true, 0},
 		{"a real storage URI that does not parse is still not ours", "s3://%zz", false, 8},
 	} {
@@ -374,8 +377,9 @@ func TestApplyModelPathRefusesATypoInsteadOfServingTheDefaults(t *testing.T) {
 //
 // This exists because M7's pod-kill scenario was unobservable without it: the replacement Pod went healthy
 // inside a second, the outage fell between the recorder's polls, and successive runs disagreed about
-// whether the failure had happened. A readiness delay is not test-rigging -- it is the stub being less
-// unlike a real engine, which loads weights before it serves.
+// whether the failure had happened.
+// A readiness delay is not test-rigging -- it is the stub being less unlike a real engine, which loads
+// weights before it serves.
 func TestTheStubCanReportUnreadyWhileItIsStillStarting(t *testing.T) {
 	p := stubProfile{tokens: 1, readyAfter: 400 * time.Millisecond}
 	srv := httptest.NewServer(stubMux(p, newStubStats()))
@@ -421,9 +425,9 @@ func TestTheStubIsReadyImmediatelyWhenNoDelayIsAsked(t *testing.T) {
 // engine-metrics scrape down the path a real engine takes: a page with vllm: series, read before and after
 // a replay, whose completed-request counter moves by the requests the replay sent.
 //
-// Off by default because the gateway's admission guard also reads an engine's /metrics. Every other
-// rehearsal has always met a stub that answered 404 there, and a page with different series would change
-// what the guard records for them.
+// Off by default because the gateway's admission guard also reads an engine's /metrics.
+// Every other rehearsal has always met a stub that answered 404 there, and a page with different series
+// would change what the guard records for them.
 func TestTheStubServesVLLMNamedMetricsOnlyWhenAsked(t *testing.T) {
 	off := httptest.NewServer(stubMux(stubProfile{tokens: 1}, newStubStats()))
 	defer off.Close()
@@ -474,7 +478,8 @@ func TestTheStubServesVLLMNamedMetricsOnlyWhenAsked(t *testing.T) {
 
 // TestStubCountsTheForwardedPriority pins what a rehearsal of the gateway's priority binding reads: each chat
 // request counted under the priority its body carried, "none" when it carried none, and the count cleared by a
-// reset. Mutation that turns this red: count every request as "none".
+// reset.
+// Mutation that turns this red: count every request as "none".
 func TestStubCountsTheForwardedPriority(t *testing.T) {
 	stats := newStubStats()
 	srv := httptest.NewServer(stubMux(stubProfile{tokens: 1}, stats))

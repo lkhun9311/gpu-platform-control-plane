@@ -10,12 +10,13 @@ import (
 //
 // The values live in two places: internal/bench/inputlengths.go, which CompilePlan reads, and
 // hack/input-length-resolution.json, which hack/resolve-input-lengths.sh produced by sweeping candidate
-// prompt lengths against the served tokenizer. A value living in two places with no ruler between them is
-// the shape of every overclaim this project has had to withdraw, so this is the ruler.
+// prompt lengths against the served tokenizer.
+// A value living in two places with no ruler between them is the shape of every overclaim this project
+// has had to withdraw, so this is the ruler.
 //
-// It cannot prove the JSON came from a real sweep -- only re-running the resolver does that. What it proves
-// is that nobody can edit one side without the other disagreeing, which is the failure that actually
-// happens: a number gets adjusted where it is read and not where it was measured.
+// It cannot prove the JSON came from a real sweep -- only re-running the resolver does that.
+// What it proves is that nobody can edit one side without the other disagreeing, which is the failure that
+// actually happens: a number gets adjusted where it is read and not where it was measured.
 func TestInputLengthTableMatchesTheMeasurement(t *testing.T) {
 	const path = "../../hack/input-length-resolution.json"
 
@@ -40,8 +41,9 @@ func TestInputLengthTableMatchesTheMeasurement(t *testing.T) {
 		t.Fatalf("decode the resolution table: %v", err)
 	}
 
-	// The identity first. A table measured against a different tokenizer is a different table, and the Go
-	// constants are what a manifest's tokenizerRev will be compared against.
+	// The identity first.
+	// A table measured against a different tokenizer is a different table, and the Go constants are what
+	// a manifest's tokenizerRev will be compared against.
 	for _, c := range []struct{ name, got, want string }{
 		{"tokenizerRevision", InputLengthTokenizerRevision, file.TokenizerRevision},
 		{"tokenizerCoreFilesCombinedSHA256", InputLengthTokenizerFilesSHA256, file.TokenizerCoreFilesCombinedSHA256},
@@ -57,17 +59,19 @@ func TestInputLengthTableMatchesTheMeasurement(t *testing.T) {
 	}
 	// The corpus is an input to every count in the table, and the one that this binary can check directly.
 	//
-	// The tokenizer identity says what did the counting; the corpus says what was counted. Changing
-	// promptCorpus shifts every token count, and without this comparison both copies of the table would
-	// still agree with each other while agreeing with nothing the sender emits. The table omitted the corpus
-	// entirely until an external review noticed that its own first comment claimed to record it.
+	// The tokenizer identity says what did the counting; the corpus says what was counted.
+	// Changing promptCorpus shifts every token count, and without this comparison both copies of the table
+	// would still agree with each other while agreeing with nothing the sender emits.
+	// The table omitted the corpus entirely until an external review noticed that its own first comment
+	// claimed to record it.
 	if file.PromptCorpusSHA256 != PromptCorpusSHA256 {
 		t.Errorf("the table was measured against corpus %q and this binary emits %q; every count in it is stale",
 			file.PromptCorpusSHA256, PromptCorpusSHA256)
 	}
 
-	// Then the entries, in both directions. One direction alone would let an entry be added to the Go table
-	// with no measurement behind it, or a measured entry be silently dropped from the code.
+	// Then the entries, in both directions.
+	// One direction alone would let an entry be added to the Go table with no measurement behind it, or a
+	// measured entry be silently dropped from the code.
 	if got, want := len(resolvedInputLengths), len(file.Resolved); got != want {
 		t.Errorf("the Go table holds %d entries and the measurement holds %d", got, want)
 	}
@@ -85,9 +89,9 @@ func TestInputLengthTableMatchesTheMeasurement(t *testing.T) {
 		if r.Matches != m.Matches {
 			t.Errorf("%d tokens: Go says %d matches, the measurement says %d", tokens, r.Matches, m.Matches)
 		}
-		// The recorded length must be the SMALLEST match, which is the rule the table declares. Checking it
-		// here is what makes that rule enforced rather than described: transcribing any other member of
-		// allMatches would pass the two comparisons above.
+		// The recorded length must be the SMALLEST match, which is the rule the table declares.
+		// Checking it here is what makes that rule enforced rather than described: transcribing any other
+		// member of allMatches would pass the two comparisons above.
 		if len(m.AllMatches) == 0 {
 			t.Errorf("%d tokens: the measurement lists no matches at all, so its chars value came from nowhere", tokens)
 			continue
