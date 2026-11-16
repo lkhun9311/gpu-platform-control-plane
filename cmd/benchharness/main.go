@@ -120,6 +120,8 @@ func main() {
 		err = versionManifests(os.Args[2:], os.Stdout)
 	case "version-calibrate":
 		err = versionCalibrate(os.Args[2:], os.Stdout)
+	case "version-readiness":
+		err = versionReadiness(os.Args[2:], os.Stdout)
 	default:
 		usage()
 		os.Exit(2)
