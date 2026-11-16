@@ -901,26 +901,51 @@ func (s *SRPFSweep) imageIdentity(ctx context.Context) (SRPFImageIdentity, error
 	var ov srpfProbe
 	_ = json.Unmarshal(lastLine(out), &ov)
 	id.OverlaidFile, id.OverlaidSHA256 = ov.File, ov.SHA256
-	out, err = s.probe(ictx, "version", []string{"--entrypoint=vllm", SRPFSweepImage, "--version"})
+	// The version comes from the package metadata, which imports no torch.
+	// On 2026-11-16 `vllm --version` printed its version and then did not exit within the identity bound, ending a paid run.
+	vctx, vcancel := context.WithTimeout(ictx, srpfVersionProbeBound)
+	defer vcancel()
+	out, runErr, cleanupErr := s.probeParts(vctx, "version", []string{"--entrypoint=python3", SRPFSweepImage, "-c", srpfVersionProbe})
 	id.Probes = append(id.Probes, string(out))
-	if err != nil {
-		return id, fmt.Errorf("vllm --version: %w", err)
+	if cleanupErr != nil {
+		return id, fmt.Errorf("version probe: %w", errors.Join(runErr, cleanupErr))
 	}
 	// The version is recorded and not judged: the digest already fixes the image, and the scheduler hash its code.
-	// A local version part spelt another way than "+g5039f736e" would otherwise end a paid run over a string.
+	// A local version part spelt another way than "+g5039f736e" would otherwise end a paid run over a string, and so
+	// would a probe that could not read it.
+	if runErr != nil {
+		id.VLLMVersion = "unread: " + runErr.Error()
+		return id, nil
+	}
 	id.VLLMVersion = strings.TrimSpace(string(lastLine(out)))
 	return id, nil
 }
 
+// srpfVersionProbe prints the installed vllm distribution's version from its metadata, without importing vllm.
+const srpfVersionProbe = `import importlib.metadata as m; print(m.version("vllm"))`
+
+// srpfVersionProbeBound bounds the version probe on its own, so a slow one cannot spend the scheduler checks' time.
+const srpfVersionProbeBound = 30 * time.Second
+
 // probe runs one short-lived identity container, named per attempt so a timed-out probe is removed and no other.
 func (s *SRPFSweep) probe(ctx context.Context, what string, args []string) ([]byte, error) {
-	name := "srpf-probe-" + what + "-" + s.readiness().Engine.token()
-	full := append([]string{"run", "--rm", "--name=" + name, "--gpus=all", "--workdir=/"}, args...)
-	out, err := s.Docker(ctx, "docker", full...)
-	if err != nil {
-		return out, errors.Join(err, s.readiness().removeContainer(name))
+	out, runErr, cleanupErr := s.probeParts(ctx, what, args)
+	if runErr != nil || cleanupErr != nil {
+		return out, errors.Join(runErr, cleanupErr)
 	}
 	return out, nil
+}
+
+// probeParts is probe with the container's own failure kept apart from a failure to remove it.
+// Only the second makes later arms unsafe, since a container left behind would share the GPU.
+func (s *SRPFSweep) probeParts(ctx context.Context, what string, args []string) (out []byte, runErr, cleanupErr error) {
+	name := "srpf-probe-" + what + "-" + s.readiness().Engine.token()
+	full := append([]string{"run", "--rm", "--name=" + name, "--gpus=all", "--workdir=/"}, args...)
+	out, runErr = s.Docker(ctx, "docker", full...)
+	if runErr != nil {
+		cleanupErr = s.readiness().removeContainer(name)
+	}
+	return out, runErr, cleanupErr
 }
 
 // arm runs one arm from docker run to its container's removal.

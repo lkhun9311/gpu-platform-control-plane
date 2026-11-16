@@ -474,6 +474,8 @@ type srpfFake struct {
 	requestIDs []string
 	// wrongEnvArm makes that arm's container report the SRPF variable it should not have.
 	wrongEnvArm string
+	// versionHangs makes the version probe print its version and then run past its bound, as `vllm --version` did.
+	versionHangs bool
 }
 
 const srpfFakePath = "/usr/lib/python3/dist-packages/vllm/v1/core/sched/scheduler.py"
@@ -495,7 +497,10 @@ func (f *srpfFake) docker(_ context.Context, _ string, args ...string) ([]byte, 
 		case strings.Contains(joined, "import vllm.v1.core.sched.scheduler"):
 			return fmt.Appendf(nil, `{"file": %q, "sha256": %q, "size": 170000, "srpfKey": true, "env": null, "pycachePrefix": %q, "procs": []}`+"\n",
 				srpfFakePath, SRPFSweepPRSchedulerSHA256, srpfSweepPycachePrefix), nil
-		case strings.HasSuffix(joined, "--version"):
+		case strings.Contains(joined, "importlib.metadata"):
+			if f.versionHangs {
+				return []byte("0.34.0rc1.dev527+g5039f736e\n"), context.DeadlineExceeded
+			}
 			return []byte("0.34.0rc1.dev527+g5039f736e\n"), nil
 		case strings.Contains(joined, "snapshot_download"):
 			return []byte("/root/.cache/huggingface/hub/snapshot\n"), nil
@@ -711,5 +716,20 @@ func TestSRPFSweepRunsEveryArmAndFailsAContaminatedOne(t *testing.T) {
 	}
 	if len(f.replays) != len(want) || len(f.running) != 0 || len(f.removed) != 6 {
 		t.Errorf("%d replays, %d containers left running, %d removed", len(f.replays), len(f.running), len(f.removed))
+	}
+}
+
+// A version probe that prints its version and then runs past its bound only loses the record, as on 2026-11-16 when
+// `vllm --version` ended a paid run at this step.
+// Mutation that turns this red: return the version probe's error from imageIdentity.
+func TestSRPFSweepImageIdentitySurvivesAVersionProbeThatDoesNotExit(t *testing.T) {
+	f := &srpfFake{versionHangs: true}
+	s := srpfSweepAgainst(t, f)
+	id, err := s.imageIdentity(context.Background())
+	if err != nil {
+		t.Fatalf("image identity failed on the version probe: %v", err)
+	}
+	if !strings.HasPrefix(id.VLLMVersion, "unread: ") || id.OverlaidSHA256 != SRPFSweepPRSchedulerSHA256 {
+		t.Errorf("image identity %+v, want the scheduler checks kept and the version marked unread", id)
 	}
 }
