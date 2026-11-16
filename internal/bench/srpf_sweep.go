@@ -263,7 +263,7 @@ type SRPFImageIdentity struct {
 	// OverlaidSHA256 is the file Python imported with the overlay mounted, which must be the PR head's.
 	OverlaidSHA256 string `json:"overlaidSHA256"`
 	OverlaidFile   string `json:"overlaidFile"`
-	// VLLMVersion is `vllm --version` as printed, whose local part names the merge base.
+	// VLLMVersion is `vllm --version` as printed, recorded and not judged.
 	VLLMVersion string `json:"vllmVersion"`
 	// Probes are the identity containers' outputs, verbatim.
 	Probes []string `json:"probes"`
@@ -300,7 +300,9 @@ type SRPFArmResult struct {
 	Warmup    []RawRow        `json:"warmup"`
 	// ReplayError is the replay subcommand's failure, empty when it exited 0.
 	ReplayError string `json:"replayError,omitempty"`
-	RawFile     string `json:"rawFile,omitempty"`
+	// MetricsError is why the engine's counters could not be read after the replay, kept beside a replay failure.
+	MetricsError string `json:"metricsError,omitempty"`
+	RawFile      string `json:"rawFile,omitempty"`
 	// Preemptions is the engine's preemption counter after the replay minus before it, absent when it was not read.
 	Preemptions      *float64     `json:"preemptions,omitempty"`
 	PreemptionMetric string       `json:"preemptionMetric,omitempty"`
@@ -384,7 +386,7 @@ func srpfFailure(r RawRow, want int) string {
 //
 // It refuses rows that are not the trace's, one per index with the same tenant and offset, or that carry no clock.
 // A figure from a partial or mismatched record would be a plausible wrong number.
-func SRPFSweepFigures(trace []TraceRow, rows []RawRow) (*SRPFFigures, error) {
+func SRPFSweepFigures(arm string, trace []TraceRow, rows []RawRow) (*SRPFFigures, error) {
 	if len(rows) != len(trace) {
 		return nil, fmt.Errorf("%d rows for a trace of %d", len(rows), len(trace))
 	}
@@ -406,11 +408,22 @@ func SRPFSweepFigures(trace []TraceRow, rows []RawRow) (*SRPFFigures, error) {
 		if !ok {
 			return nil, fmt.Errorf("no row for trace index %d", tr.Index)
 		}
+		// A file of another arm or study scored under this arm's name would be contamination no figure shows.
+		if r.Study != StudySRPF58420 || r.Arm != arm {
+			return nil, fmt.Errorf("row %d is study %q arm %q, not %s arm %s", tr.Index, r.Study, r.Arm, StudySRPF58420, arm)
+		}
+		if r.TraceChecksum != SRPFSweepTraceChecksum {
+			return nil, fmt.Errorf("row %d replayed trace %q, not %s", tr.Index, r.TraceChecksum, SRPFSweepTraceChecksum)
+		}
 		if r.Tenant != tr.Tenant || r.ScheduledOffsetMs != tr.OffsetMs {
 			return nil, fmt.Errorf("row %d is %s at %d ms, and the trace has %s at %d ms", tr.Index, r.Tenant, r.ScheduledOffsetMs, tr.Tenant, tr.OffsetMs)
 		}
 		if r.Clock == nil || r.Clock.IntendedNanos == nil {
 			return nil, fmt.Errorf("row %d carries no scheduled time on its clock", tr.Index)
+		}
+		// Replay schedules each request at its trace offset from the origin, so any other intended time is not this trace's schedule.
+		if *r.Clock.IntendedNanos != tr.OffsetMs*int64(time.Millisecond) {
+			return nil, fmt.Errorf("row %d was scheduled at %d ns, and the trace offset is %d ms", tr.Index, *r.Clock.IntendedNanos, tr.OffsetMs)
 		}
 		if sent, ok := r.Clock.FromIntended(r.Clock.SendNanos); ok {
 			lag = max(lag, nanosToMs(sent))
@@ -749,6 +762,16 @@ func (s *SRPFSweep) refuse() error {
 	if err := emptyOrAbsent(s.HFCache, true); err != nil {
 		return fmt.Errorf("model cache: %w", err)
 	}
+	// Every arm's manifest is derived here, before the pull, so an archived manifest of another block costs nothing.
+	archived, err := os.ReadFile(s.ArchivedManifest)
+	if err != nil {
+		return err
+	}
+	for _, name := range SRPFSweepArmNames() {
+		if _, err := ArmManifest(archived, name, s.Trace, s.EngineURL); err != nil {
+			return fmt.Errorf("archived manifest %s: %w", s.ArchivedManifest, err)
+		}
+	}
 	if sum, err := ChecksumFile(s.Overlay); err != nil || sum != SRPFSweepPRSchedulerSHA256 {
 		return fmt.Errorf("the overlay %s hashes to %q (%v), not the PR head's scheduler %s", s.Overlay, sum, err, SRPFSweepPRSchedulerSHA256)
 	}
@@ -795,6 +818,11 @@ func (s *SRPFSweep) Run(ctx context.Context) (SRPFSweepSummary, error) {
 	if err := s.refuse(); err != nil {
 		return sum, err
 	}
+	return s.run(ctx, sum, order)
+}
+
+// run is Run after its refusals, kept apart so the tests can drive the whole sweep without the PR's scheduler on disk.
+func (s *SRPFSweep) run(ctx context.Context, sum SRPFSweepSummary, order []SRPFArm) (SRPFSweepSummary, error) {
 	r := s.readiness()
 	archived, err := os.ReadFile(s.ArchivedManifest)
 	if err != nil {
@@ -835,8 +863,9 @@ const srpfLocateProbe = `import hashlib, importlib.util, json, os
 p = os.path.join(os.path.dirname(importlib.util.find_spec("vllm").origin), "v1", "core", "sched", "scheduler.py")
 print(json.dumps({"file": p, "sha256": hashlib.sha256(open(p, "rb").read()).hexdigest()}))`
 
-// imageIdentity checks the pulled image before the model is downloaded: it ships the merge base's scheduler, Python
-// imports the PR's once the overlay is mounted, and `vllm --version` names the merge base.
+// imageIdentity checks the pulled image before the model is downloaded: it ships the merge base's scheduler, and Python
+// imports the PR's once the overlay is mounted.
+// It also records `vllm --version`.
 func (s *SRPFSweep) imageIdentity(ctx context.Context) (SRPFImageIdentity, error) {
 	id := SRPFImageIdentity{Image: SRPFSweepImage, Probes: []string{}}
 	ictx, cancel := context.WithTimeout(ctx, SRPFSweepImageIdentityBound)
@@ -876,10 +905,9 @@ func (s *SRPFSweep) imageIdentity(ctx context.Context) (SRPFImageIdentity, error
 	if err != nil {
 		return id, fmt.Errorf("vllm --version: %w", err)
 	}
+	// The version is recorded and not judged: the digest already fixes the image, and the scheduler hash its code.
+	// A local version part spelt another way than "+g5039f736e" would otherwise end a paid run over a string.
 	id.VLLMVersion = strings.TrimSpace(string(lastLine(out)))
-	if !strings.Contains(id.VLLMVersion, "+g"+SRPFSweepBaseCommit[:8]) {
-		return id, fmt.Errorf("vllm --version is %q, which does not name the merge base %s", id.VLLMVersion, SRPFSweepBaseCommit[:9])
-	}
 	return id, nil
 }
 
@@ -923,28 +951,30 @@ func (s *SRPFSweep) arm(ctx context.Context, r *ReadinessRun, a SRPFArm, positio
 	}
 	res.ContainerID = id
 	es := EngineStart{Treatment: a.Name, Name: "srpf-" + a.Name, ContainerID: id, Image: SRPFSweepImage, RunArgs: args, StartedAt: t0.UTC()}
-	s.measureArm(ctx, rctx, r, &res, es, schedulerPath, archived, trace, t0)
+	mErr := s.measureArm(ctx, rctx, r, &res, es, schedulerPath, archived, trace, t0)
 
 	rec := ReadinessStart{Treatment: a.Name, Ordinal: 1}
 	err = r.finish(ctx, &rec, es)
 	res.LogFile, res.LogError = rec.LogFile, rec.LogError
-	return res, err
+	return res, errors.Join(mErr, err)
 }
 
 // measureArm takes a started engine through readiness, its identity checks, the warm-up and the replay, filling res.
 //
 // It stops at the first step that fails, with the reason on res; the caller removes the container either way.
+//
+// The error it returns is only a record that could not be written, which ends the sweep.
 func (s *SRPFSweep) measureArm(ctx, rctx context.Context, r *ReadinessRun, res *SRPFArmResult, es EngineStart, schedulerPath string,
-	archived []byte, trace []TraceRow, t0 time.Time) {
+	archived []byte, trace []TraceRow, t0 time.Time) error {
 	a := res.SRPFArm
 	healthAt, exited, err := r.waitHealthy(rctx, es)
 	switch {
 	case exited != "":
 		res.Reason = "the engine container " + exited + " before /health returned 200"
-		return
+		return nil
 	case err != nil:
 		res.Reason = fmt.Sprintf("no /health 200 within %s", SRPFSweepReadyBound)
-		return
+		return nil
 	}
 	h := healthAt.Sub(t0).Seconds()
 	res.HealthSeconds = &h
@@ -955,7 +985,7 @@ func (s *SRPFSweep) measureArm(ctx, rctx context.Context, r *ReadinessRun, res *
 	logs, err := r.Logs(ictx, es.ContainerID)
 	if err != nil {
 		res.Reason = "read the engine log: " + err.Error()
-		return
+		return nil
 	}
 	for line := range strings.Lines(string(logs)) {
 		if i := strings.Index(line, "non-default args: "); i >= 0 {
@@ -965,22 +995,22 @@ func (s *SRPFSweep) measureArm(ctx, rctx context.Context, r *ReadinessRun, res *
 	}
 	if err := srpfNonDefaultArgsRefusal(a, res.NonDefaultArgs); err != nil {
 		res.Reason = err.Error()
-		return
+		return nil
 	}
 	// The threshold is ignored without chunked prefill, whose default the engine decides per model, so its own line is required.
 	if !strings.Contains(string(logs), srpfChunkedPrefillLine) {
 		res.Reason = "the engine did not log " + strconv.Quote(srpfChunkedPrefillLine)
-		return
+		return nil
 	}
 	probe, err := s.Docker(ictx, "docker", "exec", es.ContainerID, "python3", "-c", srpfCodeProbe)
 	res.CodeProbe = string(probe)
 	if err != nil {
 		res.Reason = "the code probe failed: " + err.Error()
-		return
+		return nil
 	}
 	if err := srpfProbeRefusal(a, schedulerPath, true, probe); err != nil {
 		res.Reason = err.Error()
-		return
+		return nil
 	}
 
 	rs := ReadinessStart{Treatment: a.Name, Ordinal: 1, Capture: []CaptureRecord{}}
@@ -989,45 +1019,73 @@ func (s *SRPFSweep) measureArm(ctx, rctx context.Context, r *ReadinessRun, res *
 
 	if why := s.warmup(ctx, res, trace); why != "" {
 		res.Reason = why
-		return
+		return nil
 	}
 	if err := s.waitIdle(ctx); err != nil {
 		res.Reason = err.Error()
-		return
+		return nil
 	}
 	before, err := s.metrics(ctx, "metrics-"+a.Name+"-before.prom")
 	if err != nil {
 		res.Reason = err.Error()
-		return
+		return fatalWrite(err)
 	}
-	res.ReplayError, res.RawFile = s.replay(ctx, a, archived)
+	// What the arm is and what it checked are on disk before the replay, so a reclaim during it keeps them with the rows.
+	if err := s.writeJSON("arm-"+a.Name+".pre-replay.json", res); err != nil {
+		return err
+	}
+	if err := WriteNewFileDurably(filepath.Join(s.Out, "start-"+a.Name+"-1.pre-replay.engine.log"), logs); err != nil {
+		return err
+	}
+	var fatal error
+	res.ReplayError, res.RawFile, fatal = s.replay(ctx, a, archived)
+	if fatal != nil {
+		res.Reason = fatal.Error()
+		return fatal
+	}
 	// The counter is read once the engine has finished every request, so no preemption of the replay is still unreported.
 	mErr := s.waitIdle(ctx)
 	after := ""
 	if mErr == nil {
 		after, mErr = s.metrics(ctx, "metrics-"+a.Name+"-after.prom")
-	}
-	if mErr == nil {
-		if d, name, err := PreemptionDelta(before, after); err == nil {
-			res.Preemptions, res.PreemptionMetric = &d, name
-		} else {
-			res.PreemptionMetric = err.Error()
+		if fatal := fatalWrite(mErr); fatal != nil {
+			res.Reason = fatal.Error()
+			return fatal
 		}
 	}
-	res.Figures, err = s.figures(res.RawFile, trace)
+	if mErr != nil {
+		res.MetricsError = mErr.Error()
+	} else if d, name, err := PreemptionDelta(before, after); err == nil {
+		res.Preemptions, res.PreemptionMetric = &d, name
+	} else {
+		res.MetricsError = err.Error()
+	}
+	res.Figures, err = s.figures(a.Name, res.RawFile, trace)
 	if err != nil {
 		res.FiguresError = err.Error()
 	}
 	switch {
 	case res.ReplayError != "":
 		res.Reason = "the replay: " + res.ReplayError
-	case mErr != nil:
-		res.Reason = mErr.Error()
+	case res.MetricsError != "":
+		res.Reason = "the preemption counter: " + res.MetricsError
 	case err != nil:
 		res.Reason = "the figures: " + err.Error()
 	default:
 		res.Outcome = "measured"
 	}
+	return nil
+}
+
+// srpfWriteError marks a record that could not be written, which ends the sweep rather than one arm.
+type srpfWriteError struct{ error }
+
+// fatalWrite returns err when it is a write failure, and nil otherwise.
+func fatalWrite(err error) error {
+	if _, ok := errors.AsType[srpfWriteError](err); ok {
+		return err
+	}
+	return nil
 }
 
 // warmup sends the trace's first premium and first contender request one at a time, and names the first that failed.
@@ -1049,6 +1107,8 @@ func (s *SRPFSweep) warmup(ctx context.Context, res *SRPFArmResult, trace []Trac
 			return err.Error()
 		}
 		sender.SetPriorities(prio)
+		// The sender sends the X-Request-Id and Replay only records it, so both are given the prefix.
+		sender.SetRequestIDPrefix("warmup-" + res.Name)
 		got := Replay(wctx, sender, []TraceRow{row}, ReplayOptions{
 			Study: StudySRPF58420, Arm: res.Name, Priorities: prio, RequestIDPrefix: "warmup-" + res.Name, RecordTiming: true,
 		})
@@ -1070,6 +1130,12 @@ func (s *SRPFSweep) waitIdle(ctx context.Context) error {
 	last := "no /metrics answer"
 	for {
 		status, body, err := s.readiness().fetch(ictx, http.MethodGet, "/metrics", nil)
+		switch {
+		case err != nil:
+			last = err.Error()
+		case status != http.StatusOK:
+			last = fmt.Sprintf("status %d: %.200s", status, body)
+		}
 		if err == nil && status == http.StatusOK {
 			running, okR := PromSum(string(body), "vllm:num_requests_running")
 			waiting, okW := PromSum(string(body), "vllm:num_requests_waiting")
@@ -1093,7 +1159,7 @@ func (s *SRPFSweep) metrics(ctx context.Context, name string) (string, error) {
 	status, body, err := s.readiness().fetch(mctx, http.MethodGet, "/metrics", nil)
 	if body != nil {
 		if wErr := WriteNewFileDurably(filepath.Join(s.Out, name), body); wErr != nil {
-			return "", wErr
+			return "", srpfWriteError{wErr}
 		}
 	}
 	if err == nil && status != http.StatusOK {
@@ -1105,17 +1171,19 @@ func (s *SRPFSweep) metrics(ctx context.Context, name string) (string, error) {
 	return string(body), nil
 }
 
-// replay writes the arm's manifest and runs the replay subcommand on it, returning its failure and the raw file.
+// replay writes the arm's manifest and runs the replay subcommand on it.
 //
+// It returns the subcommand's failure and the raw file it wrote, and, apart, a record of the sweep's own that could not
+// be written, which ends the sweep.
 // The subcommand is the one every earlier run used, so its sender, schedule, record and completion check are theirs.
-func (s *SRPFSweep) replay(ctx context.Context, a SRPFArm, archived []byte) (string, string) {
+func (s *SRPFSweep) replay(ctx context.Context, a SRPFArm, archived []byte) (string, string, error) {
 	m, err := ArmManifest(archived, a.Name, s.Trace, s.EngineURL)
 	if err != nil {
-		return err.Error(), ""
+		return err.Error(), "", nil
 	}
 	manifest := filepath.Join(s.Out, "manifest-"+a.Name+".yaml")
 	if err := WriteManifestFile(manifest, m); err != nil {
-		return err.Error(), ""
+		return "", "", srpfWriteError{err}
 	}
 	raw := filepath.Join(s.Out, "raw-"+a.Name+".jsonl")
 	rctx, cancel := context.WithTimeout(ctx, SRPFSweepReplayBound)
@@ -1123,16 +1191,16 @@ func (s *SRPFSweep) replay(ctx context.Context, a SRPFArm, archived []byte) (str
 	out, err := s.Exec(rctx, s.Self, "replay", "--manifest", manifest, "--raw-out", raw,
 		"--priorities", SRPFSweepPriorities, "--request-id-prefix", "srpf-"+a.Name)
 	if wErr := WriteNewFileDurably(filepath.Join(s.Out, "replay-"+a.Name+".log"), out); wErr != nil {
-		err = errors.Join(err, wErr)
+		return "", filepath.Base(raw), srpfWriteError{wErr}
 	}
 	if err != nil {
-		return err.Error(), filepath.Base(raw)
+		return err.Error(), filepath.Base(raw), nil
 	}
-	return "", filepath.Base(raw)
+	return "", filepath.Base(raw), nil
 }
 
 // figures reads the arm's raw rows back from the file the replay wrote and scores them.
-func (s *SRPFSweep) figures(rawFile string, trace []TraceRow) (*SRPFFigures, error) {
+func (s *SRPFSweep) figures(arm, rawFile string, trace []TraceRow) (*SRPFFigures, error) {
 	if rawFile == "" {
 		return nil, errors.New("no raw file was written")
 	}
@@ -1145,7 +1213,7 @@ func (s *SRPFSweep) figures(rawFile string, trace []TraceRow) (*SRPFFigures, err
 	if err != nil {
 		return nil, err
 	}
-	return SRPFSweepFigures(trace, rows)
+	return SRPFSweepFigures(arm, trace, rows)
 }
 
 // writeJSON writes one record durably and never over another.

@@ -126,7 +126,9 @@ fi
 for tool in aws go python3 git tar sha256sum curl; do command -v "$tool" >/dev/null || fail "$tool is not installed"; done
 [ -z "$(git status --porcelain)" ] || fail "the working tree is dirty; the run's provenance is a commit, and the harness is built from this tree"
 # The trace and manifest are what the arms replay, so they must be the committed, listed bytes.
-(cd "$DIAG_DIR" && grep -E " ($TRACE_FILE|$MANIFEST_FILE)\$" SHA256SUMS | sha256sum -c --quiet -) ||
+# Both lines are required, since sha256sum -c passes on whichever lines it is given.
+sums=$(grep -E "  ($TRACE_FILE|$MANIFEST_FILE)\$" "$DIAG_DIR/SHA256SUMS")
+[ "$(grep -c . <<<"$sums")" = 2 ] && (cd "$DIAG_DIR" && sha256sum -c --quiet - <<<"$sums") ||
   fail "$DIAG_DIR/$TRACE_FILE or $MANIFEST_FILE does not match its SHA256SUMS"
 COMMIT=$(git rev-parse HEAD)
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>&1) || fail "could not read the caller's account: $ACCOUNT"
@@ -217,7 +219,8 @@ live=$(aws ec2 describe-instances --region "$REGION" --filters "Name=tag:purpose
 # ---------------------------------------------------------------- what the instance runs
 say "building the harness from $COMMIT"
 # A static binary, so the instance runs exactly this commit's harness without installing Go.
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$OUT/benchharness" ./cmd/benchharness >"$OUT/build.log" 2>&1 ||
+# GOFLAGS could name an -overlay of other sources and GOWORK other modules, either of which a clean tree would not show.
+GOFLAGS= GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$OUT/benchharness" ./cmd/benchharness >"$OUT/build.log" 2>&1 ||
   fail "build the harness; see $OUT/build.log"
 HARNESS_SHA=$(sha256sum "$OUT/benchharness" | cut -d' ' -f1)
 TRACE_SHA=$(sha256sum "$DIAG_DIR/$TRACE_FILE" | cut -d' ' -f1)
@@ -325,9 +328,11 @@ if [ "$bringup_rc" = 0 ]; then
   # A Spot reclaim gives two minutes, so each arm's records leave the instance within PARTIAL_SYNC_S of being written.
   # One archive overwritten in place needs only the role's s3:PutObject; a sync would also need s3:ListBucket.
   # GNU tar exits 1 when a file grew while it was read, which the live replay rows always do, so 1 still uploads.
+  # The copy runs at the lowest CPU and I/O priority, beside the replay client it shares the host with.
+  # Each upload is bounded, so a stalled one cannot stop every later copy.
   ( while :; do
-      tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/sr-run sweep >>/var/log/srpf-sync.log 2>&1
-      [ $? -le 1 ] && aws s3 cp --only-show-errors /tmp/partial.tgz "s3://$BUCKET/$PREFIX/partial.tgz" >>/var/log/srpf-sync.log 2>&1
+      nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/sr-run sweep >>/var/log/srpf-sync.log 2>&1
+      [ $? -le 1 ] && timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz "s3://$BUCKET/$PREFIX/partial.tgz" >>/var/log/srpf-sync.log 2>&1
       sleep PARTIAL_SYNC_S_PLACEHOLDER
     done ) &
   sync_pid=$!
@@ -346,7 +351,9 @@ else
 fi
 cp /var/log/srpf.log /src/sr-run/instance.log
 left=$(( EV - $(date +%s) )); [ "$left" -gt 5 ] || left=5
-tar -czf /tmp/evidence.tgz -C /src sr-run && timeout "$left" aws s3 cp --only-show-errors /tmp/evidence.tgz "s3://$BUCKET/$PREFIX/evidence.tgz"
+# A replay the harness's timeout orphaned can still be writing its rows, which makes tar exit 1 with a usable archive.
+tar --warning=no-file-changed -czf /tmp/evidence.tgz -C /src sr-run
+[ $? -le 1 ] && timeout "$left" aws s3 cp --only-show-errors /tmp/evidence.tgz "s3://$BUCKET/$PREFIX/evidence.tgz"
 upload /var/log/srpf.log log.txt
 echo "RUN_NONCE_PLACEHOLDER" > /tmp/DONE
 upload /tmp/DONE DONE
@@ -461,9 +468,15 @@ fi
 for k in evidence.tgz log.txt preflight-nvidia-smi.csv DONE; do
   aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" 2>>"$OUT/download-errors.txt" || echo "not downloaded: $k" >>"$OUT/download-errors.txt"
 done
-[ ! -s "$OUT/evidence.tgz" ] || tar -xzf "$OUT/evidence.tgz" -C "$OUT" || echo "the evidence archive did not unpack" >>"$OUT/download-errors.txt"
+unpacked=no
+if [ -s "$OUT/evidence.tgz" ] && tar -xzf "$OUT/evidence.tgz" -C "$OUT"; then
+  unpacked=yes
+else
+  echo "the evidence archive was not returned or did not unpack" >>"$OUT/download-errors.txt"
+fi
 EVIDENCE=returned
-if [ ! -s "$OUT/sr-run/sweep/summary.json" ]; then
+# An archive that broke after its summary is not the whole record, so it counts as returned only if it unpacked whole.
+if [ "$unpacked" != yes ] || [ ! -s "$OUT/sr-run/sweep/summary.json" ]; then
   # Without the final archive, the per-arm copies are what a reclaim or a crash left; they are reported as partial.
   mkdir -p "$OUT/sr-run-partial"
   { aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/partial.tgz" "$OUT/partial.tgz" &&

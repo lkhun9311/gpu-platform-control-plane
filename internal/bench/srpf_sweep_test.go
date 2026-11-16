@@ -317,7 +317,7 @@ func srpfRow(tr TraceRow, ttftMs, lastMs float64, tokens int) RawRow {
 	intended := tr.OffsetMs * int64(time.Millisecond)
 	at := func(ms float64) *int64 { v := intended + int64(ms*float64(time.Millisecond)); return &v }
 	return RawRow{
-		Index: tr.Index, Tenant: tr.Tenant, ScheduledOffsetMs: tr.OffsetMs, HTTPStatus: 200, StreamTerminated: true,
+		Index: tr.Index, Study: StudySRPF58420, Arm: "fcfs", TraceChecksum: SRPFSweepTraceChecksum, Tenant: tr.Tenant, ScheduledOffsetMs: tr.OffsetMs, HTTPStatus: 200, StreamTerminated: true,
 		EngineUsageReported: new(true), EngineOutputTokens: tokens, EngineInputTokens: tr.ExactInputTokens,
 		Clock: &RequestClock{IntendedNanos: &intended, SendNanos: at(0.5), FirstContentNanos: at(ttftMs), LastContentNanos: at(lastMs)},
 	}
@@ -341,7 +341,7 @@ func TestSRPFSweepFigures(t *testing.T) {
 		srpfRow(trace[4], 1000, 5000, 16),
 	}
 	rows[4].EngineInputTokens = 7700
-	f, err := SRPFSweepFigures(trace, rows)
+	f, err := SRPFSweepFigures("fcfs", trace, rows)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,6 +366,23 @@ func TestSRPFSweepFigures(t *testing.T) {
 			r[1].Tenant = PremiumTenant
 			return r
 		}(),
+		"a row of another arm": func() []RawRow {
+			r := slices.Clone(rows)
+			r[3].Arm = "srpf"
+			return r
+		}(),
+		"a row of another trace": func() []RawRow {
+			r := slices.Clone(rows)
+			r[0].TraceChecksum = "x"
+			return r
+		}(),
+		"a row off its schedule": func() []RawRow {
+			r := slices.Clone(rows)
+			c := *r[2].Clock
+			c.IntendedNanos = new(*c.IntendedNanos + int64(time.Second))
+			r[2].Clock = &c
+			return r
+		}(),
 		"a row without its clock": func() []RawRow {
 			r := slices.Clone(rows)
 			r[2].Clock = nil
@@ -373,13 +390,13 @@ func TestSRPFSweepFigures(t *testing.T) {
 		}(),
 	}
 	for name, r := range refused {
-		if _, err := SRPFSweepFigures(trace, r); err == nil {
+		if _, err := SRPFSweepFigures("fcfs", trace, r); err == nil {
 			t.Errorf("%s was scored", name)
 		}
 	}
 	timeout := slices.Clone(rows)
-	timeout[1] = RawRow{Index: 1, Tenant: NoisyTenant, ScheduledOffsetMs: 10, ErrorKind: "timeout", Clock: &RequestClock{IntendedNanos: rows[1].Clock.IntendedNanos}}
-	f, err = SRPFSweepFigures(trace, timeout)
+	timeout[1] = RawRow{Index: 1, Study: StudySRPF58420, Arm: "fcfs", TraceChecksum: SRPFSweepTraceChecksum, Tenant: NoisyTenant, ScheduledOffsetMs: 10, ErrorKind: "timeout", Clock: &RequestClock{IntendedNanos: rows[1].Clock.IntendedNanos}}
+	f, err = SRPFSweepFigures("fcfs", trace, timeout)
 	if err != nil || !f.ContenderE2EP95.Infinite || f.Contender.FailedBy["timeout"] != 1 {
 		t.Errorf("a timed-out contender gave %+v (%v)", f, err)
 	}
@@ -452,6 +469,9 @@ type srpfFake struct {
 	preemptions int
 	replays     []string
 	removed     []string
+	pulls       []string
+	// requestIDs are the X-Request-Id headers the engine received.
+	requestIDs []string
 	// wrongEnvArm makes that arm's container report the SRPF variable it should not have.
 	wrongEnvArm string
 }
@@ -466,6 +486,7 @@ func (f *srpfFake) docker(_ context.Context, _ string, args ...string) ([]byte, 
 	case args[0] == "image" && args[1] == "inspect":
 		return nil, errors.New("error: no such image: " + args[len(args)-1])
 	case args[0] == "pull":
+		f.pulls = append(f.pulls, args[len(args)-1])
 		return []byte("pulled\n"), nil
 	case args[0] == "run" && args[1] == "--rm":
 		switch {
@@ -570,6 +591,9 @@ func (f *srpfFake) engine(t *testing.T) *httptest.Server {
 			Priority  *int `json:"priority"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		f.requestIDs = append(f.requestIDs, r.Header.Get("X-Request-Id"))
+		f.mu.Unlock()
 		if body.Priority == nil {
 			http.Error(w, "no priority", http.StatusBadRequest)
 			return
@@ -622,36 +646,41 @@ func TestSRPFSweepRefusesAnOverlayThatIsNotThePRHead(t *testing.T) {
 	}
 }
 
+// The archived manifest is checked before the pull, so one of another block cannot reach the paid steps.
+// Mutation that turns this red: remove the ArmManifest loop from refuse.
+func TestSRPFSweepRefusesAnotherBlocksManifestBeforeThePull(t *testing.T) {
+	f := &srpfFake{}
+	s := srpfSweepAgainst(t, f)
+	s.ArchivedManifest = strings.Replace(s.ArchivedManifest, "manifest-off-3.yaml", "manifest-off-1.yaml", 1)
+	_, err := s.Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "not seed 853") || len(f.pulls) != 0 {
+		t.Errorf("run with block 1's manifest: %v after %d pulls", err, len(f.pulls))
+	}
+}
+
 // One sweep against the fakes: every arm in the frozen order on its own engine, an arm whose container carries the
 // wrong SRPF setting failed before any request, and every container removed.
 // Mutation that turns this red: skip srpfProbeRefusal in measureArm.
 func TestSRPFSweepRunsEveryArmAndFailsAContaminatedOne(t *testing.T) {
 	f := &srpfFake{wrongEnvArm: "fcfs"}
 	s := srpfSweepAgainst(t, f)
-	// The real overlay is not in the repository, so the checksum refusal is satisfied by running the sweep's steps directly.
-	trace, err := ReadTraceFileVerified(s.Trace, SRPFSweepTraceChecksum)
+	// The PR's scheduler is not in the repository, so the sweep is driven from just after its refusals.
+	sum, err := s.run(context.Background(), SRPFSweepSummary{Study: StudySRPF58420, Arms: []SRPFArmResult{}}, SRPFSweepOrder(SRPFSweepOrderSeed))
 	if err != nil {
 		t.Fatal(err)
 	}
-	archived, err := os.ReadFile(s.ArchivedManifest)
-	if err != nil {
-		t.Fatal(err)
+	id := sum.Image
+	if id.SchedulerPath != srpfFakePath || id.VLLMVersion != "0.34.0rc1.dev527+g5039f736e" || id.OverlaidSHA256 != SRPFSweepPRSchedulerSHA256 {
+		t.Errorf("image identity %+v", id)
 	}
-	r := s.readiness()
-	if _, err := r.pull(context.Background(), SRPFSweepImage); err != nil {
-		t.Fatal(err)
+	results := sum.Arms
+	if len(results) != 6 {
+		t.Fatalf("%d arm results", len(results))
 	}
-	id, err := s.imageIdentity(context.Background())
-	if err != nil || id.SchedulerPath != srpfFakePath || id.VLLMVersion != "0.34.0rc1.dev527+g5039f736e" {
-		t.Fatalf("image identity %+v (%v)", id, err)
-	}
-	var results []SRPFArmResult
-	for i, a := range SRPFSweepOrder(SRPFSweepOrderSeed) {
-		res, err := s.arm(context.Background(), r, a, i+1, id.SchedulerPath, archived, trace)
-		if err != nil {
-			t.Fatalf("arm %s: %v", a.Name, err)
+	for _, name := range []string{"summary.json", "arm-srpf.json", "arm-srpf.pre-replay.json", "start-srpf-1.pre-replay.engine.log", "raw-srpf.jsonl"} {
+		if _, err := os.Stat(filepath.Join(s.Out, name)); err != nil {
+			t.Errorf("the sweep did not write %s: %v", name, err)
 		}
-		results = append(results, res)
 	}
 	for _, res := range results {
 		switch res.Name {
@@ -675,6 +704,10 @@ func TestSRPFSweepRunsEveryArmAndFailsAContaminatedOne(t *testing.T) {
 		if rep != want[i]+" "+SRPFSweepPriorities {
 			t.Errorf("replay %d was %q, want %s with the priorities", i, rep, want[i])
 		}
+	}
+	// Mutation that turns this red: drop SetRequestIDPrefix from warmup.
+	if !slices.Contains(f.requestIDs, "warmup-srpf-0") || !slices.Contains(f.requestIDs, "warmup-srpf-1") || slices.Contains(f.requestIDs, "") {
+		t.Errorf("the warm-up sent request IDs %v, not the ones its rows record", f.requestIDs)
 	}
 	if len(f.replays) != len(want) || len(f.running) != 0 || len(f.removed) != 6 {
 		t.Errorf("%d replays, %d containers left running, %d removed", len(f.replays), len(f.running), len(f.removed))

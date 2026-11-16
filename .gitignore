@@ -287,3 +287,6 @@ infra/aws/bootstrap/.build/
 !/hack/drill/README.md
 # Each drill's result write-up, which the runbook cites as the source of its known-defects list.
 !/hack/drill/results-*/README.md
+# The vLLM #58420 session's working directory, so a refused attempt does not leave the tree dirty for the next one.
+# A run's evidence is committed under a directory of its own name, as the readiness preflight's are.
+/hack/vllm-58420-[0-9]*T[0-9]*Z/

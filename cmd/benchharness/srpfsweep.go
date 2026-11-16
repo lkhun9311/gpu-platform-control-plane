@@ -66,7 +66,10 @@ func srpfSweep(args []string, out io.Writer) error {
 				bench.SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true}), nil
 		},
 	}
-	sum, err := sweep.Run(context.Background())
+	// The sweep's own bounds sum to SRPFSweepBound, so nothing it starts outlives them, including a step with no bound of its own.
+	ctx, cancel := context.WithTimeout(context.Background(), bench.SRPFSweepBound)
+	defer cancel()
+	sum, err := sweep.Run(ctx)
 	for _, a := range sum.Arms {
 		line := fmt.Sprintf("%d %s: %s", a.Position, a.Name, a.Outcome)
 		if a.Reason != "" {
@@ -76,6 +79,7 @@ func srpfSweep(args []string, out io.Writer) error {
 			line += fmt.Sprintf("; premium TTFT p50 %s p99 %s ms, %d of %d completed; contender e2e p50 %s p95 %s ms, %d of %d completed",
 				f.PremiumTTFTP50, f.PremiumTTFTP99, f.Premium.Completed, f.Premium.Rows,
 				f.ContenderE2EP50, f.ContenderE2EP95, f.Contender.Completed, f.Contender.Rows)
+			line += fmt.Sprintf("; max dispatch lag %.1f ms; %d rows with another prompt length than frozen", f.MaxDispatchLagMs, f.InputTokenMismatches)
 		}
 		if a.Preemptions != nil {
 			line += fmt.Sprintf("; preemptions %g", *a.Preemptions)

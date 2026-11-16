@@ -103,6 +103,12 @@ sed -i '1s/"offsetMs":265/"offsetMs":266/' "$EDITED/$DIAG/trace-off-3.jsonl"
 commit_all "$EDITED" edited
 refuses "a trace that is not the frozen one" "does not match its SHA256SUMS" "$EDITED" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI
 
+# A list that lost the manifest's line still verifies the trace's, so both lines must be required.
+UNLISTED=$(fixture) || exit 1
+sed -i '/  manifest-off-3.yaml$/d' "$UNLISTED/$DIAG/SHA256SUMS"
+commit_all "$UNLISTED" unlisted
+refuses "a manifest its SHA256SUMS does not list" "does not match its SHA256SUMS" "$UNLISTED" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI
+
 # A rate that puts the worst case over the cap must be refused by the script's own arithmetic.
 COSTLY=$(fixture) || exit 1
 sed -i 's/^ALL_IN_RATE=.*/ALL_IN_RATE=1.40/' "$COSTLY/hack/vllm-58420-session.sh"
@@ -179,8 +185,10 @@ fi
 # The instance role has no s3:ListBucket, so the copy must be a plain put of one object, never aws s3 sync.
 # The live replay rows grow while tar reads them, and GNU tar then exits 1, which must still upload.
 if grep -q 'aws s3 sync' "$SCRIPT" ||
+  ! grep -qxF '  ( while :; do' "$SCRIPT" ||
   ! grep -qF 'tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/sr-run sweep' "$SCRIPT" ||
-  ! grep -qF '[ $? -le 1 ] && aws s3 cp --only-show-errors /tmp/partial.tgz "s3://$BUCKET/$PREFIX/partial.tgz"' "$SCRIPT" ||
+  ! grep -qF '[ $? -le 1 ] && timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz "s3://$BUCKET/$PREFIX/partial.tgz"' "$SCRIPT" ||
+  ! grep -qxF '[ $? -le 1 ] && timeout "$left" aws s3 cp --only-show-errors /tmp/evidence.tgz "s3://$BUCKET/$PREFIX/evidence.tgz"' "$SCRIPT" ||
   ! grep -qF 'sleep PARTIAL_SYNC_S_PLACEHOLDER' "$SCRIPT" ||
   ! grep -qF 's|PARTIAL_SYNC_S_PLACEHOLDER|$PARTIAL_SYNC_S|' "$SCRIPT" ||
   ! grep -qF 'aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/partial.tgz" "$OUT/partial.tgz"' "$SCRIPT" ||
@@ -194,7 +202,7 @@ fi
 # The DONE wait must outlast the stop; a fixed attempt count once ended it before the work could.
 wait_call=$(grep -n 'spot_wait_for_marker_until "\$REGION"' "$SCRIPT")
 if ! grep -qx 'WAIT_ATTEMPTS=$(( STOP_FROM_LAUNCH_S / WAIT_INTERVAL_S + 2 ))' "$SCRIPT" ||
-  ! grep -q '"\$WAIT_INTERVAL_S" "\$WAIT_ATTEMPTS"' <<<"$wait_call"; then
+  ! grep -qF '"$RUN_ID/DONE" "$IID" $(( L + STOP_FROM_LAUNCH_S )) "$WAIT_INTERVAL_S" "$WAIT_ATTEMPTS"' <<<"$wait_call"; then
   echo "FAIL the DONE wait's attempts are not derived from the stop: $wait_call" >&2
   failures=$((failures + 1))
 else
@@ -213,11 +221,30 @@ fi
 
 # The instance runs only the inputs this session hashed: each is fetched and checked before the harness starts.
 fetches=$(grep -c '^fetch [A-Z_]*PLACEHOLDER [A-Z_]*PLACEHOLDER$\|^fetch [a-z.]* [A-Z_0-9]*_PLACEHOLDER$' "$SCRIPT")
-if [[ "$fetches" != 4 ]]; then
-  echo "FAIL the user-data checks $fetches of its four inputs against this session's hashes" >&2
+fetch_body=$(awk '/^fetch\(\) \{$/{on=1} on{print} on && /^\}$/{exit}' "$SCRIPT")
+if [[ "$fetches" != 4 ]] ||
+  ! grep -qxF '  [ "$(sha256sum "/opt/sr/$1" | cut -d'"' '"' -f1)" = "$2" ] || { echo "checksum mismatch for $1"; exit 1; }' <<<"$fetch_body"; then
+  echo "FAIL the user-data fetches $fetches of its four inputs, or its fetch does not compare each with this session's hash" >&2
   failures=$((failures + 1))
 else
   echo "ok   the harness, the scheduler, the trace and the manifest are each checked on the instance"
+fi
+
+# A clean tree names the harness's source only if the build cannot be pointed at other files.
+if ! grep -qF 'GOFLAGS= GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$OUT/benchharness" ./cmd/benchharness' "$SCRIPT"; then
+  echo "FAIL the harness build inherits GOFLAGS or GOWORK, which can compile sources the commit does not hold" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the harness build ignores the caller's GOFLAGS and GOWORK"
+fi
+
+# The default output directory is created before the purchase, so a refused attempt must not leave the tree dirty.
+if ! git -C "$ROOT" check-ignore -q "hack/vllm-58420-$(date -u +%Y%m%dT%H%M%SZ)/session.log" ||
+  ! grep -qF 'OUT="${OUT:-hack/vllm-58420-$(date -u +%Y%m%dT%H%M%SZ)}"' "$SCRIPT"; then
+  echo "FAIL the session's default output directory is not ignored, so a refused attempt blocks the next on a dirty tree" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the session's default output directory is ignored"
 fi
 
 if [[ $failures -ne 0 ]]; then
