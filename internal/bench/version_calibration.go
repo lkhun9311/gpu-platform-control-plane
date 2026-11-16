@@ -113,8 +113,12 @@ func OutstandingSlope(samples []int, stepSeconds float64) float64 {
 }
 
 // MaxRungs bounds the ladder, so calibration has a cost ceiling before it starts.
+//
+// Fallback runs only after the first expansion rung failed, so expansion and fallback together take at most
+// max(MaxExpansion, 1+MaxFallback) rungs, never their sum.
 func (c CalibrationRule) MaxRungs() int {
-	return c.MaxExpansion + c.MaxFallback + c.MaxRefine + c.Confirmations + c.MaxStepDowns*(1+c.Confirmations) + c.MaxInvalidRetries
+	return max(c.MaxExpansion, 1+c.MaxFallback) + c.MaxRefine + c.Confirmations + c.MaxStepDowns*(1+c.Confirmations) +
+		c.MaxInvalidRetries
 }
 
 // MaxSeconds bounds calibration's wall time from MaxRungs.

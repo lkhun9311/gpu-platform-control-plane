@@ -10,6 +10,8 @@ import (
 // TestVersionTraceIsDeterministicAndPrefixStable: ChooseWindow and the bundle check both rely on a shorter window's trace being a prefix of a longer one's.
 func TestVersionTraceIsDeterministicAndPrefixStable(t *testing.T) {
 	d := versionAsyncDesign()
+	// The registration caps the window at 300 s; a longer cap here only tests that the generator is prefix-stable.
+	d.MaxMeasureSeconds = 600
 	seed, _ := WorkloadSeed(d.CampaignSeed, 2, LoadL090)
 	short, err := d.VersionTrace(seed, 3.6, 300)
 	if err != nil {

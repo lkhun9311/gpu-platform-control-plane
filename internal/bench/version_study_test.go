@@ -213,9 +213,9 @@ func TestChooseWindowFromTraces(t *testing.T) {
 	at := func(perBlock map[string]float64) func(int, string, int) (int, error) {
 		return func(_ int, load string, w int) (int, error) { return int(perBlock[load] * float64(w)), nil }
 	}
-	// 6 blocks x 0.2 req/s: 780 s offers 936, 840 s offers 1,008.
-	if w, err := d.ChooseWindow(at(map[string]float64{LoadL060: 0.2, LoadL090: 0.3})); err != nil || w != 840 {
-		t.Errorf("window %d err %v, want 840", w, err)
+	// 6 blocks x 0.2 req/s offers 360 in 300 s, below the floor, and the window may not grow past 300 s.
+	if _, err := d.ChooseWindow(at(map[string]float64{LoadL060: 0.2, LoadL090: 0.3})); err == nil {
+		t.Errorf("a lambda0 that needs an 840 s window was given one, past the 300 s cap")
 	}
 	if w, err := d.ChooseWindow(at(map[string]float64{LoadL060: 10, LoadL090: 15})); err != nil || w != 300 {
 		t.Errorf("window %d err %v, want the minimum 300", w, err)
@@ -224,8 +224,8 @@ func TestChooseWindowFromTraces(t *testing.T) {
 		t.Errorf("a window over the maximum was chosen rather than refused")
 	}
 	// Every load must reach the floor, not their sum.
-	if w, _ := d.ChooseWindow(at(map[string]float64{LoadL060: 0.2, LoadL090: 100})); w != 840 {
-		t.Errorf("window %d, want 840 set by the lower load", w)
+	if _, err := d.ChooseWindow(at(map[string]float64{LoadL060: 0.2, LoadL090: 100})); err == nil {
+		t.Errorf("the higher load's rate let the lower load miss the floor")
 	}
 }
 
@@ -268,15 +268,25 @@ func TestSixBlocksBalanceEveryPosition(t *testing.T) {
 // TestBudgetBounds is attack item 13: every phase is bounded, and a block starts only if every missing valid block still fits.
 func TestBudgetBounds(t *testing.T) {
 	d := frozenVersionDesignFixture()
-	if got := d.BlockBoundSeconds(300); got != 6480 {
-		t.Errorf("block bound %d s, want 6480", got)
+	// 3 treatments x (2 starts x 450 + 2 cells x (60 + 300 + 120)).
+	if got := d.BlockBoundSeconds(300); got != 5580 {
+		t.Errorf("block bound %d s, want 5580", got)
 	}
-	if got := d.Calibration.MaxRungs(); got != 30 {
-		t.Errorf("calibration rungs bound %d, want 30", got)
+	// max(12 expansion, 1 + 2 fallback) + 4 refinement + 2 confirmations + 2 step-downs x 3 + 2 retries.
+	if got := d.Calibration.MaxRungs(); got != 26 {
+		t.Errorf("calibration rungs bound %d, want 26", got)
 	}
-	// Setup 2700 + calibration 30 x 360 + preflight 3 x 900 + 6 blocks x 6480 + teardown 600.
-	if got := d.SessionBoundSeconds(300); got != 55680 {
-		t.Errorf("session bound %d s, want 55680", got)
+	// A's start 450 + 26 rungs x 360 + overhead 60.
+	if got := d.CalibrationPhaseSeconds(); got != 9870 {
+		t.Errorf("calibration phase bound %d s, want 9870", got)
+	}
+	// Setup 2400 + calibration 9870 + preflight 3 x 600 + 6 blocks x 5580 + teardown 600.
+	if got := d.SessionBoundSeconds(300); got != 48150 {
+		t.Errorf("session bound %d s, want 48150", got)
+	}
+	// The worst case at the registered price plus $0.10/h of other charges, with the reserve, fits the $20 cap.
+	if worst := float64(d.SessionBoundSeconds(d.MaxMeasureSeconds))/3600*1.337 + d.ReserveUSD; worst > d.BudgetUSD {
+		t.Errorf("worst case $%.2f with the reserve exceeds the $%.0f cap", worst, d.BudgetUSD)
 	}
 	const rate = 1.337 // $1.237/h for the instance plus $0.10/h of other charges
 	for _, c := range []struct {
@@ -284,10 +294,12 @@ func TestBudgetBounds(t *testing.T) {
 		need  int
 		want  bool
 	}{
-		{3.0, 6, true},
-		{3.5, 6, false},
-		{15.0, 1, true},
-		{15.5, 1, false},
+		// Six blocks need $14.66 with teardown and the reserve, so $5.34 may already be spent.
+		{5.3, 6, true},
+		{5.4, 6, false},
+		// One block needs $4.30, so $15.70 may be spent.
+		{15.7, 1, true},
+		{15.75, 1, false},
 		{0, 0, false},
 		{-1, 1, false},
 	} {

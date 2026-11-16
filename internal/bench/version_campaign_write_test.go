@@ -81,18 +81,13 @@ func TestWriteCampaignBundleWritesWhatLoadCampaignBundleAccepts(t *testing.T) {
 	}
 }
 
-// TestWriteCampaignBundleLengthensTheWindowFromTheTraces: a low λ0 needs a longer window, and the traces alone decide how long.
-//
-// Before the stratified warm-up, every λ0 low enough for this stopped on an unqualified warm-up under the registered seed.
-func TestWriteCampaignBundleLengthensTheWindowFromTheTraces(t *testing.T) {
+// TestWriteCampaignBundleRefusesALambdaTooLowForTheWindowCap: the window is capped at 300 s (amendment 2026-11-16),
+// so a lambda0 whose traces need a longer one stops the session before anything is frozen.
+func TestWriteCampaignBundleRefusesALambdaTooLowForTheWindowCap(t *testing.T) {
 	dir, in := campaignDir(t, CalibrationArtifact{Resolved: true, StableRateRequestsPerSec: 0.5})
-	b, _, err := WriteCampaignBundle(dir, StudyVersionAsync, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 0.6 x 0.5 = 0.3 req/s; 1,000 / (6 x 0.3) is about 556 s, so the window lands near 540-600 s, never at the 300 s minimum.
-	if b.WindowSeconds < 480 || b.WindowSeconds > 660 {
-		t.Fatalf("window %d s, want about 560 s", b.WindowSeconds)
+	// 0.6 x 0.5 = 0.3 req/s; 1,000 / (6 x 0.3) is about 556 s, past the 300 s cap.
+	if _, _, err := WriteCampaignBundle(dir, StudyVersionAsync, in); err == nil || !strings.Contains(err.Error(), "too low") {
+		t.Fatalf("a lambda0 of 0.5 req/s gave %v, want a refusal for the window cap", err)
 	}
 }
 

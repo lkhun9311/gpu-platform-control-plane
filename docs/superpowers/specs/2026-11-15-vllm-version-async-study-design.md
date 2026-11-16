@@ -90,11 +90,11 @@ Two chances to adopt (primary and fallback) and two loads are multiplicity the h
 **Ladder:**
 1. Expansion: from 0.5 req/s, multiply by 1.5 while stable, at most 12 rungs (up to about 43 req/s).
 2. Lower fallback: if the first rung is not stable, halve up to 2 times.
-3. Refinement: geometric bisection until the bracket ratio is at most 1.05, with its own allowance of 6 rungs.
+3. Refinement: geometric bisection until the bracket ratio is at most 1.05, with its own allowance of 4 rungs (amended 2026-11-16 from 6, which were never reachable; see "Budget").
 4. Confirmation: the selected rate must be stable on 2 more fresh traces. If not, step down by 1.05 and require 3 stable rungs there, at most 2 step-downs.
 
 **Every failure is an explicit stop**, "calibration unresolved", with no default λ0: no upper bracket within the expansion rungs, nothing stable down to the lower fallback, a bracket still wider than 1.05, a rate never confirmed, or rungs that stay invalid. The session then ends.
-The ladder is bounded at `MaxRungs` = 30 rungs × 360 s = 3 h. On a noiseless capacity of 8 req/s it selects 7.92 req/s, a 1.026 bracket, after 8 expansion rungs, 4 refinement rungs and 2 confirmations. v1's ten-rung ladder ran out there with the bracket still at 1.091 (arithmetic bisection) or 1.107 (geometric); v1 did not say which.
+The ladder is bounded at `MaxRungs` = 26 rungs × 360 s = 2.6 h (amended 2026-11-16 from 30; see "Budget"). On a noiseless capacity of 8 req/s it selects 7.92 req/s, a 1.026 bracket, after 8 expansion rungs, 4 refinement rungs and 2 confirmations. v1's ten-rung ladder ran out there with the bracket still at 1.091 (arithmetic bisection) or 1.107 (geometric); v1 did not say which.
 The artifact (`CalibrationArtifact`: resolved, λ0, every rung with purpose and class) is written before block 1, and the bundle pins its bytes.
 
 **Loads.** l060 = 0.6 λ0 and l090 = 0.9 λ0. 1.2 λ0 and bursts belong to a separate study.
@@ -103,7 +103,7 @@ The artifact (`CalibrationArtifact`: resolved, λ0, every rung with purpose and 
 
 - One request class, Poisson arrivals. Input 256 (p 0.5), 1,024 (0.3) or 2,048 (0.2) tokens, sent as 1,174, 5,183 and 10,532 characters (`versionStudyExactTokens`). Output exactly 64 or 256 tokens (0.5 each).
 - **All traces are generated after λ0 and before block 1**, the replacement blocks' included: one per block and load, seed `WorkloadSeed(20261115, block, load)`, shared by A, B and C.
-- **W is chosen from those traces alone** (`ChooseWindow`): from 300 s in 60 s steps until the six planned blocks' traces offer at least 1,000 measured requests at each load, at most 1,800 s, otherwise the session stops. The floor is therefore met by the actual traces, not expected from a rate; the window is never lengthened after outcomes are seen. The generator must be prefix-stable, so that a shorter window's trace is a prefix of a longer one's; `LoadCampaignBundle` recomputes the choice from the traces and refuses a bundle whose W differs.
+- **W is chosen from those traces alone** (`ChooseWindow`): from 300 s in 60 s steps until the six planned blocks' traces offer at least 1,000 measured requests at each load, at most 300 s (amended 2026-11-16 from 1,800 s; see "Budget"), otherwise the session stops. The floor is therefore met by the actual traces, not expected from a rate; the window is never lengthened after outcomes are seen. The generator must be prefix-stable, so that a shorter window's trace is a prefix of a longer one's; `LoadCampaignBundle` recomputes the choice from the traces and refuses a bundle whose W differs.
 - Every trace is checked by content: its rows are in order, every length is registered, no row falls outside warm-up plus window, its measured count is as declared, and **its warm-up sends every one of the six input × output classes** (warm-up qualification is a property of the trace, decided before any outcome).
 - **Amendment 2026-11-15 (owner): a stratified warm-up.**
   - **Rule:** the first six warm-up rows take the six input × output classes once each, in an order drawn from the trace's seed by a separate generator (`VersionTrace`). Their arrival times and every later row are the stream's own, so the measured population is exactly what the unstratified trace holds (`TestVersionTraceStratifiesTheWarmup`).
@@ -132,7 +132,7 @@ Sender interface (owned elsewhere): with `Study.Sampling` set, the sender marsha
 
 - **6 planned blocks** (`MinRepetitions` 6). `ArmOrder(20261115, block)` deals the six treatment orders once each, so each treatment holds each position exactly twice: blocks 1 to 6 run B A C, B C A, C B A, A C B, A B C, C A B; replacements 7 and 8 run B A C and B C A.
 - **Load order is counterbalanced** (`LoadOrder`): odd blocks run l060 then l090, even blocks l090 then l060, the same for every treatment of a block. Each load runs first in three planned blocks. A fixed order would make "l090" mean "l090 after l060", and carry-over need not cancel between versions.
-- **Engine start and readiness.** Every visit starts a fresh engine process, A included. It must be ready within 600 s of process start: `/health` returns 200, and one priming request per input × output class is answered. An engine that misses the deadline is **unavailable** for that visit (see dispositions).
+- **Engine start and readiness.** Every visit starts a fresh engine process, A included. It must be ready within 450 s of the moment before `docker run` (amended 2026-11-16 from 600 s; see "Budget"): `/health` returns 200, and one priming request per input × output class is answered. An engine that misses the deadline is **unavailable** for that visit (see dispositions).
 - **Cache policy.** The model and tokenizer files live in a persistent cache filled during setup. Each image keeps its own compile cache, populated by its preflight start before block 1 and never cleared during the campaign, so every visit in the blocks starts with a warm compile cache for its own image. Prefix caching stays off. GPU temperature and clocks are sampled every 5 s and reported; they are not controlled.
   - The session runs `nvidia-smi` with `GPUSampleArgs` for the whole campaign.
   - `ParseGPUSamples` refuses any row it cannot read, rather than skipping it.
@@ -282,13 +282,43 @@ Every phase has a ceiling the runner enforces (`PhaseBounds`):
 
 | Phase | Bound |
 |---|---|
-| setup (launch, two image pulls, model download) | 2,700 s |
-| calibration | 30 rungs × (60 + 180 + 120) s = 10,800 s |
-| paid preflight, per treatment (start, readiness, 30 requests) | 900 s |
-| engine readiness, per start | 600 s |
+| setup (launch, two image pulls, model download) | 2,400 s |
+| calibration phase (`CalibrationPhaseSeconds`): A's start, the ladder, the stop | 450 + 26 rungs × (60 + 180 + 120) + 60 = 9,870 s |
+| paid preflight, per treatment (start, readiness, 30 requests) | 600 s |
+| engine readiness, per start | 450 s |
 | drain, per cell | 120 s |
-| block (`BlockBoundSeconds`): per treatment two starts and two cells | 3 × (2 × 600 + 2 × (60 + W + 120)) s; 6,480 s at W = 300 |
+| block (`BlockBoundSeconds`): per treatment two starts and two cells | 3 × (2 × 450 + 2 × (60 + W + 120)) s; 5,580 s at W = 300 |
 | teardown | 600 s |
+
+**Amendment 2026-11-16, before any run (owner decision of 2026-11-15, "measure, then amend").**
+- **What was measured.** The paid readiness preflight (#594) ran the study's exact containers on g5.xlarge (A10G), in `hack/version-readiness/2026-11-16-run2` and `run6`:
+
+  | Step | Measured |
+  |---|---|
+  | image pulls | A 576-643 s, B/C 282-301 s |
+  | model download | 105 s typically, once past 300 s (run 5) |
+  | A, empty compile cache | ready at 350.2 s and 376.6 s |
+  | A, warm | 96.8 and 102.6 s |
+  | B, first start | 124.5 s |
+  | B, warm | 66.5 and 67.8 s |
+  | C, first start on B's cache | 87.9 s |
+  | C, warm | 63.5 and 64.1 s |
+
+- **Readiness: one bound of 450 s for every start.** It is 73 s (19.5%) above the slowest measured start, A on an empty cache.
+  - It stays one bound and is not split into cold and warm. A start's ordinal does not establish that its compile cache is warm: an image's first start, calibration's A, and any visit or drain restart after a cache loss can be cold.
+  - A missed deadline stays an arm outcome (engine-unavailable). It is never excluded afterwards to rescue the margin.
+  - This is an engineering margin over a small sample, not a measured tail bound. Normal starts approaching 450 s, other hardware or software, other cache mounts, or setup past 2,400 s invalidate it and require another amendment.
+  - C on an empty cache was not measured, and nothing in the session runs it: compile caches are keyed by image digest, and C shares B's image, so C always follows B on a warm cache. A cold C start would need an empty cache the registration never creates.
+- **Calibration: 26 rungs, not 30, with no shorter rung and no narrower search.**
+  - Fallback runs only after the first expansion rung failed, so expansion and fallback take at most max(12, 1 + 2) rungs, not 14 (`MaxRungs`).
+  - Four geometric refinements narrow even the 2× fallback bracket below 1.05 (2^(1/16) < 1.05), so `MaxRefine` is 4. The fifth and sixth were never reachable.
+  - The phase bound adds A's readiness and 60 s for the identity check and stop (`CalibrationPhaseSeconds`). Before this amendment A's start was taken out of the ladder's own time.
+- **Setup 2,400 s and preflight 600 s per treatment.**
+  - Setup: the largest measured pulls plus a typical download take about 1,050 s.
+  - Preflight: 450 s readiness, 29 s of arrivals, the 60 s request timeout and 61 s to spare.
+  - Engine removal runs after a phase's own deadline, on its own bound of up to 120 s (`engineStopTimeout`), and the sums below do not include it.
+- **The window is capped at 300 s** (`MaxMeasureSeconds`). With an uncapped window the worst case depends on a lambda0 not known before calibration; at W = 360 it is already $20.68 with the reserve.
+  - A lambda0 whose traces cannot reach the 1,000-request floor in 300 s stops the session after calibration, as an incomplete pilot. Under the registered loads that is a lambda0 below about 0.93 req/s.
 
 Clarified 2026-11-16, before any run (#607), where the table left the phases' contents open:
 - **The 30 preflight requests** are one fixed set, the same for every treatment (`PreflightTrace`).
@@ -297,11 +327,11 @@ Clarified 2026-11-16, before any run (#607), where the table left the phases' co
   - They carry the registered sampling and timeout, and every one must succeed (`RequireAllSuccess`): an HTTP error or a timeout is an outcome in a cell, but a failure here.
   - They are separate from the readiness priming requests.
 - **Preflight** runs A, B, C in that order, each on a fresh engine stopped before the next starts (`Preflight`).
-  - The 900 s bound counts from before the engine's start, with readiness's own 600 s inside it.
+  - The 600 s bound counts from before the engine's start, with readiness's own 450 s inside it.
   - The runtime is checked against the registration alone (`CheckRuntime`), since no bundle exists yet.
   - Any failure ends the session before calibration. A bound or a session stop that cuts the requests is reported as that, not as the engine failing.
 - **Calibration starts A again** (`CalibrationPhase`), with its own readiness and identity check, because preflight's engines are all stopped by then.
-  - The calibration bound above counts from before that start. The budget registers no other time for it, so a slow start leaves the ladder less time rather than adding to the session.
+  - The calibration phase bound above counts from before that start and includes A's readiness bound, so a slow start does not take time from the ladder.
   - A ladder cut by the bound ends unresolved, and the ladder's own recording writes that artifact.
   - An A that misses readiness or fails identity stops the session before any rung, and no calibration artifact exists.
 
@@ -309,12 +339,20 @@ Clarified 2026-11-16, before any run (#607), where the table left the phases' co
 - **Before block 1**, once W is known, the same check with all six blocks.
 - **Absolute teardown deadline:** `TeardownDeadlineSeconds` after launch, whatever phase is running. That is (cap − reserve) ÷ session rate − the teardown bound, which covers setup and calibration too. The session's watchdog must be shown to enforce it before a paid run (release gate).
 
-**This registration's worst case does not fit the cap**, and it does not resolve that:
-- `SessionBoundSeconds` at W = 300 is 55,680 s (15.5 h): about $19.13 at the $1.237/h g5.xlarge price recorded on 2026-10-22, before other charges and the $2 reserve.
-- The rule above therefore can stop the campaign after an expensive calibration, ending it as an incomplete pilot.
-- Most of the bound is engine readiness (600 s, counted twice per visit), which no session has measured on a warm instance; the only recorded figure is a 9 min 31 s cold start on EKS.
-- Narrowing the bounds needs that measurement and an amendment of this page.
-- **Owner decision (2026-11-15): measure, then amend.** Readiness is measured in the free rehearsal, and this page is amended with tighter bounds before any paid run. The owner did not accept running under the current bound. So a worst case that fits under $20 with the reserve is itself a release gate.
+**The amended planned phases fit the cap. The spend ceiling itself comes from the stop rules and the watchdog.**
+- `SessionBoundSeconds` at the capped W = 300 is 2,400 + 9,870 + 3 × 600 + 6 × 5,580 + 600 = 48,150 s (13.4 h).
+  - At $1.237/h plus $0.10/h of other charges, $1.337/h, that is $17.88, and $19.88 with the $2 reserve, under $20 (`TestBudgetBounds`).
+  - Before the amendment it was 55,680 s, $19.13 for the instance alone, which did not fit once the reserve was added.
+- That sum covers the six planned blocks and each phase's own bound. It does not cover:
+  - replacement blocks;
+  - engine removal after a phase's deadline (up to 120 s per stop);
+  - evidence writes and bundle generation.
+  A run with a replacement can therefore spend more than $19.88. For example, one invalid block replaced near the end comes to about $20.00 with the reserve.
+- What keeps spending under $20 is the stop rules, not the sum:
+  - `MayStartBlock` admits a block, planned or replacement, only if what has been spent plus every valid block still needed, teardown and the reserve fit under $20;
+  - the watchdog ends the session at `TeardownDeadlineSeconds` after launch, whatever phase is running.
+  The watchdog has no production caller yet (#607). Showing it enforces that deadline remains a release gate.
+- The owner's 2026-11-15 decision, "measure, then amend", was that readiness is measured and this page is amended with tighter bounds before any paid run. This amendment meets its condition that the planned phases fit under $20 with the reserve.
 
 ## Release gates (before any paid run)
 
@@ -359,10 +397,10 @@ The registered protocol is not executable at this head (attack item 1). Before a
   - Tooling: `benchharness version-readiness` (`ReadinessRun`), run on one g5.xlarge by `hack/version-readiness-session.sh`. Its refusals are tested offline by `hack/version-readiness-session-test.sh`.
   - It times each distinct image's `docker pull` and the model download as separate steps, so neither is counted as engine readiness.
   - It then starts each treatment three times in A, B, C order, each time in a fresh `DockerEngine` container with the registered settings. The first start of A and of B runs on an empty compile cache. C's first start follows B's on the shared per-image cache, and its record says so.
-  - Each start uses this page's readiness rule and 600 s bound: `/health` 200, then one priming request per input × output class, sent by the study's sender with its sampling. A start past the bound is recorded as missed and the run goes on.
+  - Each start uses this page's readiness rule and bound (600 s in the 2026-11-16 runs, 450 s after the amendment): `/health` 200, then one priming request per input × output class, sent by the study's sender with its sampling. A start past the bound is recorded as missed and the run goes on.
   - The summary gives each treatment's first start, and the warm maximum and median. The warm figures are given only when every warm start was ready.
   - Every container runs with `VLLM_SERVER_DEV_MODE=1`, which `DockerEngine` sets for all treatments alike. Once ready, each start's `/version`, `/v1/models`, `/server_info?config_format=json`, `/metrics` and `/tokenize` answers are saved raw, with the container's full log, for the runtime identity check still to be written.
-  - The session's hard stop is the sum of those step bounds, 8,130 s from LaunchTime. Its worst case, to the termination deadline at 8,430 s, is about $2.97 at $1.2694/h all in.
+  - The session's hard stop is the sum of those step bounds: 9,180 s from LaunchTime at the amended 450 s readiness bound, with a 900 s model download and 1,500 s per pull. Its worst case, to the termination deadline at 9,480 s, is about $2.46 on Spot capped at $0.90/h ($0.9324/h all in). The 2026-11-16 runs used earlier values, which each session's provenance file records.
   - The paid run starts only on the owner's explicit approval.
 
 ## What answers what

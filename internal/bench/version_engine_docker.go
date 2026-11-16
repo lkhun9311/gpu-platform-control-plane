@@ -120,6 +120,8 @@ func (e *DockerEngine) Start(ctx context.Context, d VersionStudyDesign, treatmen
 	image := slices.Index(args, d.Engines[treatment].Image)
 	args = slices.Insert(args, image, "--label="+attemptLabel+"="+token)
 	name := e.NamePrefix + "-" + visit
+	// The registered readiness bound counts from before `docker run`, so the time docker takes to return is inside it.
+	started := time.Now().UTC()
 	out, err := e.Run(ctx, "docker", args...)
 	id := strings.TrimSpace(string(out))
 	if err != nil || id == "" {
@@ -134,7 +136,7 @@ func (e *DockerEngine) Start(ctx context.Context, d VersionStudyDesign, treatmen
 	}
 	return EngineStart{
 		Treatment: treatment, Name: name, ContainerID: id,
-		Image: d.Engines[treatment].Image, RunArgs: args, StartedAt: time.Now().UTC(),
+		Image: d.Engines[treatment].Image, RunArgs: args, StartedAt: started,
 	}, nil
 }
 
