@@ -122,6 +122,8 @@ func main() {
 		err = versionCalibrate(os.Args[2:], os.Stdout)
 	case "version-readiness":
 		err = versionReadiness(os.Args[2:], os.Stdout)
+	case "srpf-sweep":
+		err = srpfSweep(os.Args[2:], os.Stdout)
 	default:
 		usage()
 		os.Exit(2)

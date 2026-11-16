@@ -467,6 +467,11 @@ const (
 	// StudyVersionAsyncRehearsal is StudyVersionAsync with shortened durations, for rehearsing a campaign against the
 	// stub engine; its design refuses a paid run (#638).
 	StudyVersionAsyncRehearsal = "vllm-version-async-rehearsal"
+	// StudySRPF58420 replays the admission diagnostic's trace of seed 853 straight to one vLLM engine built at PR #58420's
+	// head, under fcfs, priority and the PR's SRPF, each with and without the 384-token prefill threshold.
+	//
+	// A study of its own because no gateway stands in front of the engine and the engine is a build no earlier run used.
+	StudySRPF58420 = "vllm-58420-srpf-2026-11-16"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -1198,6 +1203,26 @@ var studies = map[string]Study{
 		FrozenExactTokens:      versionStudyExactTokens(),
 		Sampling:               versionStudySampling(),
 		Version:                new(versionAsyncRehearsalDesign()),
+	},
+	// The diagnostic's load, lengths, sender and frozen token counts, so a row here was sent as a row there was.
+	// The token contract is set because the newer engine may put several tokens in one frame (audit finding 1).
+	StudySRPF58420: {
+		ID:       StudySRPF58420,
+		Arms:     SRPFSweepArmNames(),
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:      1,
+		FixesOutputAtCap:    true,
+		RecordsReplayTiming: true,
+		SenderPoolSize:      600,
+		FrozenExactTokens:   map[int]int{200: 68, 40000: 7695},
+		OutputCount:         OutputCountEngineTokens,
 	},
 }
 
