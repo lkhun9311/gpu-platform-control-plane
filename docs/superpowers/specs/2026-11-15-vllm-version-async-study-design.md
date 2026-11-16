@@ -90,7 +90,7 @@ Two chances to adopt (primary and fallback) and two loads are multiplicity the h
 **Ladder:**
 1. Expansion: from 0.5 req/s, multiply by 1.5 while stable, at most 12 rungs (up to about 43 req/s).
 2. Lower fallback: if the first rung is not stable, halve up to 2 times.
-3. Refinement: geometric bisection until the bracket ratio is at most 1.05, with its own allowance of 6 rungs.
+3. Refinement: geometric bisection until the bracket ratio is at most 1.05, with its own allowance of 4 rungs (amended 2026-11-16 from 6, which were never reachable; see "Budget").
 4. Confirmation: the selected rate must be stable on 2 more fresh traces. If not, step down by 1.05 and require 3 stable rungs there, at most 2 step-downs.
 
 **Every failure is an explicit stop**, "calibration unresolved", with no default λ0: no upper bracket within the expansion rungs, nothing stable down to the lower fallback, a bracket still wider than 1.05, a rate never confirmed, or rungs that stay invalid. The session then ends.
@@ -308,14 +308,15 @@ Every phase has a ceiling the runner enforces (`PhaseBounds`):
   - It stays one bound and is not split into cold and warm. A start's ordinal does not establish that its compile cache is warm: an image's first start, calibration's A, and any visit or drain restart after a cache loss can be cold.
   - A missed deadline stays an arm outcome (engine-unavailable). It is never excluded afterwards to rescue the margin.
   - This is an engineering margin over a small sample, not a measured tail bound. Normal starts approaching 450 s, other hardware or software, other cache mounts, or setup past 2,400 s invalidate it and require another amendment.
-  - C on an empty cache was not measured (C followed B on B's cache). The rehearsal and the paid preflight exercise it before blocks run.
+  - C on an empty cache was not measured, and nothing in the session runs it: compile caches are keyed by image digest, and C shares B's image, so C always follows B on a warm cache. A cold C start would need an empty cache the registration never creates.
 - **Calibration: 26 rungs, not 30, with no shorter rung and no narrower search.**
   - Fallback runs only after the first expansion rung failed, so expansion and fallback take at most max(12, 1 + 2) rungs, not 14 (`MaxRungs`).
   - Four geometric refinements narrow even the 2× fallback bracket below 1.05 (2^(1/16) < 1.05), so `MaxRefine` is 4. The fifth and sixth were never reachable.
   - The phase bound adds A's readiness and 60 s for the identity check and stop (`CalibrationPhaseSeconds`). Before this amendment A's start was taken out of the ladder's own time.
 - **Setup 2,400 s and preflight 600 s per treatment.**
   - Setup: the largest measured pulls plus a typical download take about 1,050 s.
-  - Preflight: 450 s readiness, 29 s of arrivals, the 60 s request timeout and 61 s for the stop.
+  - Preflight: 450 s readiness, 29 s of arrivals, the 60 s request timeout and 61 s to spare.
+  - Engine removal runs after a phase's own deadline, on its own bound of up to 120 s (`engineStopTimeout`), and the sums below do not include it.
 - **The window is capped at 300 s** (`MaxMeasureSeconds`). With an uncapped window the worst case depends on a lambda0 not known before calibration; at W = 360 it is already $20.68 with the reserve.
   - A lambda0 whose traces cannot reach the 1,000-request floor in 300 s stops the session after calibration, as an incomplete pilot. Under the registered loads that is a lambda0 below about 0.93 req/s.
 
@@ -338,12 +339,20 @@ Clarified 2026-11-16, before any run (#607), where the table left the phases' co
 - **Before block 1**, once W is known, the same check with all six blocks.
 - **Absolute teardown deadline:** `TeardownDeadlineSeconds` after launch, whatever phase is running. That is (cap − reserve) ÷ session rate − the teardown bound, which covers setup and calibration too. The session's watchdog must be shown to enforce it before a paid run (release gate).
 
-**The amended worst case fits the cap.**
+**The amended planned phases fit the cap. The spend ceiling itself comes from the stop rules and the watchdog.**
 - `SessionBoundSeconds` at the capped W = 300 is 2,400 + 9,870 + 3 × 600 + 6 × 5,580 + 600 = 48,150 s (13.4 h).
-- At $1.237/h plus $0.10/h of other charges, $1.337/h, that is $17.88, and $19.88 with the $2 reserve, under $20 (`TestBudgetBounds`).
-- Before the amendment it was 55,680 s, $19.13 for the instance alone, which did not fit once the reserve was added.
-- `MayStartBlock` still checks every block against what has actually been spent, so a slow calibration can still end the campaign as an incomplete pilot.
-- The owner's 2026-11-15 decision, "measure, then amend", was that readiness is measured and this page is amended with tighter bounds before any paid run. It made a worst case under $20 with the reserve a release gate, which this amendment meets.
+  - At $1.237/h plus $0.10/h of other charges, $1.337/h, that is $17.88, and $19.88 with the $2 reserve, under $20 (`TestBudgetBounds`).
+  - Before the amendment it was 55,680 s, $19.13 for the instance alone, which did not fit once the reserve was added.
+- That sum covers the six planned blocks and each phase's own bound. It does not cover:
+  - replacement blocks;
+  - engine removal after a phase's deadline (up to 120 s per stop);
+  - evidence writes and bundle generation.
+  A run with a replacement can therefore spend more than $19.88. For example, one invalid block replaced near the end comes to about $20.00 with the reserve.
+- What keeps spending under $20 is the stop rules, not the sum:
+  - `MayStartBlock` admits a block, planned or replacement, only if what has been spent plus every valid block still needed, teardown and the reserve fit under $20;
+  - the watchdog ends the session at `TeardownDeadlineSeconds` after launch, whatever phase is running.
+  The watchdog has no production caller yet (#607). Showing it enforces that deadline remains a release gate.
+- The owner's 2026-11-15 decision, "measure, then amend", was that readiness is measured and this page is amended with tighter bounds before any paid run. This amendment meets its condition that the planned phases fit under $20 with the reserve.
 
 ## Release gates (before any paid run)
 
@@ -388,10 +397,10 @@ The registered protocol is not executable at this head (attack item 1). Before a
   - Tooling: `benchharness version-readiness` (`ReadinessRun`), run on one g5.xlarge by `hack/version-readiness-session.sh`. Its refusals are tested offline by `hack/version-readiness-session-test.sh`.
   - It times each distinct image's `docker pull` and the model download as separate steps, so neither is counted as engine readiness.
   - It then starts each treatment three times in A, B, C order, each time in a fresh `DockerEngine` container with the registered settings. The first start of A and of B runs on an empty compile cache. C's first start follows B's on the shared per-image cache, and its record says so.
-  - Each start uses this page's readiness rule and 600 s bound: `/health` 200, then one priming request per input × output class, sent by the study's sender with its sampling. A start past the bound is recorded as missed and the run goes on.
+  - Each start uses this page's readiness rule and bound (600 s in the 2026-11-16 runs, 450 s after the amendment): `/health` 200, then one priming request per input × output class, sent by the study's sender with its sampling. A start past the bound is recorded as missed and the run goes on.
   - The summary gives each treatment's first start, and the warm maximum and median. The warm figures are given only when every warm start was ready.
   - Every container runs with `VLLM_SERVER_DEV_MODE=1`, which `DockerEngine` sets for all treatments alike. Once ready, each start's `/version`, `/v1/models`, `/server_info?config_format=json`, `/metrics` and `/tokenize` answers are saved raw, with the container's full log, for the runtime identity check still to be written.
-  - The session's hard stop is the sum of those step bounds, 8,130 s from LaunchTime. Its worst case, to the termination deadline at 8,430 s, is about $2.97 at $1.2694/h all in.
+  - The session's hard stop is the sum of those step bounds: 9,180 s from LaunchTime at the amended 450 s readiness bound, with a 900 s model download and 1,500 s per pull. Its worst case, to the termination deadline at 9,480 s, is about $2.46 on Spot capped at $0.90/h ($0.9324/h all in). The 2026-11-16 runs used earlier values, which each session's provenance file records.
   - The paid run starts only on the owner's explicit approval.
 
 ## What answers what

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/engineargs"
 )
@@ -229,5 +230,27 @@ func TestDockerStopNeedsDockerToSayTheContainerIsGone(t *testing.T) {
 	}}
 	if err := testDockerEngine(r).Stop(context.Background(), EngineStart{ContainerID: "abc"}); !errors.Is(err, ErrEngineCleanup) || !strings.Contains(err.Error(), "cannot confirm") {
 		t.Fatalf("stop with an unreachable daemon: %v", err)
+	}
+}
+
+// TestDockerStartCountsReadinessFromBeforeDockerRun: the registered readiness bound includes the time `docker run`
+// takes to return, so the start's origin is stamped before the call, not after it.
+// Mutation that turns this red: stamp StartedAt after e.Run returns.
+func TestDockerStartCountsReadinessFromBeforeDockerRun(t *testing.T) {
+	var called time.Time
+	r := &recordingDocker{answer: func(args []string) ([]byte, error) {
+		if args[0] == "run" {
+			called = time.Now()
+			time.Sleep(50 * time.Millisecond)
+			return []byte("cid\n"), nil
+		}
+		return nil, nil
+	}}
+	s, err := testDockerEngine(r).Start(context.Background(), versionAsyncDesign(), TreatmentA, "b1-A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.StartedAt.After(called) {
+		t.Fatalf("start stamped at %v, after docker run was called at %v", s.StartedAt, called)
 	}
 }
