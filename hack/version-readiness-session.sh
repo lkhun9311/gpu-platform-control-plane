@@ -19,19 +19,19 @@
 # The work is bounded step by step, and the deadlines are their sum:
 #   bring-up (boot, cloud-init, harness download, toolkit)        600 s  -> 600
 #   two image pulls, ReadinessPullBound each         2 x 1,500 = 3,000 s
-#   model download, ReadinessModelBound                            300 s
+#   model download, ReadinessModelBound                            900 s
 #   nine starts: readiness bound, ReadinessCaptureBound, ReadinessStopBound
 #                                               9 x (600 + 20 + 30) = 5,850 s
-#   so the harness ends by 600 + 3,000 + 300 + 5,850             = 9,750 s
-#   evidence upload                                                120 s  -> 9,870
-# The launch carries the termination sweeper's study-deadline tag at the request plus 9,870 s, rewritten to LaunchTime
-# plus 9,900 s once LaunchTime is known; the instance shuts itself down at 9,930 s; the termination is to be
-# confirmed by 10,230 s, the sweeper's five-minute period after its tag plus 30 s.
+#   so the harness ends by 600 + 3,000 + 900 + 5,850             = 10,350 s
+#   evidence upload                                                120 s  -> 10,470
+# The launch carries the termination sweeper's study-deadline tag at the request plus 10,470 s, rewritten to LaunchTime
+# plus 10,500 s once LaunchTime is known; the instance shuts itself down at 10,530 s; the termination is to be
+# confirmed by 10,830 s, the sweeper's five-minute period after its tag plus 30 s.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 10,230 s = 2.8417 h.
-# At the $0.90/h Spot cap below that is $2.558 of compute; with the $0.0324/h of 200 GB gp3 and a public IPv4 the other
-# sessions add (hack/gpu-fault-session.sh), $0.9324/h all in, it is $2.650, under $3.
+# The worst case bills to the termination deadline: 10,830 s = 3.0083 h.
+# At the $0.90/h Spot cap below that is $2.708 of compute; with the $0.0324/h of 200 GB gp3 and a public IPv4 the other
+# sessions add (hack/gpu-fault-session.sh), $0.9324/h all in, it is $2.805, under $3.
 # The script refuses to run if the constants below stop giving a worst case under $3.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the bounds and the stop are constants, and a caller who
@@ -57,7 +57,7 @@ PURPOSE=version-readiness
 BRINGUP_S=600
 PULL_BOUND_S=1500
 PULLS=2
-MODEL_BOUND_S=300
+MODEL_BOUND_S=900
 READINESS_BOUND_S=600
 CAPTURE_BOUND_S=20
 STOP_BOUND_S=30

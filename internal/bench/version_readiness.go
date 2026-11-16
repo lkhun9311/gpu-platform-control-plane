@@ -31,8 +31,10 @@ const (
 	// Each registered image is about 9.1 GB compressed in 33 to 40 layers; on 2026-11-16 A's pull on g5.xlarge was
 	// still running when a 600 s bound killed it, so this allows 6 MB/s with extraction.
 	ReadinessPullBound = 1500 * time.Second
-	// ReadinessModelBound bounds the model download into the persistent cache; the weights are about 6 GB, so it needs 21 MB/s.
-	ReadinessModelBound = 300 * time.Second
+	// ReadinessModelBound bounds the model download into the persistent cache.
+	// The weights are about 6 GB; the same download took 105 s on 2026-11-16 run 2 and was still running at a 300 s
+	// bound on run 5 (unauthenticated Hugging Face Hub), so this allows 7 MB/s.
+	ReadinessModelBound = 900 * time.Second
 	// ReadinessCaptureBound bounds saving one ready engine's identity endpoints, all of them together.
 	ReadinessCaptureBound = 20 * time.Second
 	// ReadinessStopBound bounds reading one start's engine log and removing its container.
