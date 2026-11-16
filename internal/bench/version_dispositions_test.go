@@ -10,13 +10,15 @@ import (
 // conformingRow is a completed row that did exactly the registered work for its trace row.
 func conformingRow(tr TraceRow) RawRow {
 	sec := int64(time.Second)
-	send, end := int64(1)*sec, int64(2)*sec
+	intended := tr.OffsetMs * int64(time.Millisecond)
+	send, end := intended+sec, intended+2*sec
 	reported := true
 	return RawRow{
-		Index: tr.Index, Disposition: DispositionCompleted, HTTPStatus: 200, StreamTerminated: true,
+		Index: tr.Index, ScheduledOffsetMs: tr.OffsetMs, Tenant: tr.Tenant,
+		Disposition: DispositionCompleted, HTTPStatus: 200, StreamTerminated: true,
 		EngineUsageReported: &reported, EngineInputTokens: tr.ExactInputTokens, EngineOutputTokens: tr.MaxOutputTokens,
 		FinishReason: "length", OutputTokens: 2,
-		Clock: &RequestClock{SendNanos: &send, TerminalNanos: &end},
+		Clock: &RequestClock{IntendedNanos: &intended, SendNanos: &send, TerminalNanos: &end},
 	}
 }
 
@@ -134,6 +136,35 @@ func TestCellDispatchLagIsTransportWriteMinusIntendedArrival(t *testing.T) {
 	}
 	if _, err := CellDispatchLag(rows[4:], inP); err == nil || !strings.Contains(err.Error(), "no dispatched") {
 		t.Fatalf("a cell with no dispatched row in P gave a lag: %v", err)
+	}
+}
+
+// TestALateIntendedArrivalIsRefusedByEveryConsumer: an intended arrival later than the trace offset hides the client's lag.
+//
+// The request left 300 ms late, which breaks the lag bound and is 400 ms of TTFT.
+// Stamped 300 ms late as well, the same row shows no lag and a 100 ms TTFT, so the cell would pass and report the smaller number.
+func TestALateIntendedArrivalIsRefusedByEveryConsumer(t *testing.T) {
+	d := versionAsyncDesign()
+	p := *versionStudySampling()
+	trace := []TraceRow{evalTraceRow(0, 0)}
+	honest := timedRow(trace[0], 300, 400, 2000)
+	if reason, lag := d.CellValidity(p, 180, trace, []RawRow{honest}); !lag || !strings.Contains(reason, "dispatch lag") {
+		t.Fatalf("the honest row gives %q (lag %v), want a lag invalidation, so the forged stamp is what hides it", reason, lag)
+	}
+	forged := honest
+	c := *honest.Clock
+	late := *c.IntendedNanos + int64(300*time.Millisecond)
+	c.IntendedNanos = &late
+	forged.Clock = &c
+	rows := []RawRow{forged}
+	if reason, lag := d.CellValidity(p, 180, trace, rows); !strings.Contains(reason, "incomplete accounting") || lag {
+		t.Errorf("cell validity %q (lag %v), want incomplete accounting and no lag reason", reason, lag)
+	}
+	if out, err := d.CellOutcomes(p, 180, trace, rows); err == nil {
+		t.Errorf("outcomes %+v from a row stamped after its trace offset", out)
+	}
+	if err := RequireAllSuccess(p, trace, rows); err == nil {
+		t.Error("preflight passed a row stamped after its trace offset")
 	}
 }
 

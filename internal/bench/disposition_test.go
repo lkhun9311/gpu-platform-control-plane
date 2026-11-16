@@ -21,6 +21,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -136,6 +137,47 @@ func TestReconcileRecordingRefusesAnIncompleteRecording(t *testing.T) {
 	for name, rs := range map[string][]RawRow{"missing": missing, "duplicate": dup, "unexpected": extra, "undisposed": undisposed, "rescheduled": moved} {
 		if err := ReconcileRecording(trace, rs); err == nil {
 			t.Fatalf("a %s recording was accepted", name)
+		}
+	}
+}
+
+// TestReconcileRecordingTiesIntendedArrivalToTheTrace: a row's intended arrival is its trace offset, which every latency is measured from.
+//
+// Replay and UnavailableRows both stamp exactly the offset, so any other value is a recording that does not account for its trace.
+// A row that was sent without an intended arrival is refused too, because the lag would skip it.
+// An unsent row has neither, and still reconciles.
+func TestReconcileRecordingTiesIntendedArrivalToTheTrace(t *testing.T) {
+	trace := evenTrace(4, 10)
+	rows := Replay(context.Background(), stubSender{ttftDelay: time.Millisecond, totalDelay: 2 * time.Millisecond, outputTokens: 2, status: 200}, trace, ReplayOptions{sleepUntil: func(context.Context, time.Time) {}})
+	if err := ReconcileRecording(trace, rows); err != nil {
+		t.Fatalf("a complete recording was refused: %v", err)
+	}
+	unavailable := UnavailableRows(trace, ReplayOptions{}, time.Unix(100, 0))
+	if err := ReconcileRecording(trace, unavailable); err != nil {
+		t.Fatalf("an unavailable visit's recording was refused: %v", err)
+	}
+	shifted := func(rs []RawRow, i int, by int64) []RawRow {
+		out := slices.Clone(rs)
+		c := *out[i].Clock
+		n := *c.IntendedNanos + by
+		c.IntendedNanos = &n
+		out[i].Clock = &c
+		return out
+	}
+	unstamped := slices.Clone(rows)
+	c := *unstamped[2].Clock
+	c.IntendedNanos = nil
+	unstamped[2].Clock = &c
+	for name, rs := range map[string][]RawRow{
+		"intended a millisecond early":    shifted(rows, 1, -int64(time.Millisecond)),
+		"intended a nanosecond late":      shifted(rows, 3, 1),
+		"unavailable row intended late":   shifted(unavailable, 2, int64(time.Millisecond)),
+		"sent without an intended stamp":  unstamped,
+		"intended at zero for a late row": shifted(rows, 3, -*rows[3].Clock.IntendedNanos),
+	} {
+		err := ReconcileRecording(trace, rs)
+		if err == nil || !strings.Contains(err.Error(), "intended arrival") {
+			t.Errorf("%s: %v, want a refusal naming the intended arrival", name, err)
 		}
 	}
 }

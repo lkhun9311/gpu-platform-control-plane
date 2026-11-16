@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // A row's Disposition is how its request ended, recorded by Replay on every row it writes.
@@ -61,13 +62,17 @@ func dispositionOf(res SendResult) string {
 //
 // Equal row counts across arms say nothing when every arm lost the same half, so the reference is the trace itself.
 // Each scheduled request needs exactly one row with a disposition, at its scheduled offset and tenant, and no row may name a request the trace does not have.
+// A row's clock must also place its intended arrival at the trace offset, because every lag and latency is measured from it.
+// Replay and UnavailableRows both stamp exactly that, so another value is evidence that does not describe the trace it claims.
+// A row that was sent must carry one, or the lag would skip it; an unsent row carries neither.
+// Checking it here covers every reader, since the version study's validity, outcomes and preflight all reconcile first.
 func ReconcileRecording(trace []TraceRow, rows []RawRow) error {
 	want := make(map[int]TraceRow, len(trace))
 	for _, tr := range trace {
 		want[tr.Index] = tr
 	}
 	seen := make(map[int]int, len(rows))
-	var unexpected, undisposed, mismatched []int
+	var unexpected, undisposed, mismatched, misplaced []int
 	for _, r := range rows {
 		seen[r.Index]++
 		tr, ok := want[r.Index]
@@ -78,6 +83,8 @@ func ReconcileRecording(trace []TraceRow, rows []RawRow) error {
 			undisposed = append(undisposed, r.Index)
 		case r.ScheduledOffsetMs != tr.OffsetMs || r.Tenant != tr.Tenant:
 			mismatched = append(mismatched, r.Index)
+		case !intendedAtOffset(r.Clock, tr.OffsetMs):
+			misplaced = append(misplaced, r.Index)
 		}
 	}
 	var missing, duplicated []int
@@ -99,6 +106,7 @@ func ReconcileRecording(trace []TraceRow, rows []RawRow) error {
 		{"recorded but not in the trace", unexpected},
 		{"recorded without a disposition", undisposed},
 		{"recorded at another offset or tenant than the trace schedules", mismatched},
+		{"recorded with an intended arrival other than the trace offset, or sent without one", misplaced},
 	} {
 		if len(p.indices) > 0 {
 			problems = append(problems, fmt.Sprintf("%d request(s) %s (%s)", len(p.indices), p.what, sampleIndices(p.indices)))
@@ -108,6 +116,19 @@ func ReconcileRecording(trace []TraceRow, rows []RawRow) error {
 		return fmt.Errorf("the recording does not account for the %d scheduled request(s) exactly once: %s", len(trace), strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// intendedAtOffset says whether a clock's intended arrival, if it has one, is the trace offset, and whether a sent row has one.
+//
+// A row without a clock, or an unsent row's clock, stamps no intended arrival and is not placed by one.
+func intendedAtOffset(c *RequestClock, offsetMs int64) bool {
+	if c == nil {
+		return true
+	}
+	if c.IntendedNanos == nil {
+		return c.SendNanos == nil
+	}
+	return *c.IntendedNanos == offsetMs*int64(time.Millisecond)
 }
 
 // sampleIndices prints the first few indices in order, enough to find the rows without flooding the error.
