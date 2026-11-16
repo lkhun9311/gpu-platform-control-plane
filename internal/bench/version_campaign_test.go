@@ -25,33 +25,29 @@ func fixtureLadderRate() float64 {
 	}).Rate
 }
 
-// fixtureTrace writes evenly spaced rows cycling through the six length classes, offset by the block so traces differ.
-func fixtureTrace(t *testing.T, path string, block int, load string, windowSeconds int) string {
+// fixtureTrace writes the registered generator's trace for a block and load at the fixture's λ0, and returns its sha256 and measured rows.
+//
+// The bundle check regenerates every trace, so a fixture that wrote anything else would be refused before the check under test ran.
+func fixtureTrace(t *testing.T, path string, block int, load string, windowSeconds int) (string, int) {
 	t.Helper()
-	rate, _ := OfferedRate(load, fixtureStableRate)
 	d := versionAsyncDesign()
-	inputs := []int{1174, 5183, 10532}
-	outputs := []int{64, 256}
-	end := float64((d.WarmupSeconds + windowSeconds) * 1000)
-	var rows []TraceRow
-	for i := 0; ; i++ {
-		off := int64(float64(i)*1000/rate) + int64(block)
-		if float64(off) >= end {
-			break
-		}
-		rows = append(rows, TraceRow{
-			Index: i, OffsetMs: off, Tenant: PremiumTenant,
-			PromptLenChars: inputs[i%3], MaxOutputTokens: outputs[(i/3)%2], MinOutputTokens: outputs[(i/3)%2],
-		})
-	}
-	var buf bytes.Buffer
-	if err := WriteTrace(&buf, rows); err != nil {
+	seed, err := WorkloadSeed(d.CampaignSeed, block, load)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+	rate, err := OfferedRate(load, fixtureStableRate)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return Checksum(buf.Bytes())
+	rows, err := d.VersionTrace(seed, rate, windowSeconds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := traceBytes(t, rows)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Checksum(data), d.MeasuredRows(rows, windowSeconds)
 }
 
 // writeBundle writes a complete campaign bundle with its calibration artifact and traces into a new directory.
@@ -80,11 +76,9 @@ func writeBundle(t *testing.T, mutate func(b *CampaignBundle, dir string)) (stri
 	for block := 1; block <= d.PlannedBlocks+d.MaxReplacementBlocks; block++ {
 		for _, load := range []string{LoadL060, LoadL090} {
 			name := fmt.Sprintf("trace-%d-%s.jsonl", block, load)
-			sum := fixtureTrace(t, filepath.Join(dir, name), block, load, b.WindowSeconds)
+			sum, measured := fixtureTrace(t, filepath.Join(dir, name), block, load, b.WindowSeconds)
 			seed, _ := WorkloadSeed(d.CampaignSeed, block, load)
-			rate, _ := OfferedRate(load, fixtureStableRate)
-			b.Traces = append(b.Traces, BundleTrace{Block: block, Load: load, Path: name, SHA256: sum, Seed: seed,
-				MeasuredRows: measuredRowsAt(rate, block, b.WindowSeconds)})
+			b.Traces = append(b.Traces, BundleTrace{Block: block, Load: load, Path: name, SHA256: sum, Seed: seed, MeasuredRows: measured})
 		}
 	}
 	if mutate != nil {
@@ -99,20 +93,6 @@ func writeBundle(t *testing.T, mutate func(b *CampaignBundle, dir string)) (stri
 		t.Fatal(err)
 	}
 	return path, b
-}
-
-// measuredRowsAt counts the fixture's measured rows the way the generator spaced them.
-func measuredRowsAt(rate float64, block, windowSeconds int) int {
-	n := 0
-	for i := 0; ; i++ {
-		off := int64(float64(i)*1000/rate) + int64(block)
-		if off >= int64((60+windowSeconds)*1000) {
-			return n
-		}
-		if off >= 60000 {
-			n++
-		}
-	}
 }
 
 // TestLoadCampaignBundleAccepts checks the valid bundle loads, so every refusal below is its mutation's.
@@ -168,9 +148,7 @@ func TestLoadCampaignBundleRefusals(t *testing.T) {
 			b.WindowSeconds = 360
 			for i := range b.Traces {
 				tr := &b.Traces[i]
-				tr.SHA256 = fixtureTrace(t, filepath.Join(dir, tr.Path), tr.Block, tr.Load, 360)
-				rate, _ := OfferedRate(tr.Load, fixtureStableRate)
-				tr.MeasuredRows = measuredRowsAt(rate, tr.Block, 360)
+				tr.SHA256, tr.MeasuredRows = fixtureTrace(t, filepath.Join(dir, tr.Path), tr.Block, tr.Load, 360)
 			}
 		}, "window"},
 		"warm-up lacks a length class": {func(b *CampaignBundle, dir string) {
@@ -233,6 +211,90 @@ func TestLoadCampaignBundleRefusals(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLoadCampaignBundleRegeneratesEveryTrace: a trace is the registered generator's output, not whatever passes the row checks.
+//
+// Each forged trace is rehashed and recounted, and is first shown to pass checkTraceRows, so only regenerating it from its seed can refuse it.
+func TestLoadCampaignBundleRegeneratesEveryTrace(t *testing.T) {
+	registerFrozenVersionStudy(t)
+	d := frozenVersionDesignFixture()
+	// The 0.6 λ0 trace of block 2 is replaced, so a higher forged rate cannot shorten the window the bundle declares.
+	const forged = 2
+	for name, forge := range map[string]func(seed int64, rate float64, window int) []byte{
+		"generated at the other load's rate": func(seed int64, _ float64, window int) []byte {
+			rate, _ := OfferedRate(LoadL090, fixtureStableRate)
+			return traceBytes(t, mustTrace(t)(d.VersionTrace(seed, rate, window)))
+		},
+		"generated with another input mixture": func(seed int64, rate float64, window int) []byte {
+			other := d
+			other.InputTokens = slices.Clone(d.InputTokens)
+			slices.Reverse(other.InputTokens)
+			for i := range other.InputTokens {
+				other.InputTokens[i].Weight = d.InputTokens[i].Weight
+			}
+			return traceBytes(t, mustTrace(t)(other.VersionTrace(seed, rate, window)))
+		},
+		// ReadTrace ignores an unknown key, so the parsed rows match and only the bytes differ.
+		"carrying a key the generator never writes": func(seed int64, rate float64, window int) []byte {
+			data := traceBytes(t, mustTrace(t)(d.VersionTrace(seed, rate, window)))
+			return []byte(strings.Replace(string(data), `{"index":3,`, `{"index":3,"lambda":9,`, 1))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path, _ := writeBundle(t, func(b *CampaignBundle, dir string) {
+				tr := &b.Traces[forged]
+				if tr.Block != 2 || tr.Load != LoadL060 {
+					t.Fatalf("trace %d is block %d at %s, the forgery expects block 2 at %s", forged, tr.Block, tr.Load, LoadL060)
+				}
+				rate, _ := OfferedRate(tr.Load, b.StableRateRequestsPerSec)
+				data := forge(tr.Seed, rate, b.WindowSeconds)
+				original, _ := os.ReadFile(filepath.Join(dir, tr.Path))
+				if bytes.Equal(data, original) {
+					t.Fatal("the forgery wrote the registered trace")
+				}
+				rows, err := ReadTrace(bytes.NewReader(data))
+				if err != nil {
+					t.Fatal(err)
+				}
+				tr.SHA256, tr.MeasuredRows = Checksum(data), d.MeasuredRows(rows, b.WindowSeconds)
+				if err := d.checkTraceRows(*tr, rows, b.WindowSeconds); err != nil {
+					t.Fatalf("the forgery already fails the row checks (%v), so it would not show the regeneration", err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, tr.Path), data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			})
+			_, _, err := LoadCampaignBundle(path)
+			if err == nil {
+				t.Fatal("a trace the registered generator did not write was accepted")
+			}
+			if !strings.Contains(err.Error(), "generator") {
+				t.Errorf("refusal %q does not say the trace is not the generator's", err)
+			}
+		})
+	}
+}
+
+// mustTrace fails the test on a generator error, so a forgery is built from a trace that exists.
+func mustTrace(t *testing.T) func([]TraceRow, error) []TraceRow {
+	return func(rows []TraceRow, err error) []TraceRow {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+}
+
+// traceBytes is what WriteTrace writes for rows.
+func traceBytes(t *testing.T, rows []TraceRow) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := WriteTrace(&buf, rows); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }
 
 var t0 = time.Date(2026, 11, 20, 2, 0, 0, 0, time.UTC)

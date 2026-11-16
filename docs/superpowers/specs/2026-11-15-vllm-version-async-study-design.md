@@ -105,6 +105,7 @@ The artifact (`CalibrationArtifact`: resolved, λ0, every rung with purpose and 
 - **All traces are generated after λ0 and before block 1**, the replacement blocks' included: one per block and load, seed `WorkloadSeed(20261115, block, load)`, shared by A, B and C.
 - **W is chosen from those traces alone** (`ChooseWindow`): from 300 s in 60 s steps until the six planned blocks' traces offer at least 1,000 measured requests at each load, at most 300 s (amended 2026-11-16 from 1,800 s; see "Budget"), otherwise the session stops. The floor is therefore met by the actual traces, not expected from a rate; the window is never lengthened after outcomes are seen. The generator must be prefix-stable, so that a shorter window's trace is a prefix of a longer one's; `LoadCampaignBundle` recomputes the choice from the traces and refuses a bundle whose W differs.
 - Every trace is checked by content: its rows are in order, every length is registered, no row falls outside warm-up plus window, its measured count is as declared, and **its warm-up sends every one of the six input × output classes** (warm-up qualification is a property of the trace, decided before any outcome).
+  - Clarified 2026-11-16, before any run (#645): the file must also be byte for byte what `VersionTrace` writes from the block's seed at the load's rate under the bundle's λ0 and W. The checks above pass a trace drawn at another rate or mixture once its hash and counts are updated, so only regenerating it shows it is the registered workload.
 - **Amendment 2026-11-15 (owner): a stratified warm-up.**
   - **Rule:** the first six warm-up rows take the six input × output classes once each, in an order drawn from the trace's seed by a separate generator (`VersionTrace`). Their arrival times and every later row are the stream's own, so the measured population is exactly what the unstratified trace holds (`TestVersionTraceStratifiesTheWarmup`).
   - **Why:** before it, a trace whose warm-up missed a class was refused, since redrawing would be choosing a workload.
@@ -272,7 +273,7 @@ Written after calibration and trace generation, before block 1 (`CampaignBundle`
 - W, recomputed from the traces;
 - the instance price, its source and read time, and other charges per hour;
 - each treatment's digest-pinned image, compared with the registration;
-- one entry per block and load, replacements included: path, sha256 (recomputed from the bytes that are then parsed), seed (must be the block's), measured rows (recomputed).
+- one entry per block and load, replacements included: path, sha256 (recomputed from the bytes that are then parsed), seed (must be the block's), measured rows (recomputed), and the bytes themselves, which must equal the trace regenerated from that seed at the load's rate under the bundle's λ0 and W (#645).
 
 The bundle is decoded strictly: unknown, wrong-case, null and missing keys are refused, as in a manifest.
 
