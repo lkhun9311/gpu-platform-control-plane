@@ -144,13 +144,9 @@ func TestLoadCampaignBundleRefusals(t *testing.T) {
 		"trace seed not the block's":   {func(b *CampaignBundle, _ string) { b.Traces[3].Seed++ }, "seed"},
 		"a replacement trace missing":  {func(b *CampaignBundle, _ string) { b.Traces = b.Traces[:len(b.Traces)-1] }, "trace"},
 		"declared measured rows wrong": {func(b *CampaignBundle, _ string) { b.Traces[0].MeasuredRows++ }, "measured"},
-		"a longer window than the traces need": {func(b *CampaignBundle, dir string) {
-			b.WindowSeconds = 360
-			for i := range b.Traces {
-				tr := &b.Traces[i]
-				tr.SHA256, tr.MeasuredRows = fixtureTrace(t, filepath.Join(dir, tr.Path), tr.Block, tr.Load, 360)
-			}
-		}, "window"},
+		// The registration caps the window at 300 s, so a longer one cannot be generated.
+		// A bundle can still declare one, and that declaration must be refused.
+		"a window the registration cannot pick": {func(b *CampaignBundle, _ string) { b.WindowSeconds = 360 }, "window"},
 		"warm-up lacks a length class": {func(b *CampaignBundle, dir string) {
 			p := filepath.Join(dir, b.Traces[0].Path)
 			data, _ := os.ReadFile(p)
