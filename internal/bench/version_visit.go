@@ -19,26 +19,31 @@ func (d VersionStudyDesign) CellValidity(p SamplingPolicy, windowSeconds int, tr
 	for _, tr := range trace {
 		byIndex[tr.Index] = tr
 	}
+	// A protocol fault does not end the check: lag is judged too, because two lagged blocks of one treatment stop the
+	// campaign, and a cell that also had a fault must still count toward that.
+	protocol := ""
 	for _, r := range rows {
 		if _, err := StudyDisposition(p, r, byIndex[r.Index]); err != nil {
-			return fmt.Sprintf("protocol fault: %v", err), false
+			protocol = fmt.Sprintf("protocol fault: %v", err)
+			break
 		}
 	}
 	measured := func(r RawRow) bool { return d.PhaseOf(byIndex[r.Index].OffsetMs, windowSeconds) == PhaseMeasure }
+	lagReason := ""
 	lag, err := CellDispatchLag(rows, measured)
-	if err != nil {
+	switch {
+	case err != nil:
 		// Only an unavailable visit leaves the population with no dispatched row; any other cell has sent something.
 		for _, r := range rows {
 			if measured(r) && r.ErrorKind != errKindEngineUnavailable {
-				return fmt.Sprintf("dispatch lag: %v", err), true
+				lagReason = fmt.Sprintf("dispatch lag: %v", err)
+				break
 			}
 		}
-		return "", false
+	case d.LagInvalidates(lag):
+		lagReason = fmt.Sprintf("dispatch lag p99 %v, max %v over %d rows", lag.P99, lag.Max, lag.Rows)
 	}
-	if d.LagInvalidates(lag) {
-		return fmt.Sprintf("dispatch lag p99 %v, max %v over %d rows", lag.P99, lag.Max, lag.Rows), true
-	}
-	return "", false
+	return joinReason(protocol, lagReason), lagReason != ""
 }
 
 // VisitEngine starts and stops one treatment's engine; DockerEngine is one.
@@ -81,10 +86,22 @@ type Visits struct {
 	PollEvery   time.Duration
 }
 
-// visitEngine is the engine a visit is on, and whether it ever became ready.
+// visitEngine is the engine a visit is on, whether a container exists to stop, and whether it ever became ready.
 type visitEngine struct {
-	start EngineStart
-	ready bool
+	start   EngineStart
+	running bool
+	ready   bool
+}
+
+// stop removes the visit's engine; a failure is a recorder failure, since the next engine would share the GPU with it.
+func (v Visits) stop(ctx context.Context, e visitEngine) error {
+	if !e.running {
+		return nil
+	}
+	if err := v.Engine.Stop(context.WithoutCancel(ctx), e.start); err != nil {
+		return fmt.Errorf("stopping engine %s: %w", e.start.Name, err)
+	}
+	return nil
 }
 
 // Run is a VisitRunner: a fresh engine, its readiness bound, both loads in order with drained starts, a restart after any
@@ -92,14 +109,14 @@ type visitEngine struct {
 //
 // An engine that misses readiness makes its cells unavailable, an outcome of the arm, not an invalid cell.
 // A runtime that is not the bundle's invalidates the visit before any request is sent (rule 4).
-func (v Visits) Run(ctx context.Context, block int, treatment string, loads []string) (VisitOutcome, error) {
-	var out VisitOutcome
+// An engine that cannot be confirmed removed is an error, never an outcome: the next engine would share the GPU with it.
+func (v Visits) Run(ctx context.Context, block int, treatment string, loads []string) (out VisitOutcome, err error) {
 	starts := 0
 	eng, err := v.startEngine(ctx, block, treatment, &starts)
 	if err != nil {
 		return out, err
 	}
-	defer func() { _ = v.Engine.Stop(context.WithoutCancel(ctx), eng.start) }()
+	defer func() { err = errors.Join(err, v.stop(ctx, eng)) }()
 	if eng.ready {
 		rt, err := v.Runtime(ctx)
 		if err != nil {
@@ -153,7 +170,10 @@ func (v Visits) Run(ctx context.Context, block int, treatment string, loads []st
 		if err := v.IO.RecordRestart(block, treatment, load, v.Now()); err != nil {
 			return out, fmt.Errorf("recording a drain restart: %w", err)
 		}
-		_ = v.Engine.Stop(context.WithoutCancel(ctx), eng.start)
+		if err := v.stop(ctx, eng); err != nil {
+			return out, err
+		}
+		eng = visitEngine{}
 		if eng, err = v.startEngine(ctx, block, treatment, &starts); err != nil {
 			return out, err
 		}
@@ -173,19 +193,20 @@ func (v Visits) Run(ctx context.Context, block int, treatment string, loads []st
 
 // startEngine starts a fresh engine and waits for it up to the readiness bound, counted from the process start.
 //
-// A failed start is the engine's outcome, like a missed deadline; only the session's own context ending is not.
+// A failed start that left nothing behind is the engine's outcome, like a missed deadline; one whose container could not be
+// confirmed removed (ErrEngineCleanup) is an error.
 func (v Visits) startEngine(ctx context.Context, block int, treatment string, starts *int) (visitEngine, error) {
 	*starts++
 	s, err := v.Engine.Start(ctx, v.Design, treatment, fmt.Sprintf("b%d-%s-%d", block, treatment, *starts))
 	if err != nil {
-		if ctx.Err() != nil {
-			return visitEngine{}, nil
+		if errors.Is(err, ErrEngineCleanup) {
+			return visitEngine{}, fmt.Errorf("starting %s: %w", treatment, err)
 		}
-		return visitEngine{start: s}, nil
+		return visitEngine{}, nil
 	}
 	readyCtx, cancel := context.WithDeadline(ctx, s.StartedAt.Add(time.Duration(v.Design.Bounds.ReadinessSeconds)*time.Second))
 	defer cancel()
-	return visitEngine{start: s, ready: v.Ready(readyCtx) == nil && readyCtx.Err() == nil}, nil
+	return visitEngine{start: s, running: true, ready: v.Ready(readyCtx) == nil && readyCtx.Err() == nil}, nil
 }
 
 func joinReason(a, b string) string {

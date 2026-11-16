@@ -144,11 +144,13 @@ func TestDockerStartCleansUpOnlyItsOwnFailedStart(t *testing.T) {
 		labelErr   error
 		wantRemove bool
 		wantErr    string
+		// cleanup is whether a container may be left holding the GPU, which the session must stop on.
+		cleanup bool
 	}{
 		"created by this attempt": {label: "tok1", wantRemove: true, wantErr: "docker run"},
 		"never created":           {labelErr: notFound, wantErr: "docker run"},
-		"another engine's name":   {label: "tok0", wantErr: "not created by this attempt"},
-		"daemon unreachable":      {labelErr: errors.New("Cannot connect to the Docker daemon"), wantErr: "cannot tell"},
+		"another engine's name":   {label: "tok0", wantErr: "not created by this attempt", cleanup: true},
+		"daemon unreachable":      {labelErr: errors.New("Cannot connect to the Docker daemon"), wantErr: "cannot tell", cleanup: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			removed := false
@@ -177,6 +179,9 @@ func TestDockerStartCleansUpOnlyItsOwnFailedStart(t *testing.T) {
 			if removed != c.wantRemove {
 				t.Fatalf("removed %v, want %v (calls %v)", removed, c.wantRemove, r.calls)
 			}
+			if errors.Is(err, ErrEngineCleanup) != c.cleanup {
+				t.Fatalf("err %v marked as a cleanup failure: %v, want %v", err, errors.Is(err, ErrEngineCleanup), c.cleanup)
+			}
 		})
 	}
 }
@@ -189,7 +194,7 @@ func TestDockerStopNeedsDockerToSayTheContainerIsGone(t *testing.T) {
 		}
 		return nil, nil
 	}}
-	if err := testDockerEngine(r).Stop(context.Background(), EngineStart{ContainerID: "abc"}); err == nil || !strings.Contains(err.Error(), "cannot confirm") {
+	if err := testDockerEngine(r).Stop(context.Background(), EngineStart{ContainerID: "abc"}); !errors.Is(err, ErrEngineCleanup) || !strings.Contains(err.Error(), "cannot confirm") {
 		t.Fatalf("stop with an unreachable daemon: %v", err)
 	}
 }

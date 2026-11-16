@@ -22,17 +22,24 @@ type fakeInstance struct {
 	cancel   context.CancelFunc
 	starts   int
 	written  map[string][]RawRow
+	startErr func(start int) error
+	stopErr  error
 }
 
 func (f *fakeInstance) Start(_ context.Context, _ VersionStudyDesign, treatment, visit string) (EngineStart, error) {
 	f.starts++
 	f.log = append(f.log, "start "+visit)
+	if f.startErr != nil {
+		if err := f.startErr(f.starts); err != nil {
+			return EngineStart{}, err
+		}
+	}
 	return EngineStart{Treatment: treatment, Name: visit, StartedAt: time.Now()}, nil
 }
 
 func (f *fakeInstance) Stop(_ context.Context, s EngineStart) error {
 	f.log = append(f.log, "stop "+s.Name)
-	return nil
+	return f.stopErr
 }
 
 func (f *fakeInstance) Trace(_ int, _ string) ([]TraceRow, error) {
@@ -188,6 +195,42 @@ func TestVisitOutcomes(t *testing.T) {
 		f := &fakeInstance{rowsErr: errors.New("no space left on device")}
 		if _, err := runVisit(t, f); err == nil || !strings.HasSuffix(strings.Join(f.log, "|"), "stop b1-A-1") {
 			t.Fatalf("err %v calls %v, want an error and the engine stopped", err, f.log)
+		}
+	})
+	t.Run("a start that left nothing behind is an outcome, and nothing is stopped", func(t *testing.T) {
+		f := &fakeInstance{startErr: func(int) error { return errors.New("docker run: image pull failed") }}
+		out, err := runVisit(t, f)
+		got := strings.Join(f.log, "|")
+		if err != nil || out.Invalid != "" || strings.Contains(got, "stop") || strings.Contains(got, "replay") {
+			t.Fatalf("outcome %+v err %v calls %s", out, err, got)
+		}
+	})
+	t.Run("a start whose container could not be removed stops the session", func(t *testing.T) {
+		f := &fakeInstance{startErr: func(int) error {
+			return errors.Join(errors.New("docker run failed"), fmt.Errorf("%w: container still present", ErrEngineCleanup))
+		}}
+		if _, err := runVisit(t, f); !errors.Is(err, ErrEngineCleanup) || strings.Contains(strings.Join(f.log, "|"), "manifest") {
+			t.Fatalf("err %v calls %v", err, f.log)
+		}
+	})
+	t.Run("an engine that cannot be stopped stops the session", func(t *testing.T) {
+		f := &fakeInstance{stopErr: fmt.Errorf("%w: container still present", ErrEngineCleanup)}
+		if _, err := runVisit(t, f); !errors.Is(err, ErrEngineCleanup) {
+			t.Fatalf("err %v, want the stop failure", err)
+		}
+	})
+	t.Run("an engine that cannot be stopped for a drain restart is never joined by another", func(t *testing.T) {
+		f := &fakeInstance{busy: true, stopErr: fmt.Errorf("%w: container still present", ErrEngineCleanup)}
+		_, err := runVisit(t, f)
+		if !errors.Is(err, ErrEngineCleanup) || f.starts != 1 {
+			t.Fatalf("err %v after %d starts, want the stop failure and no second engine", err, f.starts)
+		}
+	})
+	t.Run("a cell with a protocol fault still counts its lag", func(t *testing.T) {
+		f := &fakeInstance{lag: 20 * time.Millisecond, mutate: func(rows []RawRow) { rows[3].EngineOutputTokens = 1 }}
+		out, err := runVisit(t, f)
+		if err != nil || !out.LagInvalid || !strings.Contains(out.Invalid, "protocol fault") || !strings.Contains(out.Invalid, "dispatch lag") {
+			t.Fatalf("outcome %+v err %v", out, err)
 		}
 	})
 	t.Run("a cancelled cell keeps its rows and runs nothing after", func(t *testing.T) {

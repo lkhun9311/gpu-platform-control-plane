@@ -116,13 +116,23 @@ func (e *DockerEngine) Start(ctx context.Context, d VersionStudyDesign, treatmen
 		if err == nil {
 			err = errors.New("docker run returned no container id")
 		}
-		return EngineStart{}, errors.Join(fmt.Errorf("docker run for %s: %w", treatment, err), e.removeOwned(name, token))
+		runErr := fmt.Errorf("docker run for %s: %w", treatment, err)
+		if cerr := e.removeOwned(name, token); cerr != nil {
+			return EngineStart{}, errors.Join(runErr, fmt.Errorf("%w: %w", ErrEngineCleanup, cerr))
+		}
+		return EngineStart{}, runErr
 	}
 	return EngineStart{
 		Treatment: treatment, Name: name, ContainerID: id,
 		Image: d.Engines[treatment].Image, RunArgs: args, StartedAt: time.Now().UTC(),
 	}, nil
 }
+
+// ErrEngineCleanup marks an engine whose container could not be confirmed removed.
+//
+// Such a container may still hold the GPU and the port, so the next engine would share them: the session stops on it,
+// where a failed start that left nothing behind is only the engine's outcome.
+var ErrEngineCleanup = errors.New("engine cleanup")
 
 // token is a fresh attempt token; NewToken replaces it in tests.
 func (e *DockerEngine) token() string {
@@ -137,9 +147,12 @@ func (e *DockerEngine) token() string {
 // Stop removes the container and confirms it is gone, because an engine left running would share the GPU with the next.
 func (e *DockerEngine) Stop(ctx context.Context, s EngineStart) error {
 	if _, err := e.Run(ctx, "docker", "rm", "--force", s.ContainerID); err != nil {
-		return fmt.Errorf("docker rm %s: %w", s.ContainerID, err)
+		return fmt.Errorf("%w: docker rm %s: %w", ErrEngineCleanup, s.ContainerID, err)
 	}
-	return e.confirmGone(ctx, s.ContainerID)
+	if err := e.confirmGone(ctx, s.ContainerID); err != nil {
+		return fmt.Errorf("%w: %w", ErrEngineCleanup, err)
+	}
+	return nil
 }
 
 // dockerCleanupTimeout bounds removing an attempted container, on its own context so a start that failed by its context expiring still cleans up.
