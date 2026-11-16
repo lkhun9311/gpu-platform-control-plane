@@ -1,10 +1,12 @@
 package bench
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,8 +29,10 @@ import (
 const (
 	// ReadinessPullBound bounds one image pull; a vLLM image is about 10 GB, which Docker Hub serves well inside it.
 	ReadinessPullBound = 600 * time.Second
-	// ReadinessModelBound bounds the model download into the persistent cache; the weights are about 6 GB.
-	ReadinessModelBound = 420 * time.Second
+	// ReadinessModelBound bounds the model download into the persistent cache; the weights are about 6 GB, so it needs 21 MB/s.
+	ReadinessModelBound = 300 * time.Second
+	// ReadinessCaptureBound bounds saving one ready engine's identity endpoints, all of them together.
+	ReadinessCaptureBound = 20 * time.Second
 	// ReadinessStopBound bounds reading one start's engine log and removing its container.
 	ReadinessStopBound = 30 * time.Second
 	// ReadinessWarmStarts is how many starts follow each treatment's first one.
@@ -83,7 +87,7 @@ type ReadinessStart struct {
 	ContainerID          string   `json:"containerID,omitempty"`
 	RunArgs              []string `json:"runArgs,omitempty"`
 	BoundSeconds         int      `json:"boundSeconds"`
-	// DockerRunAt is taken before `docker run` is invoked, so every offset below includes container creation and overstates nothing it omits.
+	// DockerRunAt is taken before `docker run` is invoked, so every offset below includes container creation and can only overstate readiness.
 	DockerRunAt time.Time `json:"dockerRunAt"`
 	// ContainerStartedSeconds is when `docker run --detach` returned, from DockerRunAt; absent when it failed.
 	ContainerStartedSeconds *float64 `json:"containerStartedSeconds,omitempty"`
@@ -97,6 +101,24 @@ type ReadinessStart struct {
 	// LogFile names the engine's own log, kept beside the record; LogError says why it could not be read.
 	LogFile  string `json:"logFile,omitempty"`
 	LogError string `json:"logError,omitempty"`
+	// Capture is the ready engine's identity endpoints, saved raw; CaptureSkipped says why a start has none.
+	Capture        []CaptureRecord `json:"capture"`
+	CaptureSkipped string          `json:"captureSkipped,omitempty"`
+}
+
+// CaptureRecord is one identity endpoint's raw answer, saved unparsed beside the start's record.
+//
+// No key of /server_info has been seen from a live server, so nothing here reads one; the files are the evidence a later identity check is written against.
+type CaptureRecord struct {
+	Name   string `json:"name"`
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	// RequestFile holds the exact body sent, for a request that has one.
+	RequestFile string `json:"requestFile,omitempty"`
+	// File holds the response body as it arrived, whatever its status.
+	File   string `json:"file,omitempty"`
+	Status int    `json:"status,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // ReadinessTreatment summarises one treatment's starts.
@@ -359,7 +381,97 @@ func (r *ReadinessRun) start(ctx context.Context, treatment string, ordinal int,
 		s.Outcome, s.Reason = ReadinessMissed, "every priming request answered, but after the bound"
 		s.ReadySeconds = nil
 	}
+	s.Capture = []CaptureRecord{}
+	if s.Outcome == ReadinessReady {
+		// Taken after ready is stamped, so its requests never count toward readiness.
+		r.capture(ctx, &s)
+	} else {
+		s.CaptureSkipped = "the engine was not ready, so its identity endpoints were not read"
+	}
 	return s, r.finish(ctx, &s, es)
+}
+
+// identityPrompt is the one user message /tokenize renders, fixed so every start's answer is comparable byte for byte.
+const identityPrompt = "Identity check: reply with the word ready."
+
+// maxCaptureBytes bounds one saved response, so a misbehaving endpoint cannot exhaust memory.
+const maxCaptureBytes = 16 << 20
+
+// capture saves the ready engine's identity endpoints raw, beside the start's record.
+//
+// Readiness is the preflight's primary measurement, so a capture that fails, including a file that cannot be written,
+// is recorded on its endpoint and the run goes on; only the start record and the engine log are fatal to lose.
+func (r *ReadinessRun) capture(parent context.Context, s *ReadinessStart) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), ReadinessCaptureBound)
+	defer cancel()
+	tokenize, err := json.Marshal(map[string]any{
+		"model":                 r.Engine.ServedName,
+		"messages":              []map[string]string{{"role": "user", "content": identityPrompt}},
+		"add_generation_prompt": true,
+		"add_special_tokens":    false,
+	})
+	if err != nil {
+		s.CaptureSkipped = err.Error()
+		return
+	}
+	prefix := fmt.Sprintf("start-%s-%d.capture.", s.Treatment, s.Ordinal)
+	for _, ep := range []struct {
+		name, method, path string
+		body               []byte
+	}{
+		{"version", http.MethodGet, "/version", nil},
+		{"models", http.MethodGet, "/v1/models", nil},
+		{"server-info", http.MethodGet, "/server_info?config_format=json", nil},
+		{"metrics", http.MethodGet, "/metrics", nil},
+		{"tokenize", http.MethodPost, "/tokenize", tokenize},
+	} {
+		rec := CaptureRecord{Name: ep.name, Method: ep.method, Path: ep.path}
+		var errs []error
+		if ep.body != nil {
+			rec.RequestFile = prefix + ep.name + ".request"
+			errs = append(errs, WriteNewFileDurably(filepath.Join(r.Out, rec.RequestFile), ep.body))
+		}
+		status, body, err := r.fetch(ctx, ep.method, ep.path, ep.body)
+		rec.Status = status
+		errs = append(errs, err)
+		if body != nil {
+			rec.File = prefix + ep.name
+			errs = append(errs, WriteNewFileDurably(filepath.Join(r.Out, rec.File), body))
+		}
+		if err == nil && status != http.StatusOK {
+			errs = append(errs, fmt.Errorf("status %d", status))
+		}
+		if e := errors.Join(errs...); e != nil {
+			rec.Error = e.Error()
+		}
+		s.Capture = append(s.Capture, rec)
+	}
+}
+
+// fetch sends one request to the engine and returns its status and body as they arrived.
+func (r *ReadinessRun) fetch(ctx context.Context, method, path string, body []byte) (int, []byte, error) {
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(r.EngineURL, "/")+path, rd)
+	if err != nil {
+		return 0, nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := r.Health.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxCaptureBytes+1))
+	if err == nil && len(data) > maxCaptureBytes {
+		err = fmt.Errorf("response over %d bytes; the saved file is cut there", maxCaptureBytes)
+		data = data[:maxCaptureBytes]
+	}
+	return resp.StatusCode, data, err
 }
 
 // becomeReady polls /health, then sends the priming requests one at a time, and returns the start's outcome.

@@ -67,6 +67,17 @@ func TestDockerRunArgsRenderTheReviewedCommand(t *testing.T) {
 	if cache(TreatmentA) == "" || cache(TreatmentB) != cache(TreatmentC) || cache(TreatmentA) == cache(TreatmentB) {
 		t.Fatalf("compile caches A %q B %q C %q, want one per image", cache(TreatmentA), cache(TreatmentB), cache(TreatmentC))
 	}
+	// Dev mode serves /server_info, which identity reads from the engine; every treatment gets it, before the image, and only on loopback.
+	for _, tr := range []string{TreatmentA, TreatmentB, TreatmentC} {
+		a, _ := e.RunArgs(d, tr, "v")
+		img := slices.Index(a, d.Engines[tr].Image)
+		if img < 0 || !slices.Contains(a[:img], "--env=VLLM_SERVER_DEV_MODE=1") || slices.Contains(a[img:], "--env=VLLM_SERVER_DEV_MODE=1") {
+			t.Errorf("treatment %s docker args %v do not set dev mode on the container", tr, a)
+		}
+		if !slices.Contains(a[:img], "--publish=127.0.0.1:8000:8000") {
+			t.Errorf("treatment %s publishes its dev-mode port beyond loopback: %v", tr, a)
+		}
+	}
 }
 
 // TestDockerRunArgsRefuseAnUnpinnedImage: a tag can move, so an engine runs only by digest.

@@ -27,6 +27,10 @@ type readinessFake struct {
 	healthyAt time.Time
 	// failClass makes the current start answer this (input, output) class with HTTP 500.
 	failClass [2]int
+	// noServerInfo makes the current start answer /server_info with 404, as an engine without dev mode would.
+	noServerInfo bool
+	// tokenizeBodies are the /tokenize bodies the engine received, in order.
+	tokenizeBodies [][]byte
 	// onStart chooses the behaviour of start number n, counted from 1 over the whole run.
 	onStart func(n int, f *readinessFake)
 }
@@ -46,7 +50,7 @@ func (f *readinessFake) run(_ context.Context, name string, args ...string) ([]b
 		f.starts++
 		id := fmt.Sprintf("cid-%d", f.starts)
 		f.running[id] = true
-		f.healthyAt, f.failClass = time.Now().Add(20*time.Millisecond), [2]int{}
+		f.healthyAt, f.failClass, f.noServerInfo = time.Now().Add(20*time.Millisecond), [2]int{}, false
 		if f.onStart != nil {
 			f.onStart(f.starts, f)
 		}
@@ -64,6 +68,15 @@ func (f *readinessFake) run(_ context.Context, name string, args ...string) ([]b
 	return nil, fmt.Errorf("unexpected docker %v", args)
 }
 
+// identityAnswers are the fake engine's identity endpoints, with bodies a parser would trip on, so only a raw copy matches.
+var identityAnswers = map[string]string{
+	"/version":     `{"version": "0.0.0-fake"}` + "\n",
+	"/v1/models":   `{"object":"list","data":[{"id":"Qwen/Qwen2.5-3B-Instruct"}]}`,
+	"/server_info": `{"vllm_config":  {"model_config": {"dtype": "half"}}, "unseen key": [1, 2]}`,
+	"/metrics":     "# HELP vllm:num_requests_running x\nvllm:num_requests_running 0\n",
+	"/tokenize":    `{"count":3,"tokens":[1,2,3],"max_model_len":16384}`,
+}
+
 // engine serves /health and conforming streams, as the fake's current start chooses.
 func (f *readinessFake) engine(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -76,6 +89,26 @@ func (f *readinessFake) engine(t *testing.T) *httptest.Server {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 	})
+	for path, body := range identityAnswers {
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			f.mu.Lock()
+			missing := f.noServerInfo && r.URL.Path == "/server_info"
+			if r.URL.Path == "/tokenize" {
+				b, _ := io.ReadAll(r.Body)
+				f.tokenizeBodies = append(f.tokenizeBodies, b)
+			}
+			f.mu.Unlock()
+			if missing {
+				http.NotFound(w, r)
+				return
+			}
+			if r.URL.Path == "/server_info" && r.URL.Query().Get("config_format") != "json" {
+				http.Error(w, "wrong query", http.StatusBadRequest)
+				return
+			}
+			_, _ = io.WriteString(w, body)
+		})
+	}
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			MaxTokens int `json:"max_tokens"`
@@ -198,9 +231,25 @@ func TestReadinessTimingsAreOrderedAndEveryStartIsTheStudysContainer(t *testing.
 			if !slices.IsSorted(stamps) {
 				t.Errorf("%s #%d stamps out of order: %v", tr, n, stamps)
 			}
-			if s.LogFile == "" {
-				t.Errorf("%s #%d kept no engine log", tr, n)
+			if log, err := os.ReadFile(filepath.Join(r.Out, s.LogFile)); err != nil || string(log) != "INFO engine log\n" {
+				t.Errorf("%s #%d engine log %q (%v), want the container's log kept whole", tr, n, log, err)
 			}
+			checkCapture(t, r.Out, s)
+		}
+	}
+	if len(f.tokenizeBodies) != 9 {
+		t.Fatalf("/tokenize was called %d times, want once per start", len(f.tokenizeBodies))
+	}
+	var tok map[string]any
+	if err := json.Unmarshal(f.tokenizeBodies[0], &tok); err != nil {
+		t.Fatal(err)
+	}
+	if tok["add_generation_prompt"] != true || tok["add_special_tokens"] != false || tok["model"] != r.Design.Model {
+		t.Fatalf("/tokenize body %s, want a chat body with the generation prompt and no special tokens", f.tokenizeBodies[0])
+	}
+	for _, b := range f.tokenizeBodies[1:] {
+		if string(b) != string(f.tokenizeBodies[0]) {
+			t.Fatalf("/tokenize bodies differ between starts: %s and %s", f.tokenizeBodies[0], b)
 		}
 	}
 	// Pulls and the download precede every start, and each container is removed before the next is run.
@@ -227,6 +276,65 @@ func TestReadinessTimingsAreOrderedAndEveryStartIsTheStudysContainer(t *testing.
 	}
 }
 
+// checkCapture holds a ready start's identity files to the bytes the engine sent and the body it was sent.
+func checkCapture(t *testing.T, out string, s ReadinessStart) {
+	t.Helper()
+	want := map[string]string{
+		"version": "/version", "models": "/v1/models", "server-info": "/server_info?config_format=json",
+		"metrics": "/metrics", "tokenize": "/tokenize",
+	}
+	if len(s.Capture) != len(want) {
+		t.Fatalf("%s #%d captured %d endpoints, want %d: %+v", s.Treatment, s.Ordinal, len(s.Capture), len(want), s.Capture)
+	}
+	for _, c := range s.Capture {
+		if want[c.Name] != c.Path || c.Status != http.StatusOK || c.Error != "" {
+			t.Errorf("%s #%d capture %+v", s.Treatment, s.Ordinal, c)
+			continue
+		}
+		got, err := os.ReadFile(filepath.Join(out, c.File))
+		path, _, _ := strings.Cut(c.Path, "?")
+		if err != nil || string(got) != identityAnswers[path] {
+			t.Errorf("%s #%d %s saved %q (%v), want the raw answer %q", s.Treatment, s.Ordinal, c.Name, got, err, identityAnswers[path])
+		}
+		if c.Name == "tokenize" {
+			body, err := os.ReadFile(filepath.Join(out, c.RequestFile))
+			if err != nil || !strings.Contains(string(body), `"add_generation_prompt":true`) || !strings.Contains(string(body), `"messages"`) {
+				t.Errorf("%s #%d tokenize request file %q (%v), want the chat body sent", s.Treatment, s.Ordinal, body, err)
+			}
+		}
+	}
+}
+
+// TestReadinessACaptureFailureIsRecordedAndReadinessStands: identity capture is secondary, so an endpoint that fails
+// is recorded on that start, and neither its readiness nor the rest of the run is touched.
+func TestReadinessACaptureFailureIsRecordedAndReadinessStands(t *testing.T) {
+	f := &readinessFake{onStart: func(n int, f *readinessFake) {
+		if n == 2 {
+			f.noServerInfo = true
+		}
+	}}
+	r := readinessRun(t, f, 5)
+	sum, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := readStart(t, r.Out, TreatmentA, 2)
+	if s.Outcome != ReadinessReady || len(s.Capture) != 5 {
+		t.Fatalf("A #2: %+v, want ready with every endpoint attempted", s)
+	}
+	for _, c := range s.Capture {
+		if (c.Name == "server-info") != (c.Error != "") {
+			t.Errorf("A #2 capture %+v: only server-info should carry an error", c)
+		}
+		if c.Name == "server-info" && c.Status != http.StatusNotFound {
+			t.Errorf("A #2 server-info status %d, want the 404 recorded", c.Status)
+		}
+	}
+	if !sum.AllReady || f.starts != 9 {
+		t.Fatalf("all ready %v after %d starts: a capture failure must not touch readiness or stop the run", sum.AllReady, f.starts)
+	}
+}
+
 // TestReadinessRecordsAMissedDeadlineAndGoesOn: a start whose /health comes after the bound is missed, the run
 // continues to the other starts, and the summary gives no warm maximum it cannot support.
 func TestReadinessRecordsAMissedDeadlineAndGoesOn(t *testing.T) {
@@ -243,6 +351,9 @@ func TestReadinessRecordsAMissedDeadlineAndGoesOn(t *testing.T) {
 	s := readStart(t, r.Out, TreatmentA, 2)
 	if s.Outcome != ReadinessMissed || s.HealthSeconds != nil || s.ReadySeconds != nil {
 		t.Fatalf("A #2: %+v, want missed with no health or ready stamp", s)
+	}
+	if len(s.Capture) != 0 || s.CaptureSkipped == "" {
+		t.Fatalf("A #2 captured %+v from an engine that was not ready", s.Capture)
 	}
 	if got := readStart(t, r.Out, TreatmentC, 3); got.Outcome != ReadinessReady {
 		t.Fatalf("the run did not go on after the miss: C #3 is %+v", got)
