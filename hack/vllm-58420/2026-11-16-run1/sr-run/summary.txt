@@ -1,0 +1,3 @@
+error: vllm --version: docker run --rm --name=srpf-probe-version-a83e0389b065ea07 --gpus=all --workdir=/ --entrypoint=vllm public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467 --version: signal: killed: W1116 12:34:58.864000 1 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1116 12:34:58.865000 1 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1116 12:34:58.865000 1 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
