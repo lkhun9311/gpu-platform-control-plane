@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
@@ -58,7 +60,10 @@ func versionCalibrate(args []string, out io.Writer) error {
 		PollEvery: *poll,
 	}
 	// The ladder's registered ceiling is enforced, not only computed: past it the session's context ends and the ladder stops unresolved.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(st.Version.Calibration.MaxSeconds())*time.Second)
+	// An operator or supervisor stop ends the same context, so the ladder writes its unresolved artifact instead of leaving a directory nobody can read.
+	ctx, stop := cancelOnSignal(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(st.Version.Calibration.MaxSeconds())*time.Second)
 	defer cancel()
 	res, err := runVersionCalibration(ctx, *dir, st.Version.Calibration, runner, func(ctx context.Context, rate float64, ordinal int) bench.RungClass {
 		return runner.Probe(ctx, rate, ordinal)
@@ -72,6 +77,30 @@ func versionCalibrate(args []string, out io.Writer) error {
 		_, err = fmt.Fprintf(out, "%s after %d rungs; the session stops\n", res.Reason, len(res.Rungs))
 	}
 	return err
+}
+
+// cancelOnSignal returns a context that ends, with a cause naming the signal, when one of sigs arrives.
+//
+// The cause is what the ladder's reason prints, so the record says an operator stopped the session and not that the engine failed.
+// The handler is removed after the first signal, so a second one takes its default action and an operator can still force the process down.
+func cancelOnSignal(parent context.Context, sigs ...os.Signal) (context.Context, func()) {
+	ctx, cancel := context.WithCancelCause(parent)
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, sigs...)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case sig := <-ch:
+			signal.Stop(ch)
+			cancel(fmt.Errorf("stopped by signal: %v", sig))
+		case <-done:
+		}
+	}()
+	return ctx, func() {
+		signal.Stop(ch)
+		close(done)
+		cancel(context.Canceled)
+	}
 }
 
 // runVersionCalibration runs the ladder with probe, writes every rung's evidence as it ends, and writes the artifact last.

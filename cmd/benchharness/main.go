@@ -26,9 +26,11 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -122,9 +124,23 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	if code := exitCode(err, os.Stderr); code != 0 {
+		os.Exit(code)
+	}
+}
+
+// exitCode reports err on w and returns the process exit status.
+//
+// A ContinueOnError flag set returns flag.ErrHelp after it has printed its usage, so asking for help is a success and not an "error:" line.
+// Handling it here covers every subcommand that takes that route, instead of each one repeating the check.
+func exitCode(err error, w io.Writer) int {
+	switch {
+	case err == nil, errors.Is(err, flag.ErrHelp):
+		return 0
+	default:
+		// A failed write to stderr leaves nothing better to report with, and the exit status still says it failed.
+		_, _ = fmt.Fprintln(w, "error:", err)
+		return 1
 	}
 }
 
