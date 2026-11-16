@@ -137,6 +137,16 @@ else
   echo "ok   the schedule ($schedule) ends the harness at the sum of its bounds"
 fi
 
+# The DONE wait must outlast the stop; a fixed attempt count ended it at about 8,000 s once the pulls were lengthened.
+wait_call=$(grep -n 'spot_wait_for_marker_until "\$REGION"' "$ROOT/hack/version-readiness-session.sh")
+if ! grep -qx 'WAIT_ATTEMPTS=$(( STOP_FROM_LAUNCH_S / WAIT_INTERVAL_S + 2 ))' "$ROOT/hack/version-readiness-session.sh" ||
+  ! grep -q '"\$WAIT_INTERVAL_S" "\$WAIT_ATTEMPTS"' <<<"$wait_call"; then
+  echo "FAIL the DONE wait's attempts are not derived from the stop: $wait_call" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the DONE wait polls until the stop, not for a fixed count"
+fi
+
 # The spliced bring-up does not stop on a failed command, so its last lines must judge the outcome: a GPU runtime that
 # failed to configure would otherwise let the paid pulls and starts run.
 bringup_tail=$(awk '/echo "cat > \/tmp\/bringup.sh/{on=1} on{print} /echo "BRINGUP"/{exit}' "$ROOT/hack/version-readiness-session.sh")

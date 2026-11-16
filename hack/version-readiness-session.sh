@@ -67,6 +67,10 @@ TAG_FROM_LAUNCH_S=$(( EVIDENCE_S + 30 ))
 STOP_FROM_LAUNCH_S=$(( EVIDENCE_S + 60 ))
 TERMINATION_S=$(( TAG_FROM_LAUNCH_S + 330 ))
 LAUNCHTIME_WAIT_S=180
+# The DONE wait polls every WAIT_INTERVAL_S and every poll sleeps that long, so this many attempts outlast the stop and
+# the wall-clock deadline, not the count, ends the wait.
+WAIT_INTERVAL_S=20
+WAIT_ATTEMPTS=$(( STOP_FROM_LAUNCH_S / WAIT_INTERVAL_S + 2 ))
 SWEEPER_MIN_RUNS=4
 # The session's end of the termination wait plus 30 minutes of headroom, in minutes.
 CRED_MIN_MINUTES=$(( TERMINATION_S / 60 + 30 ))
@@ -374,7 +378,7 @@ else
 fi
 
 # ---------------------------------------------------------------- the wait, and the end
-spot_wait_for_marker_until "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" $(( L + STOP_FROM_LAUNCH_S )) 20 400 >"$OUT/wait.txt"
+spot_wait_for_marker_until "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" $(( L + STOP_FROM_LAUNCH_S )) "$WAIT_INTERVAL_S" "$WAIT_ATTEMPTS" >"$OUT/wait.txt"
 wait_rc=$?
 say "the wait ended with status $wait_rc ($(cat "$OUT/wait.txt"))"
 # The termination wait runs to LaunchTime + TERMINATION_S and no further; one not confirmed by then is reported unconfirmed.
