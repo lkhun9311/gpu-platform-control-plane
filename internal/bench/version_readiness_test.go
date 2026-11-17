@@ -479,3 +479,30 @@ func TestSummarizeReadinessMedianOfTwoIsTheirMean(t *testing.T) {
 		t.Fatalf("first %v max %v median %v, want 300, 140, 120", *got.FirstSeconds, *got.WarmMaxSeconds, *got.WarmMedianSeconds)
 	}
 }
+
+// TestReadinessPullAppliesItsBound: the pull must be cut at PullBound when one is set, and at ReadinessPullBound otherwise.
+// The SRPF sweep's session stop is sized from the bound it sets, so a pull that ignored it would outlive the stop's arithmetic.
+func TestReadinessPullAppliesItsBound(t *testing.T) {
+	for _, c := range []struct {
+		set, want time.Duration
+	}{{0, ReadinessPullBound}, {2400 * time.Second, 2400 * time.Second}} {
+		var left time.Duration
+		r := &ReadinessRun{PullBound: c.set, Engine: &DockerEngine{Run: func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+			if args[0] == "image" {
+				return nil, errors.New("Error: No such image: x")
+			}
+			d, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("the pull ran without a deadline")
+			}
+			left = time.Until(d)
+			return nil, nil
+		}}}
+		if _, err := r.pull(context.Background(), "x"); err != nil {
+			t.Fatal(err)
+		}
+		if left > c.want || left < c.want-time.Minute {
+			t.Errorf("PullBound %s: the pull had %s left, want about %s", c.set, left, c.want)
+		}
+	}
+}

@@ -259,6 +259,18 @@ else
   echo "ok   the instance logs in to ECR Public before the pull, and the role's policy is rewritten each run"
 fi
 
+# Run 5 on 2026-11-17 was still extracting layers when the pull bound cut it, so the volume is provisioned past gp3's
+# free baseline, and that cost is in the all-in rate the $3 check reads.
+s="$ROOT/hack/vllm-58420-session.sh"
+if ! grep -qF '"$UD" "$TAGS" "$token" "" "" "$EBS_THROUGHPUT_MIBPS" "$EBS_IOPS"' "$s" ||
+  ! grep -qx 'EBS_THROUGHPUT_MIBPS=500' "$s" || ! grep -qx 'EBS_IOPS=6000' "$s" || ! grep -qx 'ALL_IN_RATE=0.8292' "$s" ||
+  ! grep -qF ',\"Throughput\":$ebs_throughput' "$ROOT/hack/lib/spot-run.sh"; then
+  echo "FAIL the launch does not provision the volume's throughput and IOPS, or the all-in rate does not count them" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the launch provisions 500 MiB/s and 6,000 IOPS, and the all-in rate counts them"
+fi
+
 if [[ $failures -ne 0 ]]; then
   echo "$failures check(s) did not behave as registered" >&2
   exit 1

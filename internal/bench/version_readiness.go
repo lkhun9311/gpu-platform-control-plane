@@ -176,6 +176,9 @@ type ReadinessRun struct {
 	PollEvery time.Duration
 	// StateEvery is how often the container's state is read while /health fails, so an engine that exited ends its start rather than waiting out the bound.
 	StateEvery time.Duration
+	// PullBound bounds one image pull; zero means ReadinessPullBound.
+	// The SRPF sweep pulls a larger image from a slower registry, so it sets its own.
+	PullBound time.Duration
 }
 
 // PrimingRows are one request per registered input x output class, in a fixed order, stamped as the study stamps its traces.
@@ -313,7 +316,11 @@ func (r *ReadinessRun) pull(ctx context.Context, image string) (StepRecord, erro
 	} else if !dockerNotFound(err) {
 		return StepRecord{Step: "pull", Image: image}, fmt.Errorf("cannot tell whether image %s is present: %w", image, err)
 	}
-	pctx, cancel := context.WithTimeout(ctx, ReadinessPullBound)
+	bound := r.PullBound
+	if bound == 0 {
+		bound = ReadinessPullBound
+	}
+	pctx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
 	rec := StepRecord{Step: "pull", Image: image}
 	var out []byte

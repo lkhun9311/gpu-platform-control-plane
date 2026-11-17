@@ -70,9 +70,11 @@ const (
 //
 // hack/vllm-58420-session.sh sizes the instance's hard stop from these, and its offline test holds the two equal.
 const (
-	// SRPFSweepPullBound bounds the image pull: the image is 10.9 GB compressed, and 9.1 GB took 643 to 652 s on g5.xlarge.
-	// The pull is the readiness preflight's, which applies ReadinessPullBound; a test holds the two equal.
-	SRPFSweepPullBound = 1500 * time.Second
+	// SRPFSweepPullBound bounds the image pull: the image is 10.9 GB compressed.
+	// From ECR Public it took 913, 1,111 and 1,239 s on g5.xlarge, and twice ran past 1,500 s (2026-11-16 and 11-17).
+	// In the second of those, 51 of 53 layers had downloaded and 34 were extracted when the bound cut it.
+	// The sweep passes it to the readiness pull step as ReadinessRun.PullBound, and a test holds the two equal.
+	SRPFSweepPullBound = 2400 * time.Second
 	// SRPFSweepImageIdentityBound bounds the three identity containers run before the model download.
 	// The first of them to import vllm runs right after the pull, on a cold page cache.
 	// Run 4 on 2026-11-17 was still importing torch two minutes into the overlay probe when an earlier 180 s bound cut it.
@@ -772,7 +774,7 @@ func (s *SRPFSweep) readiness() *ReadinessRun {
 			ServedName: SRPFSweepModel, Port: s.Port, NamePrefix: "srpf", NewToken: s.NewToken,
 		},
 		EngineURL: s.EngineURL, Health: s.Health, Logs: s.Logs, Out: s.Out,
-		PollEvery: s.PollEvery, StateEvery: s.StateEvery,
+		PollEvery: s.PollEvery, StateEvery: s.StateEvery, PullBound: SRPFSweepPullBound,
 	}
 }
 

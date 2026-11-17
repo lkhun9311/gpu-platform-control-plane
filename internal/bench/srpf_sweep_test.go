@@ -27,13 +27,13 @@ const srpfDiagnosticDir = "../../hack/eks-serve/holdcap-study/diagnostic"
 
 // The sweep's pull, download, capture and stop are the readiness preflight's steps, which apply their own bounds.
 // The session's hard stop is summed from the sweep's, so the two must be equal or the stop would not cover the work.
-// Mutation that turns this red: set SRPFSweepPullBound to 1400 s.
+// Mutation that turns this red: drop PullBound from the sweep's ReadinessRun.
 func TestSRPFSweepBoundsAreTheBoundsItsStepsApply(t *testing.T) {
 	for _, c := range []struct {
 		name       string
 		got, apply time.Duration
 	}{
-		{"pull", SRPFSweepPullBound, ReadinessPullBound},
+		{"pull", SRPFSweepPullBound, (&SRPFSweep{}).readiness().PullBound},
 		{"model download", SRPFSweepModelBound, ReadinessModelBound},
 		{"capture", SRPFSweepCaptureBound, ReadinessCaptureBound},
 		{"stop", SRPFSweepStopBound, ReadinessStopBound},
@@ -45,8 +45,8 @@ func TestSRPFSweepBoundsAreTheBoundsItsStepsApply(t *testing.T) {
 	if srpfSweepArmCount != len(SRPFSweepArms()) {
 		t.Errorf("srpfSweepArmCount is %d and there are %d arms", srpfSweepArmCount, len(SRPFSweepArms()))
 	}
-	if SRPFSweepArmBound != 1260*time.Second || SRPFSweepBound != 10560*time.Second {
-		t.Errorf("the arm bound is %s and the sweep bound %s; the session's stop was sized for 1260 s and 10560 s", SRPFSweepArmBound, SRPFSweepBound)
+	if SRPFSweepArmBound != 1260*time.Second || SRPFSweepBound != 11460*time.Second {
+		t.Errorf("the arm bound is %s and the sweep bound %s; the session's stop was sized for 1260 s and 11460 s", SRPFSweepArmBound, SRPFSweepBound)
 	}
 }
 

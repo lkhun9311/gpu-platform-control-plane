@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The vLLM #58420 SRPF measurement: one g5.xlarge Spot instance, one attempt, stopped by itself 11,340 s after launch.
+# The vLLM #58420 SRPF measurement: one g5.xlarge Spot instance, one attempt, stopped by itself 12,240 s after launch.
 #
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM58420_AMI_ID=ami-... bash hack/vllm-58420-session.sh
 #
@@ -25,21 +25,25 @@
 # instance to read.
 # The work is bounded step by step, and the deadlines are their sum:
 #   bring-up (boot, cloud-init, downloads, toolkit)                       600 s -> 600
-#   image pull, SRPFSweepPullBound                                       1,500 s
+#   image pull, SRPFSweepPullBound                                       2,400 s
 #   image identity, SRPFSweepImageIdentityBound                            600 s
 #   model download, SRPFSweepModelBound                                    900 s
 #   six arms, each ready 500 + identity 90 + capture 20 + warm-up 60 + idle 2 x 30 + metrics 2 x 10 + replay 480 +
 #   stop 30 = 1,260 s                                           6 x 1,260 = 7,560 s
-#   so the harness ends by 600 + 1,500 + 600 + 900 + 7,560              = 11,160 s
-#   evidence upload                                                        120 s -> 11,280
-# The launch carries the termination sweeper's study-deadline tag at the request plus 11,280 s, rewritten to LaunchTime
-# plus 11,310 s once LaunchTime is known; the instance shuts itself down at 11,340 s; the termination is to be
-# confirmed by 11,640 s, the sweeper's five-minute period after its tag plus 30 s.
+#   so the harness ends by 600 + 2,400 + 600 + 900 + 7,560              = 12,060 s
+#   evidence upload                                                        120 s -> 12,180
+# The launch carries the termination sweeper's study-deadline tag at the request plus 12,180 s, rewritten to LaunchTime
+# plus 12,210 s once LaunchTime is known; the instance shuts itself down at 12,240 s; the termination is to be
+# confirmed by 12,540 s, the sweeper's five-minute period after its tag plus 30 s.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 11,640 s = 3.2333 h.
-# At the $0.85/h Spot cap below that is $2.748 of compute; with the $0.0324/h of 200 GB gp3 and a public IPv4 the other
-# sessions add (hack/gpu-fault-session.sh), $0.8824/h all in, it is $2.853, under $3.
+# The worst case bills to the termination deadline: 12,540 s = 3.4833 h.
+# At the $0.75/h Spot cap below that is $2.6125 of compute.
+# The other sessions add $0.0324/h for 200 GB gp3 and a public IPv4 (hack/gpu-fault-session.sh).
+# This one also provisions the volume to 500 MiB/s and 6,000 IOPS, because image layers were still being extracted when
+# the pull bound cut run 5; at Seoul's $0.0456 per MiB/s-month and $0.0057 per IOPS-month over 730 h that adds
+# 375 x 0.0456 / 730 + 3,000 x 0.0057 / 730 = $0.0468/h.
+# So it is $0.8292/h all in, and $2.888, under $3.
 # The script refuses to run if the constants below stop giving a worst case under $3.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the arms, the bounds and the stop are constants,
@@ -51,9 +55,11 @@ REGION=ap-northeast-2
 ACCOUNT_WANT=007635145730
 INSTANCE_TYPE_FIXED=g5.xlarge
 # g5.xlarge Spot was $0.61/h in ap-northeast-2 on 2026-11-16, and a zone above the cap is not used.
-MAX_PRICE_FIXED=0.85
-# The cap plus 200 GB gp3 and a public IPv4, the $0.0324/h hack/gpu-fault-session.sh adds to its own cap.
-ALL_IN_RATE=0.8824
+MAX_PRICE_FIXED=0.75
+# The cap, plus 200 GB gp3 and a public IPv4 ($0.0324/h), plus the provisioned throughput and IOPS ($0.0468/h).
+ALL_IN_RATE=0.8292
+EBS_THROUGHPUT_MIBPS=500
+EBS_IOPS=6000
 COST_CAP_USD=3.00
 STUDY_ID=vllm-58420-srpf-2026-11-16
 STACK=srpf58420-gpu
@@ -69,7 +75,7 @@ MANIFEST_FILE=manifest-off-3.yaml
 # The step bounds, each the harness's own constant (internal/bench/srpf_sweep.go).
 # hack/vllm-58420-session-test.sh holds these equal to the Go source, so the stop cannot drift from the work.
 BRINGUP_S=600
-PULL_BOUND_S=1500
+PULL_BOUND_S=2400
 IMAGE_IDENTITY_S=600
 MODEL_BOUND_S=900
 READY_BOUND_S=500
@@ -424,7 +430,7 @@ for z in $ZONES; do
   token="srpf58420-$RUN_NONCE-$z"
   LAUNCH_UNCERTAIN="$token"; LAUNCH_UNCERTAIN_SUBNET="$SUBNET"
   IID=$(spot_launch "$REGION" "$VLLM58420_AMI_ID" "$INSTANCE_TYPE_FIXED" "$SUBNET" "$STACK" "$MAX_PRICE_FIXED" "$VOLUME_GB" \
-    "$UD" "$TAGS" "$token" 2>"$OUT/launch-error-$z.txt") || IID=""
+    "$UD" "$TAGS" "$token" "" "" "$EBS_THROUGHPUT_MIBPS" "$EBS_IOPS" 2>"$OUT/launch-error-$z.txt") || IID=""
   cat "$OUT/launch-error-$z.txt" >>"$OUT/launch-errors.txt"
   if [ -n "$IID" ] && [ "$IID" != None ]; then LAUNCH_UNCERTAIN=""; break; fi
   IID=""
