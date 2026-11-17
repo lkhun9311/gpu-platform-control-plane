@@ -1,0 +1,16 @@
+{
+  "study": "vllm-58420-srpf-2026-11-16",
+  "arm": "fcfs-t384",
+  "connMode": "pooled",
+  "maxIdleConnsPerHost": 600,
+  "drainForReuse": true,
+  "timeoutMs": 30000,
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "target": "http://127.0.0.1:8000",
+  "priorities": {
+    "premium-1": 0,
+    "standard-noisy": 1
+  },
+  "requestIdPrefix": "srpf-fcfs-t384",
+  "binarySha256": "dcb233480f5da829183b47bc196cb90d4af759b3d10e176c6abac9d9be7ed6bb"
+}

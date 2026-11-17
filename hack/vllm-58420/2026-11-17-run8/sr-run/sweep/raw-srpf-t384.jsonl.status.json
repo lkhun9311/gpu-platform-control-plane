@@ -1,0 +1,10 @@
+{
+  "status": "complete",
+  "scheduled": 4102,
+  "recorded": 4102,
+  "dispositions": {
+    "completed": 4102
+  },
+  "traceChecksum": "4360cb83f7c2259040c8ccda45b881a8b817a5087f968334630f26aa12d68167",
+  "rawSha256": "be2eb91a95f2bb055ad622e0a4b417d2471017018e9f25bd26aa843b103b4e77"
+}
