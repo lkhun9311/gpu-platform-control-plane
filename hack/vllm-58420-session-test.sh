@@ -287,6 +287,18 @@ else
 fi
 rm -rf "$d"
 
+# Run 7 was reclaimed in ap-northeast-2a, so that zone is tried last but still tried.
+order=$(ZONES="ap-northeast-2a ap-northeast-2c ap-northeast-2d"; RECLAIMED_ZONES="ap-northeast-2a"
+  ZONES=$(for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) ;; *) echo "$z" ;; esac; done
+    for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) echo "$z" ;; esac; done)
+  paste -sd' ' <<<"$ZONES")
+if [ "$order" != "ap-northeast-2c ap-northeast-2d ap-northeast-2a" ] || ! grep -qx 'RECLAIMED_ZONES="ap-northeast-2a"' "$ROOT/hack/vllm-58420-session.sh"; then
+  echo "FAIL a reclaimed zone is not tried last (got $order)" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   a zone that reclaimed this study is tried after the others"
+fi
+
 if [[ $failures -ne 0 ]]; then
   echo "$failures check(s) did not behave as registered" >&2
   exit 1

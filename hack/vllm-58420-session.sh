@@ -168,6 +168,12 @@ prices=$(aws ec2 describe-spot-price-history --region "$REGION" --instance-types
 printf '%s\n' "$prices" >"$OUT/spot-prices.txt"
 ZONES=$(awk -v cap="$MAX_PRICE_FIXED" 'NF == 2 && $2 + 0 > 0 && $2 + 0 <= cap + 0 {print $1}' <<<"$prices" | sort -u | paste -sd' ')
 [ -n "$ZONES" ] || fail "no zone offers $INSTANCE_TYPE_FIXED Spot at or under \$$MAX_PRICE_FIXED/h: $(paste -sd' ' <<<"$prices")"
+# Run 7 on 2026-11-17 was reclaimed in ap-northeast-2a for want of Spot capacity, 15 minutes in.
+# A zone that reclaimed this study is tried after the others, and still tried if they have no capacity.
+RECLAIMED_ZONES="ap-northeast-2a"
+ZONES=$(for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) ;; *) echo "$z" ;; esac; done
+  for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) echo "$z" ;; esac; done)
+ZONES=$(paste -sd' ' <<<"$ZONES")
 say "Spot $INSTANCE_TYPE_FIXED under \$$MAX_PRICE_FIXED/h in: $ZONES ($(paste -sd' ' <<<"$prices"))"
 
 quota=$(aws service-quotas get-service-quota --region "$REGION" --service-code ec2 --quota-code L-3819A6DF \
