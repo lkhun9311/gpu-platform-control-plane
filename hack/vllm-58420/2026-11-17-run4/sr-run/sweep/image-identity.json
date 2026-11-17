@@ -1,0 +1,12 @@
+{
+  "image": "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+  "schedulerPath": "/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py",
+  "installedSHA256": "b67848721847aa8f45cddee43cabdbb2f35205eb3b441e16d79823d30f3be097",
+  "overlaidSHA256": "",
+  "overlaidFile": "",
+  "vllmVersion": "",
+  "probes": [
+    "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"b67848721847aa8f45cddee43cabdbb2f35205eb3b441e16d79823d30f3be097\"}\n",
+    ""
+  ]
+}
