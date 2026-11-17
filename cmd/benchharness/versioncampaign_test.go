@@ -185,7 +185,7 @@ func calibrateFake(t *testing.T, dir string) {
 		runner.OnRung(ordinal, rows, o, cls, nil)
 		return cls
 	}
-	if _, err := runVersionCalibration(context.Background(), dir, st.Version.Calibration, runner, probe); err != nil {
+	if _, err := runVersionCalibration(context.Background(), dir, st.Version.Calibration, runner, probe, testIdentity); err != nil {
 		t.Fatal(err)
 	}
 }

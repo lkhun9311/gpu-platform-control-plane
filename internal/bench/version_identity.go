@@ -58,30 +58,81 @@ func ParseProfileArgs(argv []string) ([]string, error) {
 // CheckRuntime compares a running engine with the registration alone, so a wrong engine is refused at preflight,
 // before calibration or the bundle exist.
 // CompareRuntime adds the bundle's frozen images on top of it.
+//
+// It is the complete check: an identity that leaves any field unproven is refused, because the registration fixes every one.
 func (d VersionStudyDesign) CheckRuntime(treatment string, rt RuntimeIdentity) error {
+	unproven, err := d.CheckObservedRuntime(treatment, rt)
+	if err != nil {
+		return err
+	}
+	if len(unproven) > 0 {
+		return fmt.Errorf("engine of treatment %s: %s not proven by what was read from it", treatment, strings.Join(unproven, ", "))
+	}
+	return nil
+}
+
+// CheckObservedRuntime compares every field the reader observed with the registration and returns the fields it could not observe.
+//
+// A field is skipped only when it is empty and named in rt.Unproven, so a reader cannot drop a check by leaving a value out silently.
+// Only the image, the chat template and the command line may be unproven; the release, the revisions and every registered setting must be observed.
+// The caller decides whether the returned gap is acceptable and must record it beside whatever it measures.
+func (d VersionStudyDesign) CheckObservedRuntime(treatment string, rt RuntimeIdentity) ([]string, error) {
 	want, ok := d.Engines[treatment]
 	if !ok {
-		return fmt.Errorf("treatment %q is not registered", treatment)
+		return nil, fmt.Errorf("treatment %q is not registered", treatment)
+	}
+	empty := map[string]bool{
+		UnprovenImage:        rt.Image == "",
+		UnprovenChatTemplate: rt.ChatTemplateSHA256 == "",
+		UnprovenProfileArgs:  rt.ProfileArgs == nil,
+	}
+	skip := map[string]bool{}
+	for _, name := range rt.Unproven {
+		isEmpty, known := empty[name]
+		switch {
+		case !known:
+			return nil, fmt.Errorf("%q cannot be unproven; only %s may be", name, strings.Join(unprovenFields, ", "))
+		case skip[name]:
+			return nil, fmt.Errorf("%q is named unproven twice", name)
+		case !isEmpty:
+			return nil, fmt.Errorf("%q is named unproven but carries a value", name)
+		}
+		skip[name] = true
 	}
 	switch {
+	// A revision alone does not name the weights: vLLM ignores --revision for a local path, so the model itself is compared.
+	case rt.Model != d.Model:
+		return nil, fmt.Errorf("engine serves model %q, the registration %q", rt.Model, d.Model)
+	case rt.Tokenizer != d.Model:
+		return nil, fmt.Errorf("engine uses tokenizer %q, the registration's model is %q", rt.Tokenizer, d.Model)
 	case rt.ModelRevision != d.ModelRevision:
-		return fmt.Errorf("engine serves model revision %q, the registration %q", rt.ModelRevision, d.ModelRevision)
+		return nil, fmt.Errorf("engine serves model revision %q, the registration %q", rt.ModelRevision, d.ModelRevision)
 	case rt.TokenizerRevision != d.TokenizerRevision:
-		return fmt.Errorf("engine uses tokenizer %q, the registration %q", rt.TokenizerRevision, d.TokenizerRevision)
-	case rt.ChatTemplateSHA256 != d.ChatTemplateSHA256:
-		return fmt.Errorf("engine applies chat template %q, the registration %q", rt.ChatTemplateSHA256, d.ChatTemplateSHA256)
+		return nil, fmt.Errorf("engine uses tokenizer %q, the registration %q", rt.TokenizerRevision, d.TokenizerRevision)
+	case !skip[UnprovenChatTemplate] && rt.ChatTemplateSHA256 != d.ChatTemplateSHA256:
+		return nil, fmt.Errorf("engine applies chat template %q, the registration %q", rt.ChatTemplateSHA256, d.ChatTemplateSHA256)
 	}
 	reviewed, ok := d.ReviewedProfileArgs[treatment]
 	if !ok || len(reviewed) == 0 {
-		return errors.New("treatment " + treatment + " has no reviewed profile arguments to compare with")
+		return nil, errors.New("treatment " + treatment + " has no reviewed profile arguments to compare with")
 	}
-	if !slices.Equal(rt.ProfileArgs, reviewed) {
-		return fmt.Errorf("engine of treatment %s runs arguments %v, the reviewed profile is %v", treatment, rt.ProfileArgs, reviewed)
+	if !skip[UnprovenProfileArgs] && !slices.Equal(rt.ProfileArgs, reviewed) {
+		return nil, fmt.Errorf("engine of treatment %s runs arguments %v, the reviewed profile is %v", treatment, rt.ProfileArgs, reviewed)
 	}
 	got := rt.Settings
 	got.VLLMVersion, got.Image = rt.VLLMVersion, rt.Image
-	if diff := want.Diff(got); diff != "" {
-		return fmt.Errorf("engine of treatment %s: %s", treatment, diff)
+	// An unproven image is compared as absent on both sides; the registered digest is never put in its place.
+	if skip[UnprovenImage] {
+		want.Image = ""
 	}
-	return nil
+	if diff := want.Diff(got); diff != "" {
+		return nil, fmt.Errorf("engine of treatment %s: %s", treatment, diff)
+	}
+	var unproven []string
+	for _, name := range unprovenFields {
+		if skip[name] {
+			unproven = append(unproven, name)
+		}
+	}
+	return unproven, nil
 }

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -599,6 +601,7 @@ func imageDigest(ref string) string {
 // Diff names the first setting in which got differs from e, or "".
 //
 // Images are compared by digest, so a mirror of the registered image is the same engine.
+// The memory fraction is compared by decimal value, because a running engine reports the registered 0.90 as 0.9.
 func (e EngineSettings) Diff(got EngineSettings) string {
 	boolStr := func(b *bool) string {
 		if b == nil {
@@ -616,7 +619,7 @@ func (e EngineSettings) Diff(got EngineSettings) string {
 		{"maxModelLen", fmt.Sprint(e.MaxModelLen), fmt.Sprint(got.MaxModelLen)},
 		{"maxNumSeqs", fmt.Sprint(e.MaxNumSeqs), fmt.Sprint(got.MaxNumSeqs)},
 		{"maxNumBatchedTokens", fmt.Sprint(e.MaxNumBatchedTokens), fmt.Sprint(got.MaxNumBatchedTokens)},
-		{"gpuMemoryUtilization", e.GPUMemoryUtilization, got.GPUMemoryUtilization},
+		{"gpuMemoryUtilization", e.GPUMemoryUtilization, sameDecimal(e.GPUMemoryUtilization, got.GPUMemoryUtilization)},
 		{"prefixCaching", boolStr(e.PrefixCaching), boolStr(got.PrefixCaching)},
 		{"schedulingPolicy", e.SchedulingPolicy, got.SchedulingPolicy},
 		{"asyncScheduling", boolStr(e.AsyncScheduling), boolStr(got.AsyncScheduling)},
@@ -626,4 +629,26 @@ func (e EngineSettings) Diff(got EngineSettings) string {
 		}
 	}
 	return ""
+}
+
+// plainDecimal is a decimal literal with digits on both sides of an optional point, the only form a memory fraction is compared in.
+var plainDecimal = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+
+// isDecimal reports whether s is a plain decimal literal.
+func isDecimal(s string) bool { return plainDecimal.MatchString(s) }
+
+// sameDecimal returns want when got is the same decimal value written differently, and got otherwise, so the caller's string comparison decides.
+//
+// Both must be plain literals; exponents, fractions such as 9/10 and empty strings are left as written and so differ.
+// The comparison is exact, with no float rounding, so 0.905 never equals 0.90.
+func sameDecimal(want, got string) string {
+	if !isDecimal(want) || !isDecimal(got) {
+		return got
+	}
+	w, wok := new(big.Rat).SetString(want)
+	g, gok := new(big.Rat).SetString(got)
+	if wok && gok && w.Cmp(g) == 0 {
+		return want
+	}
+	return got
 }

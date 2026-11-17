@@ -543,6 +543,7 @@ func TestCompareRuntime(t *testing.T) {
 	d := frozenVersionDesignFixture()
 	good := func() RuntimeIdentity {
 		return RuntimeIdentity{
+			Model: d.Model, Tokenizer: d.Model,
 			VLLMVersion: "v0.32.0", Image: b.Images[TreatmentC], ModelRevision: d.ModelRevision,
 			TokenizerRevision: d.TokenizerRevision, ChatTemplateSHA256: d.ChatTemplateSHA256,
 			ProfileArgs: d.ReviewedProfileArgs[TreatmentC], Settings: d.Engines[TreatmentC],

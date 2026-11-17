@@ -281,6 +281,11 @@ func (d *VersionStudyDesign) checkTraceRows(t BundleTrace, rows []TraceRow, wind
 
 // RuntimeIdentity is what the running engine reports about itself, read by the engine-path track at every start.
 type RuntimeIdentity struct {
+	// Model and Tokenizer are what the engine loaded; the controller passes no --tokenizer, so both must be the registered model.
+	Model     string
+	Tokenizer string
+	// InstanceID names the engine process the identity was read from, so a restarted or replaced engine is told apart; the registration does not fix it.
+	InstanceID         string
 	VLLMVersion        string
 	Image              string
 	ModelRevision      string
@@ -292,6 +297,10 @@ type RuntimeIdentity struct {
 	ProfileArgs []string
 	// Settings are the registered settings as read back from the running engine.
 	Settings EngineSettings
+	// Unproven names the identity fields the reader could not observe, which it left empty (UnprovenImage, UnprovenChatTemplate, UnprovenProfileArgs).
+	//
+	// CheckRuntime refuses an identity with any; only CheckObservedRuntime accepts them, and returns them so the caller records the gap.
+	Unproven []string
 }
 
 // CompareRuntime refuses an engine that is not the one the bundle and the registration name.

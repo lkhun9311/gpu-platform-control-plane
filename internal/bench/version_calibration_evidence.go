@@ -16,6 +16,8 @@ const (
 	CalibrationArtifactFile = "calibration.json"
 	// CalibrationLockFile reserves the directory for one calibration and stays as the record that it ran there.
 	CalibrationLockFile = "calibration.lock"
+	// CalibrationIdentityFile records the engine the ladder ran against, as it reported itself, and what that report left unproven.
+	CalibrationIdentityFile = "calibration-identity.json"
 )
 
 // CalibrationRungFile and CalibrationRungRowsFile name one rung's record and its raw rows.
