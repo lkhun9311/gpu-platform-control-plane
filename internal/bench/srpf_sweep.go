@@ -674,8 +674,11 @@ func srpfProbeRefusal(a SRPFArm, path string, serving bool, out []byte) error {
 	for _, pr := range p.Procs {
 		who := fmt.Sprintf("process %d (%s)", pr.PID, pr.Cmd)
 		// vLLM renames its engine core with setproctitle, which overwrites the memory /proc reads the environment from.
-		// Such a process inherited its environment from its parent, so its nearest readable ancestor is checked instead.
-		if pr.EnvCount == 0 {
+		// The overwrite can be partial: on 2026-11-17 the engine core showed 30 entries with none of the variables its
+		// parent passed, while a spawn child given the same title locally kept them in os.environ and showed none in /proc.
+		// So a renamed process's /proc environment is not read at all, whatever it holds.
+		// It inherited its environment from its parent at spawn, so its nearest readable ancestor is checked instead.
+		if pr.EnvCount == 0 || srpfRenamed(pr) {
 			if _, ok := readableAncestor(byPID, pr); !ok {
 				return fmt.Errorf("%s shows no environment and no ancestor whose environment can be read", who)
 			}
@@ -689,6 +692,12 @@ func srpfProbeRefusal(a SRPFArm, path string, serving bool, out []byte) error {
 		}
 	}
 	return nil
+}
+
+// srpfRenamed reports a process vLLM retitled, whose /proc environment setproctitle has overwritten.
+// vLLM titles its processes "VLLM::<role>", and an untitled process's command line starts with its executable.
+func srpfRenamed(pr srpfProbeProc) bool {
+	return strings.HasPrefix(pr.Cmd, "VLLM::")
 }
 
 // readableAncestor walks a process's parents to the nearest one whose environment /proc could read.

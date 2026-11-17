@@ -224,6 +224,14 @@ func TestSRPFProbeRefusal(t *testing.T) {
 	if err := srpfProbeRefusal(srpf, path, true, renamed); err != nil {
 		t.Errorf("an engine core renamed under a checked server was refused: %v", err)
 	}
+	// On 2026-11-17 the overwrite was partial: /proc showed 30 entries and none of the variables the server passed.
+	// Mutation that turns this red: go back to excusing only a process that shows no environment.
+	partial := mutate(func(p *srpfProbe) {
+		p.Procs = append(p.Procs, srpfProbeProc{PID: 97, PPID: 1, EnvCount: 30, Cmd: "VLLM::EngineCore"})
+	})
+	if err := srpfProbeRefusal(srpf, path, true, partial); err != nil {
+		t.Errorf("an engine core whose renamed environment is partly overwritten was refused: %v", err)
+	}
 	// Before any server ran, the image check has no bytecode or process to read.
 	if err := srpfProbeRefusal(SRPFArm{Name: "image"}, path, false, mutate(func(p *srpfProbe) {
 		p.Env, p.PycSourceSize, p.PycFlags, p.Procs = nil, nil, nil, nil
