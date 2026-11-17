@@ -21,6 +21,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +141,47 @@ func TestReconcileRecordingRefusesAnIncompleteRecording(t *testing.T) {
 	}
 }
 
+// TestReconcileRecordingTiesIntendedArrivalToTheTrace: a row's intended arrival is its trace offset, which every latency is measured from.
+//
+// Replay and UnavailableRows both stamp exactly the offset, so any other value is a recording that does not account for its trace.
+// A row that was sent without an intended arrival is refused too, because the lag would skip it.
+// An unsent row has neither, and still reconciles.
+func TestReconcileRecordingTiesIntendedArrivalToTheTrace(t *testing.T) {
+	trace := evenTrace(4, 10)
+	rows := Replay(context.Background(), stubSender{ttftDelay: time.Millisecond, totalDelay: 2 * time.Millisecond, outputTokens: 2, status: 200}, trace, ReplayOptions{sleepUntil: func(context.Context, time.Time) {}})
+	if err := ReconcileRecording(trace, rows); err != nil {
+		t.Fatalf("a complete recording was refused: %v", err)
+	}
+	unavailable := UnavailableRows(trace, ReplayOptions{}, time.Unix(100, 0))
+	if err := ReconcileRecording(trace, unavailable); err != nil {
+		t.Fatalf("an unavailable visit's recording was refused: %v", err)
+	}
+	shifted := func(rs []RawRow, i int, by int64) []RawRow {
+		out := slices.Clone(rs)
+		c := *out[i].Clock
+		n := *c.IntendedNanos + by
+		c.IntendedNanos = &n
+		out[i].Clock = &c
+		return out
+	}
+	unstamped := slices.Clone(rows)
+	c := *unstamped[2].Clock
+	c.IntendedNanos = nil
+	unstamped[2].Clock = &c
+	for name, rs := range map[string][]RawRow{
+		"intended a millisecond early":    shifted(rows, 1, -int64(time.Millisecond)),
+		"intended a nanosecond late":      shifted(rows, 3, 1),
+		"unavailable row intended late":   shifted(unavailable, 2, int64(time.Millisecond)),
+		"sent without an intended stamp":  unstamped,
+		"intended at zero for a late row": shifted(rows, 3, -*rows[3].Clock.IntendedNanos),
+	} {
+		err := ReconcileRecording(trace, rs)
+		if err == nil || !strings.Contains(err.Error(), "intended arrival") {
+			t.Errorf("%s: %v, want a refusal naming the intended arrival", name, err)
+		}
+	}
+}
+
 // Rows that carry a disposition are from a harness that records one row per request, so a file of them is checked as it is read.
 // Audit finding 16: duplicated rows and impossible timelines were accepted as evidence.
 // Rows without a disposition are historical and are read as they always were.
@@ -166,10 +208,35 @@ func TestReadRawRowsRefusesSemanticallyInvalidCurrentRows(t *testing.T) {
 	mislabelled[0].ErrorKind = "timeout"
 	unknown := append([]RawRow{}, rows...)
 	unknown[1].Disposition = "fine"
-	for name, rs := range map[string][]RawRow{"duplicate": dup, "terminal before send": backwards, "disposition contradicts errorKind": mislabelled, "unknown disposition": unknown} {
+	// The lag ends at the transport write, so one stamped before the send would hide how late the request left.
+	earlyWrite := append([]RawRow{}, rows...)
+	cw := *earlyWrite[1].Clock
+	write := *cw.SendNanos - 1
+	cw.TransportWriteNanos = &write
+	earlyWrite[1].Clock = &cw
+	// Send reads the write stamp before it returns and the terminal is taken after, so a write after the terminal was never recorded by this harness.
+	pastTerminal := append([]RawRow{}, rows...)
+	cp := *pastTerminal[0].Clock
+	after := *cp.TerminalNanos + 1
+	cp.TransportWriteNanos = &after
+	pastTerminal[0].Clock = &cp
+	for name, rs := range map[string][]RawRow{"duplicate": dup, "terminal before send": backwards, "disposition contradicts errorKind": mislabelled, "unknown disposition": unknown, "transport write before send": earlyWrite, "transport write after terminal": pastTerminal} {
 		if _, err := ReadRawRows(encode(rs)); err == nil {
 			t.Fatalf("%s rows were read as evidence", name)
 		}
+	}
+	// The transport stamps its write from its own goroutine, which can run after the response reader saw content, so only send bounds it.
+	lateWrite := append([]RawRow{}, rows...)
+	cl := *lateWrite[1].Clock
+	first, late := *cl.SendNanos+1, *cl.TerminalNanos
+	if late <= first {
+		t.Fatalf("terminal %d is not after first content %d, so a late write proves nothing", late, first)
+	}
+	cl.FirstContentNanos, cl.TransportWriteNanos = &first, &late
+	lateWrite[1].Clock = &cl
+	lateWrite[1].FirstTokenUnixNanos = lateWrite[1].SendUnixNanos + 1
+	if _, err := ReadRawRows(encode(lateWrite)); err != nil {
+		t.Fatalf("a transport write stamped after the response began was refused: %v", err)
 	}
 	historical := []RawRow{completedRow(0, 5, 10), completedRow(0, 6, 10)}
 	if _, err := ReadRawRows(encode(historical)); err != nil {

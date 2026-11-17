@@ -202,6 +202,9 @@ func (b *CampaignBundle) verifyTraces(dir string, d *VersionStudyDesign) error {
 		if err := d.checkTraceRows(t, rs, b.WindowSeconds); err != nil {
 			return fmt.Errorf("trace %s: %w", t.Path, err)
 		}
+		if err := d.checkGenerated(t, data, b.StableRateRequestsPerSec, b.WindowSeconds); err != nil {
+			return fmt.Errorf("trace %s: %w", t.Path, err)
+		}
 		rows[k] = rs
 	}
 	for block := 1; block <= d.PlannedBlocks+d.MaxReplacementBlocks; block++ {
@@ -227,6 +230,32 @@ func (b *CampaignBundle) verifyTraces(dir string, d *VersionStudyDesign) error {
 	}
 	if w != b.WindowSeconds {
 		return fmt.Errorf("window %d s is not the %d s the traces choose", b.WindowSeconds, w)
+	}
+	return nil
+}
+
+// checkGenerated requires a trace file's bytes to be exactly what the registered generator writes for its block and load.
+//
+// The seed, the hash and the row checks all pass on a trace drawn at another rate or mixture once its hash and counts are updated.
+// Only regenerating it from the seed at the bundle's λ0 and window shows it is the registered workload.
+// Bytes are compared rather than parsed rows, because ReadTrace ignores unknown keys and blank lines that the generator never writes.
+// λ0 is the bundle's, which verifyCalibration has already tied to the calibration artifact.
+func (d *VersionStudyDesign) checkGenerated(t BundleTrace, data []byte, stableRate float64, windowSeconds int) error {
+	rate, err := OfferedRate(t.Load, stableRate)
+	if err != nil {
+		return err
+	}
+	rows, err := d.VersionTrace(t.Seed, rate, windowSeconds)
+	if err != nil {
+		return fmt.Errorf("regenerating block %d at %s: %w", t.Block, t.Load, err)
+	}
+	var want bytes.Buffer
+	if err := WriteTrace(&want, rows); err != nil {
+		return err
+	}
+	if !bytes.Equal(data, want.Bytes()) {
+		return fmt.Errorf("the file is not what the registered generator writes for block %d at %s (seed %d, %.6g req/s, %d s window)",
+			t.Block, t.Load, t.Seed, rate, windowSeconds)
 	}
 	return nil
 }

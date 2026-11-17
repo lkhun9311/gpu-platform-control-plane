@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -10,13 +11,15 @@ import (
 // conformingRow is a completed row that did exactly the registered work for its trace row.
 func conformingRow(tr TraceRow) RawRow {
 	sec := int64(time.Second)
-	send, end := int64(1)*sec, int64(2)*sec
+	intended := tr.OffsetMs * int64(time.Millisecond)
+	send, end := intended+sec, intended+2*sec
 	reported := true
 	return RawRow{
-		Index: tr.Index, Disposition: DispositionCompleted, HTTPStatus: 200, StreamTerminated: true,
+		Index: tr.Index, ScheduledOffsetMs: tr.OffsetMs, Tenant: tr.Tenant,
+		Disposition: DispositionCompleted, HTTPStatus: 200, StreamTerminated: true,
 		EngineUsageReported: &reported, EngineInputTokens: tr.ExactInputTokens, EngineOutputTokens: tr.MaxOutputTokens,
 		FinishReason: "length", OutputTokens: 2,
-		Clock: &RequestClock{SendNanos: &send, TerminalNanos: &end},
+		Clock: &RequestClock{IntendedNanos: &intended, SendNanos: &send, TerminalNanos: &end},
 	}
 }
 
@@ -60,6 +63,119 @@ func TestStudyDispositionMapsEveryRawOutcome(t *testing.T) {
 	}
 }
 
+// unavailableIdentityFields are the RawRow fields an unavailable row may carry: the trace's and the cell's identity, which an unsent row has too.
+//
+// Every other field is something the request's dispatch or its response wrote, which an engine that was never ready cannot have produced.
+var unavailableIdentityFields = map[string]bool{
+	"Index": true, "Arm": true, "Tenant": true, "IsNoisy": true, "ScheduledOffsetMs": true, "PromptLenChars": true,
+	"EstInputTokens": true, "TerminationRecorded": true, "Study": true, "Priority": true, "RequestID": true,
+	"TraceChecksum": true, "LongThreshold": true, "ExactInputTokens": true, "MatchTolerance": true,
+	// The label itself and the clock are checked on their own below.
+	"Disposition": true, "ErrorKind": true, "Clock": true,
+}
+
+// nonZero sets v to a value that is not its type's zero, so a pointer becomes a pointer to zero, which still records an event.
+func nonZero(t *testing.T, v reflect.Value) {
+	t.Helper()
+	switch v.Kind() {
+	case reflect.Int, reflect.Int64:
+		v.SetInt(1)
+	case reflect.Float64:
+		v.SetFloat(1)
+	case reflect.String:
+		v.SetString("x")
+	case reflect.Bool:
+		v.SetBool(true)
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+	case reflect.Slice:
+		v.Set(reflect.MakeSlice(v.Type(), 1, 1))
+	default:
+		t.Fatalf("no non-zero value for kind %s", v.Kind())
+	}
+}
+
+// TestAnUnavailableLabelNeverErasesDispatchEvidence: engine-unavailable is an outcome only for a row that shows it was never sent.
+//
+// StudyDisposition used to replace a labelled row's facts with an unavailable engine's, so a row that was sent and answered became the arm's failure.
+// Every RawRow and clock field outside the identity a scheduled row carries is set in turn, and each must turn the label into a refusal.
+func TestAnUnavailableLabelNeverErasesDispatchEvidence(t *testing.T) {
+	p := *versionStudySampling()
+	tr := TraceRow{Index: 3, OffsetMs: 250, Tenant: PremiumTenant, PromptLenChars: 1174, MaxOutputTokens: 64, MinOutputTokens: 64, ExactInputTokens: 256}
+	genuine := func() RawRow {
+		return UnavailableRows([]TraceRow{tr}, ReplayOptions{Study: "s", Arm: "A-l060", RequestIDPrefix: "b1", TraceChecksum: "c"}, time.Unix(100, 0))[0]
+	}
+	if d, err := StudyDisposition(p, genuine(), tr); err != nil || d != DispositionEngineUnavailable {
+		t.Fatalf("a genuine unavailable row gave %q %v", d, err)
+	}
+	fields := reflect.TypeFor[RawRow]()
+	for i := range fields.NumField() {
+		name := fields.Field(i).Name
+		if unavailableIdentityFields[name] {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			row := genuine()
+			nonZero(t, reflect.ValueOf(&row).Elem().Field(i))
+			if d, err := StudyDisposition(p, row, tr); err == nil {
+				t.Fatalf("a row carrying %s was classified %q", name, d)
+			}
+		})
+	}
+	clockFields := reflect.TypeFor[RequestClock]()
+	for i := range clockFields.NumField() {
+		name := clockFields.Field(i).Name
+		// The origin and the intended arrival are stamped without sending; the intended arrival is reconciled with the trace.
+		if name == "OriginUnixNanos" || name == "IntendedNanos" || name == "TerminalNanos" {
+			continue
+		}
+		t.Run("Clock."+name, func(t *testing.T) {
+			row := genuine()
+			nonZero(t, reflect.ValueOf(row.Clock).Elem().Field(i))
+			if d, err := StudyDisposition(p, row, tr); err == nil {
+				t.Fatalf("a row whose clock stamps %s was classified %q", name, d)
+			}
+		})
+	}
+	sent := conformingRow(tr)
+	sent.Disposition, sent.ErrorKind = errKindEngineUnavailable, errKindEngineUnavailable
+	for name, mutate := range map[string]func(*RawRow){
+		"no clock":                     func(r *RawRow) { r.Clock = nil },
+		"no terminal time":             func(r *RawRow) { r.Clock.TerminalNanos = nil },
+		"terminal after the origin":    func(r *RawRow) { n := int64(1); r.Clock.TerminalNanos = &n },
+		"another disposition":          func(r *RawRow) { r.Disposition = DispositionCompleted },
+		"a completed, answered stream": func(r *RawRow) { *r = sent },
+	} {
+		t.Run(name, func(t *testing.T) {
+			row := genuine()
+			mutate(&row)
+			if d, err := StudyDisposition(p, row, tr); err == nil {
+				t.Fatalf("classified %q", d)
+			}
+		})
+	}
+}
+
+// TestADispatchedRowLabelledUnavailableIsAProtocolFault: the contradiction invalidates the cell instead of becoming the arm's failure.
+func TestADispatchedRowLabelledUnavailableIsAProtocolFault(t *testing.T) {
+	d := versionAsyncDesign()
+	p := *versionStudySampling()
+	trace := []TraceRow{evalTraceRow(0, 0), evalTraceRow(1, 10)}
+	genuine := UnavailableRows(trace, ReplayOptions{}, time.Unix(0, 0))
+	if reason, lag := d.CellValidity(p, 180, trace, genuine); reason != "" || lag {
+		t.Fatalf("a genuinely unavailable cell is invalid: %q (lag %v)", reason, lag)
+	}
+	sent := timedRow(trace[1], 0, 100, 1000)
+	sent.Disposition, sent.ErrorKind = errKindEngineUnavailable, errKindEngineUnavailable
+	rows := []RawRow{genuine[0], sent}
+	if reason, _ := d.CellValidity(p, 180, trace, rows); !strings.Contains(reason, "protocol fault") {
+		t.Errorf("cell validity %q, want a protocol fault", reason)
+	}
+	if out, err := d.CellOutcomes(p, 180, trace, rows); err == nil {
+		t.Errorf("outcomes %+v from a sent row labelled unavailable", out)
+	}
+}
+
 // TestUnavailableRowsRoundTripThroughTheReader: a visit whose engine missed readiness is accounted for row by row, with no send time made up.
 func TestUnavailableRowsRoundTripThroughTheReader(t *testing.T) {
 	trace := []TraceRow{
@@ -84,6 +200,10 @@ func TestUnavailableRowsRoundTripThroughTheReader(t *testing.T) {
 		}
 		if r.Clock.IntendedNanos == nil || *r.Clock.IntendedNanos != trace[r.Index].OffsetMs*int64(time.Millisecond) {
 			t.Fatalf("row %d lost its intended arrival", r.Index)
+		}
+		// What the evaluator reads back from the file must still be the outcome, not a contradiction.
+		if d, err := StudyDisposition(*versionStudySampling(), r, trace[r.Index]); err != nil || d != DispositionEngineUnavailable {
+			t.Fatalf("row %d read back as %q %v", r.Index, d, err)
 		}
 	}
 }
@@ -134,6 +254,35 @@ func TestCellDispatchLagIsTransportWriteMinusIntendedArrival(t *testing.T) {
 	}
 	if _, err := CellDispatchLag(rows[4:], inP); err == nil || !strings.Contains(err.Error(), "no dispatched") {
 		t.Fatalf("a cell with no dispatched row in P gave a lag: %v", err)
+	}
+}
+
+// TestALateIntendedArrivalIsRefusedByEveryConsumer: an intended arrival later than the trace offset hides the client's lag.
+//
+// The request left 300 ms late, which breaks the lag bound and is 400 ms of TTFT.
+// Stamped 300 ms late as well, the same row shows no lag and a 100 ms TTFT, so the cell would pass and report the smaller number.
+func TestALateIntendedArrivalIsRefusedByEveryConsumer(t *testing.T) {
+	d := versionAsyncDesign()
+	p := *versionStudySampling()
+	trace := []TraceRow{evalTraceRow(0, 0)}
+	honest := timedRow(trace[0], 300, 400, 2000)
+	if reason, lag := d.CellValidity(p, 180, trace, []RawRow{honest}); !lag || !strings.Contains(reason, "dispatch lag") {
+		t.Fatalf("the honest row gives %q (lag %v), want a lag invalidation, so the forged stamp is what hides it", reason, lag)
+	}
+	forged := honest
+	c := *honest.Clock
+	late := *c.IntendedNanos + int64(300*time.Millisecond)
+	c.IntendedNanos = &late
+	forged.Clock = &c
+	rows := []RawRow{forged}
+	if reason, lag := d.CellValidity(p, 180, trace, rows); !strings.Contains(reason, "incomplete accounting") || lag {
+		t.Errorf("cell validity %q (lag %v), want incomplete accounting and no lag reason", reason, lag)
+	}
+	if out, err := d.CellOutcomes(p, 180, trace, rows); err == nil {
+		t.Errorf("outcomes %+v from a row stamped after its trace offset", out)
+	}
+	if err := RequireAllSuccess(p, trace, rows); err == nil {
+		t.Error("preflight passed a row stamped after its trace offset")
 	}
 }
 

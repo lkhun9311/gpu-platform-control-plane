@@ -147,6 +147,7 @@ The artifact (`CalibrationArtifact`: resolved, λ0, every rung with purpose and 
 - **All traces are generated after λ0 and before block 1**, the replacement blocks' included: one per block and load, seed `WorkloadSeed(20261115, block, load)`, shared by A, B and C.
 - **W is chosen from those traces alone** (`ChooseWindow`): from 300 s in 60 s steps until the six planned blocks' traces offer at least 1,000 measured requests at each load, at most 300 s (amended 2026-11-16 from 1,800 s; see "Budget"), otherwise the session stops. The floor is therefore met by the actual traces, not expected from a rate; the window is never lengthened after outcomes are seen. The generator must be prefix-stable, so that a shorter window's trace is a prefix of a longer one's; `LoadCampaignBundle` recomputes the choice from the traces and refuses a bundle whose W differs.
 - Every trace is checked by content: its rows are in order, every length is registered, no row falls outside warm-up plus window, its measured count is as declared, and **its warm-up sends every one of the six input × output classes** (warm-up qualification is a property of the trace, decided before any outcome).
+  - Clarified 2026-11-16, before any run (#645): the file must also be byte for byte what `VersionTrace` writes from the block's seed at the load's rate under the bundle's λ0 and W. The checks above pass a trace drawn at another rate or mixture once its hash and counts are updated, so only regenerating it shows it is the registered workload.
 - **Amendment 2026-11-15 (owner): a stratified warm-up.**
   - **Rule:** the first six warm-up rows take the six input × output classes once each, in an order drawn from the trace's seed by a separate generator (`VersionTrace`). Their arrival times and every later row are the stream's own, so the measured population is exactly what the unstratified trace holds (`TestVersionTraceStratifiesTheWarmup`).
   - **Why:** before it, a trace whose warm-up missed a class was refused, since redrawing would be choosing a workload.
@@ -189,6 +190,7 @@ Every scheduled request gets exactly one disposition (`ClassifyRow`, `RowDisposi
 | Layer | Result |
 |---|---|
 | not dispatched, engine missed its readiness deadline | `engine-unavailable`: a failure of the arm, recorded without pretending the request was sent |
+| labelled `engine-unavailable` but carrying anything a dispatch or a response records (a send or transport-write time, content, an HTTP status, tokens), or a terminal time other than its origin | protocol fault: the cell is invalid, never the arm's failure (clarified 2026-11-16, #645; `StudyDisposition`) |
 | not dispatched for any other reason | protocol fault: the cell is invalid |
 | timed out (whole-request deadline) / transport error / non-200 / stream without `[DONE]` | `timeout` / `transport-error` / `http-error` / `stream-error`: failures of the arm |
 | stream completed | **conformance is checked here, before success**: usage chunk present, `prompt_tokens` equal to the registered count, `completion_tokens` equal to the cap and `finish_reason` `length` (`CheckCompletion`). Any miss is a protocol fault and invalidates the cell; it is never reclassified as an arm failure |
@@ -215,7 +217,7 @@ All latencies are client-observed durations on the client's monotonic clock, fro
 - Time from the last content byte to `[DONE]` and to the usage trailer is reported as a completion-through-trailer diagnostic.
 - Realised denominators are checked: each cell's P must equal its trace's measured count (rule 1 below), so the offered floor of 1,000 per load is met in fact.
 - Implemented offline from the raw rows (#615) as follows:
-  - `CellOutcomes` gives each row of P its TTFT and E2E from intended arrival, with failures at +∞, and whether it is good.
+  - `CellOutcomes` gives each row of P its TTFT and E2E from intended arrival, with failures at +∞, and whether it is good. It classifies the warm-up rows too and refuses the cell if any of them is a protocol fault, as validity does (#645).
   - `LoadEvidenceFor` resamples both arms by the same block counts and takes each pooled nearest-rank p99 by weighted rank, without building the multiset.
   - `Evaluate` applies `AssessLoad`, `CombineLoads` and `SelectTreatment`.
   - The existing `TTFTNanos` and `E2ENanos` fields are not used: they are measured from the send, and their E2E ends at the stream's end.
@@ -269,8 +271,9 @@ A gain that is statistically clear but smaller than 10% is not a benefit. A loss
 These rules decide validity without looking at endpoint values. They apply with the same predicate to every cell, arm and load; one invalid cell makes its block invalid.
 
 1. **Incomplete accounting:** a scheduled row without exactly one disposition, or a measured population that differs from the trace's.
-2. **Dispatch lag:** transport write − intended arrival, p99 over P above 10 ms or maximum above 100 ms. The client shares the instance with the engine, so lag could become treatment-dependent. If lag invalidates cells of the same treatment in two blocks, the campaign stops as an incomplete pilot rather than replacing blocks that a treatment keeps invalidating.
-3. **Protocol fault:** a nonconforming completed stream, or a request not dispatched without a recorded engine-unavailable visit.
+   - Clarified 2026-11-16, before any run (#645): a row whose clock places its intended arrival anywhere but its trace offset, or that was sent without one, does not account for its trace either (`ReconcileRecording`). Lag, TTFT and E2E are all measured from that stamp, so a later one would hide the client's lag and shorten every latency. Validity, `CellOutcomes` and preflight all reconcile first, so none of them reads such a row.
+2. **Dispatch lag:** transport write − intended arrival, p99 over P above 10 ms or maximum above 100 ms. The reader refuses a row whose transport write precedes its send, which would shorten the lag, or follows its terminal, which the harness cannot record (#645). The client shares the instance with the engine, so lag could become treatment-dependent. If lag invalidates cells of the same treatment in two blocks, the campaign stops as an incomplete pilot rather than replacing blocks that a treatment keeps invalidating.
+3. **Protocol fault:** a nonconforming completed stream, a request not dispatched without a recorded engine-unavailable visit, or a row labelled engine-unavailable that shows it was dispatched (#645).
 4. **Identity:** a manifest that `LoadManifest` refuses is never run. A running engine that `CampaignBundle.CompareRuntime` refuses (version, image digest, model revision, tokenizer, chat template, reviewed effective arguments, any registered setting) invalidates its visit's cells.
 5. **Recorder failure:** any write or durability error, or backlog overflow.
    - Clarified 2026-11-16, before any run (#607): a recorder failure closes its block as **stopped** and ends the campaign as an incomplete pilot. The block is not replaced. This is how a failed journal write was already handled (#612). A recorder that has lost a write is not trusted to record the replacements either.
@@ -318,7 +321,7 @@ Written after calibration and trace generation, before block 1 (`CampaignBundle`
 - W, recomputed from the traces;
 - the instance price, its source and read time, and other charges per hour;
 - each treatment's digest-pinned image, compared with the registration;
-- one entry per block and load, replacements included: path, sha256 (recomputed from the bytes that are then parsed), seed (must be the block's), measured rows (recomputed).
+- one entry per block and load, replacements included: path, sha256 (recomputed from the bytes that are then parsed), seed (must be the block's), measured rows (recomputed), and the bytes themselves, which must equal the trace regenerated from that seed at the load's rate under the bundle's λ0 and W (#645).
 
 The bundle is decoded strictly: unknown, wrong-case, null and missing keys are refused, as in a manifest.
 

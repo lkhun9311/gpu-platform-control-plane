@@ -3,7 +3,9 @@ package bench
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -54,9 +56,56 @@ func StudyDisposition(p SamplingPolicy, row RawRow, tr TraceRow) (RowDisposition
 	}
 	f := rowFacts(row, tr)
 	if row.ErrorKind == errKindEngineUnavailable {
+		// The label replaces the row's facts, so it is believed only from a row that shows it was never sent.
+		// A row that was sent and answered under this label would otherwise become the arm's failure, when it is a recorder or protocol fault.
+		if err := checkNeverDispatched(row); err != nil {
+			return "", fmt.Errorf("row %d is labelled %s but %w", row.Index, errKindEngineUnavailable, err)
+		}
 		f = RowFacts{EngineUnavailable: true}
 	}
 	return ClassifyRow(p, f)
+}
+
+// unavailableIdentity names the RawRow fields a never-sent row still carries: the trace's and the cell's identity, and the label itself.
+//
+// Every other field is written by a dispatch or by its response, so it is listed by exclusion.
+// A field added to RawRow later is then dispatch evidence until it is named here, which errs towards refusing a row.
+var unavailableIdentity = map[string]bool{
+	"Index": true, "Arm": true, "Tenant": true, "IsNoisy": true, "ScheduledOffsetMs": true, "PromptLenChars": true,
+	"EstInputTokens": true, "TerminationRecorded": true, "Study": true, "Priority": true, "RequestID": true,
+	"TraceChecksum": true, "LongThreshold": true, "ExactInputTokens": true, "MatchTolerance": true,
+	"Disposition": true, "ErrorKind": true, "Clock": true,
+}
+
+// unavailableClockIdentity names the clock stamps a never-sent row has: its replay's origin, its intended arrival and its terminal.
+var unavailableClockIdentity = map[string]bool{"OriginUnixNanos": true, "IntendedNanos": true, "TerminalNanos": true}
+
+// checkNeverDispatched refuses a row labelled engine-unavailable that is not what UnavailableRows writes.
+//
+// Such a row has a clock whose terminal is its origin, a disposition equal to the label, and nothing a send or a response would have stamped.
+// The intended arrival is not checked here, because ReconcileRecording ties it to the trace for every row.
+func checkNeverDispatched(row RawRow) error {
+	if row.Disposition != row.ErrorKind {
+		return fmt.Errorf("carries disposition %q", row.Disposition)
+	}
+	c := row.Clock
+	if c == nil || c.TerminalNanos == nil || *c.TerminalNanos != 0 {
+		return errors.New("has no terminal time at its origin, which is when an unavailable visit records every request")
+	}
+	var found []string
+	nonZero := func(v reflect.Value, identity map[string]bool, prefix string) {
+		for i := range v.NumField() {
+			if name := v.Type().Field(i).Name; !identity[name] && !v.Field(i).IsZero() {
+				found = append(found, prefix+name)
+			}
+		}
+	}
+	nonZero(reflect.ValueOf(row), unavailableIdentity, "")
+	nonZero(reflect.ValueOf(*c), unavailableClockIdentity, "Clock.")
+	if len(found) > 0 {
+		return fmt.Errorf("carries what only a dispatch or its response records: %s", strings.Join(found, ", "))
+	}
+	return nil
 }
 
 // rowFacts is what ClassifyRow needs from one replayed row and the trace row it was sent from.
