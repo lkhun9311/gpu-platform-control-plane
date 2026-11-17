@@ -292,7 +292,8 @@ order=$(ZONES="ap-northeast-2a ap-northeast-2c ap-northeast-2d"; RECLAIMED_ZONES
   ZONES=$(for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) ;; *) echo "$z" ;; esac; done
     for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) echo "$z" ;; esac; done)
   paste -sd' ' <<<"$ZONES")
-if [ "$order" != "ap-northeast-2c ap-northeast-2d ap-northeast-2a" ] || ! grep -qx 'RECLAIMED_ZONES="ap-northeast-2a"' "$ROOT/hack/vllm-58420-session.sh"; then
+if [ "$order" != "ap-northeast-2c ap-northeast-2d ap-northeast-2a" ] || ! grep -qx 'RECLAIMED_ZONES="ap-northeast-2a"' "$ROOT/hack/vllm-58420-session.sh" ||
+  [ "$(grep -cF 'for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*)' "$ROOT/hack/vllm-58420-session.sh")" != 2 ]; then
   echo "FAIL a reclaimed zone is not tried last (got $order)" >&2
   failures=$((failures + 1))
 else
