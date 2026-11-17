@@ -1,0 +1,1 @@
+Server.SpotInstanceTermination	Service initiated (2026-11-17 02:37:23 GMT)
