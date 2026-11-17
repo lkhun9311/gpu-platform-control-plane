@@ -433,7 +433,8 @@ func SRPFSweepFigures(arm string, trace []TraceRow, rows []RawRow) (*SRPFFigures
 		if sent, ok := r.Clock.FromIntended(r.Clock.SendNanos); ok {
 			lag = max(lag, nanosToMs(sent))
 		}
-		if r.EngineInputTokens != 0 && r.EngineInputTokens != tr.ExactInputTokens {
+		// A row that reports usage reports its prompt length too, so a zero there is a mismatch and not a missing value.
+		if r.EngineUsageReported != nil && *r.EngineUsageReported && r.EngineInputTokens != tr.ExactInputTokens {
 			f.InputTokenMismatches++
 		}
 		var t *TenantFigures
@@ -1142,6 +1143,9 @@ func (s *SRPFSweep) measureArm(ctx, rctx context.Context, r *ReadinessRun, res *
 		res.Reason = "the preemption counter: " + res.MetricsError
 	case err != nil:
 		res.Reason = "the figures: " + err.Error()
+	case res.Figures.InputTokenMismatches > 0:
+		// The rows stay on disk, but figures from requests of another length are not this trace's.
+		res.Reason = fmt.Sprintf("%d rows' prompts were another length to the engine than the trace's", res.Figures.InputTokenMismatches)
 	default:
 		res.Outcome = "measured"
 	}
@@ -1189,6 +1193,11 @@ func (s *SRPFSweep) warmup(ctx context.Context, res *SRPFArmResult, trace []Trac
 		}
 		if why := srpfFailure(got[0], row.MaxOutputTokens); why != "" {
 			return "the " + tenant + " warm-up failed: " + why
+		}
+		// The trace's token counts are frozen for this model and template, so a prompt the engine counts otherwise is another workload.
+		// No request of the workload had reached an engine of this image before run 7, so the warm-up is where that shows first.
+		if got[0].EngineInputTokens != row.ExactInputTokens {
+			return fmt.Sprintf("the %s warm-up's prompt was %d tokens to the engine, and the trace's is %d", tenant, got[0].EngineInputTokens, row.ExactInputTokens)
 		}
 	}
 	return ""

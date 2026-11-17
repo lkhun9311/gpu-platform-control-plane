@@ -495,6 +495,10 @@ type srpfFake struct {
 	wrongEnvArm string
 	// versionHangs makes the version probe print its version and then run past its bound, as `vllm --version` did.
 	versionHangs bool
+	// promptTokens, when set, is the prompt length the engine reports for every request instead of the trace's.
+	promptTokens int
+	// replayPromptTokens, when set, is the prompt length every replayed row records instead of the trace's.
+	replayPromptTokens *int
 }
 
 const srpfFakePath = "/usr/lib/python3/dist-packages/vllm/v1/core/sched/scheduler.py"
@@ -580,6 +584,9 @@ func (f *srpfFake) exec(_ context.Context, _ string, args ...string) ([]byte, er
 	for _, tr := range trace {
 		row := srpfRow(tr, 50, 900, tr.MaxOutputTokens)
 		row.Arm, row.Study = m.Arm, m.Study
+		if f.replayPromptTokens != nil {
+			row.EngineInputTokens = *f.replayPromptTokens
+		}
 		line, _ := json.Marshal(row)
 		b.Write(line)
 		b.WriteByte('\n')
@@ -624,7 +631,15 @@ func (f *srpfFake) engine(t *testing.T) *httptest.Server {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"a"}}]}`+"\n\n")
-		_, _ = fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":68,\"completion_tokens\":%d}}\n\n", body.MaxTokens)
+		// The trace's premium requests are 68 tokens with 64 out, and its contender requests 7,695 with 16 out.
+		prompt := 68
+		if body.MaxTokens == 16 {
+			prompt = 7695
+		}
+		if f.promptTokens != 0 {
+			prompt = f.promptTokens
+		}
+		_, _ = fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}\n\n", prompt, body.MaxTokens)
 		_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	})
 	srv := httptest.NewServer(mux)
@@ -750,5 +765,45 @@ func TestSRPFSweepImageIdentitySurvivesAVersionProbeThatDoesNotExit(t *testing.T
 	}
 	if !strings.HasPrefix(id.VLLMVersion, "unread: ") || id.OverlaidSHA256 != SRPFSweepPRSchedulerSHA256 {
 		t.Errorf("image identity %+v, want the scheduler checks kept and the version marked unread", id)
+	}
+}
+
+// The trace's prompt lengths are frozen for this model and template, so an engine that counts them otherwise ran another workload.
+// Mutation that turns this red: drop the warm-up's prompt-length check.
+func TestSRPFSweepFailsAnArmWhoseWarmupPromptIsAnotherLength(t *testing.T) {
+	f := &srpfFake{promptTokens: 68}
+	s := srpfSweepAgainst(t, f)
+	sum, err := s.run(context.Background(), SRPFSweepSummary{Study: StudySRPF58420, Arms: []SRPFArmResult{}}, SRPFSweepOrder(SRPFSweepOrderSeed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, res := range sum.Arms {
+		if res.Outcome == "measured" || !strings.Contains(res.Reason, "standard-noisy warm-up's prompt was 68 tokens to the engine, and the trace's is 7695") {
+			t.Errorf("arm %s was %s (%s), want it failed on the contender warm-up's prompt length", res.Name, res.Outcome, res.Reason)
+		}
+	}
+	if len(f.replays) != 0 {
+		t.Errorf("arms with another workload were replayed: %v", f.replays)
+	}
+}
+
+// A replay whose rows report another prompt length keeps its rows but is not measured, and a reported zero counts as one.
+// Mutations that turn this red: drop the measured outcome's mismatch check, or count only nonzero reported lengths.
+func TestSRPFSweepDoesNotMeasureAReplayOfAnotherLength(t *testing.T) {
+	for _, tokens := range []int{0, 7700} {
+		f := &srpfFake{replayPromptTokens: new(tokens)}
+		s := srpfSweepAgainst(t, f)
+		sum, err := s.run(context.Background(), SRPFSweepSummary{Study: StudySRPF58420, Arms: []SRPFArmResult{}}, SRPFSweepOrder(SRPFSweepOrderSeed))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, res := range sum.Arms {
+			if res.Name == "fcfs" && res.RawFile == "" {
+				continue
+			}
+			if res.Outcome == "measured" || !strings.Contains(res.Reason, "rows' prompts were another length") || res.RawFile == "" {
+				t.Errorf("rows of %d tokens: arm %s was %s (%s), raw %q", tokens, res.Name, res.Outcome, res.Reason, res.RawFile)
+			}
+		}
 	}
 }
