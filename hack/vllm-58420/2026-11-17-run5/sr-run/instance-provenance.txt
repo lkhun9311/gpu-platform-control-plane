@@ -1,0 +1,8 @@
+commit=55d2d27fce0fa0d9dd37cdffef03c4ab6c2351dd
+launch_time_epoch=1794875433
+bringup_rc=0
+2cd38cffba74609ce3bdb0aece2e63bfff123d505a57c20d024aeaaa0ff12022  /opt/sr/benchharness
+19502766a57a37432cda1ac0a581979d22845cc0fe2d5f08be8647ca113d2fa9  /opt/sr/scheduler.py
+4360cb83f7c2259040c8ccda45b881a8b817a5087f968334630f26aa12d68167  /opt/sr/trace-off-3.jsonl
+3a6ff64c2a45dcd0edc7b7e754f9431382bd0f4854bb5308c734560fe6ea67a0  /opt/sr/manifest-off-3.yaml
+harness_rc=1
