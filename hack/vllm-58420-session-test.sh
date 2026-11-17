@@ -271,6 +271,22 @@ else
   echo "ok   the launch provisions 500 MiB/s and 6,000 IOPS, and the all-in rate counts them"
 fi
 
+# Run 6 returned its evidence with all six arms refused and exited 0, so the session reads the measured count itself.
+d=$(mktemp -d); mkdir -p "$d/sweep"
+printf '{"arms":[{"outcome":"measured"},{"outcome":"failed"}]}' >"$d/sweep/summary.json"
+got=$(python3 -c 'import json, sys
+arms = json.load(open(sys.argv[1]))["arms"]
+print("%d of %d" % (sum(a.get("outcome") == "measured" for a in arms), len(arms)))' "$d/sweep/summary.json")
+s="$ROOT/hack/vllm-58420-session.sh"
+if [ "$got" != "1 of 2" ] || ! grep -qF 'echo "measured=$MEASURED"' "$s" || ! grep -qF '[ "$MEASURED" = "6 of 6" ] || exit 2' "$s" ||
+  ! grep -qF 'print("%d of %d" % (sum(a.get("outcome") == "measured" for a in arms), len(arms)))' "$s"; then
+  echo "FAIL the session does not report and exit on the number of measured arms (counted $got)" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the session reports how many arms were measured and exits 2 unless all six were"
+fi
+rm -rf "$d"
+
 if [[ $failures -ne 0 ]]; then
   echo "$failures check(s) did not behave as registered" >&2
   exit 1

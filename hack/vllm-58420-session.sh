@@ -501,12 +501,24 @@ if [ "$unpacked" != yes ] || [ ! -s "$OUT/sr-run/sweep/summary.json" ]; then
     EVIDENCE=missing
   fi
 fi
+# Run 6 returned its evidence with every arm refused, and harness_rc=0, so returned evidence is not a measurement.
+# The count of measured arms is read from the summary itself.
+MEASURED=none
+if [ "$EVIDENCE" = returned ]; then
+  MEASURED=$(python3 -c 'import json, sys
+arms = json.load(open(sys.argv[1]))["arms"]
+print("%d of %d" % (sum(a.get("outcome") == "measured" for a in arms), len(arms)))' "$OUT/sr-run/sweep/summary.json" 2>>"$OUT/download-errors.txt") ||
+    MEASURED=unread
+fi
 {
   echo "evidence=$EVIDENCE"
+  echo "measured=$MEASURED"
   echo "termination=$TERMINATION"
 } >"$OUT/outcome.txt"
 [ ! -s "$OUT/sr-run/summary.txt" ] || cat "$OUT/sr-run/summary.txt"
-say "evidence $EVIDENCE (summary at $OUT/sr-run/sweep/summary.json); termination $TERMINATION"
+say "evidence $EVIDENCE (summary at $OUT/sr-run/sweep/summary.json); arms measured: $MEASURED; termination $TERMINATION"
 [ "$TERMINATION" = confirmed ] || exit 1
 # A paid session whose summary never came back has not delivered what it bought.
 [ "$EVIDENCE" = returned ] || exit 1
+# Evidence of a sweep in which an arm was not measured is kept, and the session still says it did not deliver all six.
+[ "$MEASURED" = "6 of 6" ] || exit 2
