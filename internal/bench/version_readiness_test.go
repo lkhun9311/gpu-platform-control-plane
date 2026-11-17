@@ -506,3 +506,33 @@ func TestReadinessPullAppliesItsBound(t *testing.T) {
 		}
 	}
 }
+
+// TestReadinessFinishRemovesTheContainerWhenTheLogReadStalls: a log read that runs out its time must leave the removal time to run.
+// Mutation that turns this red: give the log read the whole stop bound.
+func TestReadinessFinishRemovesTheContainerWhenTheLogReadStalls(t *testing.T) {
+	var removedLive bool
+	r := &ReadinessRun{
+		Out: t.TempDir(),
+		Logs: func(ctx context.Context, _ string) ([]byte, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+		Engine: &DockerEngine{Run: func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+			if args[0] == "rm" && ctx.Err() == nil {
+				removedLive = true
+			}
+			if args[0] == "inspect" || (args[0] == "container" && args[1] == "inspect") {
+				return nil, errors.New("Error: No such container: c1")
+			}
+			return nil, nil
+		}},
+	}
+	s := &ReadinessStart{Treatment: "A", Ordinal: 1}
+	_ = r.finish(context.Background(), s, EngineStart{ContainerID: "c1"})
+	if s.LogError == "" {
+		t.Error("the stalled log read was not recorded")
+	}
+	if !removedLive {
+		t.Error("the container was not removed with time left after the log read stalled")
+	}
+}

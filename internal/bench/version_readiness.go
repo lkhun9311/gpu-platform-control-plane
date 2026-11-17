@@ -605,7 +605,11 @@ func (r *ReadinessRun) waitHealthy(ctx context.Context, es EngineStart) (time.Ti
 func (r *ReadinessRun) finish(parent context.Context, s *ReadinessStart, es EngineStart) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), ReadinessStopBound)
 	defer cancel()
-	logs, err := r.Logs(ctx, es.ContainerID)
+	// The log is evidence and the removal frees the GPU, so a log read that stalls must not take the removal's time with it.
+	// It gets at most a third of the bound, and the removal keeps the rest.
+	lctx, lcancel := context.WithTimeout(ctx, ReadinessStopBound/3)
+	logs, err := r.Logs(lctx, es.ContainerID)
+	lcancel()
 	if err != nil {
 		s.LogError = err.Error()
 	}
