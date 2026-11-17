@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The vLLM #58420 SRPF measurement: one g5.xlarge Spot instance, one attempt, stopped by itself 10,920 s after launch.
+# The vLLM #58420 SRPF measurement: one g5.xlarge Spot instance, one attempt, stopped by itself 11,340 s after launch.
 #
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM58420_AMI_ID=ami-... bash hack/vllm-58420-session.sh
 #
@@ -26,20 +26,20 @@
 # The work is bounded step by step, and the deadlines are their sum:
 #   bring-up (boot, cloud-init, downloads, toolkit)                       600 s -> 600
 #   image pull, SRPFSweepPullBound                                       1,500 s
-#   image identity, SRPFSweepImageIdentityBound                            180 s
+#   image identity, SRPFSweepImageIdentityBound                            600 s
 #   model download, SRPFSweepModelBound                                    900 s
 #   six arms, each ready 500 + identity 90 + capture 20 + warm-up 60 + idle 2 x 30 + metrics 2 x 10 + replay 480 +
 #   stop 30 = 1,260 s                                           6 x 1,260 = 7,560 s
-#   so the harness ends by 600 + 1,500 + 180 + 900 + 7,560              = 10,740 s
-#   evidence upload                                                        120 s -> 10,860
-# The launch carries the termination sweeper's study-deadline tag at the request plus 10,860 s, rewritten to LaunchTime
-# plus 10,890 s once LaunchTime is known; the instance shuts itself down at 10,920 s; the termination is to be
-# confirmed by 11,220 s, the sweeper's five-minute period after its tag plus 30 s.
+#   so the harness ends by 600 + 1,500 + 600 + 900 + 7,560              = 11,160 s
+#   evidence upload                                                        120 s -> 11,280
+# The launch carries the termination sweeper's study-deadline tag at the request plus 11,280 s, rewritten to LaunchTime
+# plus 11,310 s once LaunchTime is known; the instance shuts itself down at 11,340 s; the termination is to be
+# confirmed by 11,640 s, the sweeper's five-minute period after its tag plus 30 s.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 11,220 s = 3.1167 h.
-# At the $0.90/h Spot cap below that is $2.805 of compute; with the $0.0324/h of 200 GB gp3 and a public IPv4 the other
-# sessions add (hack/gpu-fault-session.sh), $0.9324/h all in, it is $2.906, under $3.
+# The worst case bills to the termination deadline: 11,640 s = 3.2333 h.
+# At the $0.85/h Spot cap below that is $2.748 of compute; with the $0.0324/h of 200 GB gp3 and a public IPv4 the other
+# sessions add (hack/gpu-fault-session.sh), $0.8824/h all in, it is $2.853, under $3.
 # The script refuses to run if the constants below stop giving a worst case under $3.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the arms, the bounds and the stop are constants,
@@ -51,9 +51,9 @@ REGION=ap-northeast-2
 ACCOUNT_WANT=007635145730
 INSTANCE_TYPE_FIXED=g5.xlarge
 # g5.xlarge Spot was $0.61/h in ap-northeast-2 on 2026-11-16, and a zone above the cap is not used.
-MAX_PRICE_FIXED=0.90
+MAX_PRICE_FIXED=0.85
 # The cap plus 200 GB gp3 and a public IPv4, the $0.0324/h hack/gpu-fault-session.sh adds to its own cap.
-ALL_IN_RATE=0.9324
+ALL_IN_RATE=0.8824
 COST_CAP_USD=3.00
 STUDY_ID=vllm-58420-srpf-2026-11-16
 STACK=srpf58420-gpu
@@ -70,7 +70,7 @@ MANIFEST_FILE=manifest-off-3.yaml
 # hack/vllm-58420-session-test.sh holds these equal to the Go source, so the stop cannot drift from the work.
 BRINGUP_S=600
 PULL_BOUND_S=1500
-IMAGE_IDENTITY_S=180
+IMAGE_IDENTITY_S=600
 MODEL_BOUND_S=900
 READY_BOUND_S=500
 ARM_IDENTITY_S=90

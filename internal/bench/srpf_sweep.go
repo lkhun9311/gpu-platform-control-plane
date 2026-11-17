@@ -74,7 +74,9 @@ const (
 	// The pull is the readiness preflight's, which applies ReadinessPullBound; a test holds the two equal.
 	SRPFSweepPullBound = 1500 * time.Second
 	// SRPFSweepImageIdentityBound bounds the three identity containers run before the model download.
-	SRPFSweepImageIdentityBound = 180 * time.Second
+	// The first of them to import vllm runs right after the pull, on a cold page cache.
+	// Run 4 on 2026-11-17 was still importing torch two minutes into the overlay probe when an earlier 180 s bound cut it.
+	SRPFSweepImageIdentityBound = 600 * time.Second
 	// SRPFSweepModelBound bounds the model download, which took 105 s on 2026-11-16 and ran past 300 s once.
 	// The download is the readiness preflight's, which applies ReadinessModelBound; a test holds the two equal.
 	SRPFSweepModelBound = 900 * time.Second
