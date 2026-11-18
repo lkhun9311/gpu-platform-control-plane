@@ -1,0 +1,75 @@
+== the vLLM TPOT single-token pytest for vllm-tpot-single-token-2026-11-18, from 9114dea19e530dd6e2bdd16a94e4e356488b6732, into hack/vllm-tpot-20261118T140948Z
+== hard stop 4500 s after LaunchTime; worst case 4800 s at $0.7792/h
+== serving-test-only.diff 9050a74bc947195993d781e861c6c7036eb39a9d1bb44312ecf004ee34f32a7b and fix.diff a17086cf04325c126e89e142763ad9e5fd146b1423c77cd9c06026c090771c64 match their pins
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $0.70/h in: ap-northeast-2c ap-northeast-2d ap-northeast-2a (ap-northeast-2c	0.629000 ap-northeast-2a	0.615400 ap-northeast-2d	0.611500)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 719 minutes
+== creating results bucket tpot-gpu-007635145730
+== creating instance role tpot-gpu
+== waiting for the instance profile to propagate
+== before the purchase: credentials expire in 719 minutes
+== launching g5.xlarge Spot (max $0.70/h compute, $0.7792/h all in), study-deadline 2026-11-18T15:24:23Z -- the instance bills from here
+== launched i-02bba7bad8add9104 in ap-northeast-2c
+== LaunchTime 2026-11-18T14:10:25+00:00; the sweeper's deadline moved to 2026-11-18T15:24:55Z
+== the wait ended with status 0 ()
+== waiting up to 3479s for EC2 to report the instance terminated
+== terminating i-02bba7bad8add9104
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is shutting-down
+== i-02bba7bad8add9104 is terminated
+== evidence returned; termination confirmed; verdict=confirmed

@@ -1,0 +1,13 @@
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_metrics_counts[-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_tpot_skips_single_token_requests[-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_metrics_exist[-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_abort_metrics_reset[-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_metrics_counts[--enable-chunked-prefill-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_tpot_skips_single_token_requests[--enable-chunked-prefill-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_metrics_exist[--enable-chunked-prefill-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_abort_metrics_reset[--enable-chunked-prefill-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_metrics_counts[--show-hidden-metrics-for-version=0.33-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_tpot_skips_single_token_requests[--show-hidden-metrics-for-version=0.33-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_metrics_exist[--show-hidden-metrics-for-version=0.33-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_abort_metrics_reset[--show-hidden-metrics-for-version=0.33-text]
+========== 12 passed, 13 deselected, 3 warnings in 103.61s (0:01:43) ===========

@@ -1,0 +1,269 @@
+diff --git a/docs/design/metrics.md b/docs/design/metrics.md
+index b063939ed1..6cb7a78911 100644
+--- a/docs/design/metrics.md
++++ b/docs/design/metrics.md
+@@ -52,7 +52,7 @@ The subset of metrics exposed in the Grafana dashboard gives us an indication of
+ - `vllm:prompt_tokens` - Prompt tokens.
+ - `vllm:generation_tokens` - Generation tokens.
+ - `vllm:inter_token_latency_seconds` - Inter-token latency in seconds, measured between consecutive streamed outputs. It approximates TPOT when each output contains exactly one token, but differs from request-level TPOT when an output contains multiple tokens or when aggregation weights differ.
+-- `vllm:request_time_per_output_token_seconds` - Per-request Time Per Output Token (TPOT) in seconds, computed as `(end-to-end latency - TTFT) / (number of output tokens - 1)`. It is recorded as zero for requests that generate no more than one token.
++- `vllm:request_time_per_output_token_seconds` - Per-request Time Per Output Token (TPOT) in seconds, computed as `(end-to-end latency - TTFT) / (number of output tokens - 1)`. Requests that generate no more than one token have no decode interval and are not observed, so its `_count` counts only those requests rather than all finished requests.
+ - `vllm:time_to_first_token_seconds` - Time to First Token (TTFT) latency in seconds.
+ - `vllm:num_requests_running` (also, `_swapped` and `_waiting`) - Number of requests in the RUNNING, WAITING, and SWAPPED states.
+ - `vllm:kv_cache_usage_perc` - Percentage of used cache blocks by vLLM.
+@@ -74,9 +74,9 @@ metrics differ when an output bundles multiple tokens (e.g. speculative
+ decoding) or when mean ITL and mean per-request TPOT are aggregated over
+ differing weights. See [Understanding the latency metrics](../benchmarking/cli.md#understanding-the-latency-metrics)
+ for the benchmark definitions. Requests that generate no more than one token
+-are recorded with a TPOT of zero, while `vllm bench serve` excludes them from
+-its TPOT statistics. Therefore, the Prometheus histogram and benchmark TPOT
+-statistics can differ. Use `vllm:request_time_per_output_token_seconds` for
++(for example, prefill-only requests in disaggregated prefill/decode with
++`max_tokens=1`) are not observed, which matches how `vllm bench serve` excludes
++them from its TPOT statistics. Use `vllm:request_time_per_output_token_seconds` for
+ request-level TPOT and `vllm:inter_token_latency_seconds` when you specifically
+ want the inter-output latency distribution.
+ 
+diff --git a/examples/observability/prometheus_grafana/grafana.json b/examples/observability/prometheus_grafana/grafana.json
+index 6144f2bfd3..1de9542d84 100644
+--- a/examples/observability/prometheus_grafana/grafana.json
++++ b/examples/observability/prometheus_grafana/grafana.json
+@@ -484,7 +484,7 @@
+         "type": "prometheus",
+         "uid": "${DS_PROMETHEUS}"
+       },
+-      "description": "Per-request Time Per Output Token (TPOT) in seconds, computed as (end-to-end latency - TTFT) divided by the number of output tokens minus one. Requests with no more than one output token are recorded as zero; vllm bench serve excludes these requests from its TPOT statistics.",
++      "description": "Per-request Time Per Output Token (TPOT) in seconds, computed as (end-to-end latency - TTFT) divided by the number of output tokens minus one. Requests with no more than one output token are not observed, matching how vllm bench serve excludes them from its TPOT statistics.",
+       "fieldConfig": {
+         "defaults": {
+           "color": {
+diff --git a/rust/src/llm/src/request_metrics.rs b/rust/src/llm/src/request_metrics.rs
+index 718cc3642f..5575feb5ce 100644
+--- a/rust/src/llm/src/request_metrics.rs
++++ b/rust/src/llm/src/request_metrics.rs
+@@ -336,12 +336,12 @@ impl RequestMetricsTracker {
+             self.prompt_len.saturating_sub(self.latest_num_cached_tokens);
+         let e2e_latency_seconds = received_at - self.arrival_time;
+         let decode_time_seconds = diff_or_zero(self.last_token_ts, self.first_token_ts);
+-        let time_per_output_token_seconds = if self.num_generation_tokens > 1 {
++        // TPOT needs a decode interval, so requests with fewer than two
++        // generated tokens (e.g. P/D prefill with max_tokens=1) have none.
++        let time_per_output_token_seconds = (self.num_generation_tokens > 1).then(|| {
+             diff_or_zero(self.last_token_ts, self.first_token_ts)
+                 / (self.num_generation_tokens - 1) as f64
+-        } else {
+-            0.0
+-        };
++        });
+ 
+         self.handles.request_success.get(&finish_reason).inc();
+         if self.is_corrupted {
+@@ -378,9 +378,11 @@ impl RequestMetricsTracker {
+             .observe(prefill_kv_computed_tokens as f64);
+         self.handles.e2e_request_latency_seconds.observe(e2e_latency_seconds);
+         self.handles.request_decode_time_seconds.observe(decode_time_seconds);
+-        self.handles
+-            .request_time_per_output_token_seconds
+-            .observe(time_per_output_token_seconds);
++        if let Some(time_per_output_token_seconds) = time_per_output_token_seconds {
++            self.handles
++                .request_time_per_output_token_seconds
++                .observe(time_per_output_token_seconds);
++        }
+ 
+         if let Some(events) = &self.handles.events {
+             let queue_time_seconds = diff_or_zero(self.scheduled_ts, self.queued_ts);
+@@ -561,6 +563,48 @@ mod tests {
+     use super::{
+         RequestMetricsTracker, RequestTimestamps, diff_or_zero, resolve_request_metric_handles,
+     };
++    use crate::FinishReason;
++
++    fn tpot_count(model_name: &str) -> u64 {
++        let rendered = METRICS.render().unwrap();
++        rendered
++            .lines()
++            .find(|line| {
++                line.starts_with("vllm:request_time_per_output_token_seconds_count{")
++                    && line.contains(&format!("model_name=\"{model_name}\""))
++            })
++            .and_then(|line| line.rsplit(' ').next())
++            .map_or(0, |count| count.parse().unwrap())
++    }
++
++    fn finish_after_tokens(model_name: &str, tokens_per_output: &[usize]) {
++        let handles = Arc::new(resolve_request_metric_handles(model_name, 0, true));
++        let mut tracker = RequestMetricsTracker::new(handles, 100.0, 8, Some(16), None, true);
++        for (step, &num_tokens) in tokens_per_output.iter().enumerate() {
++            tracker.observe_output(
++                101.0 + step as f64,
++                101.0 + step as f64,
++                &vllm_engine_core_client::protocol::output::EngineCoreOutput {
++                    request_id: "req".to_string(),
++                    new_token_ids: vec![7; num_tokens],
++                    ..Default::default()
++                },
++            );
++        }
++        tracker.record_finished(110.0, FinishReason::Length);
++    }
++
++    #[test]
++    fn tpot_is_observed_only_for_requests_with_a_decode_interval() {
++        METRICS.request.set_max_model_len(4096);
++        let model_name = "tpot-eligibility";
++        finish_after_tokens(model_name, &[]);
++        finish_after_tokens(model_name, &[1]);
++        assert_eq!(tpot_count(model_name), 0);
++        finish_after_tokens(model_name, &[1, 1]);
++        finish_after_tokens(model_name, &[1, 3]);
++        assert_eq!(tpot_count(model_name), 2);
++    }
+ 
+     #[test]
+     fn tracker_updates_timing_state_across_prefill_decode_and_finish() {
+diff --git a/rust/src/metrics/src/request.rs b/rust/src/metrics/src/request.rs
+index 9f0fb9482d..e4842b09ca 100644
+--- a/rust/src/metrics/src/request.rs
++++ b/rust/src/metrics/src/request.rs
+@@ -243,7 +243,7 @@ impl RequestMetrics {
+         let request_time_per_output_token_seconds = histogram(BucketFamily::InterTokenLatency);
+         registry.register(
+             "vllm:request_time_per_output_token_seconds",
+-            "Histogram of time_per_output_token_seconds per request.",
++            "Histogram of time_per_output_token_seconds per request, observed only for requests that generate more than one token.",
+             request_time_per_output_token_seconds.clone(),
+         );
+ 
+diff --git a/tests/entrypoints/serve/instrumentator/test_metrics.py b/tests/entrypoints/serve/instrumentator/test_metrics.py
+index d9b3fbdcdd..572ca5cdd6 100644
+--- a/tests/entrypoints/serve/instrumentator/test_metrics.py
++++ b/tests/entrypoints/serve/instrumentator/test_metrics.py
+@@ -180,6 +180,40 @@ async def test_metrics_counts(
+         assert found_metric, f"Did not find {metric_family} in prom endpoint"
+ 
+ 
++def _tpot_count(server: RemoteOpenAIServer) -> float:
++    response = requests.get(server.url_for("metrics"))
++    assert response.status_code == HTTPStatus.OK
++    return sum(
++        sample.value
++        for family in text_string_to_metric_families(response.text)
++        for sample in family.samples
++        if sample.name == "vllm:request_time_per_output_token_seconds_count"
++    )
++
++
++@pytest.mark.asyncio
++async def test_tpot_skips_single_token_requests(
++    server: RemoteOpenAIServer,
++    client: openai.AsyncClient,
++    model_key: str,
++):
++    """Requests with one output token (e.g. P/D prefill with max_tokens=1)
++    have no decode interval and must not add TPOT samples."""
++    if model_key == "multimodal":
++        pytest.skip("Unnecessary test")
++
++    model_name = MODELS[model_key]
++    before = _tpot_count(server)
++    for max_tokens in (1, 1, 1, 5, 5):
++        await client.completions.create(
++            model=model_name,
++            prompt=_PROMPT,
++            max_tokens=max_tokens,
++            extra_body={"ignore_eos": True},
++        )
++    assert _tpot_count(server) - before == 2
++
++
+ EXPECTED_METRICS_V1 = [
+     "vllm:num_requests_running",
+     "vllm:num_requests_waiting",
+diff --git a/tests/v1/metrics/test_histogram_buckets.py b/tests/v1/metrics/test_histogram_buckets.py
+index c5d41db054..0f3c226756 100644
+--- a/tests/v1/metrics/test_histogram_buckets.py
++++ b/tests/v1/metrics/test_histogram_buckets.py
+@@ -12,6 +12,7 @@ import pytest
+ from vllm.config import ModelConfig, VllmConfig
+ from vllm.config.observability import ObservabilityConfig
+ from vllm.config.watermarking import WatermarkConfig
++from vllm.v1.engine import FinishReason
+ from vllm.v1.metrics.buckets import (
+     BUCKET_FAMILY_KEYS,
+     build_1_2_5_buckets,
+@@ -19,6 +20,7 @@ from vllm.v1.metrics.buckets import (
+ )
+ from vllm.v1.metrics.loggers import PrometheusStatLogger
+ from vllm.v1.metrics.prometheus import unregister_vllm_metrics
++from vllm.v1.metrics.stats import FinishedRequestStats, IterationStats
+ 
+ pytestmark = pytest.mark.cpu_test
+ 
+@@ -331,3 +333,36 @@ def test_watermark_requests_counter_registration(with_config: bool):
+         assert ("vllm:watermark_requests" in names) == with_config
+     finally:
+         unregister_vllm_metrics()
++
++
++def test_request_tpot_only_observes_requests_with_a_decode_interval():
++    """TPOT is undefined for requests that generate fewer than two tokens
++    (e.g. P/D prefill workers with max_tokens=1), so they must not add
++    zero samples to the histogram."""
++    stats = IterationStats()
++    stats.finished_requests = [
++        FinishedRequestStats(
++            finish_reason=FinishReason.LENGTH,
++            num_generation_tokens=n,
++            mean_time_per_output_token=tpot,
++        )
++        for n, tpot in [(0, 0.0), (1, 0.0), (2, 0.04), (5, 0.06)]
++    ]
++    try:
++        PrometheusStatLogger(build_logger_config(ObservabilityConfig())).record(
++            scheduler_stats=None, iteration_stats=stats
++        )
++        samples = {
++            sample.name: sample.value
++            for metric in prometheus_client.REGISTRY.collect()
++            for sample in metric.samples
++            if sample.name.startswith("vllm:request_time_per_output_token_seconds")
++            and sample.labels.get("le") in (None, "0.01")
++        }
++    finally:
++        unregister_vllm_metrics()
++
++    name = "vllm:request_time_per_output_token_seconds"
++    assert samples[f"{name}_count"] == 2
++    assert samples[f"{name}_sum"] == pytest.approx(0.1)
++    assert samples[f"{name}_bucket"] == 0
+diff --git a/vllm/v1/metrics/loggers.py b/vllm/v1/metrics/loggers.py
+index 2866e462c7..22c97c809f 100644
+--- a/vllm/v1/metrics/loggers.py
++++ b/vllm/v1/metrics/loggers.py
+@@ -955,7 +955,10 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
+ 
+         histogram_request_time_per_output_token = self._histogram_cls(
+             name="vllm:request_time_per_output_token_seconds",
+-            documentation="Histogram of time_per_output_token_seconds per request.",
++            documentation=(
++                "Histogram of time_per_output_token_seconds per request, "
++                "observed only for requests that generate more than one token."
++            ),
+             buckets=inter_token_latency_buckets,
+             labelnames=labelnames,
+         )
+@@ -1327,9 +1330,10 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
+             self.histogram_num_generation_tokens_request[engine_idx].observe(
+                 finished_request.num_generation_tokens
+             )
+-            self.histogram_request_time_per_output_token[engine_idx].observe(
+-                finished_request.mean_time_per_output_token
+-            )
++            if finished_request.num_generation_tokens > 1:
++                self.histogram_request_time_per_output_token[engine_idx].observe(
++                    finished_request.mean_time_per_output_token
++                )
+             if finished_request.max_tokens_param:
+                 self.histogram_max_tokens_request[engine_idx].observe(
+                     finished_request.max_tokens_param

@@ -1,0 +1,11 @@
+import_check=ok
+image=ok
+before_identity=ok
+after_identity=ok
+checkout_head=3a1c6c43df5eb5344a3f853c34fac93c274a372f
+order=ok
+before=failed-as-expected
+before_delta=5
+after=passed
+after_file=passed (12 passed, 0 failed, 0 errors, 0 skipped)
+verdict=confirmed

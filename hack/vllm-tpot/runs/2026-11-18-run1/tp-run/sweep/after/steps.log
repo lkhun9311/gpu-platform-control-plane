@@ -1,0 +1,5 @@
+2026-11-18T14:28:06Z after: loggers imported from /usr/local/lib/python3.12/dist-packages/vllm/v1/metrics/loggers.py; fix line: 1333:            if finished_request.num_generation_tokens > 1: 
+2026-11-18T14:28:06Z after: pytest tpot: -x tests/entrypoints/serve/instrumentator/test_metrics.py -k tpot_skips and text
+2026-11-18T14:30:13Z after: pytest tpot exited 0: =========== 3 passed, 22 deselected, 3 warnings in 111.13s (0:01:51) ===========
+2026-11-18T14:30:13Z after: pytest file: tests/entrypoints/serve/instrumentator/test_metrics.py -k text
+2026-11-18T14:32:11Z after: pytest file exited 0: ========== 12 passed, 13 deselected, 3 warnings in 103.61s (0:01:43) ===========

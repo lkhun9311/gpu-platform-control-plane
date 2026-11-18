@@ -1,0 +1,2 @@
+FAILED tests/entrypoints/serve/instrumentator/test_metrics.py::test_tpot_skips_single_token_requests[-text]
+=========== 1 failed, 22 deselected, 3 warnings in 85.51s (0:01:25) ============
