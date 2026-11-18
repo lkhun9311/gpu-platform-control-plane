@@ -99,6 +99,23 @@ The registered absolute teardown deadline is `TeardownDeadlineSeconds(rate)` aft
 | in the orchestrator | a phase overrunning its bound | before each phase and each cell, the orchestrator compares the time left with that step's bound plus teardown. If it does not fit, the campaign stops as incomplete and the orchestrator exits, so the evidence upload runs within the deadline |
 | on the operator's machine | the instance hanging before its own shutdown | the launcher's EXIT trap calls `spot_terminate`, and a polling loop terminates at the deadline plus a margin |
 
+**The in-process watchdog is built (#597): `SessionWatchdog`.** It is a fourth, outer guard around the whole session, and does not replace the three layers above.
+- It is armed before setup, from EC2's LaunchTime and the session rate, so the rate must be known before setup rather than first read at the bundle step.
+- Teardown begins exactly once: when the session returns, when the operator interrupts it, or at launch + `TeardownDeadlineSeconds`.
+- At the deadline it cancels the session and begins teardown at once, without waiting for the running phase to return.
+  A phase may ignore its context: an engine removal keeps its own 120 s bound after a phase deadline, and a hung docker command keeps none.
+- A deadline already passed or one that cannot be computed tears down without running the session.
+- `TestSessionWatchdogTearsDownAtTheDeadlineWhateverPhaseIsRunning` shows this offline, on a fake clock, with a step that ignores cancellation in each phase: setup, preflight readiness, the calibration ladder, calibration's engine stop, a block's replay through `RunBlocks` and `Visits.Run`, and close.
+  Nothing paid runs.
+
+What it does not show:
+- that the instance terminates, that evidence is uploaded, or any billing ceiling;
+- anything while the process is dead, suspended or not yet started;
+- a teardown that itself hangs, since the watchdog only begins it;
+- a guest clock that is skewed from AWS's LaunchTime, which shifts the deadline by the skew.
+
+Those stay with the guest backstop and the AWS-side enforcer (#616). The watchdog has no production caller until `benchharness version-session` exists (#607).
+
 The release gate requires showing the first layer works:
 - the rehearsal launches nothing paid;
 - a t3 instance run (cents) with a short deadline shows the instance terminating itself while the orchestrator is busy;
