@@ -516,5 +516,12 @@ say "evidence $EVIDENCE (summary at $OUT/ap-run/sweep/summary.tsv); engines full
 [ "$TERMINATION" = confirmed ] || exit 1
 # A paid session whose summary never came back has not delivered what it bought.
 [ "$EVIDENCE" = returned ] || exit 1
-# Evidence of a run in which an engine was not fully measured is kept, and the session still says so.
-[ "$MEASURED" = "6 of 6" ] || exit 2
+# Run 2 exists for the trace, not the benchmark: run1's adaptive engines never finished the warm-up invocation, so a
+# repeat of that stall is the expected outcome and the scored run is not required.
+# Success is the one adaptive engine ready, identified, and traced past the three serial warm-ups, which run1 showed
+# take a few hundred steps; 1,000 timed steps is well into the concurrent phase.
+TRACED=$(awk -F'\t' 'NR > 1 { n++; if ($2 == "adaptive" && $3 == "yes" && $4 == "yes" && $8 > 1000) m++ } END { printf "%d of %d", m, n }' \
+  "$OUT/ap-run/sweep/summary.tsv" 2>>"$OUT/download-errors.txt") || TRACED=unread
+echo "traced=$TRACED" >>"$OUT/outcome.txt"
+say "engines traced into the concurrent phase: $TRACED"
+[ "$TRACED" = "1 of 1" ] || exit 2

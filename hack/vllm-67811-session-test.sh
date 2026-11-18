@@ -36,8 +36,10 @@ check "a rate that puts the worst case over \$1 is refused" "! bash '$WORK/costl
 mkdir -p "$WORK/pkg/vllm/v1/core/sched" "$WORK/probe-out"
 for d in vllm vllm/v1 vllm/v1/core vllm/v1/core/sched; do : > "$WORK/pkg/$d/__init__.py"; done
 cat > "$WORK/pkg/vllm/v1/core/sched/adaptive_prefill.py" <<'EOF'
-class Budget:
+class PrefillBudget:
     limit_ms, request_limit_ms, force_progress = 3.5, None, False
+    def limit(self, request_id, tokens, context):
+        return 0 if request_id == "w" else tokens
 class Step:
     def __init__(self, units):
         self.units, self.decode_reqs, self.reserved_ms = units, 1, units * 0.02
@@ -45,7 +47,7 @@ class AdaptivePrefillController:
     def __init__(self):
         self.token_ms, self.decode_ms, self.scale, self.credit_ms, self.pending = 0.02, 1.0, 1.0, 0.0, {}
     def begin(self, now, decode_reqs, max_tokens, prefill_ids):
-        return Budget()
+        return PrefillBudget()
     def commit(self, step_id, budget, actual, contexts, decode_reqs, now):
         self.pending[step_id] = Step(sum(c for r, c in actual.items() if r in contexts))
     def complete(self, step_id, device_ms):
@@ -57,12 +59,13 @@ EOF
 AP_PROBE_DIR="$WORK/probe-out" AP_SLOT=t PYTHONPATH="$ROOT/hack/vllm-67811/probe:$WORK/pkg" python3 -c '
 from vllm.v1.core.sched.adaptive_prefill import AdaptivePrefillController as C
 c = C()
-assert c.begin(0.0, 1, 8192, {"p"}).limit_ms == 3.5
-c.commit(7, None, {"p": 64, "d": 1}, {"p": 0}, 1, 0.0)
+b = c.begin(0.0, 1, 8192, {"p", "w"})
+assert b.limit_ms == 3.5 and b.limit("p", 64, 0) == 64 and b.limit("w", 16, 0) == 0
+c.commit(7, b, {"p": 64, "d": 1}, {"p": 0}, 1, 0.0)
 assert c.complete(7, 12.5) == 7
 c.complete(8, None)'
 check "the probe traces begin, commit and complete with what each was given" \
-  "[ \"\$(cat '$WORK'/probe-out/probe-t-*.jsonl | wc -l)\" = 4 ] && grep -q '\"device_ms\": 12.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"commit\".*\"prefill_tokens\": 64.*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"begin\".*\"limit_ms\": 3.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"complete\".*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl"
+  "[ \"\$(cat '$WORK'/probe-out/probe-t-*.jsonl | wc -l)\" = 4 ] && grep -q '\"device_ms\": 12.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"commit\".*\"prefill_tokens\": 64.*\"limit_zero\": \[\"w\"\].*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"begin\".*\"limit_ms\": 3.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"complete\".*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl"
 
 # The runner's whole path, against fakes that answer as the image and the engine would.
 mkfakes() {
@@ -174,6 +177,10 @@ cls=$(grep -A1 '^  MEASURED=$(awk' "$S" | head -1 | sed "s/^  MEASURED=\$(awk -F
 classify() { printf 'slot\tarm\tready\tidentity\twarmup\tscored_ok\tscored_runs\tprobe_timed_steps\n%b' "$1" | awk -F'\t' "$cls"; }
 check "the session counts a fully measured adaptive engine" "[ \"\$(classify '2\tadaptive\tyes\tyes\tyes\t5\t5\t40\n')\" = '1 of 1' ]"
 check "the session does not count an adaptive engine with no timed steps" "[ \"\$(classify '2\tadaptive\tyes\tyes\tyes\t5\t5\t0\n')\" = '0 of 1' ]"
+traced() { printf 'slot\tarm\tready\tidentity\twarmup\tscored_ok\tscored_runs\tprobe_timed_steps\n%b' "$1" |
+  awk -F'\t' "$(grep -m1 '^TRACED=$(awk' "$S" | sed "s/^TRACED=\$(awk -F'\\\\t' '//; s/' \\\\\$//")"; }
+check "the session's success is a ready, identified adaptive engine traced past 1,000 steps, warm-up or not" \
+  "[ \"\$(traced '1\tadaptive\tyes\tyes\tno\t0\t1\t9000\n')\" = '1 of 1' ] && [ \"\$(traced '1\tadaptive\tyes\tyes\tno\t0\t1\t400\n')\" = '0 of 1' ] && [ \"\$(traced '1\tadaptive\tyes\tno\tno\t0\t1\t9000\n')\" = '0 of 1' ]"
 check "the session does not count an engine whose warm-up failed" "[ \"\$(classify '1\tbase\tyes\tyes\tno\t5\t5\tn/a\n')\" = '0 of 1' ]"
 
 if [[ $failures -ne 0 ]]; then
