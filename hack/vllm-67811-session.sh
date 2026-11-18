@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 #
-# The vLLM #67811 adaptive-prefill measurement: one g5.xlarge Spot instance, one attempt, stopped by itself 13,140 s after
+# The vLLM #67811 adaptive-prefill measurement: one g5.xlarge Spot instance, one attempt, stopped by itself 4,040 s after
 # launch.
 #
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM67811_AMI_ID=ami-... bash hack/vllm-67811-session.sh
 #
 # PR #67811 (draft) adds an opt-in prefill time budget, --adaptive-prefill. Its author says the next required gate is a
 # real GPU run of benchmarks/adaptive_prefill/serve.py, baseline against the flag, on identical hardware, model,
-# budgets and arrival traces. The owner approved one paid session on 2026-11-18.
+# budgets and arrival traces. The owner approved one paid session on 2026-11-18 (run1, six engines).
+# Run 2 (owner, 2026-11-18, "A 진행", cap $1): both adaptive engines of run1 stalled in the warm-up invocation, and a CPU
+# replay of the scheduler reproduces the stall only when an assumed per-token prefill cost is
+# under a threshold between 0.11 and 0.14 ms, and run1 cannot say which side the A10G is on.
+# Run 2 starts one adaptive engine and traces every controller call, begin, commit and complete, past the warm-up,
+# so the per-token cost and the allowance in the stalled phase are measured rather than modelled.
 # On the instance it runs only hack/vllm-67811/runner.sh: the pull of vLLM CI's image of the PR's merge base, a check
-# that the image ships the merge base's files, the model download, then six fresh engines in the order base, adaptive,
-# t512, t512, adaptive, base. Each runs the PR's serve.py once as an unscored warm-up and five times scored, under
-# the seeds 62574 to 62578 that every engine shares.
-# t512 is the base engine with --long-prefill-token-threshold 512, to show what a smaller fixed chunk alone does.
+# that the image ships the merge base's files, the model download, then one fresh adaptive engine that runs the PR's
+# serve.py once as an unscored warm-up and once scored, under seed 62574.
+# Run1 also ran base and t512 (--long-prefill-token-threshold 512); their results are in hack/vllm-67811/2026-11-18-run1.
 # It shares its EC2 lifecycle with hack/vllm-58420-session.sh (hack/lib/spot-run.sh).
 #
 # THE BUILD.
@@ -29,26 +33,25 @@
 # instance to read.
 # The work is bounded step by step, and the deadlines are their sum:
 #   bring-up (boot, cloud-init, downloads, toolkit)                       600 s -> 600
-#   image pull                                                           2,400 s
+#   image pull (run1 took 792 s on the provisioned volume)               1,500 s
 #   base identity                                                          300 s
-#   model download                                                         900 s
-#   six engines, each ready 450 + identity 60 + metrics 2 x 10 + warm-up 150 + five runs 5 x 150 + stop 30 = 1,460 s
-#                                                               6 x 1,460 = 8,760 s
-#   so the runner ends by 600 + 2,400 + 300 + 900 + 8,760               = 12,960 s
-#   evidence upload                                                        120 s -> 13,080
-# The launch carries the termination sweeper's study-deadline tag at the request plus 13,080 s, rewritten to LaunchTime
-# plus 13,110 s once LaunchTime is known; the instance shuts itself down at 13,140 s; the termination is to be
-# confirmed by 13,440 s, the sweeper's five-minute period after its tag plus 30 s.
+#   model download (run1 took 26 s)                                        600 s
+#   one engine, ready 450 + identity 60 + metrics 2 x 10 + warm-up 150 + one run 150 + stop 30 = 860 s
+#   so the runner ends by 600 + 1,500 + 300 + 600 + 860                 = 3,860 s
+#   evidence upload                                                        120 s -> 3,980
+# The launch carries the termination sweeper's study-deadline tag at the request plus 3,980 s, rewritten to LaunchTime
+# plus 4,010 s once LaunchTime is known; the instance shuts itself down at 4,040 s; the termination is to be
+# confirmed by 4,340 s, the sweeper's five-minute period after its tag plus 30 s.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 13,440 s = 3.7333 h.
-# At the $0.70/h Spot cap below that is $2.6133 of compute.
+# The worst case bills to the termination deadline: 4,340 s = 1.2056 h.
+# At the $0.70/h Spot cap below that is $0.8439 of compute.
 # The other sessions add $0.0324/h for 200 GB gp3 and a public IPv4 (hack/gpu-fault-session.sh).
 # Like the #58420 session, this one provisions the volume to 500 MiB/s and 6,000 IOPS, which cut that study's pull from
 # over 1,500 s to about 800 s; at Seoul's $0.0456 per MiB/s-month and $0.0057 per IOPS-month over 730 h that adds
 # 375 x 0.0456 / 730 + 3,000 x 0.0057 / 730 = $0.0468/h.
-# So it is $0.7792/h all in, and $2.909, under $3.
-# The script refuses to run if the constants below stop giving a worst case under $3.
+# So it is $0.7792/h all in, and $0.9394, under $1.
+# The script refuses to run if the constants below stop giving a worst case under $1.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the arms, the bounds and the stop are constants,
 # and a caller who sets one is refused rather than ignored.
@@ -64,8 +67,8 @@ MAX_PRICE_FIXED=0.70
 ALL_IN_RATE=0.7792
 EBS_THROUGHPUT_MIBPS=500
 EBS_IOPS=6000
-COST_CAP_USD=3.00
-STUDY_ID=vllm-67811-adaptive-prefill-2026-11-18
+COST_CAP_USD=1.00
+STUDY_ID=vllm-67811-adaptive-trace-2026-11-18
 STACK=ap67811-gpu
 PURPOSE=vllm-67811-adaptive-prefill
 # The PR head; every file fetched from it is checked against the hashes pinned in the runner.
@@ -77,17 +80,17 @@ BENCH_FILES="benchmarks/adaptive_prefill/serve.py fac101e873a45938085d6c491d04a1
 benchmarks/adaptive_prefill/compare.py 2c9db66ae0b6589794163ca0a62299b5229d502439a27cf3cdf521d58911c9fd"
 # The step bounds, each the runner's own; hack/vllm-67811-session-test.sh holds the two equal.
 BRINGUP_S=600
-PULL_BOUND_S=2400
+PULL_BOUND_S=1500
 BASE_ID_S=300
-MODEL_BOUND_S=900
+MODEL_BOUND_S=600
 READY_S=450
 ID_S=60
 METRICS_S=10
 WARMUP_S=150
 RUN_S=150
-RUNS=5
+RUNS=1
 STOP_S=30
-ENGINES=6
+ENGINES=1
 EVIDENCE_UPLOAD_S=120
 ENGINE_S=$(( READY_S + ID_S + 2 * METRICS_S + WARMUP_S + RUNS * RUN_S + STOP_S ))
 HARNESS_END_S=$(( BRINGUP_S + PULL_BOUND_S + BASE_ID_S + MODEL_BOUND_S + ENGINES * ENGINE_S ))

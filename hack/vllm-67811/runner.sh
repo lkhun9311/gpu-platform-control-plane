@@ -1,6 +1,6 @@
 #!/bin/bash
-# The on-instance part of hack/vllm-67811-session.sh: pull, identity, model download, then six engines in the order
-# base, adaptive, t512, t512, adaptive, base, each running the PR's own benchmark once to warm up and five times scored.
+# The on-instance part of hack/vllm-67811-session.sh: pull, identity, model download, then one adaptive engine
+# (run 2), running the PR's own benchmark once to warm up and once scored, with every controller call traced.
 #
 #   runner.sh <dir with the fetched inputs> <out dir> <harness-end epoch>
 #
@@ -14,17 +14,17 @@ IMG="public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:c0c20a4cded4c7a33b479
 MODEL=Qwen/Qwen2.5-3B-Instruct
 REV=aa8e72537993ba99e69dfaafa59ed015b17504d1
 SITE=/usr/local/lib/python3.12/dist-packages
-PULL_S=2400
+PULL_S=1500
 BASE_ID_S=300
-MODEL_S=900
+MODEL_S=600
 READY_S=450
 ID_S=60
 WARMUP_S=150
 RUN_S=150
-RUNS=5
+RUNS=1
 METRICS_S=10
 STOP_S=30
-SEEDS="62574 62575 62576 62577 62578"
+SEEDS="62574"
 # path in the package, sha256 at the PR head, sha256 at the merge base ("-" for the new file)
 OVERLAYS="vllm/config/scheduler.py 235f4f23be12c03ab3c4184e134797cca5947c864af295eefa62c4c2ff28e1bf 55df4cbe4465c711c7ce26bbe2c49a641331a6d73487d85538e0010c9c4c47f3
 vllm/engine/arg_utils.py 1bcfc89c5a5d3a038e617c29cc4b5a09917d6d5f808f3577c5b89d3b7f9f6b5b 07cec047290935f5077c589ec157e3057a59f95036872562602801572e8ec55c
@@ -34,7 +34,7 @@ vllm/v1/outputs.py 1c3fb383d6931ae7ffd93bf67d1892e8e6c09e37794fab9630aa963dcbf18
 vllm/v1/worker/gpu/async_utils.py 36eb2c44f33d983d1f53038f99f7700add3736cbe46eddeee5fcb9f86918eb7b a8efebea81cc75016cf52f8183bb4d691b31567108cec0f38de3ca842b061fa9
 vllm/v1/worker/gpu/model_runner.py d0dd317bc16d0475f46897055c5ecc4b80a95e02ccb55c703674d4bb6b3a5f33 8e8c878427ca1bb38857d52c204768fffc11a078a88a74f3a2285e54603eef40"
 # slot:arm, in the run order; each slot is a fresh engine
-SLOTS="1:base 2:adaptive 3:t512 4:t512 5:adaptive 6:base"
+SLOTS="1:adaptive"
 
 mkdir -p "$D"
 step() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" | tee -a "$D/steps.log"; }

@@ -27,19 +27,29 @@ check "every step bound in the session is the runner's own" "[ $same = 1 ]"
 slots=$(grep -m1 '^SLOTS=' "$R" | tr -cd ':' | wc -c)
 check "the session's engine count is the runner's slot count ($slots)" "[ \"$(grep -m1 '^ENGINES=' "$S" | cut -d= -f2)\" = $slots ]"
 sched=$(bash "$S" --print-schedule 2>&1)
-check "the schedule is the bounds' sum ($sched)" "[ '$sched' = 'harness_end_s=12960 evidence_s=13080 stop_s=13140 termination_s=13440' ]"
+check "the schedule is the bounds' sum ($sched)" "[ '$sched' = 'harness_end_s=3860 evidence_s=3980 stop_s=4040 termination_s=4340' ]"
 check "the runner pins seven overlays" "[ \"\$(sed -n '/^OVERLAYS=\"/,/\"\$/p' '$R' | grep -c ' [0-9a-f]\\{64\\} ')\" = 7 ]"
 cp "$S" "$WORK/costly.sh"; sed -i 's/^ALL_IN_RATE=.*/ALL_IN_RATE=0.90/' "$WORK/costly.sh"
-check "a rate that puts the worst case over \$3 is refused" "! bash '$WORK/costly.sh' --print-schedule >/dev/null 2>&1"
+check "a rate that puts the worst case over \$1 is refused" "! bash '$WORK/costly.sh' --print-schedule >/dev/null 2>&1"
 
-# The probe must wrap the controller once its module is imported, and record what complete() is given.
+# The probe must wrap the controller once its module is imported, and trace begin, commit and complete with their state.
 mkdir -p "$WORK/pkg/vllm/v1/core/sched" "$WORK/probe-out"
 for d in vllm vllm/v1 vllm/v1/core vllm/v1/core/sched; do : > "$WORK/pkg/$d/__init__.py"; done
 cat > "$WORK/pkg/vllm/v1/core/sched/adaptive_prefill.py" <<'EOF'
+class Budget:
+    limit_ms, request_limit_ms, force_progress = 3.5, None, False
+class Step:
+    def __init__(self, units):
+        self.units, self.decode_reqs, self.reserved_ms = units, 1, units * 0.02
 class AdaptivePrefillController:
     def __init__(self):
-        self.token_ms, self.decode_ms, self.scale = 0.02, 1.0, 1.0
+        self.token_ms, self.decode_ms, self.scale, self.credit_ms, self.pending = 0.02, 1.0, 1.0, 0.0, {}
+    def begin(self, now, decode_reqs, max_tokens, prefill_ids):
+        return Budget()
+    def commit(self, step_id, budget, actual, contexts, decode_reqs, now):
+        self.pending[step_id] = Step(sum(c for r, c in actual.items() if r in contexts))
     def complete(self, step_id, device_ms):
+        self.pending.pop(step_id, None)
         if device_ms:
             self.token_ms = device_ms / 1000
         return step_id
@@ -47,10 +57,12 @@ EOF
 AP_PROBE_DIR="$WORK/probe-out" AP_SLOT=t PYTHONPATH="$ROOT/hack/vllm-67811/probe:$WORK/pkg" python3 -c '
 from vllm.v1.core.sched.adaptive_prefill import AdaptivePrefillController as C
 c = C()
+assert c.begin(0.0, 1, 8192, {"p"}).limit_ms == 3.5
+c.commit(7, None, {"p": 64, "d": 1}, {"p": 0}, 1, 0.0)
 assert c.complete(7, 12.5) == 7
 c.complete(8, None)'
-check "the probe records each complete() call with what it was fed" \
-  "[ \"\$(cat '$WORK'/probe-out/probe-t-*.jsonl | wc -l)\" = 2 ] && grep -q '\"device_ms\": 12.5' '$WORK'/probe-out/probe-t-*.jsonl"
+check "the probe traces begin, commit and complete with what each was given" \
+  "[ \"\$(cat '$WORK'/probe-out/probe-t-*.jsonl | wc -l)\" = 4 ] && grep -q '\"device_ms\": 12.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"commit\".*\"prefill_tokens\": 64.*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"begin\".*\"limit_ms\": 3.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"complete\".*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl"
 
 # The runner's whole path, against fakes that answer as the image and the engine would.
 mkfakes() {
@@ -116,25 +128,25 @@ runfake() {
 }
 mkdir -p "$WORK/in"
 runfake good env
-check "the runner completes all six engines, each with identity and five scored runs" \
-  "grep -q 'all engines done' '$WORK/out-good/steps.log' && [ \"\$(awk -F'\t' 'NR>1 && \$3==\"yes\" && \$4==\"yes\" && \$5==\"yes\" && \$6==5' '$WORK/out-good/summary.tsv' | wc -l)\" = 6 ]"
-check "the arms run in the order base, adaptive, t512, t512, adaptive, base" \
-  "[ \"\$(awk -F'\t' 'NR>1{printf \"%s \", \$2}' '$WORK/out-good/summary.tsv')\" = 'base adaptive t512 t512 adaptive base ' ]"
-check "only the adaptive engines get --adaptive-prefill, and only t512 gets threshold 512" \
-  "grep -q -- '--adaptive-prefill' '$WORK/state/calls' && [ \"\$(grep -c 'run -d .*--adaptive-prefill' '$WORK/state/calls')\" = 2 ] && [ \"\$(grep -c 'run -d .*--long-prefill-token-threshold 512' '$WORK/state/calls')\" = 2 ]"
-check "every engine runs with prefix caching off, the probe on its path, and the seven overlays mounted read-only" \
-  "[ \"\$(grep -c 'run -d .*--no-enable-prefix-caching.*' '$WORK/state/calls')\" = 6 ] && [ \"\$(grep 'run -d' '$WORK/state/calls' | grep -c 'PYTHONPATH=/probe')\" = 6 ] && [ \"\$(grep -m1 'run -d' '$WORK/state/calls' | grep -o 'dist-packages/vllm/[^ ]*:ro' | wc -l)\" = 7 ]"
-check "every scored run uses the shared seeds" "[ \"\$(grep -c 'serve.py.*--seed 6257[4-8]' '$WORK/state/calls')\" = 30 ]"
+check "the runner completes its one engine with identity and its one scored run" \
+  "grep -q 'all engines done' '$WORK/out-good/steps.log' && [ \"\$(awk -F'\t' 'NR>1 && \$3==\"yes\" && \$4==\"yes\" && \$5==\"yes\" && \$6==1' '$WORK/out-good/summary.tsv' | wc -l)\" = 1 ]"
+check "the one engine is adaptive" \
+  "[ \"\$(awk -F'\t' 'NR>1{printf \"%s \", \$2}' '$WORK/out-good/summary.tsv')\" = 'adaptive ' ]"
+check "the engine gets --adaptive-prefill and the 1024 threshold" \
+  "[ \"\$(grep -c 'run -d .*--adaptive-prefill' '$WORK/state/calls')\" = 1 ] && [ \"\$(grep -c 'run -d .*--long-prefill-token-threshold 1024' '$WORK/state/calls')\" = 1 ]"
+check "the engine runs with prefix caching off, the probe on its path, and the seven overlays mounted read-only" \
+  "[ \"\$(grep -c 'run -d .*--no-enable-prefix-caching.*' '$WORK/state/calls')\" = 1 ] && [ \"\$(grep 'run -d' '$WORK/state/calls' | grep -c 'PYTHONPATH=/probe')\" = 1 ] && [ \"\$(grep -m1 'run -d' '$WORK/state/calls' | grep -o 'dist-packages/vllm/[^ ]*:ro' | wc -l)\" = 7 ]"
+check "the scored run uses run1's first seed" "[ \"\$(grep -c 'serve.py.*--seed 62574' '$WORK/state/calls')\" = 1 ]"
 
 runfake badbase env FAKE_BAD_BASE=vllm/v1/outputs.py
 check "an image whose package is not the merge base's is refused before any engine starts" \
   "grep -q 'BASE IDENTITY FAILED' '$WORK/out-badbase/steps.log' && ! grep -q 'run -d' '$WORK/state/calls'"
 runfake wronghead env FAKE_WRONG_HEAD=vllm/v1/core/sched/scheduler.py
 check "an engine importing a file that is not the PR head's is not measured" \
-  "[ \"\$(awk -F'\t' 'NR>1 && \$4==\"no\"' '$WORK/out-wronghead/summary.tsv' | wc -l)\" = 6 ] && ! grep -q 'serve.py' '$WORK/state/calls'"
-runfake dropflag env FAKE_DROP_FLAG=ap-2-adaptive
+  "[ \"\$(awk -F'\t' 'NR>1 && \$4==\"no\"' '$WORK/out-wronghead/summary.tsv' | wc -l)\" = 1 ] && ! grep -q 'serve.py' '$WORK/state/calls'"
+runfake dropflag env FAKE_DROP_FLAG=ap-1-adaptive
 check "an adaptive engine whose args do not show the flag is not measured" \
-  "awk -F'\t' 'NR>1 && \$1==2 && \$4==\"no\"' '$WORK/out-dropflag/summary.tsv' | grep -q . && awk -F'\t' 'NR>1 && \$1==5 && \$4==\"yes\"' '$WORK/out-dropflag/summary.tsv' | grep -q ."
+  "awk -F'\t' 'NR>1 && \$1==1 && \$4==\"no\"' '$WORK/out-dropflag/summary.tsv' | grep -q . && ! grep -q 'serve.py' '$WORK/state/calls'"
 
 # The identity line the runner validates must be the one its own Python prints, not one a fake produces for it.
 mkdir -p "$WORK/idpkg/vllm"
@@ -151,9 +163,9 @@ check "the runner's identity check matches the lines its own Python prints" "[ -
 
 runfake nowarm env FAKE_FAIL_WARMUP=1
 check "an engine whose warm-up fails runs no scored run" \
-  "! grep -q 'serve.py.*--seed 6257' '$WORK/state/calls' && [ \"\$(awk -F'\t' 'NR>1 && \$5==\"no\" && \$6==0' '$WORK/out-nowarm/summary.tsv' | wc -l)\" = 6 ]"
+  "! grep -q 'serve.py.*--seed 6257' '$WORK/state/calls' && [ \"\$(awk -F'\t' 'NR>1 && \$5==\"no\" && \$6==0' '$WORK/out-nowarm/summary.tsv' | wc -l)\" = 1 ]"
 check "each benchmark is bounded inside the container, not only by the docker client" \
-  "grep -q 'exec ap-1-base timeout --kill-after=5 ' '$WORK/state/calls'"
+  "grep -q 'exec ap-1-adaptive timeout --kill-after=5 ' '$WORK/state/calls'"
 
 # The session's own classification: a row counts only with a warm-up, every scored run, and, if adaptive, timed steps.
 meas() { printf 'slot\tarm\tready\tidentity\twarmup\tscored_ok\tscored_runs\tprobe_timed_steps\n%b' "$1" > "$WORK/sum.tsv"
