@@ -1,0 +1,1467 @@
+{
+  "study": "vllm-58420-threshold-2026-11-19",
+  "orderSeed": 58420,
+  "order": [
+    "priority",
+    "srpf-s10",
+    "srpf-s2",
+    "srpf-s5",
+    "fcfs",
+    "srpf-s3",
+    "srpf-s8"
+  ],
+  "image": {
+    "image": "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+    "schedulerPath": "/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py",
+    "installedSHA256": "b67848721847aa8f45cddee43cabdbb2f35205eb3b441e16d79823d30f3be097",
+    "overlaidSHA256": "2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a",
+    "overlaidFile": "/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py",
+    "vllmVersion": "0.34.0rc1.dev527+g5039f736e",
+    "probes": [
+      "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"b67848721847aa8f45cddee43cabdbb2f35205eb3b441e16d79823d30f3be097\"}\n",
+      "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a\", \"size\": 187139, \"observed\": true, \"schedulers\": [], \"srpfKey\": true, \"env\": null, \"starvation\": null, \"pycachePrefix\": \"/tmp/srpf-pycache\", \"pyc\": \"/tmp/srpf-pycache/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.cpython-312.pyc\", \"pycFlags\": null, \"pycSourceSize\": null, \"procs\": []}\n",
+      "0.34.0rc1.dev527+g5039f736e\n"
+    ]
+  },
+  "pull": {
+    "step": "pull",
+    "image": "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+    "startedAt": "2026-11-18T16:43:01.562698372Z",
+    "endedAt": "2026-11-18T16:53:15.600598073Z",
+    "seconds": 614.037899691,
+    "output": "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467: Pulling from q9t5s3a7/vllm-ci-postmerge-repo\n1bae3bd8e6f3: Pulling fs layer\ncadd9bfc22ce: Pulling fs layer\nff5ebf479aa4: Pulling fs layer\nfcc58da23186: Pulling fs layer\n411feab6475d: Pulling fs layer\nd1039feaf659: Pulling fs layer\nc8301da3f912: Pulling fs layer\n0da79dda8204: Pulling fs layer\n73a6875cac26: Pulling fs layer\nc6696efb710a: Pulling fs layer\n49e402a439d2: Pulling fs layer\nd31381c09d77: Pulling fs layer\n1f13b78cc406: Pulling fs layer\n8b1531d79ac0: Pulling fs layer\n2c1ce468d9f3: Pulling fs layer\nd2c469cad667: Pulling fs layer\n42599b19637f: Pulling fs layer\ncb94c080e26e: Pulling fs layer\n1ee3632a7163: Pulling fs layer\n9bae01a60a53: Pulling fs layer\n5a2abceb90a7: Pulling fs layer\nee1dd810ead2: Pulling fs layer\n847aa81b1167: Pulling fs layer\n1fd15bd1a79b: Pulling fs layer\nb82f3b9ccd7e: Pulling fs layer\nd695ecc3e426: Pulling fs layer\nadb89e03cefe: Pulling fs layer\neaf305372b3b: Pulling fs layer\n5df02146e90e: Pulling fs layer\n87b492e505a5: Pulling fs layer\nad83e26b6ccd: Pulling fs layer\n5f8488a6b79b: Pulling fs layer\n7f95de27b416: Pulling fs layer\n498c45b904e3: Pulling fs layer\nd76afadfacec: Pulling fs layer\n2c1ce468d9f3: Pulling fs layer\ne7e44b122baf: Pulling fs layer\n664fbadbe1db: Pulling fs layer\nf076bcf9f9f3: Pulling fs layer\nea26bc2740b5: Pulling fs layer\n5e1f31f94d40: Pulling fs layer\na81f214a1478: Pulling fs layer\n73ce7951613f: Pulling fs layer\n772cdc60132d: Pulling fs layer\n8d3a603e8c2c: Pulling fs layer\n771f9c4b9027: Pulling fs layer\n4b8ed8a88546: Pulling fs layer\n255280353fdf: Pulling fs layer\ne21cb33741cb: Pulling fs layer\n37c2114ce45a: Pulling fs layer\n1914c8cdc40c: Pulling fs layer\n2c1ce468d9f3: Pulling fs layer\n7c73c6e55b6e: Pulling fs layer\n8b1531d79ac0: Download complete\n411feab6475d: Download complete\nd1039feaf659: Download complete\n1bae3bd8e6f3: Download complete\ncadd9bfc22ce: Download complete\nff5ebf479aa4: Download complete\nc8301da3f912: Download complete\nd31381c09d77: Download complete\nfcc58da23186: Download complete\nc6696efb710a: Download complete\ncadd9bfc22ce: Pull complete\nff5ebf479aa4: Pull complete\n1f13b78cc406: Download complete\n73a6875cac26: Download complete\n2c1ce468d9f3: Download complete\nd2c469cad667: Download complete\n49e402a439d2: Download complete\ncb94c080e26e: Download complete\n1ee3632a7163: Download complete\n42599b19637f: Download complete\n847aa81b1167: Download complete\n9bae01a60a53: Download complete\n1fd15bd1a79b: Download complete\n5a2abceb90a7: Download complete\nee1dd810ead2: Download complete\n0da79dda8204: Download complete\neaf305372b3b: Download complete\n5df02146e90e: Download complete\nd695ecc3e426: Download complete\nad83e26b6ccd: Download complete\n87b492e505a5: Download complete\n5f8488a6b79b: Download complete\n7f95de27b416: Download complete\ne7e44b122baf: Download complete\n498c45b904e3: Download complete\n664fbadbe1db: Download complete\nadb89e03cefe: Download complete\nd76afadfacec: Download complete\nf076bcf9f9f3: Download complete\nea26bc2740b5: Download complete\n5e1f31f94d40: Download complete\n8d3a603e8c2c: Download complete\n772cdc60132d: Download complete\n771f9c4b9027: Download complete\ne21cb33741cb: Download complete\na81f214a1478: Download complete\n4b8ed8a88546: Download complete\n255280353fdf: Download complete\n1914c8cdc40c: Download complete\n37c2114ce45a: Download complete\n7c73c6e55b6e: Download complete\n7c73c6e55b6e: Pull complete\nd76afadfacec: Pull complete\nd1039feaf659: Pull complete\n1fd15bd1a79b: Pull complete\neaf305372b3b: Pull complete\ne7e44b122baf: Pull complete\n5a2abceb90a7: Pull complete\n0da79dda8204: Pull complete\n9bae01a60a53: Pull complete\nc6696efb710a: Pull complete\nee1dd810ead2: Pull complete\n8b1531d79ac0: Pull complete\nd31381c09d77: Pull complete\n2c1ce468d9f3: Pull complete\n1ee3632a7163: Pull complete\n7f95de27b416: Pull complete\n42599b19637f: Pull complete\n664fbadbe1db: Pull complete\n73ce7951613f: Download complete\nb82f3b9ccd7e: Download complete\nb82f3b9ccd7e: Pull complete\nad83e26b6ccd: Pull complete\na81f214a1478: Pull complete\n847aa81b1167: Pull complete\nf076bcf9f9f3: Pull complete\nea26bc2740b5: Pull complete\n411feab6475d: Pull complete\nc8301da3f912: Pull complete\nfcc58da23186: Pull complete\n73a6875cac26: Pull complete\n1f13b78cc406: Pull complete\nd2c469cad667: Pull complete\n49e402a439d2: Pull complete\ncb94c080e26e: Pull complete\n73ce7951613f: Pull complete\n5df02146e90e: Pull complete\n772cdc60132d: Pull complete\nadb89e03cefe: Pull complete\n5e1f31f94d40: Pull complete\n4b8ed8a88546: Pull complete\n498c45b904e3: Pull complete\n8d3a603e8c2c: Pull complete\n771f9c4b9027: Pull complete\n255280353fdf: Pull complete\ne21cb33741cb: Pull complete\n1914c8cdc40c: Pull complete\nd695ecc3e426: Pull complete\n37c2114ce45a: Pull complete\n87b492e505a5: Pull complete\n5f8488a6b79b: Pull complete\n1bae3bd8e6f3: Pull complete\nDigest: sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467\nStatus: Downloaded newer image for public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467\npublic.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467\n"
+  },
+  "modelDownload": {
+    "step": "model-download",
+    "image": "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+    "startedAt": "2026-11-18T16:54:46.394972507Z",
+    "endedAt": "2026-11-18T16:55:08.604747481Z",
+    "seconds": 22.209774974
+  },
+  "arms": [
+    {
+      "name": "priority",
+      "policy": "priority",
+      "threshold": 0,
+      "srpf": false,
+      "starvationThreshold": 0,
+      "position": 1,
+      "outcome": "measured",
+      "containerID": "bcf296356a145574f68d815366a1e4958760a0f08d0fe8c39a4bfab6879bf71a",
+      "runArgs": [
+        "run",
+        "--detach",
+        "--name=srpf-priority",
+        "--gpus=all",
+        "--shm-size=1g",
+        "--workdir=/",
+        "--env=VLLM_SERVER_DEV_MODE=1",
+        "--env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache",
+        "--publish=127.0.0.1:8000:8000",
+        "--volume=/opt/sr/hf:/root/.cache/huggingface",
+        "--volume=/opt/sr/compile/priority:/root/.cache/vllm",
+        "--volume=/opt/sr/scheduler.py:/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py:ro",
+        "--volume=/src/sr-run/sweep/observe/srpf_observe.py:/usr/local/lib/python3.12/dist-packages/srpf_observe.py:ro",
+        "--volume=/src/sr-run/sweep/observe/zz_srpf_observe.pth:/usr/local/lib/python3.12/dist-packages/zz_srpf_observe.pth:ro",
+        "--label=study=srpf-sweep",
+        "--entrypoint=env",
+        "--label=platform.lkhun9311.github.io/attempt=4780a322ec518404",
+        "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+        "-u",
+        "VLLM_GPU_SYNC_CHECK",
+        "vllm",
+        "serve",
+        "Qwen/Qwen2.5-3B-Instruct",
+        "--dtype=half",
+        "--max-model-len=16384",
+        "--max-num-seqs=64",
+        "--gpu-memory-utilization=0.90",
+        "--no-enable-prefix-caching",
+        "--max-num-batched-tokens=512",
+        "--scheduling-policy=priority",
+        "--no-async-scheduling",
+        "--port=8000",
+        "--served-model-name=Qwen/Qwen2.5-3B-Instruct",
+        "--revision=aa8e72537993ba99e69dfaafa59ed015b17504d1",
+        "--tokenizer-revision=aa8e72537993ba99e69dfaafa59ed015b17504d1"
+      ],
+      "dockerRunAt": "2026-11-18T16:55:08.610526065Z",
+      "healthSeconds": 162.04747822,
+      "nonDefaultArgs": "non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'tokenizer_revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'max_model_len': 16384, 'served_model_name': ['Qwen/Qwen2.5-3B-Instruct'], 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'scheduling_policy': 'priority', 'async_scheduling': False}",
+      "codeProbe": "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a\", \"size\": 187139, \"observed\": true, \"schedulers\": [{\"pid\": 96, \"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"threshold\": 5, \"env\": null, \"starvation\": null}], \"srpfKey\": true, \"env\": null, \"starvation\": null, \"pycachePrefix\": \"/tmp/srpf-pycache\", \"pyc\": \"/tmp/srpf-pycache/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.cpython-312.pyc\", \"pycFlags\": 0, \"pycSourceSize\": 187139, \"procs\": [{\"pid\": 1, \"ppid\": 0, \"cmd\": \"/usr/bin/python3 /usr/local/bin/vllm serve Qwen/Qwen2.5-3B-Instruct --dtype=half --max-model-len=16384 --max-num-seqs=64 --gpu-memory-utilization=0.90 --no-enab\", \"envCount\": 27, \"env\": null, \"starvation\": null, \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 95, \"ppid\": 1, \"cmd\": \"/usr/bin/python3 -c from multiprocessing.resource_tracker import main;main(46)\", \"envCount\": 38, \"env\": null, \"starvation\": null, \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 96, \"ppid\": 1, \"cmd\": \"VLLM::EngineCore\", \"envCount\": 30, \"env\": null, \"starvation\": null, \"pycachePrefix\": null, \"syncCheck\": null}]}\n",
+      "engineCoreEnv": "VLLM::EngineCore 96 initialised srpf_starvation_threshold=5 with VLLM_ENABLE_SRPF=unset VLLM_SRPF_STARVATION_THRESHOLD=unset",
+      "capture": [
+        {
+          "name": "version",
+          "method": "GET",
+          "path": "/version",
+          "file": "start-priority-1.capture.version",
+          "status": 200
+        },
+        {
+          "name": "models",
+          "method": "GET",
+          "path": "/v1/models",
+          "file": "start-priority-1.capture.models",
+          "status": 200
+        },
+        {
+          "name": "server-info",
+          "method": "GET",
+          "path": "/server_info?config_format=json",
+          "file": "start-priority-1.capture.server-info",
+          "status": 200
+        },
+        {
+          "name": "metrics",
+          "method": "GET",
+          "path": "/metrics",
+          "file": "start-priority-1.capture.metrics",
+          "status": 200
+        },
+        {
+          "name": "tokenize",
+          "method": "POST",
+          "path": "/tokenize",
+          "requestFile": "start-priority-1.capture.tokenize.request",
+          "file": "start-priority-1.capture.tokenize",
+          "status": 200
+        }
+      ],
+      "warmup": [
+        {
+          "index": 0,
+          "arm": "priority",
+          "tenant": "premium-1",
+          "isNoisy": false,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795021083748054245,
+          "firstTokenUnixNanos": 1795021083776302631,
+          "endUnixNanos": 1795021084770567135,
+          "replayOriginUnixNanos": 1795021083748037314,
+          "returnedUnixNanos": 1795021084770585895,
+          "clock": {
+            "originUnixNanos": 1795021083748037314,
+            "intendedNanos": 0,
+            "sendNanos": 16931,
+            "transportWriteNanos": 301717,
+            "firstContentNanos": 28265317,
+            "lastContentNanos": 1022502180,
+            "usageNanos": 1022529381,
+            "doneNanos": 1022529721,
+            "endNanos": 1022529811,
+            "terminalNanos": 1022548571
+          },
+          "disposition": "completed",
+          "promptLenChars": 200,
+          "estInputTokens": 50,
+          "outputTokens": 64,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 0,
+          "requestId": "warmup-priority-0",
+          "exactInputTokens": 68,
+          "engineOutputTokens": 64,
+          "engineUsageReported": true,
+          "engineInputTokens": 68,
+          "finishReason": "length",
+          "outputSHA256": "788394b3c65e60b22f8430f8b8a840fde57b2c094283d7d1652359770529894c"
+        },
+        {
+          "index": 1,
+          "arm": "priority",
+          "tenant": "standard-noisy",
+          "isNoisy": true,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795021084770622296,
+          "firstTokenUnixNanos": 1795021085900056221,
+          "endUnixNanos": 1795021086142089866,
+          "replayOriginUnixNanos": 1795021084770610986,
+          "returnedUnixNanos": 1795021086142102427,
+          "clock": {
+            "originUnixNanos": 1795021084770610986,
+            "intendedNanos": 0,
+            "sendNanos": 11310,
+            "transportWriteNanos": 517741,
+            "firstContentNanos": 1129445225,
+            "lastContentNanos": 1371469740,
+            "usageNanos": 1371478540,
+            "doneNanos": 1371478790,
+            "endNanos": 1371478870,
+            "terminalNanos": 1371491431
+          },
+          "disposition": "completed",
+          "promptLenChars": 40000,
+          "estInputTokens": 10000,
+          "outputTokens": 16,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 1,
+          "requestId": "warmup-priority-1",
+          "exactInputTokens": 7695,
+          "engineOutputTokens": 16,
+          "engineUsageReported": true,
+          "engineInputTokens": 7695,
+          "finishReason": "length",
+          "outputSHA256": "a8ca698f31f6bdb496c6eadd79f38bf77e06c2ad3df478b5ca54decd23f7889a"
+        }
+      ],
+      "rawFile": "raw-priority.jsonl",
+      "preemptions": 0,
+      "preemptionMetric": "vllm:num_preemptions_total",
+      "figures": {
+        "premium": {
+          "rows": 3917,
+          "completed": 3917,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "contender": {
+          "rows": 185,
+          "completed": 185,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "premiumTTFTP50": {
+          "ms": 370.164115
+        },
+        "premiumTTFTP99": {
+          "ms": 1476.380722
+        },
+        "contenderE2EP50": {
+          "ms": 3152.07591
+        },
+        "contenderE2EP95": {
+          "ms": 7936.766088
+        },
+        "maxDispatchLagMs": 1.844847,
+        "inputTokenMismatches": 0
+      },
+      "logFile": "start-priority-1.engine.log"
+    },
+    {
+      "name": "srpf-s10",
+      "policy": "fcfs",
+      "threshold": 0,
+      "srpf": true,
+      "starvationThreshold": 10,
+      "position": 2,
+      "outcome": "measured",
+      "containerID": "7cf089b9824030ffd90cd511d4d3875739519a054e95a9c34d1c099f4a2e8499",
+      "runArgs": [
+        "run",
+        "--detach",
+        "--name=srpf-srpf-s10",
+        "--gpus=all",
+        "--shm-size=1g",
+        "--workdir=/",
+        "--env=VLLM_SERVER_DEV_MODE=1",
+        "--env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache",
+        "--env=VLLM_ENABLE_SRPF=1",
+        "--env=VLLM_SRPF_STARVATION_THRESHOLD=10",
+        "--publish=127.0.0.1:8000:8000",
+        "--volume=/opt/sr/hf:/root/.cache/huggingface",
+        "--volume=/opt/sr/compile/srpf-s10:/root/.cache/vllm",
+        "--volume=/opt/sr/scheduler.py:/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py:ro",
+        "--volume=/src/sr-run/sweep/observe/srpf_observe.py:/usr/local/lib/python3.12/dist-packages/srpf_observe.py:ro",
+        "--volume=/src/sr-run/sweep/observe/zz_srpf_observe.pth:/usr/local/lib/python3.12/dist-packages/zz_srpf_observe.pth:ro",
+        "--label=study=srpf-sweep",
+        "--entrypoint=env",
+        "--label=platform.lkhun9311.github.io/attempt=fa4a103ee0cdae89",
+        "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+        "-u",
+        "VLLM_GPU_SYNC_CHECK",
+        "vllm",
+        "serve",
+        "Qwen/Qwen2.5-3B-Instruct",
+        "--dtype=half",
+        "--max-model-len=16384",
+        "--max-num-seqs=64",
+        "--gpu-memory-utilization=0.90",
+        "--no-enable-prefix-caching",
+        "--max-num-batched-tokens=512",
+        "--scheduling-policy=fcfs",
+        "--no-async-scheduling",
+        "--port=8000",
+        "--served-model-name=Qwen/Qwen2.5-3B-Instruct",
+        "--revision=aa8e72537993ba99e69dfaafa59ed015b17504d1",
+        "--tokenizer-revision=aa8e72537993ba99e69dfaafa59ed015b17504d1"
+      ],
+      "dockerRunAt": "2026-11-18T17:05:09.881235366Z",
+      "healthSeconds": 100.365783289,
+      "nonDefaultArgs": "non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'tokenizer_revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'max_model_len': 16384, 'served_model_name': ['Qwen/Qwen2.5-3B-Instruct'], 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'async_scheduling': False}",
+      "codeProbe": "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a\", \"size\": 187139, \"observed\": true, \"schedulers\": [{\"pid\": 98, \"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"threshold\": 10, \"env\": \"1\", \"starvation\": \"10\"}], \"srpfKey\": true, \"env\": \"1\", \"starvation\": \"10\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"pyc\": \"/tmp/srpf-pycache/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.cpython-312.pyc\", \"pycFlags\": 0, \"pycSourceSize\": 187139, \"procs\": [{\"pid\": 1, \"ppid\": 0, \"cmd\": \"/usr/bin/python3 /usr/local/bin/vllm serve Qwen/Qwen2.5-3B-Instruct --dtype=half --max-model-len=16384 --max-num-seqs=64 --gpu-memory-utilization=0.90 --no-enab\", \"envCount\": 29, \"env\": \"1\", \"starvation\": \"10\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 97, \"ppid\": 1, \"cmd\": \"/usr/bin/python3 -c from multiprocessing.resource_tracker import main;main(46)\", \"envCount\": 40, \"env\": \"1\", \"starvation\": \"10\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 98, \"ppid\": 1, \"cmd\": \"VLLM::EngineCore\", \"envCount\": 30, \"env\": null, \"starvation\": null, \"pycachePrefix\": null, \"syncCheck\": null}]}\n",
+      "engineCoreEnv": "VLLM::EngineCore 98 initialised srpf_starvation_threshold=10 with VLLM_ENABLE_SRPF=\"1\" VLLM_SRPF_STARVATION_THRESHOLD=\"10\"",
+      "capture": [
+        {
+          "name": "version",
+          "method": "GET",
+          "path": "/version",
+          "file": "start-srpf-s10-1.capture.version",
+          "status": 200
+        },
+        {
+          "name": "models",
+          "method": "GET",
+          "path": "/v1/models",
+          "file": "start-srpf-s10-1.capture.models",
+          "status": 200
+        },
+        {
+          "name": "server-info",
+          "method": "GET",
+          "path": "/server_info?config_format=json",
+          "file": "start-srpf-s10-1.capture.server-info",
+          "status": 200
+        },
+        {
+          "name": "metrics",
+          "method": "GET",
+          "path": "/metrics",
+          "file": "start-srpf-s10-1.capture.metrics",
+          "status": 200
+        },
+        {
+          "name": "tokenize",
+          "method": "POST",
+          "path": "/tokenize",
+          "requestFile": "start-srpf-s10-1.capture.tokenize.request",
+          "file": "start-srpf-s10-1.capture.tokenize",
+          "status": 200
+        }
+      ],
+      "warmup": [
+        {
+          "index": 0,
+          "arm": "srpf-s10",
+          "tenant": "premium-1",
+          "isNoisy": false,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795021622048817287,
+          "firstTokenUnixNanos": 1795021622076924533,
+          "endUnixNanos": 1795021623072849413,
+          "replayOriginUnixNanos": 1795021622048802597,
+          "returnedUnixNanos": 1795021623072864613,
+          "clock": {
+            "originUnixNanos": 1795021622048802597,
+            "intendedNanos": 0,
+            "sendNanos": 14700,
+            "transportWriteNanos": 266495,
+            "firstContentNanos": 28121946,
+            "lastContentNanos": 1024037085,
+            "usageNanos": 1024046416,
+            "doneNanos": 1024046726,
+            "endNanos": 1024046826,
+            "terminalNanos": 1024062016
+          },
+          "disposition": "completed",
+          "promptLenChars": 200,
+          "estInputTokens": 50,
+          "outputTokens": 64,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 0,
+          "requestId": "warmup-srpf-s10-0",
+          "exactInputTokens": 68,
+          "engineOutputTokens": 64,
+          "engineUsageReported": true,
+          "engineInputTokens": 68,
+          "finishReason": "length",
+          "outputSHA256": "788394b3c65e60b22f8430f8b8a840fde57b2c094283d7d1652359770529894c"
+        },
+        {
+          "index": 1,
+          "arm": "srpf-s10",
+          "tenant": "standard-noisy",
+          "isNoisy": true,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795021623072923544,
+          "firstTokenUnixNanos": 1795021624204454367,
+          "endUnixNanos": 1795021624449296558,
+          "replayOriginUnixNanos": 1795021623072905434,
+          "returnedUnixNanos": 1795021624449313279,
+          "clock": {
+            "originUnixNanos": 1795021623072905434,
+            "intendedNanos": 0,
+            "sendNanos": 18100,
+            "transportWriteNanos": 606223,
+            "firstContentNanos": 1131548923,
+            "lastContentNanos": 1376380504,
+            "usageNanos": 1376390634,
+            "doneNanos": 1376390984,
+            "endNanos": 1376391124,
+            "terminalNanos": 1376407835
+          },
+          "disposition": "completed",
+          "promptLenChars": 40000,
+          "estInputTokens": 10000,
+          "outputTokens": 16,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 1,
+          "requestId": "warmup-srpf-s10-1",
+          "exactInputTokens": 7695,
+          "engineOutputTokens": 16,
+          "engineUsageReported": true,
+          "engineInputTokens": 7695,
+          "finishReason": "length",
+          "outputSHA256": "a8ca698f31f6bdb496c6eadd79f38bf77e06c2ad3df478b5ca54decd23f7889a"
+        }
+      ],
+      "rawFile": "raw-srpf-s10.jsonl",
+      "preemptions": 0,
+      "preemptionMetric": "vllm:num_preemptions_total",
+      "figures": {
+        "premium": {
+          "rows": 3917,
+          "completed": 3917,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "contender": {
+          "rows": 185,
+          "completed": 185,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "premiumTTFTP50": {
+          "ms": 587.586025
+        },
+        "premiumTTFTP99": {
+          "ms": 2359.367724
+        },
+        "contenderE2EP50": {
+          "ms": 3099.18051
+        },
+        "contenderE2EP95": {
+          "ms": 7685.544957
+        },
+        "maxDispatchLagMs": 1.79705,
+        "inputTokenMismatches": 0
+      },
+      "logFile": "start-srpf-s10-1.engine.log"
+    },
+    {
+      "name": "srpf-s2",
+      "policy": "fcfs",
+      "threshold": 0,
+      "srpf": true,
+      "starvationThreshold": 2,
+      "position": 3,
+      "outcome": "measured",
+      "containerID": "9f4c6abeb3a585216473a919188dfcdf1a3b62e35bc032e2c144fa1ca79e0ad9",
+      "runArgs": [
+        "run",
+        "--detach",
+        "--name=srpf-srpf-s2",
+        "--gpus=all",
+        "--shm-size=1g",
+        "--workdir=/",
+        "--env=VLLM_SERVER_DEV_MODE=1",
+        "--env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache",
+        "--env=VLLM_ENABLE_SRPF=1",
+        "--env=VLLM_SRPF_STARVATION_THRESHOLD=2",
+        "--publish=127.0.0.1:8000:8000",
+        "--volume=/opt/sr/hf:/root/.cache/huggingface",
+        "--volume=/opt/sr/compile/srpf-s2:/root/.cache/vllm",
+        "--volume=/opt/sr/scheduler.py:/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py:ro",
+        "--volume=/src/sr-run/sweep/observe/srpf_observe.py:/usr/local/lib/python3.12/dist-packages/srpf_observe.py:ro",
+        "--volume=/src/sr-run/sweep/observe/zz_srpf_observe.pth:/usr/local/lib/python3.12/dist-packages/zz_srpf_observe.pth:ro",
+        "--label=study=srpf-sweep",
+        "--entrypoint=env",
+        "--label=platform.lkhun9311.github.io/attempt=cdf08f0a6c853716",
+        "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+        "-u",
+        "VLLM_GPU_SYNC_CHECK",
+        "vllm",
+        "serve",
+        "Qwen/Qwen2.5-3B-Instruct",
+        "--dtype=half",
+        "--max-model-len=16384",
+        "--max-num-seqs=64",
+        "--gpu-memory-utilization=0.90",
+        "--no-enable-prefix-caching",
+        "--max-num-batched-tokens=512",
+        "--scheduling-policy=fcfs",
+        "--no-async-scheduling",
+        "--port=8000",
+        "--served-model-name=Qwen/Qwen2.5-3B-Instruct",
+        "--revision=aa8e72537993ba99e69dfaafa59ed015b17504d1",
+        "--tokenizer-revision=aa8e72537993ba99e69dfaafa59ed015b17504d1"
+      ],
+      "dockerRunAt": "2026-11-18T17:14:08.025588795Z",
+      "healthSeconds": 102.889172945,
+      "nonDefaultArgs": "non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'tokenizer_revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'max_model_len': 16384, 'served_model_name': ['Qwen/Qwen2.5-3B-Instruct'], 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'async_scheduling': False}",
+      "codeProbe": "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a\", \"size\": 187139, \"observed\": true, \"schedulers\": [{\"pid\": 99, \"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"threshold\": 2, \"env\": \"1\", \"starvation\": \"2\"}], \"srpfKey\": true, \"env\": \"1\", \"starvation\": \"2\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"pyc\": \"/tmp/srpf-pycache/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.cpython-312.pyc\", \"pycFlags\": 0, \"pycSourceSize\": 187139, \"procs\": [{\"pid\": 1, \"ppid\": 0, \"cmd\": \"/usr/bin/python3 /usr/local/bin/vllm serve Qwen/Qwen2.5-3B-Instruct --dtype=half --max-model-len=16384 --max-num-seqs=64 --gpu-memory-utilization=0.90 --no-enab\", \"envCount\": 29, \"env\": \"1\", \"starvation\": \"2\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 98, \"ppid\": 1, \"cmd\": \"/usr/bin/python3 -c from multiprocessing.resource_tracker import main;main(46)\", \"envCount\": 40, \"env\": \"1\", \"starvation\": \"2\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 99, \"ppid\": 1, \"cmd\": \"VLLM::EngineCore\", \"envCount\": 30, \"env\": null, \"starvation\": null, \"pycachePrefix\": null, \"syncCheck\": null}]}\n",
+      "engineCoreEnv": "VLLM::EngineCore 99 initialised srpf_starvation_threshold=2 with VLLM_ENABLE_SRPF=\"1\" VLLM_SRPF_STARVATION_THRESHOLD=\"2\"",
+      "capture": [
+        {
+          "name": "version",
+          "method": "GET",
+          "path": "/version",
+          "file": "start-srpf-s2-1.capture.version",
+          "status": 200
+        },
+        {
+          "name": "models",
+          "method": "GET",
+          "path": "/v1/models",
+          "file": "start-srpf-s2-1.capture.models",
+          "status": 200
+        },
+        {
+          "name": "server-info",
+          "method": "GET",
+          "path": "/server_info?config_format=json",
+          "file": "start-srpf-s2-1.capture.server-info",
+          "status": 200
+        },
+        {
+          "name": "metrics",
+          "method": "GET",
+          "path": "/metrics",
+          "file": "start-srpf-s2-1.capture.metrics",
+          "status": 200
+        },
+        {
+          "name": "tokenize",
+          "method": "POST",
+          "path": "/tokenize",
+          "requestFile": "start-srpf-s2-1.capture.tokenize.request",
+          "file": "start-srpf-s2-1.capture.tokenize",
+          "status": 200
+        }
+      ],
+      "warmup": [
+        {
+          "index": 0,
+          "arm": "srpf-s2",
+          "tenant": "premium-1",
+          "isNoisy": false,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795022162651384406,
+          "firstTokenUnixNanos": 1795022162679639508,
+          "endUnixNanos": 1795022163674481492,
+          "replayOriginUnixNanos": 1795022162651370295,
+          "returnedUnixNanos": 1795022163674495542,
+          "clock": {
+            "originUnixNanos": 1795022162651370295,
+            "intendedNanos": 0,
+            "sendNanos": 14101,
+            "transportWriteNanos": 238976,
+            "firstContentNanos": 28269203,
+            "lastContentNanos": 1023102797,
+            "usageNanos": 1023110847,
+            "doneNanos": 1023111117,
+            "endNanos": 1023111197,
+            "terminalNanos": 1023125237
+          },
+          "disposition": "completed",
+          "promptLenChars": 200,
+          "estInputTokens": 50,
+          "outputTokens": 64,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 0,
+          "requestId": "warmup-srpf-s2-0",
+          "exactInputTokens": 68,
+          "engineOutputTokens": 64,
+          "engineUsageReported": true,
+          "engineInputTokens": 68,
+          "finishReason": "length",
+          "outputSHA256": "788394b3c65e60b22f8430f8b8a840fde57b2c094283d7d1652359770529894c"
+        },
+        {
+          "index": 1,
+          "arm": "srpf-s2",
+          "tenant": "standard-noisy",
+          "isNoisy": true,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795022163674526153,
+          "firstTokenUnixNanos": 1795022164805085147,
+          "endUnixNanos": 1795022165048007237,
+          "replayOriginUnixNanos": 1795022163674516503,
+          "returnedUnixNanos": 1795022165048023398,
+          "clock": {
+            "originUnixNanos": 1795022163674516503,
+            "intendedNanos": 0,
+            "sendNanos": 9640,
+            "transportWriteNanos": 535782,
+            "firstContentNanos": 1130568644,
+            "lastContentNanos": 1373481964,
+            "usageNanos": 1373490384,
+            "doneNanos": 1373490624,
+            "endNanos": 1373490734,
+            "terminalNanos": 1373506895
+          },
+          "disposition": "completed",
+          "promptLenChars": 40000,
+          "estInputTokens": 10000,
+          "outputTokens": 16,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 1,
+          "requestId": "warmup-srpf-s2-1",
+          "exactInputTokens": 7695,
+          "engineOutputTokens": 16,
+          "engineUsageReported": true,
+          "engineInputTokens": 7695,
+          "finishReason": "length",
+          "outputSHA256": "a8ca698f31f6bdb496c6eadd79f38bf77e06c2ad3df478b5ca54decd23f7889a"
+        }
+      ],
+      "rawFile": "raw-srpf-s2.jsonl",
+      "preemptions": 0,
+      "preemptionMetric": "vllm:num_preemptions_total",
+      "figures": {
+        "premium": {
+          "rows": 3917,
+          "completed": 3917,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "contender": {
+          "rows": 185,
+          "completed": 185,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "premiumTTFTP50": {
+          "ms": 481.501032
+        },
+        "premiumTTFTP99": {
+          "ms": 1717.555812
+        },
+        "contenderE2EP50": {
+          "ms": 3139.750866
+        },
+        "contenderE2EP95": {
+          "ms": 7901.780756
+        },
+        "maxDispatchLagMs": 1.404733,
+        "inputTokenMismatches": 0
+      },
+      "logFile": "start-srpf-s2-1.engine.log"
+    },
+    {
+      "name": "srpf-s5",
+      "policy": "fcfs",
+      "threshold": 0,
+      "srpf": true,
+      "starvationThreshold": 5,
+      "position": 4,
+      "outcome": "measured",
+      "containerID": "3fe3bbaec0b6773a1a4af058ac5bb73b3754aa8626ddbc094a1fae1bab50586b",
+      "runArgs": [
+        "run",
+        "--detach",
+        "--name=srpf-srpf-s5",
+        "--gpus=all",
+        "--shm-size=1g",
+        "--workdir=/",
+        "--env=VLLM_SERVER_DEV_MODE=1",
+        "--env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache",
+        "--env=VLLM_ENABLE_SRPF=1",
+        "--env=VLLM_SRPF_STARVATION_THRESHOLD=5",
+        "--publish=127.0.0.1:8000:8000",
+        "--volume=/opt/sr/hf:/root/.cache/huggingface",
+        "--volume=/opt/sr/compile/srpf-s5:/root/.cache/vllm",
+        "--volume=/opt/sr/scheduler.py:/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py:ro",
+        "--volume=/src/sr-run/sweep/observe/srpf_observe.py:/usr/local/lib/python3.12/dist-packages/srpf_observe.py:ro",
+        "--volume=/src/sr-run/sweep/observe/zz_srpf_observe.pth:/usr/local/lib/python3.12/dist-packages/zz_srpf_observe.pth:ro",
+        "--label=study=srpf-sweep",
+        "--entrypoint=env",
+        "--label=platform.lkhun9311.github.io/attempt=76bb981b975e1057",
+        "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+        "-u",
+        "VLLM_GPU_SYNC_CHECK",
+        "vllm",
+        "serve",
+        "Qwen/Qwen2.5-3B-Instruct",
+        "--dtype=half",
+        "--max-model-len=16384",
+        "--max-num-seqs=64",
+        "--gpu-memory-utilization=0.90",
+        "--no-enable-prefix-caching",
+        "--max-num-batched-tokens=512",
+        "--scheduling-policy=fcfs",
+        "--no-async-scheduling",
+        "--port=8000",
+        "--served-model-name=Qwen/Qwen2.5-3B-Instruct",
+        "--revision=aa8e72537993ba99e69dfaafa59ed015b17504d1",
+        "--tokenizer-revision=aa8e72537993ba99e69dfaafa59ed015b17504d1"
+      ],
+      "dockerRunAt": "2026-11-18T17:23:08.870244431Z",
+      "healthSeconds": 101.902396054,
+      "nonDefaultArgs": "non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'tokenizer_revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'max_model_len': 16384, 'served_model_name': ['Qwen/Qwen2.5-3B-Instruct'], 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'async_scheduling': False}",
+      "codeProbe": "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a\", \"size\": 187139, \"observed\": true, \"schedulers\": [{\"pid\": 97, \"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"threshold\": 5, \"env\": \"1\", \"starvation\": \"5\"}], \"srpfKey\": true, \"env\": \"1\", \"starvation\": \"5\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"pyc\": \"/tmp/srpf-pycache/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.cpython-312.pyc\", \"pycFlags\": 0, \"pycSourceSize\": 187139, \"procs\": [{\"pid\": 1, \"ppid\": 0, \"cmd\": \"/usr/bin/python3 /usr/local/bin/vllm serve Qwen/Qwen2.5-3B-Instruct --dtype=half --max-model-len=16384 --max-num-seqs=64 --gpu-memory-utilization=0.90 --no-enab\", \"envCount\": 29, \"env\": \"1\", \"starvation\": \"5\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 96, \"ppid\": 1, \"cmd\": \"/usr/bin/python3 -c from multiprocessing.resource_tracker import main;main(46)\", \"envCount\": 40, \"env\": \"1\", \"starvation\": \"5\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 97, \"ppid\": 1, \"cmd\": \"VLLM::EngineCore\", \"envCount\": 30, \"env\": null, \"starvation\": null, \"pycachePrefix\": null, \"syncCheck\": null}]}\n",
+      "engineCoreEnv": "VLLM::EngineCore 97 initialised srpf_starvation_threshold=5 with VLLM_ENABLE_SRPF=\"1\" VLLM_SRPF_STARVATION_THRESHOLD=\"5\"",
+      "capture": [
+        {
+          "name": "version",
+          "method": "GET",
+          "path": "/version",
+          "file": "start-srpf-s5-1.capture.version",
+          "status": 200
+        },
+        {
+          "name": "models",
+          "method": "GET",
+          "path": "/v1/models",
+          "file": "start-srpf-s5-1.capture.models",
+          "status": 200
+        },
+        {
+          "name": "server-info",
+          "method": "GET",
+          "path": "/server_info?config_format=json",
+          "file": "start-srpf-s5-1.capture.server-info",
+          "status": 200
+        },
+        {
+          "name": "metrics",
+          "method": "GET",
+          "path": "/metrics",
+          "file": "start-srpf-s5-1.capture.metrics",
+          "status": 200
+        },
+        {
+          "name": "tokenize",
+          "method": "POST",
+          "path": "/tokenize",
+          "requestFile": "start-srpf-s5-1.capture.tokenize.request",
+          "file": "start-srpf-s5-1.capture.tokenize",
+          "status": 200
+        }
+      ],
+      "warmup": [
+        {
+          "index": 0,
+          "arm": "srpf-s5",
+          "tenant": "premium-1",
+          "isNoisy": false,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795022702314903582,
+          "firstTokenUnixNanos": 1795022702342810523,
+          "endUnixNanos": 1795022703348732385,
+          "replayOriginUnixNanos": 1795022702314890972,
+          "returnedUnixNanos": 1795022703348749256,
+          "clock": {
+            "originUnixNanos": 1795022702314890972,
+            "intendedNanos": 0,
+            "sendNanos": 12610,
+            "transportWriteNanos": 263995,
+            "firstContentNanos": 27919551,
+            "lastContentNanos": 1033831403,
+            "usageNanos": 1033841013,
+            "doneNanos": 1033841303,
+            "endNanos": 1033841413,
+            "terminalNanos": 1033858284
+          },
+          "disposition": "completed",
+          "promptLenChars": 200,
+          "estInputTokens": 50,
+          "outputTokens": 64,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 0,
+          "requestId": "warmup-srpf-s5-0",
+          "exactInputTokens": 68,
+          "engineOutputTokens": 64,
+          "engineUsageReported": true,
+          "engineInputTokens": 68,
+          "finishReason": "length",
+          "outputSHA256": "788394b3c65e60b22f8430f8b8a840fde57b2c094283d7d1652359770529894c"
+        },
+        {
+          "index": 1,
+          "arm": "srpf-s5",
+          "tenant": "standard-noisy",
+          "isNoisy": true,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795022703348791807,
+          "firstTokenUnixNanos": 1795022704479051997,
+          "endUnixNanos": 1795022704721878759,
+          "replayOriginUnixNanos": 1795022703348777396,
+          "returnedUnixNanos": 1795022704721893539,
+          "clock": {
+            "originUnixNanos": 1795022703348777396,
+            "intendedNanos": 0,
+            "sendNanos": 14411,
+            "transportWriteNanos": 504711,
+            "firstContentNanos": 1130274601,
+            "lastContentNanos": 1373089633,
+            "usageNanos": 1373101033,
+            "doneNanos": 1373101273,
+            "endNanos": 1373101353,
+            "terminalNanos": 1373116143
+          },
+          "disposition": "completed",
+          "promptLenChars": 40000,
+          "estInputTokens": 10000,
+          "outputTokens": 16,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 1,
+          "requestId": "warmup-srpf-s5-1",
+          "exactInputTokens": 7695,
+          "engineOutputTokens": 16,
+          "engineUsageReported": true,
+          "engineInputTokens": 7695,
+          "finishReason": "length",
+          "outputSHA256": "a8ca698f31f6bdb496c6eadd79f38bf77e06c2ad3df478b5ca54decd23f7889a"
+        }
+      ],
+      "rawFile": "raw-srpf-s5.jsonl",
+      "preemptions": 0,
+      "preemptionMetric": "vllm:num_preemptions_total",
+      "figures": {
+        "premium": {
+          "rows": 3917,
+          "completed": 3917,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "contender": {
+          "rows": 185,
+          "completed": 185,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "premiumTTFTP50": {
+          "ms": 619.991108
+        },
+        "premiumTTFTP99": {
+          "ms": 1942.32365
+        },
+        "contenderE2EP50": {
+          "ms": 3110.422222
+        },
+        "contenderE2EP95": {
+          "ms": 7791.59548
+        },
+        "maxDispatchLagMs": 1.538741,
+        "inputTokenMismatches": 0
+      },
+      "logFile": "start-srpf-s5-1.engine.log"
+    },
+    {
+      "name": "fcfs",
+      "policy": "fcfs",
+      "threshold": 0,
+      "srpf": false,
+      "starvationThreshold": 0,
+      "position": 5,
+      "outcome": "measured",
+      "containerID": "ad0233068606779ff6b548b7c0a09b5f05ea18ba8971e36ac9f914c88971eb37",
+      "runArgs": [
+        "run",
+        "--detach",
+        "--name=srpf-fcfs",
+        "--gpus=all",
+        "--shm-size=1g",
+        "--workdir=/",
+        "--env=VLLM_SERVER_DEV_MODE=1",
+        "--env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache",
+        "--publish=127.0.0.1:8000:8000",
+        "--volume=/opt/sr/hf:/root/.cache/huggingface",
+        "--volume=/opt/sr/compile/fcfs:/root/.cache/vllm",
+        "--volume=/opt/sr/scheduler.py:/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py:ro",
+        "--volume=/src/sr-run/sweep/observe/srpf_observe.py:/usr/local/lib/python3.12/dist-packages/srpf_observe.py:ro",
+        "--volume=/src/sr-run/sweep/observe/zz_srpf_observe.pth:/usr/local/lib/python3.12/dist-packages/zz_srpf_observe.pth:ro",
+        "--label=study=srpf-sweep",
+        "--entrypoint=env",
+        "--label=platform.lkhun9311.github.io/attempt=37c5f4db7d8ac051",
+        "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+        "-u",
+        "VLLM_GPU_SYNC_CHECK",
+        "vllm",
+        "serve",
+        "Qwen/Qwen2.5-3B-Instruct",
+        "--dtype=half",
+        "--max-model-len=16384",
+        "--max-num-seqs=64",
+        "--gpu-memory-utilization=0.90",
+        "--no-enable-prefix-caching",
+        "--max-num-batched-tokens=512",
+        "--scheduling-policy=fcfs",
+        "--no-async-scheduling",
+        "--port=8000",
+        "--served-model-name=Qwen/Qwen2.5-3B-Instruct",
+        "--revision=aa8e72537993ba99e69dfaafa59ed015b17504d1",
+        "--tokenizer-revision=aa8e72537993ba99e69dfaafa59ed015b17504d1"
+      ],
+      "dockerRunAt": "2026-11-18T17:32:08.545227312Z",
+      "healthSeconds": 100.885540782,
+      "nonDefaultArgs": "non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'tokenizer_revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'max_model_len': 16384, 'served_model_name': ['Qwen/Qwen2.5-3B-Instruct'], 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'async_scheduling': False}",
+      "codeProbe": "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a\", \"size\": 187139, \"observed\": true, \"schedulers\": [{\"pid\": 96, \"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"threshold\": 5, \"env\": null, \"starvation\": null}], \"srpfKey\": true, \"env\": null, \"starvation\": null, \"pycachePrefix\": \"/tmp/srpf-pycache\", \"pyc\": \"/tmp/srpf-pycache/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.cpython-312.pyc\", \"pycFlags\": 0, \"pycSourceSize\": 187139, \"procs\": [{\"pid\": 1, \"ppid\": 0, \"cmd\": \"/usr/bin/python3 /usr/local/bin/vllm serve Qwen/Qwen2.5-3B-Instruct --dtype=half --max-model-len=16384 --max-num-seqs=64 --gpu-memory-utilization=0.90 --no-enab\", \"envCount\": 27, \"env\": null, \"starvation\": null, \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 95, \"ppid\": 1, \"cmd\": \"/usr/bin/python3 -c from multiprocessing.resource_tracker import main;main(46)\", \"envCount\": 38, \"env\": null, \"starvation\": null, \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 96, \"ppid\": 1, \"cmd\": \"VLLM::EngineCore\", \"envCount\": 30, \"env\": null, \"starvation\": null, \"pycachePrefix\": null, \"syncCheck\": null}]}\n",
+      "engineCoreEnv": "VLLM::EngineCore 96 initialised srpf_starvation_threshold=5 with VLLM_ENABLE_SRPF=unset VLLM_SRPF_STARVATION_THRESHOLD=unset",
+      "capture": [
+        {
+          "name": "version",
+          "method": "GET",
+          "path": "/version",
+          "file": "start-fcfs-1.capture.version",
+          "status": 200
+        },
+        {
+          "name": "models",
+          "method": "GET",
+          "path": "/v1/models",
+          "file": "start-fcfs-1.capture.models",
+          "status": 200
+        },
+        {
+          "name": "server-info",
+          "method": "GET",
+          "path": "/server_info?config_format=json",
+          "file": "start-fcfs-1.capture.server-info",
+          "status": 200
+        },
+        {
+          "name": "metrics",
+          "method": "GET",
+          "path": "/metrics",
+          "file": "start-fcfs-1.capture.metrics",
+          "status": 200
+        },
+        {
+          "name": "tokenize",
+          "method": "POST",
+          "path": "/tokenize",
+          "requestFile": "start-fcfs-1.capture.tokenize.request",
+          "file": "start-fcfs-1.capture.tokenize",
+          "status": 200
+        }
+      ],
+      "warmup": [
+        {
+          "index": 0,
+          "arm": "fcfs",
+          "tenant": "premium-1",
+          "isNoisy": false,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795023241027269328,
+          "firstTokenUnixNanos": 1795023241055307498,
+          "endUnixNanos": 1795023242054389796,
+          "replayOriginUnixNanos": 1795023241027256488,
+          "returnedUnixNanos": 1795023242054406016,
+          "clock": {
+            "originUnixNanos": 1795023241027256488,
+            "intendedNanos": 0,
+            "sendNanos": 12850,
+            "transportWriteNanos": 222945,
+            "firstContentNanos": 28051020,
+            "lastContentNanos": 1027123108,
+            "usageNanos": 1027132838,
+            "doneNanos": 1027133198,
+            "endNanos": 1027133308,
+            "terminalNanos": 1027149538
+          },
+          "disposition": "completed",
+          "promptLenChars": 200,
+          "estInputTokens": 50,
+          "outputTokens": 64,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 0,
+          "requestId": "warmup-fcfs-0",
+          "exactInputTokens": 68,
+          "engineOutputTokens": 64,
+          "engineUsageReported": true,
+          "engineInputTokens": 68,
+          "finishReason": "length",
+          "outputSHA256": "788394b3c65e60b22f8430f8b8a840fde57b2c094283d7d1652359770529894c"
+        },
+        {
+          "index": 1,
+          "arm": "fcfs",
+          "tenant": "standard-noisy",
+          "isNoisy": true,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795023242054450407,
+          "firstTokenUnixNanos": 1795023243182857468,
+          "endUnixNanos": 1795023243426692839,
+          "replayOriginUnixNanos": 1795023242054437347,
+          "returnedUnixNanos": 1795023243426706739,
+          "clock": {
+            "originUnixNanos": 1795023242054437347,
+            "intendedNanos": 0,
+            "sendNanos": 13060,
+            "transportWriteNanos": 508231,
+            "firstContentNanos": 1128420121,
+            "lastContentNanos": 1372246831,
+            "usageNanos": 1372255152,
+            "doneNanos": 1372255412,
+            "endNanos": 1372255492,
+            "terminalNanos": 1372269392
+          },
+          "disposition": "completed",
+          "promptLenChars": 40000,
+          "estInputTokens": 10000,
+          "outputTokens": 16,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 1,
+          "requestId": "warmup-fcfs-1",
+          "exactInputTokens": 7695,
+          "engineOutputTokens": 16,
+          "engineUsageReported": true,
+          "engineInputTokens": 7695,
+          "finishReason": "length",
+          "outputSHA256": "a8ca698f31f6bdb496c6eadd79f38bf77e06c2ad3df478b5ca54decd23f7889a"
+        }
+      ],
+      "rawFile": "raw-fcfs.jsonl",
+      "preemptions": 0,
+      "preemptionMetric": "vllm:num_preemptions_total",
+      "figures": {
+        "premium": {
+          "rows": 3917,
+          "completed": 3917,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "contender": {
+          "rows": 185,
+          "completed": 185,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "premiumTTFTP50": {
+          "ms": 702.905335
+        },
+        "premiumTTFTP99": {
+          "ms": 5983.524859
+        },
+        "contenderE2EP50": {
+          "ms": 3055.403682
+        },
+        "contenderE2EP95": {
+          "ms": 6867.970643
+        },
+        "maxDispatchLagMs": 1.416389,
+        "inputTokenMismatches": 0
+      },
+      "logFile": "start-fcfs-1.engine.log"
+    },
+    {
+      "name": "srpf-s3",
+      "policy": "fcfs",
+      "threshold": 0,
+      "srpf": true,
+      "starvationThreshold": 3,
+      "position": 6,
+      "outcome": "measured",
+      "containerID": "4b2e759e821f725808e24b35762b902b855e1faf27e9b07db9594fa7be5f9616",
+      "runArgs": [
+        "run",
+        "--detach",
+        "--name=srpf-srpf-s3",
+        "--gpus=all",
+        "--shm-size=1g",
+        "--workdir=/",
+        "--env=VLLM_SERVER_DEV_MODE=1",
+        "--env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache",
+        "--env=VLLM_ENABLE_SRPF=1",
+        "--env=VLLM_SRPF_STARVATION_THRESHOLD=3",
+        "--publish=127.0.0.1:8000:8000",
+        "--volume=/opt/sr/hf:/root/.cache/huggingface",
+        "--volume=/opt/sr/compile/srpf-s3:/root/.cache/vllm",
+        "--volume=/opt/sr/scheduler.py:/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py:ro",
+        "--volume=/src/sr-run/sweep/observe/srpf_observe.py:/usr/local/lib/python3.12/dist-packages/srpf_observe.py:ro",
+        "--volume=/src/sr-run/sweep/observe/zz_srpf_observe.pth:/usr/local/lib/python3.12/dist-packages/zz_srpf_observe.pth:ro",
+        "--label=study=srpf-sweep",
+        "--entrypoint=env",
+        "--label=platform.lkhun9311.github.io/attempt=4e0f0cc1824aa140",
+        "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+        "-u",
+        "VLLM_GPU_SYNC_CHECK",
+        "vllm",
+        "serve",
+        "Qwen/Qwen2.5-3B-Instruct",
+        "--dtype=half",
+        "--max-model-len=16384",
+        "--max-num-seqs=64",
+        "--gpu-memory-utilization=0.90",
+        "--no-enable-prefix-caching",
+        "--max-num-batched-tokens=512",
+        "--scheduling-policy=fcfs",
+        "--no-async-scheduling",
+        "--port=8000",
+        "--served-model-name=Qwen/Qwen2.5-3B-Instruct",
+        "--revision=aa8e72537993ba99e69dfaafa59ed015b17504d1",
+        "--tokenizer-revision=aa8e72537993ba99e69dfaafa59ed015b17504d1"
+      ],
+      "dockerRunAt": "2026-11-18T17:41:07.158738423Z",
+      "healthSeconds": 100.377022666,
+      "nonDefaultArgs": "non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'tokenizer_revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'max_model_len': 16384, 'served_model_name': ['Qwen/Qwen2.5-3B-Instruct'], 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'async_scheduling': False}",
+      "codeProbe": "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a\", \"size\": 187139, \"observed\": true, \"schedulers\": [{\"pid\": 97, \"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"threshold\": 3, \"env\": \"1\", \"starvation\": \"3\"}], \"srpfKey\": true, \"env\": \"1\", \"starvation\": \"3\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"pyc\": \"/tmp/srpf-pycache/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.cpython-312.pyc\", \"pycFlags\": 0, \"pycSourceSize\": 187139, \"procs\": [{\"pid\": 1, \"ppid\": 0, \"cmd\": \"/usr/bin/python3 /usr/local/bin/vllm serve Qwen/Qwen2.5-3B-Instruct --dtype=half --max-model-len=16384 --max-num-seqs=64 --gpu-memory-utilization=0.90 --no-enab\", \"envCount\": 29, \"env\": \"1\", \"starvation\": \"3\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 96, \"ppid\": 1, \"cmd\": \"/usr/bin/python3 -c from multiprocessing.resource_tracker import main;main(46)\", \"envCount\": 40, \"env\": \"1\", \"starvation\": \"3\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 97, \"ppid\": 1, \"cmd\": \"VLLM::EngineCore\", \"envCount\": 30, \"env\": null, \"starvation\": null, \"pycachePrefix\": null, \"syncCheck\": null}]}\n",
+      "engineCoreEnv": "VLLM::EngineCore 97 initialised srpf_starvation_threshold=3 with VLLM_ENABLE_SRPF=\"1\" VLLM_SRPF_STARVATION_THRESHOLD=\"3\"",
+      "capture": [
+        {
+          "name": "version",
+          "method": "GET",
+          "path": "/version",
+          "file": "start-srpf-s3-1.capture.version",
+          "status": 200
+        },
+        {
+          "name": "models",
+          "method": "GET",
+          "path": "/v1/models",
+          "file": "start-srpf-s3-1.capture.models",
+          "status": 200
+        },
+        {
+          "name": "server-info",
+          "method": "GET",
+          "path": "/server_info?config_format=json",
+          "file": "start-srpf-s3-1.capture.server-info",
+          "status": 200
+        },
+        {
+          "name": "metrics",
+          "method": "GET",
+          "path": "/metrics",
+          "file": "start-srpf-s3-1.capture.metrics",
+          "status": 200
+        },
+        {
+          "name": "tokenize",
+          "method": "POST",
+          "path": "/tokenize",
+          "requestFile": "start-srpf-s3-1.capture.tokenize.request",
+          "file": "start-srpf-s3-1.capture.tokenize",
+          "status": 200
+        }
+      ],
+      "warmup": [
+        {
+          "index": 0,
+          "arm": "srpf-s3",
+          "tenant": "premium-1",
+          "isNoisy": false,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795023779176234090,
+          "firstTokenUnixNanos": 1795023779204315561,
+          "endUnixNanos": 1795023780201771105,
+          "replayOriginUnixNanos": 1795023779176221219,
+          "returnedUnixNanos": 1795023780201786566,
+          "clock": {
+            "originUnixNanos": 1795023779176221219,
+            "intendedNanos": 0,
+            "sendNanos": 12871,
+            "transportWriteNanos": 245155,
+            "firstContentNanos": 28094342,
+            "lastContentNanos": 1025541866,
+            "usageNanos": 1025549536,
+            "doneNanos": 1025549796,
+            "endNanos": 1025549876,
+            "terminalNanos": 1025565337
+          },
+          "disposition": "completed",
+          "promptLenChars": 200,
+          "estInputTokens": 50,
+          "outputTokens": 64,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 0,
+          "requestId": "warmup-srpf-s3-0",
+          "exactInputTokens": 68,
+          "engineOutputTokens": 64,
+          "engineUsageReported": true,
+          "engineInputTokens": 68,
+          "finishReason": "length",
+          "outputSHA256": "788394b3c65e60b22f8430f8b8a840fde57b2c094283d7d1652359770529894c"
+        },
+        {
+          "index": 1,
+          "arm": "srpf-s3",
+          "tenant": "standard-noisy",
+          "isNoisy": true,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795023780201822706,
+          "firstTokenUnixNanos": 1795023781332073636,
+          "endUnixNanos": 1795023781576820821,
+          "replayOriginUnixNanos": 1795023780201812386,
+          "returnedUnixNanos": 1795023781576848731,
+          "clock": {
+            "originUnixNanos": 1795023780201812386,
+            "intendedNanos": 0,
+            "sendNanos": 10330,
+            "transportWriteNanos": 501581,
+            "firstContentNanos": 1130261260,
+            "lastContentNanos": 1374997985,
+            "usageNanos": 1375007955,
+            "doneNanos": 1375008275,
+            "endNanos": 1375008435,
+            "terminalNanos": 1375036345
+          },
+          "disposition": "completed",
+          "promptLenChars": 40000,
+          "estInputTokens": 10000,
+          "outputTokens": 16,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 1,
+          "requestId": "warmup-srpf-s3-1",
+          "exactInputTokens": 7695,
+          "engineOutputTokens": 16,
+          "engineUsageReported": true,
+          "engineInputTokens": 7695,
+          "finishReason": "length",
+          "outputSHA256": "a8ca698f31f6bdb496c6eadd79f38bf77e06c2ad3df478b5ca54decd23f7889a"
+        }
+      ],
+      "rawFile": "raw-srpf-s3.jsonl",
+      "preemptions": 0,
+      "preemptionMetric": "vllm:num_preemptions_total",
+      "figures": {
+        "premium": {
+          "rows": 3917,
+          "completed": 3917,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "contender": {
+          "rows": 185,
+          "completed": 185,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "premiumTTFTP50": {
+          "ms": 539.291336
+        },
+        "premiumTTFTP99": {
+          "ms": 1799.180223
+        },
+        "contenderE2EP50": {
+          "ms": 3133.510561
+        },
+        "contenderE2EP95": {
+          "ms": 7814.143165
+        },
+        "maxDispatchLagMs": 2.536178,
+        "inputTokenMismatches": 0
+      },
+      "logFile": "start-srpf-s3-1.engine.log"
+    },
+    {
+      "name": "srpf-s8",
+      "policy": "fcfs",
+      "threshold": 0,
+      "srpf": true,
+      "starvationThreshold": 8,
+      "position": 7,
+      "outcome": "measured",
+      "containerID": "bb92699340c84ada198a44c971cf2ac16f516c757793c221cde890dd3b2454d8",
+      "runArgs": [
+        "run",
+        "--detach",
+        "--name=srpf-srpf-s8",
+        "--gpus=all",
+        "--shm-size=1g",
+        "--workdir=/",
+        "--env=VLLM_SERVER_DEV_MODE=1",
+        "--env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache",
+        "--env=VLLM_ENABLE_SRPF=1",
+        "--env=VLLM_SRPF_STARVATION_THRESHOLD=8",
+        "--publish=127.0.0.1:8000:8000",
+        "--volume=/opt/sr/hf:/root/.cache/huggingface",
+        "--volume=/opt/sr/compile/srpf-s8:/root/.cache/vllm",
+        "--volume=/opt/sr/scheduler.py:/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py:ro",
+        "--volume=/src/sr-run/sweep/observe/srpf_observe.py:/usr/local/lib/python3.12/dist-packages/srpf_observe.py:ro",
+        "--volume=/src/sr-run/sweep/observe/zz_srpf_observe.pth:/usr/local/lib/python3.12/dist-packages/zz_srpf_observe.pth:ro",
+        "--label=study=srpf-sweep",
+        "--entrypoint=env",
+        "--label=platform.lkhun9311.github.io/attempt=f5afc8b32050b6f4",
+        "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+        "-u",
+        "VLLM_GPU_SYNC_CHECK",
+        "vllm",
+        "serve",
+        "Qwen/Qwen2.5-3B-Instruct",
+        "--dtype=half",
+        "--max-model-len=16384",
+        "--max-num-seqs=64",
+        "--gpu-memory-utilization=0.90",
+        "--no-enable-prefix-caching",
+        "--max-num-batched-tokens=512",
+        "--scheduling-policy=fcfs",
+        "--no-async-scheduling",
+        "--port=8000",
+        "--served-model-name=Qwen/Qwen2.5-3B-Instruct",
+        "--revision=aa8e72537993ba99e69dfaafa59ed015b17504d1",
+        "--tokenizer-revision=aa8e72537993ba99e69dfaafa59ed015b17504d1"
+      ],
+      "dockerRunAt": "2026-11-18T17:50:05.318317535Z",
+      "healthSeconds": 100.374667858,
+      "nonDefaultArgs": "non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'tokenizer_revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'max_model_len': 16384, 'served_model_name': ['Qwen/Qwen2.5-3B-Instruct'], 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'async_scheduling': False}",
+      "codeProbe": "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a\", \"size\": 187139, \"observed\": true, \"schedulers\": [{\"pid\": 97, \"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"threshold\": 8, \"env\": \"1\", \"starvation\": \"8\"}], \"srpfKey\": true, \"env\": \"1\", \"starvation\": \"8\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"pyc\": \"/tmp/srpf-pycache/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.cpython-312.pyc\", \"pycFlags\": 0, \"pycSourceSize\": 187139, \"procs\": [{\"pid\": 1, \"ppid\": 0, \"cmd\": \"/usr/bin/python3 /usr/local/bin/vllm serve Qwen/Qwen2.5-3B-Instruct --dtype=half --max-model-len=16384 --max-num-seqs=64 --gpu-memory-utilization=0.90 --no-enab\", \"envCount\": 29, \"env\": \"1\", \"starvation\": \"8\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 96, \"ppid\": 1, \"cmd\": \"/usr/bin/python3 -c from multiprocessing.resource_tracker import main;main(46)\", \"envCount\": 40, \"env\": \"1\", \"starvation\": \"8\", \"pycachePrefix\": \"/tmp/srpf-pycache\", \"syncCheck\": null}, {\"pid\": 97, \"ppid\": 1, \"cmd\": \"VLLM::EngineCore\", \"envCount\": 30, \"env\": null, \"starvation\": null, \"pycachePrefix\": null, \"syncCheck\": null}]}\n",
+      "engineCoreEnv": "VLLM::EngineCore 97 initialised srpf_starvation_threshold=8 with VLLM_ENABLE_SRPF=\"1\" VLLM_SRPF_STARVATION_THRESHOLD=\"8\"",
+      "capture": [
+        {
+          "name": "version",
+          "method": "GET",
+          "path": "/version",
+          "file": "start-srpf-s8-1.capture.version",
+          "status": 200
+        },
+        {
+          "name": "models",
+          "method": "GET",
+          "path": "/v1/models",
+          "file": "start-srpf-s8-1.capture.models",
+          "status": 200
+        },
+        {
+          "name": "server-info",
+          "method": "GET",
+          "path": "/server_info?config_format=json",
+          "file": "start-srpf-s8-1.capture.server-info",
+          "status": 200
+        },
+        {
+          "name": "metrics",
+          "method": "GET",
+          "path": "/metrics",
+          "file": "start-srpf-s8-1.capture.metrics",
+          "status": 200
+        },
+        {
+          "name": "tokenize",
+          "method": "POST",
+          "path": "/tokenize",
+          "requestFile": "start-srpf-s8-1.capture.tokenize.request",
+          "file": "start-srpf-s8-1.capture.tokenize",
+          "status": 200
+        }
+      ],
+      "warmup": [
+        {
+          "index": 0,
+          "arm": "srpf-s8",
+          "tenant": "premium-1",
+          "isNoisy": false,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795024317286188698,
+          "firstTokenUnixNanos": 1795024317314550268,
+          "endUnixNanos": 1795024318317873019,
+          "replayOriginUnixNanos": 1795024317286175408,
+          "returnedUnixNanos": 1795024318317918280,
+          "clock": {
+            "originUnixNanos": 1795024317286175408,
+            "intendedNanos": 0,
+            "sendNanos": 13290,
+            "transportWriteNanos": 229984,
+            "firstContentNanos": 28374860,
+            "lastContentNanos": 1031689331,
+            "usageNanos": 1031697281,
+            "doneNanos": 1031697531,
+            "endNanos": 1031697611,
+            "terminalNanos": 1031742872
+          },
+          "disposition": "completed",
+          "promptLenChars": 200,
+          "estInputTokens": 50,
+          "outputTokens": 64,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 0,
+          "requestId": "warmup-srpf-s8-0",
+          "exactInputTokens": 68,
+          "engineOutputTokens": 64,
+          "engineUsageReported": true,
+          "engineInputTokens": 68,
+          "finishReason": "length",
+          "outputSHA256": "788394b3c65e60b22f8430f8b8a840fde57b2c094283d7d1652359770529894c"
+        },
+        {
+          "index": 1,
+          "arm": "srpf-s8",
+          "tenant": "standard-noisy",
+          "isNoisy": true,
+          "scheduledOffsetMs": 0,
+          "sendUnixNanos": 1795024318317977381,
+          "firstTokenUnixNanos": 1795024319447851195,
+          "endUnixNanos": 1795024319692748452,
+          "replayOriginUnixNanos": 1795024318317964611,
+          "returnedUnixNanos": 1795024319692759533,
+          "clock": {
+            "originUnixNanos": 1795024318317964611,
+            "intendedNanos": 0,
+            "sendNanos": 12770,
+            "transportWriteNanos": 472720,
+            "firstContentNanos": 1129886614,
+            "lastContentNanos": 1374773541,
+            "usageNanos": 1374783411,
+            "doneNanos": 1374783731,
+            "endNanos": 1374783841,
+            "terminalNanos": 1374794922
+          },
+          "disposition": "completed",
+          "promptLenChars": 40000,
+          "estInputTokens": 10000,
+          "outputTokens": 16,
+          "httpStatus": 200,
+          "streamTerminated": true,
+          "study": "vllm-58420-threshold-2026-11-19",
+          "priority": 1,
+          "requestId": "warmup-srpf-s8-1",
+          "exactInputTokens": 7695,
+          "engineOutputTokens": 16,
+          "engineUsageReported": true,
+          "engineInputTokens": 7695,
+          "finishReason": "length",
+          "outputSHA256": "a8ca698f31f6bdb496c6eadd79f38bf77e06c2ad3df478b5ca54decd23f7889a"
+        }
+      ],
+      "rawFile": "raw-srpf-s8.jsonl",
+      "preemptions": 0,
+      "preemptionMetric": "vllm:num_preemptions_total",
+      "figures": {
+        "premium": {
+          "rows": 3917,
+          "completed": 3917,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "contender": {
+          "rows": 185,
+          "completed": 185,
+          "failed": 0,
+          "failedBy": {}
+        },
+        "premiumTTFTP50": {
+          "ms": 600.424527
+        },
+        "premiumTTFTP99": {
+          "ms": 2176.255477
+        },
+        "contenderE2EP50": {
+          "ms": 3095.20801
+        },
+        "contenderE2EP95": {
+          "ms": 7683.799726
+        },
+        "maxDispatchLagMs": 3.206849,
+        "inputTokenMismatches": 0
+      },
+      "logFile": "start-srpf-s8-1.engine.log"
+    }
+  ]
+}

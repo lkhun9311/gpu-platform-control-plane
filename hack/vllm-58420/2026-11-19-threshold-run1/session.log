@@ -1,0 +1,69 @@
+== the vLLM #58420 SRPF threshold sweep for vllm-58420-threshold-2026-11-19, from cac7523dd85530952a0fb14a5da57345efa31a0f, into hack/vllm-58420-20261118T164038Z
+== hard stop 12100 s after LaunchTime; worst case 12400 s at $0.8292/h
+== the PR head's scheduler.py: 2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $0.75/h in: ap-northeast-2c ap-northeast-2d ap-northeast-2a (ap-northeast-2a	0.615400 ap-northeast-2d	0.612400 ap-northeast-2c	0.629000)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 568 minutes
+== building the harness from cac7523dd85530952a0fb14a5da57345efa31a0f
+== the arms in run order: 1 priority policy=priority no-srpf-env;2 srpf-s10 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=10;3 srpf-s2 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=2;4 srpf-s5 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=5;5 fcfs policy=fcfs no-srpf-env;6 srpf-s3 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=3;7 srpf-s8 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=8
+== before the purchase: credentials expire in 568 minutes
+== launching g5.xlarge Spot (max $0.75/h compute, $0.8292/h all in), study-deadline 2026-11-18T20:01:41Z -- the instance bills from here
+== launched i-050ba01960d22bfa2 in ap-northeast-2c
+== LaunchTime 2026-11-18T16:41:03+00:00; the sweeper's deadline moved to 2026-11-18T20:02:13Z
+== the wait ended with status 0 ()
+== waiting up to 7694s for EC2 to report the instance terminated
+== terminating i-050ba01960d22bfa2
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is shutting-down
+== i-050ba01960d22bfa2 is terminated
+== evidence returned (summary at hack/vllm-58420-20261118T164038Z/sr-run/sweep/summary.json); arms measured: 7 of 7; termination confirmed

@@ -1,0 +1,8 @@
++ aws ecr-public get-login-password --region us-east-1
++ docker login --username AWS --password-stdin public.ecr.aws
+
+WARNING! Your credentials are stored unencrypted in '/root/.docker/config.json'.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/go/credential-store/
+
+Login Succeeded

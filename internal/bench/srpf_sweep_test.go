@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -45,25 +47,53 @@ func TestSRPFSweepBoundsAreTheBoundsItsStepsApply(t *testing.T) {
 	if srpfSweepArmCount != len(SRPFSweepArms()) {
 		t.Errorf("srpfSweepArmCount is %d and there are %d arms", srpfSweepArmCount, len(SRPFSweepArms()))
 	}
-	if SRPFSweepArmBound != 1260*time.Second || SRPFSweepBound != 11460*time.Second {
-		t.Errorf("the arm bound is %s and the sweep bound %s; the session's stop was sized for 1260 s and 11460 s", SRPFSweepArmBound, SRPFSweepBound)
+	if SRPFSweepArmBound != 1060*time.Second || SRPFSweepBound != 11320*time.Second {
+		t.Errorf("the arm bound is %s and the sweep bound %s; the session's stop was sized for 1060 s and 11320 s", SRPFSweepArmBound, SRPFSweepBound)
 	}
 }
 
 // The order is frozen before the run, so a reader can check it was not chosen after the results.
-// Mutation that turns this red: drop the alternation rule in srpfBalanced.
+// Mutations that turn this red: drop any one of srpfBalanced's three rules, or widen the correlation band to ±0.3.
 func TestSRPFSweepOrderIsCounterbalancedAndFixed(t *testing.T) {
 	var names []string
 	order := SRPFSweepOrder(SRPFSweepOrderSeed)
 	for _, a := range order {
 		names = append(names, a.Name)
 	}
-	want := []string{"fcfs-t384", "srpf", "priority-t384", "priority", "srpf-t384", "fcfs"}
+	want := []string{"priority", "srpf-s10", "srpf-s2", "srpf-s5", "fcfs", "srpf-s3", "srpf-s8"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("order %v, want %v", names, want)
 	}
 	if !srpfBalanced(order) {
-		t.Errorf("order %v does not alternate the threshold or run each policy once per half", names)
+		t.Errorf("order %v is not balanced", names)
+	}
+	byName := map[string]SRPFArm{}
+	for _, a := range SRPFSweepArms() {
+		byName[a.Name] = a
+	}
+	arms := func(names ...string) []SRPFArm {
+		out := make([]SRPFArm, len(names))
+		for i, n := range names {
+			out[i] = byName[n]
+		}
+		return out
+	}
+	for _, c := range []struct {
+		why   string
+		order []SRPFArm
+	}{
+		// Each order breaks exactly one rule, so dropping any one rule lets one through.
+		// Ladder 2, 5, 10, 3, 8 has rho = 0.5: a drift over the session would read as the threshold's effect.
+		{"thresholds rising with position", arms("fcfs", "srpf-s2", "srpf-s5", "srpf-s10", "priority", "srpf-s3", "srpf-s8")},
+		{"both baselines in one half", arms("fcfs", "priority", "srpf-s3", "srpf-s10", "srpf-s5", "srpf-s2", "srpf-s8")},
+		{"a baseline in the middle", arms("priority", "srpf-s3", "srpf-s8", "fcfs", "srpf-s5", "srpf-s10", "srpf-s2")},
+		{"ladder neighbours back to back", arms("fcfs", "srpf-s2", "srpf-s8", "srpf-s10", "priority", "srpf-s3", "srpf-s5")},
+		// Ladder 2, 5, 10, 8, 3 has rho = 0.3 exactly, inside a ±0.3 band and outside this one.
+		{"a correlation of 0.3", arms("fcfs", "srpf-s2", "srpf-s5", "srpf-s10", "priority", "srpf-s8", "srpf-s3")},
+	} {
+		if srpfBalanced(c.order) {
+			t.Errorf("%s was accepted as balanced", c.why)
+		}
 	}
 	sorted := slices.Clone(names)
 	slices.Sort(sorted)
@@ -74,28 +104,42 @@ func TestSRPFSweepOrderIsCounterbalancedAndFixed(t *testing.T) {
 	}
 }
 
-// Each arm's engine differs from the earlier runs' only by its policy, its threshold and the SRPF variable.
-// Mutation that turns this red: add the SRPF variable whenever Policy is fcfs.
+// Each arm's engine differs from the earlier runs' only by its policy and the two SRPF variables.
+// Mutations that turn this red: add the SRPF variables whenever Policy is fcfs, or set the starvation one from a constant.
 func TestSRPFSweepRunArgsDifferOnlyByTheArm(t *testing.T) {
-	s := &SRPFSweep{HFCache: "/hf", CompileRoot: "/compile", Overlay: "/opt/srpf/scheduler.py", Port: 8000}
+	s := &SRPFSweep{HFCache: "/hf", CompileRoot: "/compile", Overlay: "/opt/srpf/scheduler.py", Out: "/out", Port: 8000}
 	const path = "/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py"
-	args, err := s.RunArgs(SRPFArm{Name: "srpf-t384", Policy: "fcfs", Threshold: 384, SRPF: true}, path)
+	args, err := s.RunArgs(SRPFArm{Name: "srpf-s2", Policy: "fcfs", SRPF: true, Starvation: 2}, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
-		"run", "--detach", "--name=srpf-srpf-t384", "--gpus=all", "--shm-size=1g", "--workdir=/",
+		"run", "--detach", "--name=srpf-srpf-s2", "--gpus=all", "--shm-size=1g", "--workdir=/",
 		"--env=VLLM_SERVER_DEV_MODE=1", "--env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache", "--env=VLLM_ENABLE_SRPF=1",
-		"--publish=127.0.0.1:8000:8000", "--volume=/hf:/root/.cache/huggingface", "--volume=/compile/srpf-t384:/root/.cache/vllm",
-		"--volume=/opt/srpf/scheduler.py:" + path + ":ro", "--label=study=srpf-sweep", "--entrypoint=env", SRPFSweepImage, "-u", "VLLM_GPU_SYNC_CHECK", "vllm", "serve",
+		"--env=VLLM_SRPF_STARVATION_THRESHOLD=2",
+		"--publish=127.0.0.1:8000:8000", "--volume=/hf:/root/.cache/huggingface", "--volume=/compile/srpf-s2:/root/.cache/vllm",
+		"--volume=/opt/srpf/scheduler.py:" + path + ":ro",
+		"--volume=/out/observe/srpf_observe.py:/usr/local/lib/python3.12/dist-packages/srpf_observe.py:ro",
+		"--volume=/out/observe/zz_srpf_observe.pth:/usr/local/lib/python3.12/dist-packages/zz_srpf_observe.pth:ro",
+		"--label=study=srpf-sweep", "--entrypoint=env", SRPFSweepImage, "-u", "VLLM_GPU_SYNC_CHECK", "vllm", "serve",
 		"Qwen/Qwen2.5-3B-Instruct", "--dtype=half", "--max-model-len=16384", "--max-num-seqs=64", "--gpu-memory-utilization=0.90",
 		"--no-enable-prefix-caching", "--max-num-batched-tokens=512", "--scheduling-policy=fcfs", "--no-async-scheduling",
 		"--port=8000", "--served-model-name=Qwen/Qwen2.5-3B-Instruct", "--revision=" + SRPFSweepRevision,
-		"--tokenizer-revision=" + SRPFSweepRevision, "--long-prefill-token-threshold=384",
+		"--tokenizer-revision=" + SRPFSweepRevision,
 	}
 	if !slices.Equal(args, want) {
-		t.Errorf("srpf-t384 runs\n%q\nwant\n%q", args, want)
+		t.Errorf("srpf-s2 runs\n%q\nwant\n%q", args, want)
 	}
+	for _, bad := range []SRPFArm{
+		{Name: "srpf-default", Policy: "fcfs", SRPF: true},
+		{Name: "fcfs-s5", Policy: "fcfs", Starvation: 5},
+	} {
+		if _, err := s.RunArgs(bad, path); err == nil {
+			t.Errorf("arm %+v was given run args", bad)
+		}
+	}
+	// The ladder the author asked for, with the default between, and every baseline unset.
+	starvation := map[string]string{}
 	rel := engineargs.Releases()[platformv1.VLLMReleaseV0271]
 	for _, a := range SRPFSweepArms() {
 		args, err := s.RunArgs(a, path)
@@ -104,6 +148,14 @@ func TestSRPFSweepRunArgsDifferOnlyByTheArm(t *testing.T) {
 		}
 		if got := slices.Contains(args, "--env=VLLM_ENABLE_SRPF=1"); got != a.SRPF {
 			t.Errorf("%s sets the SRPF variable: %t", a.Name, got)
+		}
+		for _, arg := range args {
+			if v, ok := strings.CutPrefix(arg, "--env=VLLM_SRPF_STARVATION_THRESHOLD="); ok {
+				if _, dup := starvation[a.Name]; dup {
+					t.Errorf("%s sets the starvation threshold twice", a.Name)
+				}
+				starvation[a.Name] = v
+			}
 		}
 		if got := slices.Contains(args, "--long-prefill-token-threshold=384"); got != (a.Threshold == 384) {
 			t.Errorf("%s passes the threshold: %t", a.Name, got)
@@ -116,6 +168,10 @@ func TestSRPFSweepRunArgsDifferOnlyByTheArm(t *testing.T) {
 				t.Errorf("%s drops the earlier runs' %s", a.Name, flag)
 			}
 		}
+	}
+	wantStarvation := map[string]string{"srpf-s2": "2", "srpf-s3": "3", "srpf-s5": "5", "srpf-s8": "8", "srpf-s10": "10"}
+	if !maps.Equal(starvation, wantStarvation) {
+		t.Errorf("the arms set the starvation threshold %v, want %v and nothing for fcfs and priority", starvation, wantStarvation)
 	}
 }
 
@@ -157,32 +213,50 @@ func TestSRPFNonDefaultArgsRefusal(t *testing.T) {
 	}
 }
 
-// srpfProbeJSON is a serving probe's answer for the PR's scheduler, with env for every process.
-func srpfProbeJSON(env *string, pycSize int64) string {
+// srpfProbeJSON is a serving probe's answer for the PR's scheduler, with env and starvation for every readable process.
+// Its engine core is retitled under the server, with /proc showing 30 variables and none of the server's, as on 2026-11-17.
+func srpfProbeJSON(env, starvation *string, pycSize int64) string {
+	// The engine core's scheduler holds what it read, and the PR's default 5 when the variable is unset.
+	// It reads the variable with int(), as the PR does, so "02" is held as 2.
+	threshold := json.RawMessage("5")
+	if starvation != nil {
+		if v, err := strconv.Atoi(*starvation); err == nil {
+			threshold = json.RawMessage(strconv.Itoa(v))
+		}
+	}
 	p := srpfProbe{
-		File: srpfFakePath, SHA256: SRPFSweepPRSchedulerSHA256, Size: 170000, SRPFKey: true,
-		Env: env, PycachePrefix: new(srpfSweepPycachePrefix), PycFlags: new(int64(0)), PycSourceSize: new(pycSize),
-		Procs: []srpfProbeProc{{PID: 1, EnvCount: 12, Cmd: "vllm serve", Env: env, PycachePrefix: new(srpfSweepPycachePrefix)}},
+		File: srpfFakePath, SHA256: SRPFSweepPRSchedulerSHA256, Size: 170000, SRPFKey: true, Observed: true,
+		Schedulers: []srpfSchedulerRecord{{PID: 97, File: srpfFakePath, Threshold: threshold, Env: env, Starvation: starvation}},
+		Env:        env, Starvation: starvation, PycachePrefix: new(srpfSweepPycachePrefix), PycFlags: new(int64(0)), PycSourceSize: new(pycSize),
+		Procs: []srpfProbeProc{
+			{PID: 1, EnvCount: 12, Cmd: "vllm serve", Env: env, Starvation: starvation, PycachePrefix: new(srpfSweepPycachePrefix)},
+			{PID: 97, PPID: 1, EnvCount: 30, Cmd: "VLLM::EngineCore"},
+		},
 	}
 	b, _ := json.Marshal(p)
 	return "WARNING noise\n" + string(b) + "\n"
 }
 
-// The probe is what stops a wrong build or a wrong SRPF setting from being measured under an arm's name.
+// The probe is what stops a wrong build, a wrong SRPF setting or a wrong aging threshold from being measured under an arm's name.
 // Mutation that turns this red: drop the pyc size comparison in srpfProbeRefusal.
 func TestSRPFProbeRefusal(t *testing.T) {
 	const path = srpfFakePath
-	srpf, fcfs := SRPFArm{Name: "srpf", Policy: "fcfs", SRPF: true}, SRPFArm{Name: "fcfs", Policy: "fcfs"}
-	one := new("1")
-	if err := srpfProbeRefusal(srpf, path, true, []byte(srpfProbeJSON(one, 170000))); err != nil {
+	srpf, fcfs := SRPFArm{Name: "srpf-s2", Policy: "fcfs", SRPF: true, Starvation: 2}, SRPFArm{Name: "fcfs", Policy: "fcfs"}
+	one, two := new("1"), new("2")
+	proof, err := srpfProbeCheck(srpf, path, true, []byte(srpfProbeJSON(one, two, 170000)))
+	if err != nil {
 		t.Errorf("a conforming srpf probe was refused: %v", err)
 	}
-	if err := srpfProbeRefusal(fcfs, path, true, []byte(srpfProbeJSON(nil, 170000))); err != nil {
+	// Mutation that turns this red: build the proof from the engine core's ancestor instead of its scheduler's record.
+	if want := `VLLM::EngineCore 97 initialised srpf_starvation_threshold=2 with VLLM_ENABLE_SRPF="1" VLLM_SRPF_STARVATION_THRESHOLD="2"`; proof != want {
+		t.Errorf("the engine core's proof is %q, want %q", proof, want)
+	}
+	if err := srpfProbeRefusal(fcfs, path, true, []byte(srpfProbeJSON(nil, nil, 170000))); err != nil {
 		t.Errorf("a conforming fcfs probe was refused: %v", err)
 	}
 	mutate := func(f func(p *srpfProbe)) []byte {
 		var p srpfProbe
-		_ = json.Unmarshal(lastLine([]byte(srpfProbeJSON(one, 170000))), &p)
+		_ = json.Unmarshal(lastLine([]byte(srpfProbeJSON(one, two, 170000))), &p)
 		f(&p)
 		b, _ := json.Marshal(p)
 		return b
@@ -194,19 +268,52 @@ func TestSRPFProbeRefusal(t *testing.T) {
 		serving bool
 		want    string
 	}{
-		{"srpf arm without the variable", srpf, []byte(srpfProbeJSON(nil, 170000)), true, "needs VLLM_ENABLE_SRPF=1"},
-		{"fcfs arm with the variable", fcfs, []byte(srpfProbeJSON(one, 170000)), true, "must not set VLLM_ENABLE_SRPF"},
+		{"srpf arm without the variable", srpf, []byte(srpfProbeJSON(nil, two, 170000)), true, "needs VLLM_ENABLE_SRPF=1"},
+		{"fcfs arm with the variable", fcfs, []byte(srpfProbeJSON(one, nil, 170000)), true, "must not set VLLM_ENABLE_SRPF"},
+		// The PR's default is 5, so an arm whose variable was dropped would run 5 and look like a measured threshold.
+		{"srpf arm without its threshold", srpf, []byte(srpfProbeJSON(one, nil, 170000)), true, "needs VLLM_SRPF_STARVATION_THRESHOLD=2"},
+		{"srpf arm with another arm's threshold", srpf, []byte(srpfProbeJSON(one, new("5"), 170000)), true, "needs VLLM_SRPF_STARVATION_THRESHOLD=2"},
+		{"srpf arm with a threshold int() reads the same", srpf, []byte(srpfProbeJSON(one, new("02"), 170000)), true, "needs VLLM_SRPF_STARVATION_THRESHOLD=2"},
+		{"fcfs arm with a threshold", fcfs, []byte(srpfProbeJSON(nil, two, 170000)), true, "must not set VLLM_SRPF_STARVATION_THRESHOLD"},
 		{"the merge base's scheduler", srpf, mutate(func(p *srpfProbe) { p.SHA256 = SRPFSweepBaseSchedulerSHA256 }), true, "not the PR head's"},
+		{"run 8's scheduler", srpf, mutate(func(p *srpfProbe) {
+			p.SHA256 = "19502766a57a37432cda1ac0a581979d22845cc0fe2d5f08be8647ca113d2fa9"
+		}), true, "not the PR head's"},
 		{"another file", srpf, mutate(func(p *srpfProbe) { p.File = "/vllm-workspace/vllm/v1/core/sched/scheduler.py" }), true, "not the overlaid"},
 		{"the server compiled another source", srpf, mutate(func(p *srpfProbe) { p.PycSourceSize = new(int64(160000)) }), true, "compiled a scheduler of 160000 bytes"},
 		{"no server bytecode", srpf, mutate(func(p *srpfProbe) { p.PycSourceSize, p.PycFlags = nil, nil }), true, "no server process wrote bytecode"},
 		{"a process without the variable", srpf, mutate(func(p *srpfProbe) {
-			p.Procs = append(p.Procs, srpfProbeProc{PID: 7, PPID: 1, EnvCount: 12, Cmd: "EngineCore", PycachePrefix: new(srpfSweepPycachePrefix)})
+			p.Procs = append(p.Procs, srpfProbeProc{PID: 7, PPID: 1, EnvCount: 12, Cmd: "EngineCore", Starvation: two, PycachePrefix: new(srpfSweepPycachePrefix)})
+		}), true, "process 7"},
+		{"a process with another threshold", srpf, mutate(func(p *srpfProbe) {
+			p.Procs = append(p.Procs, srpfProbeProc{PID: 7, PPID: 1, EnvCount: 12, Cmd: "python3", Env: one, Starvation: new("10"), PycachePrefix: new(srpfSweepPycachePrefix)})
 		}), true, "process 7"},
 		// An unreadable environment is excused only through a readable, checked ancestor.
 		{"an unreadable process with no readable ancestor", srpf, mutate(func(p *srpfProbe) {
 			p.Procs = append(p.Procs, srpfProbeProc{PID: 8, PPID: 99, Cmd: "VLLM::EngineCore"})
 		}), true, "no ancestor"},
+		// The variables reach the scheduler only in the engine core, so a container without one shows nothing.
+		// Mutation that turns this red: drop the engine-core requirement from srpfProbeCheck.
+		{"no engine core", srpf, mutate(func(p *srpfProbe) { p.Procs = p.Procs[:1] }), true, "no VLLM::EngineCore process"},
+		// The parent carried the arm's variables and the scheduler still runs the default: only the engine core's own record shows it.
+		// Mutation that turns this red: drop the threshold comparison on the observer's records.
+		{"an engine core whose scheduler holds the default", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].Threshold = json.RawMessage("5") }), true,
+			"needs srpf_starvation_threshold 2 and the scheduler constructed in process 97 holds 5"},
+		{"a threshold that is not an int", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].Threshold = json.RawMessage(`"'2'"`) }), true, "needs srpf_starvation_threshold 2"},
+		{"an engine core whose scheduler lost the variable", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].Starvation = nil }), true,
+			"needs VLLM_SRPF_STARVATION_THRESHOLD=2 and the scheduler constructed in process 97 has unset"},
+		// Mutation that turns this red: drop the check that every engine core wrote a record.
+		{"an engine core with no record", srpf, mutate(func(p *srpfProbe) { p.Schedulers = nil }), true, "engine core 97 wrote no observer record"},
+		{"a record from another process", srpf, mutate(func(p *srpfProbe) {
+			p.Schedulers = append(p.Schedulers, srpfSchedulerRecord{PID: 1, File: srpfFakePath, Threshold: json.RawMessage("2"), Env: one, Starvation: two})
+		}), true, "process 1, which is not a running VLLM::EngineCore"},
+		{"a record of another scheduler file", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].File = "/x/scheduler.py" }), true, "not the overlaid"},
+		{"an unreadable record", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].Error = "97-1.json: ValueError" }), true, "could not be read"},
+		{"an image without the observer", srpf, mutate(func(p *srpfProbe) { p.Observed = false }), false, "not wrapped by the observer"},
+		{"a baseline whose scheduler does not hold the default", fcfs, mutate(func(p *srpfProbe) {
+			p.Env, p.Starvation, p.Procs[0].Env, p.Procs[0].Starvation = nil, nil, nil, nil
+			p.Schedulers[0] = srpfSchedulerRecord{PID: 97, File: srpfFakePath, Threshold: json.RawMessage("3")}
+		}), true, "needs srpf_starvation_threshold 5"},
 		{"no prefix", srpf, mutate(func(p *srpfProbe) { p.PycachePrefix = nil }), true, "PYTHONPYCACHEPREFIX"},
 		{"a server with the CI image's sync check", srpf, mutate(func(p *srpfProbe) { p.Procs[0].SyncCheck = new("error") }), true, "VLLM_GPU_SYNC_CHECK=error"},
 		{"no server process", srpf, mutate(func(p *srpfProbe) { p.Procs = nil }), true, "no server process"},
@@ -217,24 +324,29 @@ func TestSRPFProbeRefusal(t *testing.T) {
 			t.Errorf("%s: refusal %v, want one naming %q", c.name, err, c.want)
 		}
 	}
-	// vLLM's engine core renames itself with setproctitle, which leaves /proc showing no environment, as on 2026-11-16.
-	renamed := mutate(func(p *srpfProbe) {
-		p.Procs = append(p.Procs, srpfProbeProc{PID: 97, PPID: 1, Cmd: "VLLM::EngineCore"})
-	})
+	// vLLM's engine core renames itself with setproctitle, which can leave /proc showing no environment, as on 2026-11-16.
+	renamed := mutate(func(p *srpfProbe) { p.Procs[1].EnvCount = 0 })
 	if err := srpfProbeRefusal(srpf, path, true, renamed); err != nil {
 		t.Errorf("an engine core renamed under a checked server was refused: %v", err)
 	}
-	// On 2026-11-17 the overwrite was partial: /proc showed 30 entries and none of the variables the server passed.
+	// Run 8's engine core, whose partly overwritten /proc showed other values, is still judged by its parent.
 	// Mutation that turns this red: go back to excusing only a process that shows no environment.
-	partial := mutate(func(p *srpfProbe) {
-		p.Procs = append(p.Procs, srpfProbeProc{PID: 97, PPID: 1, EnvCount: 30, Cmd: "VLLM::EngineCore"})
-	})
+	partial := mutate(func(p *srpfProbe) { p.Procs[1].Env, p.Procs[1].Starvation = new("0"), new("99") })
 	if err := srpfProbeRefusal(srpf, path, true, partial); err != nil {
 		t.Errorf("an engine core whose renamed environment is partly overwritten was refused: %v", err)
 	}
+	// A retitled parent's /proc may be the title's overwrite, so it cannot vouch for its child, and the server above it does.
+	// Mutation that turns this red: let readableAncestor return a retitled process that showed variables.
+	nested := mutate(func(p *srpfProbe) {
+		p.Procs[1].PPID = 50
+		p.Procs = append(p.Procs, srpfProbeProc{PID: 50, PPID: 1, EnvCount: 30, Cmd: "VLLM::APIServer"})
+	})
+	if proof, err := srpfProbeCheck(srpf, path, true, nested); err != nil || !strings.Contains(proof, "VLLM::EngineCore 97 initialised srpf_starvation_threshold=2 ") {
+		t.Errorf("an engine core under a retitled parent was judged by %q (%v), not by the server above it", proof, err)
+	}
 	// Before any server ran, the image check has no bytecode or process to read.
 	if err := srpfProbeRefusal(SRPFArm{Name: "image"}, path, false, mutate(func(p *srpfProbe) {
-		p.Env, p.PycSourceSize, p.PycFlags, p.Procs = nil, nil, nil, nil
+		p.Env, p.Starvation, p.PycSourceSize, p.PycFlags, p.Procs, p.Schedulers = nil, nil, nil, nil, nil, nil
 	})); err != nil {
 		t.Errorf("the image probe was refused: %v", err)
 	}
@@ -263,7 +375,8 @@ func TestSRPFProbesRunUnderPython(t *testing.T) {
 		t.Fatal(err)
 	}
 	prefix := filepath.Join(root, "pycache")
-	env := append(os.Environ(), "PYTHONPATH="+filepath.Join(root, "site"), "PYTHONPYCACHEPREFIX="+prefix, "VLLM_ENABLE_SRPF=1")
+	env := append(os.Environ(), "PYTHONPATH="+filepath.Join(root, "site"), "PYTHONPYCACHEPREFIX="+prefix, "VLLM_ENABLE_SRPF=1",
+		"VLLM_SRPF_STARVATION_THRESHOLD=3")
 
 	// The locate probe must find the file without importing the package's modules.
 	out, err := runPython(t, py, env, srpfLocateProbe)
@@ -287,7 +400,7 @@ func TestSRPFProbesRunUnderPython(t *testing.T) {
 	if p.PycSourceSize != nil {
 		t.Errorf("the probe read bytecode no server wrote: %d", *p.PycSourceSize)
 	}
-	if p.Size != int64(len(src)) || !p.SRPFKey || p.Env == nil || *p.Env != "1" {
+	if p.Size != int64(len(src)) || !p.SRPFKey || p.Env == nil || *p.Env != "1" || p.Starvation == nil || *p.Starvation != "3" {
 		t.Errorf("the probe reported %+v", p)
 	}
 
@@ -296,7 +409,8 @@ func TestSRPFProbesRunUnderPython(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := exec.Command(py, "-c", "import sys, vllm.v1.core.sched.scheduler; print('up', flush=True); sys.stdin.read()")
-	server.Env = append(slices.Clone(env), "VLLM_GPU_SYNC_CHECK=error")
+	// The server's threshold differs from the probe's own, so a probe that reported its own for every process is caught.
+	server.Env = append(slices.Clone(env), "VLLM_GPU_SYNC_CHECK=error", "VLLM_SRPF_STARVATION_THRESHOLD=7")
 	stdin, _ := server.StdinPipe()
 	stdout, _ := server.StdoutPipe()
 	if err := server.Start(); err != nil {
@@ -318,9 +432,107 @@ func TestSRPFProbesRunUnderPython(t *testing.T) {
 		t.Errorf("the probe did not read the server's bytecode of a %d-byte source: %+v", len(src), p)
 	}
 	i := slices.IndexFunc(p.Procs, func(pr srpfProbeProc) bool { return pr.PID == server.Process.Pid })
+	// Mutation that turns this red: read the starvation variable from the probe's own environment for every process.
 	if i < 0 || p.Procs[i].Env == nil || *p.Procs[i].Env != "1" || p.Procs[i].PycachePrefix == nil || *p.Procs[i].PycachePrefix != prefix ||
+		p.Procs[i].Starvation == nil || *p.Procs[i].Starvation != "7" ||
 		p.Procs[i].SyncCheck == nil || *p.Procs[i].SyncCheck != "error" {
 		t.Errorf("the probe did not report the server's environment: %+v", p.Procs)
+	}
+}
+
+// The observer is Python loaded by site in every engine process, so it is run here against a fake vllm package whose
+// Scheduler reads the threshold as the PR's does.
+// The "engine core" changes its own os.environ after exec, which /proc does not show, and the record must show what the
+// constructed scheduler holds, as codex's review of this sweep reproduced.
+// Mutations that turn this red: record the variable instead of the instance's field, or drop the .pth file.
+func TestSRPFObserverRecordsWhatTheSchedulerHolds(t *testing.T) {
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not installed")
+	}
+	root := t.TempDir()
+	site := filepath.Join(root, "site")
+	sched := filepath.Join(site, "vllm", "v1", "core", "sched")
+	if err := os.MkdirAll(sched, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"vllm", "vllm/v1", "vllm/v1/core", "vllm/v1/core/sched"} {
+		if err := os.WriteFile(filepath.Join(site, d, "__init__.py"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// After reading the threshold, this Scheduler sets the variable to 4, so when the observer writes its record the
+	// instance holds 9 and the environment says 4, and only a record of the instance's field reports 9.
+	src := "import os\nclass Scheduler:\n    def __init__(self):\n        self.srpf_starvation_threshold = int(os.environ.get(\"VLLM_SRPF_STARVATION_THRESHOLD\", \"5\"))\n" +
+		"        os.environ[\"VLLM_SRPF_STARVATION_THRESHOLD\"] = \"4\"\n" +
+		"    def _get_srpf_key_for_req(self, req):\n        return ()\n"
+	if err := os.WriteFile(filepath.Join(sched, "scheduler.py"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &SRPFSweep{Out: filepath.Join(root, "out")}
+	if err := os.Mkdir(s.Out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeObserver(); err != nil {
+		t.Fatal(err)
+	}
+	// The mounts put both files in the package's site directory, which is what site.addsitedir reads here.
+	for _, name := range []string{srpfObserveModule, srpfObservePth} {
+		b, err := os.ReadFile(filepath.Join(s.observeDir(), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(srpfSitePackages(filepath.Join(sched, "scheduler.py")), name), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	records := filepath.Join(root, "records")
+	env := append(os.Environ(), "PYTHONPYCACHEPREFIX="+filepath.Join(root, "pycache"), "SRPF_OBSERVE_DIR="+records,
+		"VLLM_ENABLE_SRPF=1", "VLLM_SRPF_STARVATION_THRESHOLD=3")
+	withSite := "import site; site.addsitedir(" + strconv.Quote(site) + ")\n"
+	core := exec.Command(py, "-c", withSite+"import os, sys\nos.environ['VLLM_SRPF_STARVATION_THRESHOLD'] = '9'\n"+
+		"import vllm.v1.core.sched.scheduler as m\nm.Scheduler()\nprint('up', flush=True)\nsys.stdin.read()")
+	core.Env, core.Dir = env, t.TempDir()
+	stdin, _ := core.StdinPipe()
+	stdout, _ := core.StdoutPipe()
+	core.Stderr = os.Stderr
+	if err := core.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stdin.Close(); _ = core.Wait() })
+	if line, _ := bufio.NewReader(stdout).ReadString('\n'); line != "up\n" {
+		t.Fatalf("the engine core printed %q", line)
+	}
+	out, err := runPython(t, py, env, withSite+srpfCodeProbe)
+	if err != nil {
+		t.Fatalf("code probe: %v: %s", err, out)
+	}
+	var p srpfProbe
+	if err := json.Unmarshal(lastLine(out), &p); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Observed || len(p.Schedulers) != 1 {
+		t.Fatalf("the probe saw observed=%t and %d scheduler records: %s", p.Observed, len(p.Schedulers), out)
+	}
+	r := p.Schedulers[0]
+	// Mutation that turns this red: record int(os.environ.get(...)) in place of the instance's srpf_starvation_threshold.
+	if r.PID != core.Process.Pid || string(r.Threshold) != "9" || r.Starvation == nil || *r.Starvation != "4" || r.Env == nil || *r.Env != "1" ||
+		r.File != filepath.Join(sched, "scheduler.py") {
+		t.Errorf("the observer recorded %+v, want pid %d holding 9", r, core.Process.Pid)
+	}
+	i := slices.IndexFunc(p.Procs, func(pr srpfProbeProc) bool { return pr.PID == core.Process.Pid })
+	if i < 0 || p.Procs[i].Starvation == nil || *p.Procs[i].Starvation != "3" {
+		t.Errorf("/proc was expected to keep the exec-time 3, which is why the record is needed: %+v", p.Procs)
+	}
+	// Under the arm that set 3, with every environment /proc shows carrying 3, this record is what refuses it.
+	arm := SRPFArm{Name: "srpf-s3", Policy: "fcfs", SRPF: true, Starvation: 3}
+	var fake srpfProbe
+	_ = json.Unmarshal(lastLine([]byte(srpfProbeJSON(new("1"), new("3"), 170000))), &fake)
+	r.PID, r.File = 97, srpfFakePath
+	fake.Schedulers = []srpfSchedulerRecord{r}
+	b, _ := json.Marshal(fake)
+	if err := srpfProbeRefusal(arm, srpfFakePath, true, b); err == nil || !strings.Contains(err.Error(), "holds 9") {
+		t.Errorf("an engine core holding 9 under arm srpf-s3 was not refused for it: %v", err)
 	}
 }
 
@@ -336,7 +548,7 @@ func srpfRow(tr TraceRow, ttftMs, lastMs float64, tokens int) RawRow {
 	intended := tr.OffsetMs * int64(time.Millisecond)
 	at := func(ms float64) *int64 { v := intended + int64(ms*float64(time.Millisecond)); return &v }
 	return RawRow{
-		Index: tr.Index, Study: StudySRPF58420, Arm: "fcfs", TraceChecksum: SRPFSweepTraceChecksum, Tenant: tr.Tenant, ScheduledOffsetMs: tr.OffsetMs, HTTPStatus: 200, StreamTerminated: true,
+		Index: tr.Index, Study: StudySRPF58420Threshold, Arm: "fcfs", TraceChecksum: SRPFSweepTraceChecksum, Tenant: tr.Tenant, ScheduledOffsetMs: tr.OffsetMs, HTTPStatus: 200, StreamTerminated: true,
 		EngineUsageReported: new(true), EngineOutputTokens: tokens, EngineInputTokens: tr.ExactInputTokens,
 		Clock: &RequestClock{IntendedNanos: &intended, SendNanos: at(0.5), FirstContentNanos: at(ttftMs), LastContentNanos: at(lastMs)},
 	}
@@ -414,7 +626,7 @@ func TestSRPFSweepFigures(t *testing.T) {
 		}
 	}
 	timeout := slices.Clone(rows)
-	timeout[1] = RawRow{Index: 1, Study: StudySRPF58420, Arm: "fcfs", TraceChecksum: SRPFSweepTraceChecksum, Tenant: NoisyTenant, ScheduledOffsetMs: 10, ErrorKind: "timeout", Clock: &RequestClock{IntendedNanos: rows[1].Clock.IntendedNanos}}
+	timeout[1] = RawRow{Index: 1, Study: StudySRPF58420Threshold, Arm: "fcfs", TraceChecksum: SRPFSweepTraceChecksum, Tenant: NoisyTenant, ScheduledOffsetMs: 10, ErrorKind: "timeout", Clock: &RequestClock{IntendedNanos: rows[1].Clock.IntendedNanos}}
 	f, err = SRPFSweepFigures("fcfs", trace, timeout)
 	if err != nil || !f.ContenderE2EP95.Infinite || f.Contender.FailedBy["timeout"] != 1 {
 		t.Errorf("a timed-out contender gave %+v (%v)", f, err)
@@ -451,7 +663,7 @@ func TestArmManifestLoadsAsTheReplayLoadsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := ArmManifest(archived, "srpf-t384", trace, "http://127.0.0.1:8000")
+	m, err := ArmManifest(archived, "srpf-s3", trace, "http://127.0.0.1:8000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +675,7 @@ func TestArmManifestLoadsAsTheReplayLoadsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Study != StudySRPF58420 || got.Arm != "srpf-t384" || got.Seed != SRPFSweepTraceSeed || got.GatewaySHA != "" ||
+	if got.Study != StudySRPF58420Threshold || got.Arm != "srpf-s3" || got.Seed != SRPFSweepTraceSeed || got.GatewaySHA != "" ||
 		got.ImageDigests["engine"] != SRPFSweepImage || got.TimeoutMs != 30000 || got.GatewayURL != "http://127.0.0.1:8000" {
 		t.Errorf("manifest %+v", got)
 	}
@@ -471,11 +683,14 @@ func TestArmManifestLoadsAsTheReplayLoadsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ArmManifest(other, "srpf", trace, "http://x"); err == nil {
+	if _, err := ArmManifest(other, "srpf-s5", trace, "http://x"); err == nil {
 		t.Error("the manifest of another seed was accepted")
 	}
-	if _, err := ArmManifest(archived, "srpf-t512", trace, "http://x"); err == nil {
-		t.Error("an unregistered arm was accepted")
+	// Run 8's arm names are not this sweep's, so its srpf arm cannot be replayed under this study.
+	for _, arm := range []string{"srpf-t512", "srpf", "srpf-t384"} {
+		if _, err := ArmManifest(archived, arm, trace, "http://x"); err == nil {
+			t.Errorf("the unregistered arm %s was accepted", arm)
+		}
 	}
 }
 
@@ -493,6 +708,8 @@ type srpfFake struct {
 	requestIDs []string
 	// wrongEnvArm makes that arm's container report the SRPF variable it should not have.
 	wrongEnvArm string
+	// defaultStarvationArm makes that arm's engine core hold the PR's default threshold while its parent carried the arm's.
+	defaultStarvationArm string
 	// versionHangs makes the version probe print its version and then run past its bound, as `vllm --version` did.
 	versionHangs bool
 	// promptTokens, when set, is the prompt length the engine reports for every request instead of the trace's.
@@ -518,7 +735,10 @@ func (f *srpfFake) docker(_ context.Context, _ string, args ...string) ([]byte, 
 		case strings.Contains(joined, "find_spec(\"vllm\").origin), \"v1\"") && !strings.Contains(joined, "import vllm.v1"):
 			return fmt.Appendf(nil, `{"file": %q, "sha256": %q}`+"\n", srpfFakePath, SRPFSweepBaseSchedulerSHA256), nil
 		case strings.Contains(joined, "import vllm.v1.core.sched.scheduler"):
-			return fmt.Appendf(nil, `{"file": %q, "sha256": %q, "size": 170000, "srpfKey": true, "env": null, "pycachePrefix": %q, "procs": []}`+"\n",
+			if !strings.Contains(joined, "srpf_observe.py:") || !strings.Contains(joined, "zz_srpf_observe.pth:") {
+				return []byte(`{"error": "the observer is not mounted"}` + "\n"), nil
+			}
+			return fmt.Appendf(nil, `{"file": %q, "sha256": %q, "size": 170000, "srpfKey": true, "observed": true, "schedulers": [], "env": null, "pycachePrefix": %q, "procs": []}`+"\n",
 				srpfFakePath, SRPFSweepPRSchedulerSHA256, srpfSweepPycachePrefix), nil
 		case strings.Contains(joined, "importlib.metadata"):
 			if f.versionHangs {
@@ -545,7 +765,23 @@ func (f *srpfFake) docker(_ context.Context, _ string, args ...string) ([]byte, 
 		if slices.Contains(run, "--env=VLLM_ENABLE_SRPF=1") || slices.Contains(run, "--name=srpf-"+f.wrongEnvArm) {
 			env = new("1")
 		}
-		return []byte(srpfProbeJSON(env, 170000)), nil
+		// The container reports the threshold its run args set.
+		var starvation *string
+		for _, a := range run {
+			if v, ok := strings.CutPrefix(a, "--env="+SRPFSweepStarvationEnv+"="); ok {
+				starvation = new(v)
+			}
+		}
+		out := srpfProbeJSON(env, starvation, 170000)
+		// The arm told to lose its threshold keeps it in every environment /proc shows, and its scheduler holds the default.
+		if slices.Contains(run, "--name=srpf-"+f.defaultStarvationArm) {
+			var p srpfProbe
+			_ = json.Unmarshal(lastLine([]byte(out)), &p)
+			p.Schedulers[0].Threshold = json.RawMessage("5")
+			b, _ := json.Marshal(p)
+			out = string(b) + "\n"
+		}
+		return []byte(out), nil
 	case args[0] == "rm":
 		delete(f.running, args[len(args)-1])
 		f.removed = append(f.removed, args[len(args)-1])
@@ -698,13 +934,13 @@ func TestSRPFSweepRefusesAnotherBlocksManifestBeforeThePull(t *testing.T) {
 }
 
 // One sweep against the fakes: every arm in the frozen order on its own engine, an arm whose container carries the
-// wrong SRPF setting failed before any request, and every container removed.
+// wrong SRPF setting and one whose engine runs the default threshold failed before any request, and every container removed.
 // Mutation that turns this red: skip srpfProbeRefusal in measureArm.
 func TestSRPFSweepRunsEveryArmAndFailsAContaminatedOne(t *testing.T) {
-	f := &srpfFake{wrongEnvArm: "fcfs"}
+	f := &srpfFake{wrongEnvArm: "fcfs", defaultStarvationArm: "srpf-s8"}
 	s := srpfSweepAgainst(t, f)
 	// The PR's scheduler is not in the repository, so the sweep is driven from just after its refusals.
-	sum, err := s.run(context.Background(), SRPFSweepSummary{Study: StudySRPF58420, Arms: []SRPFArmResult{}}, SRPFSweepOrder(SRPFSweepOrderSeed))
+	sum, err := s.run(context.Background(), SRPFSweepSummary{Study: StudySRPF58420Threshold, Arms: []SRPFArmResult{}}, SRPFSweepOrder(SRPFSweepOrderSeed))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -713,10 +949,10 @@ func TestSRPFSweepRunsEveryArmAndFailsAContaminatedOne(t *testing.T) {
 		t.Errorf("image identity %+v", id)
 	}
 	results := sum.Arms
-	if len(results) != 6 {
+	if len(results) != 7 {
 		t.Fatalf("%d arm results", len(results))
 	}
-	for _, name := range []string{"summary.json", "arm-srpf.json", "arm-srpf.pre-replay.json", "start-srpf-1.pre-replay.engine.log", "raw-srpf.jsonl"} {
+	for _, name := range []string{"summary.json", "arm-srpf-s2.json", "arm-srpf-s2.pre-replay.json", "start-srpf-s2-1.pre-replay.engine.log", "raw-srpf-s2.jsonl"} {
 		if _, err := os.Stat(filepath.Join(s.Out, name)); err != nil {
 			t.Errorf("the sweep did not write %s: %v", name, err)
 		}
@@ -727,6 +963,10 @@ func TestSRPFSweepRunsEveryArmAndFailsAContaminatedOne(t *testing.T) {
 			if res.Outcome != "failed" || !strings.Contains(res.Reason, "must not set VLLM_ENABLE_SRPF") || res.RawFile != "" {
 				t.Errorf("the contaminated fcfs arm was %s (%s), raw %q", res.Outcome, res.Reason, res.RawFile)
 			}
+		case "srpf-s8":
+			if res.Outcome != "failed" || !strings.Contains(res.Reason, "needs srpf_starvation_threshold 8") || res.RawFile != "" {
+				t.Errorf("the srpf-s8 arm on the default threshold was %s (%s), raw %q", res.Outcome, res.Reason, res.RawFile)
+			}
 		default:
 			if res.Outcome != "measured" || res.Figures == nil || res.Preemptions == nil || *res.Preemptions != 2 {
 				t.Errorf("arm %s was %s (%s), preemptions %v", res.Name, res.Outcome, res.Reason, res.Preemptions)
@@ -736,19 +976,27 @@ func TestSRPFSweepRunsEveryArmAndFailsAContaminatedOne(t *testing.T) {
 				res.Figures.PremiumTTFTP99.String() != "50.0" || len(res.Warmup) != 2 {
 				t.Errorf("arm %s figures %+v, %d warm-up rows", res.Name, res.Figures, len(res.Warmup))
 			}
+			// Mutation that turns this red: leave EngineCoreEnv unset in measureArm.
+			want := "srpf_starvation_threshold=5 with VLLM_ENABLE_SRPF=unset " + SRPFSweepStarvationEnv + "=unset"
+			if res.SRPF {
+				want = fmt.Sprintf("srpf_starvation_threshold=%d with VLLM_ENABLE_SRPF=\"1\" %s=%q", res.Starvation, SRPFSweepStarvationEnv, strconv.Itoa(res.Starvation))
+			}
+			if !strings.HasPrefix(res.EngineCoreEnv, "VLLM::EngineCore 97 initialised ") || !strings.HasSuffix(res.EngineCoreEnv, want) {
+				t.Errorf("arm %s recorded its engine core's environment as %q, want it ending %s", res.Name, res.EngineCoreEnv, want)
+			}
 		}
 	}
-	want := []string{"fcfs-t384", "srpf", "priority-t384", "priority", "srpf-t384"}
+	want := []string{"priority", "srpf-s10", "srpf-s2", "srpf-s5", "srpf-s3"}
 	for i, rep := range f.replays {
 		if rep != want[i]+" "+SRPFSweepPriorities {
 			t.Errorf("replay %d was %q, want %s with the priorities", i, rep, want[i])
 		}
 	}
 	// Mutation that turns this red: drop SetRequestIDPrefix from warmup.
-	if !slices.Contains(f.requestIDs, "warmup-srpf-0") || !slices.Contains(f.requestIDs, "warmup-srpf-1") || slices.Contains(f.requestIDs, "") {
+	if !slices.Contains(f.requestIDs, "warmup-srpf-s2-0") || !slices.Contains(f.requestIDs, "warmup-srpf-s2-1") || slices.Contains(f.requestIDs, "") {
 		t.Errorf("the warm-up sent request IDs %v, not the ones its rows record", f.requestIDs)
 	}
-	if len(f.replays) != len(want) || len(f.running) != 0 || len(f.removed) != 6 {
+	if len(f.replays) != len(want) || len(f.running) != 0 || len(f.removed) != 7 {
 		t.Errorf("%d replays, %d containers left running, %d removed", len(f.replays), len(f.running), len(f.removed))
 	}
 }
@@ -773,7 +1021,7 @@ func TestSRPFSweepImageIdentitySurvivesAVersionProbeThatDoesNotExit(t *testing.T
 func TestSRPFSweepFailsAnArmWhoseWarmupPromptIsAnotherLength(t *testing.T) {
 	f := &srpfFake{promptTokens: 68}
 	s := srpfSweepAgainst(t, f)
-	sum, err := s.run(context.Background(), SRPFSweepSummary{Study: StudySRPF58420, Arms: []SRPFArmResult{}}, SRPFSweepOrder(SRPFSweepOrderSeed))
+	sum, err := s.run(context.Background(), SRPFSweepSummary{Study: StudySRPF58420Threshold, Arms: []SRPFArmResult{}}, SRPFSweepOrder(SRPFSweepOrderSeed))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -793,7 +1041,7 @@ func TestSRPFSweepDoesNotMeasureAReplayOfAnotherLength(t *testing.T) {
 	for _, tokens := range []int{0, 7700} {
 		f := &srpfFake{replayPromptTokens: new(tokens)}
 		s := srpfSweepAgainst(t, f)
-		sum, err := s.run(context.Background(), SRPFSweepSummary{Study: StudySRPF58420, Arms: []SRPFArmResult{}}, SRPFSweepOrder(SRPFSweepOrderSeed))
+		sum, err := s.run(context.Background(), SRPFSweepSummary{Study: StudySRPF58420Threshold, Arms: []SRPFArmResult{}}, SRPFSweepOrder(SRPFSweepOrderSeed))
 		if err != nil {
 			t.Fatal(err)
 		}

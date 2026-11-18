@@ -1,21 +1,30 @@
 #!/usr/bin/env bash
 #
-# The vLLM #58420 SRPF measurement: one g5.xlarge Spot instance, one attempt, stopped by itself 12,240 s after launch.
+# The vLLM #58420 SRPF threshold sweep: one g5.xlarge Spot instance, one attempt, stopped by itself 12,100 s after launch.
 #
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM58420_AMI_ID=ami-... bash hack/vllm-58420-session.sh
 #
-# The PR's author asked on 2026-11-16 for the single-A10G numbers behind the owner's #57413 comment, with srpf beside
-# fcfs and priority, each with and without --long-prefill-token-threshold, and the owner approved one paid session.
+# Run 8 (hack/vllm-58420/2026-11-17-run8) measured the PR's head aae949c, whose SRPF aging rule was a fixed 5 steps.
+# On 2026-11-18 the PR's author pushed b8b0d36, which reads the step count from VLLM_SRPF_STARVATION_THRESHOLD, and asked
+# for 2 or 3 (does the long-request p95 move toward fcfs, and at what cost to the short p99) and 8 or 10 (does the short
+# p99 approach priority's, and at what cost to the long tail).
+# So the arms are fcfs, priority, and SRPF at 2, 3, 5, 8 and 10; 5 is the default and run 8's rule, the drift check.
+# `benchharness srpf-sweep -print-arms` prints them in run order with each engine's variables, into arms.txt.
 # On the instance it runs only `benchharness srpf-sweep` (internal/bench/srpf_sweep.go): the pull of vLLM CI's image of
 # the PR's merge base, a check that the image ships the merge base's scheduler and imports the PR's once it is
-# mounted, the model download, then six arms on fresh engines, each warmed up and replayed the diagnostic's 420 s trace.
+# mounted, the model download, then seven arms on fresh engines, each warmed up and replayed the diagnostic's 420 s trace.
+# Each arm is measured only after a probe inside its container shows the process that spawned the engine core carried
+# that arm's two variables, and the scheduler the engine core constructed holds the arm's threshold.
+# The second comes from an observer (srpfObserveSource) mounted beside the package, which records srpf_starvation_threshold
+# from inside the engine core; /proc cannot show it, since it keeps the exec-time environment and the retitling overwrites it.
 # It is modelled on hack/version-readiness-session.sh and shares its EC2 lifecycle (hack/lib/spot-run.sh) and the
 # NVIDIA container toolkit set-up spliced from hack/m5c-gpu-session.sh between two anchors.
 #
 # THE BUILD.
 # The PR changes one file of the package, vllm/v1/core/sched/scheduler.py, and no compiled code.
-# So the engine is public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo at the merge base 5039f736, pinned by digest, with the
-# head's scheduler.py (aae949c, git blob 87e31dcc) mounted read-only over the installed one.
+# The new head's merge base is still 5039f736, so the engine is run 8's: public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo
+# at the merge base, pinned by digest, with the head's scheduler.py (b8b0d36, git blob be34356a) mounted read-only over
+# the installed one.
 # This script fetches that file from GitHub before anything is bought and refuses it unless it hashes to SCHED_SHA256.
 # The CI image sets VLLM_GPU_SYNC_CHECK=error, a debug check on the serving path that release images do not set, so every
 # engine starts with it removed, and each arm refuses a server process that still carries it.
@@ -28,22 +37,24 @@
 #   image pull, SRPFSweepPullBound                                       2,400 s
 #   image identity, SRPFSweepImageIdentityBound                            600 s
 #   model download, SRPFSweepModelBound                                    900 s
-#   six arms, each ready 500 + identity 90 + capture 20 + warm-up 60 + idle 2 x 30 + metrics 2 x 10 + replay 480 +
-#   stop 30 = 1,260 s                                           6 x 1,260 = 7,560 s
-#   so the harness ends by 600 + 2,400 + 600 + 900 + 7,560              = 12,060 s
-#   evidence upload                                                        120 s -> 12,180
-# The launch carries the termination sweeper's study-deadline tag at the request plus 12,180 s, rewritten to LaunchTime
-# plus 12,210 s once LaunchTime is known; the instance shuts itself down at 12,240 s; the termination is to be
-# confirmed by 12,540 s, the sweeper's five-minute period after its tag plus 30 s.
+#   seven arms, each ready 300 + identity 90 + capture 20 + warm-up 60 + idle 2 x 30 + metrics 2 x 10 + replay 480 +
+#   stop 30 = 1,060 s                                           7 x 1,060 = 7,420 s
+#   so the harness ends by 600 + 2,400 + 600 + 900 + 7,420              = 11,920 s
+#   evidence upload                                                        120 s -> 12,040
+# The ready bound was 500 s for run 8, whose six cold engines were ready in 102-158 s; seven arms at 500 s would put the
+# worst case at $3.18, so it is 300 s (SRPFSweepReadyBound says why).
+# The launch carries the termination sweeper's study-deadline tag at the request plus 12,040 s, rewritten to LaunchTime
+# plus 12,070 s once LaunchTime is known; the instance shuts itself down at 12,100 s; the termination is to be
+# confirmed by 12,400 s, the sweeper's five-minute period after its tag plus 30 s.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 12,540 s = 3.4833 h.
-# At the $0.75/h Spot cap below that is $2.6125 of compute.
+# The worst case bills to the termination deadline: 12,400 s = 3.4444 h.
+# At the $0.75/h Spot cap below that is $2.5833 of compute.
 # The other sessions add $0.0324/h for 200 GB gp3 and a public IPv4 (hack/gpu-fault-session.sh).
 # This one also provisions the volume to 500 MiB/s and 6,000 IOPS, because image layers were still being extracted when
 # the pull bound cut run 5; at Seoul's $0.0456 per MiB/s-month and $0.0057 per IOPS-month over 730 h that adds
 # 375 x 0.0456 / 730 + 3,000 x 0.0057 / 730 = $0.0468/h.
-# So it is $0.8292/h all in, and $2.888, under $3.
+# So it is $0.8292/h all in, and $2.856, under $3.
 # The script refuses to run if the constants below stop giving a worst case under $3.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the arms, the bounds and the stop are constants,
@@ -61,13 +72,13 @@ ALL_IN_RATE=0.8292
 EBS_THROUGHPUT_MIBPS=500
 EBS_IOPS=6000
 COST_CAP_USD=3.00
-STUDY_ID=vllm-58420-srpf-2026-11-16
+STUDY_ID=vllm-58420-threshold-2026-11-19
 STACK=srpf58420-gpu
 PURPOSE=vllm-58420-srpf
 # The PR head and the sha256 of its scheduler.py; hack/vllm-58420-session-test.sh holds the hash equal to the Go source.
-PR_COMMIT=aae949c81dfe216e18ac56887ca2cdf7d4969e48
+PR_COMMIT=b8b0d3610dee138db57ba465897f4b7af74abbd5
 SCHED_URL="https://raw.githubusercontent.com/vllm-project/vllm/$PR_COMMIT/vllm/v1/core/sched/scheduler.py"
-SCHED_SHA256=19502766a57a37432cda1ac0a581979d22845cc0fe2d5f08be8647ca113d2fa9
+SCHED_SHA256=2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a
 # The diagnostic's frozen trace of seed 853 and its manifest, as committed and listed in their SHA256SUMS.
 DIAG_DIR=hack/eks-serve/holdcap-study/diagnostic
 TRACE_FILE=trace-off-3.jsonl
@@ -78,7 +89,7 @@ BRINGUP_S=600
 PULL_BOUND_S=2400
 IMAGE_IDENTITY_S=600
 MODEL_BOUND_S=900
-READY_BOUND_S=500
+READY_BOUND_S=300
 ARM_IDENTITY_S=90
 CAPTURE_BOUND_S=20
 WARMUP_S=60
@@ -86,7 +97,7 @@ IDLE_S=30
 METRICS_S=10
 REPLAY_S=480
 STOP_BOUND_S=30
-ARMS=6
+ARMS=7
 EVIDENCE_UPLOAD_S=120
 ARM_S=$(( READY_BOUND_S + ARM_IDENTITY_S + CAPTURE_BOUND_S + WARMUP_S + 2 * IDLE_S + 2 * METRICS_S + REPLAY_S + STOP_BOUND_S ))
 HARNESS_END_S=$(( BRINGUP_S + PULL_BOUND_S + IMAGE_IDENTITY_S + MODEL_BOUND_S + ARMS * ARM_S ))
@@ -115,7 +126,8 @@ spot_fail() { fail "$@"; }
 
 # ---------------------------------------------------------------- refusals, before anything is built or bought
 for v in INSTANCE_TYPE MAX_SPOT_PRICE HARD_STOP_SECONDS BACKSTOP_SECONDS IMAGE VLLM_IMAGE ARMS_OVERRIDE ARM_ORDER \
-  SCHEDULING_POLICY VLLM_ENABLE_SRPF LONG_PREFILL_TOKEN_THRESHOLD SCHED_URL_OVERRIDE TRACE SEED PULL_BOUND MODEL_BOUND; do
+  SCHEDULING_POLICY VLLM_ENABLE_SRPF VLLM_SRPF_STARVATION_THRESHOLD LONG_PREFILL_TOKEN_THRESHOLD SCHED_URL_OVERRIDE TRACE SEED \
+  PULL_BOUND MODEL_BOUND; do
   [ -z "${!v:-}" ] || fail "$v is set, and this session's value for it is its registration's; unset it"
 done
 python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) / 3600 * float(sys.argv[2]) < float(sys.argv[3]) else 1)' \
@@ -141,7 +153,7 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>&1) || fai
 [ "$ACCOUNT" = "$ACCOUNT_WANT" ] || fail "the credentials are for account $ACCOUNT; paid sessions run only in gpu-lab ($ACCOUNT_WANT)"
 [ ! -e "$OUT" ] || fail "$OUT already exists; each session writes a new directory"
 mkdir -p "$OUT" || fail "cannot create $OUT"
-say "the vLLM #58420 SRPF sweep for $STUDY_ID, from $COMMIT, into $OUT"
+say "the vLLM #58420 SRPF threshold sweep for $STUDY_ID, from $COMMIT, into $OUT"
 say "hard stop $STOP_FROM_LAUNCH_S s after LaunchTime; worst case $TERMINATION_S s at \$$ALL_IN_RATE/h"
 
 # The PR head's scheduler, fetched and checked before anything is bought, so a moved or rewritten file costs nothing.
@@ -235,6 +247,10 @@ say "building the harness from $COMMIT"
 GOFLAGS= GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$OUT/benchharness" ./cmd/benchharness >"$OUT/build.log" 2>&1 ||
   fail "build the harness; see $OUT/build.log"
 HARNESS_SHA=$(sha256sum "$OUT/benchharness" | cut -d' ' -f1)
+# The arms the built binary will run, read from it rather than from this script, so the record is what the instance runs.
+"$OUT/benchharness" srpf-sweep -print-arms >"$OUT/arms.txt" 2>>"$OUT/build.log" || fail "the harness could not print its arms; see $OUT/build.log"
+[ "$(grep -c . "$OUT/arms.txt")" = "$ARMS" ] || fail "the harness prints $(grep -c . "$OUT/arms.txt") arms and this session is sized for $ARMS"
+say "the arms in run order: $(paste -sd';' "$OUT/arms.txt")"
 TRACE_SHA=$(sha256sum "$DIAG_DIR/$TRACE_FILE" | cut -d' ' -f1)
 MANIFEST_SHA=$(sha256sum "$DIAG_DIR/$MANIFEST_FILE" | cut -d' ' -f1)
 RUN_NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
@@ -252,6 +268,7 @@ BUCKET="$STACK-$ACCOUNT"
   echo "pr_commit=$PR_COMMIT"
   echo "scheduler_url=$SCHED_URL"
   echo "scheduler_sha256=$SCHED_SHA256"
+  echo "arms_sha256=$(sha256sum "$OUT/arms.txt" | cut -d' ' -f1)"
   echo "trace_sha256=$TRACE_SHA"
   echo "archived_manifest_sha256=$MANIFEST_SHA"
   echo "harness_end_from_launch_s=$HARNESS_END_S"
@@ -526,5 +543,5 @@ say "evidence $EVIDENCE (summary at $OUT/sr-run/sweep/summary.json); arms measur
 [ "$TERMINATION" = confirmed ] || exit 1
 # A paid session whose summary never came back has not delivered what it bought.
 [ "$EVIDENCE" = returned ] || exit 1
-# Evidence of a sweep in which an arm was not measured is kept, and the session still says it did not deliver all six.
-[ "$MEASURED" = "6 of 6" ] || exit 2
+# Evidence of a sweep in which an arm was not measured is kept, and the session still says it did not deliver them all.
+[ "$MEASURED" = "$ARMS of $ARMS" ] || exit 2

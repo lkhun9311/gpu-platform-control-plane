@@ -89,7 +89,7 @@ refuses "a confirmation other than yes" "SESSION_CONFIRM=yes is required" "$REPO
 refuses "no AMI" "VLLM58420_AMI_ID is unset" "$REPO" SESSION_CONFIRM=yes
 refuses "an AMI that is not an ID" "pins the AMI by ID" "$REPO" SESSION_CONFIRM=yes VLLM58420_AMI_ID=latest
 for v in INSTANCE_TYPE MAX_SPOT_PRICE HARD_STOP_SECONDS VLLM_IMAGE ARM_ORDER SCHEDULING_POLICY VLLM_ENABLE_SRPF \
-  LONG_PREFILL_TOKEN_THRESHOLD SEED; do
+  VLLM_SRPF_STARVATION_THRESHOLD LONG_PREFILL_TOKEN_THRESHOLD SEED; do
   refuses "a caller's $v" "$v is set" "$REPO" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI "$v=1"
 done
 
@@ -114,6 +114,17 @@ COSTLY=$(fixture) || exit 1
 sed -i 's/^ALL_IN_RATE=.*/ALL_IN_RATE=1.40/' "$COSTLY/hack/vllm-58420-session.sh"
 commit_all "$COSTLY" costly
 refuses "a worst case over \$3" "is not under \$3.00" "$COSTLY" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI
+
+# Seven arms at run 8's 500 s ready bound end at 13,800 s, $3.18 at the all-in rate, so the cut bound is what fits them.
+# Mutation that turns this red: drop the worst-case check, or compute it from a fixed six arms.
+OLDREADY=$(fixture) || exit 1
+sed -i 's/^READY_BOUND_S=.*/READY_BOUND_S=500/' "$OLDREADY/hack/vllm-58420-session.sh"
+commit_all "$OLDREADY" oldready
+refuses "seven arms at run 8's ready bound" "the worst case, 13800 s at \$0.8292/h, is not under \$3.00" "$OLDREADY" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI
+MOREARMS=$(fixture) || exit 1
+sed -i 's/^ARMS=.*/ARMS=8/' "$MOREARMS/hack/vllm-58420-session.sh"
+commit_all "$MOREARMS" morearms
+refuses "an eighth arm" "is not under \$3.00" "$MOREARMS" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI
 
 # The control: a valid invocation passes every refusal and stops at the first AWS call, which is the caller identity.
 out=$(session "$REPO" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI)
@@ -278,12 +289,12 @@ got=$(python3 -c 'import json, sys
 arms = json.load(open(sys.argv[1]))["arms"]
 print("%d of %d" % (sum(a.get("outcome") == "measured" for a in arms), len(arms)))' "$d/sweep/summary.json")
 s="$ROOT/hack/vllm-58420-session.sh"
-if [ "$got" != "1 of 2" ] || ! grep -qF 'echo "measured=$MEASURED"' "$s" || ! grep -qF '[ "$MEASURED" = "6 of 6" ] || exit 2' "$s" ||
+if [ "$got" != "1 of 2" ] || ! grep -qF 'echo "measured=$MEASURED"' "$s" || ! grep -qF '[ "$MEASURED" = "$ARMS of $ARMS" ] || exit 2' "$s" ||
   ! grep -qF 'print("%d of %d" % (sum(a.get("outcome") == "measured" for a in arms), len(arms)))' "$s"; then
   echo "FAIL the session does not report and exit on the number of measured arms (counted $got)" >&2
   failures=$((failures + 1))
 else
-  echo "ok   the session reports how many arms were measured and exits 2 unless all six were"
+  echo "ok   the session reports how many arms were measured and exits 2 unless all of them were"
 fi
 rm -rf "$d"
 
@@ -298,6 +309,64 @@ if [ "$order" != "ap-northeast-2c ap-northeast-2d ap-northeast-2a" ] || ! grep -
   failures=$((failures + 1))
 else
   echo "ok   a zone that reclaimed this study is tried after the others"
+fi
+
+# The schedule and the cost are pinned to their values, so a change to either is a change this test is edited for.
+schedule=$(env -u SESSION_CONFIRM PATH="$WORK/bin:$PATH" AWS_CALLS="$WORK/aws-calls" bash "$SCRIPT" --print-schedule 2>&1)
+if [[ "$schedule" != "harness_end_s=11920 evidence_s=12040 stop_s=12100 termination_s=12400" ]] ||
+  [[ "$(python3 -c 'print("%.4f" % (12400 / 3600 * 0.8292))')" != 2.8561 ]] || ! grep -qx 'ALL_IN_RATE=0.8292' "$SCRIPT"; then
+  echo "FAIL the schedule is '$schedule', not the 12,400 s worst case (\$2.8561) the session was sized for" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the worst case is 12,400 s at \$0.8292/h, \$2.8561"
+fi
+
+# The arms are the built harness's, printed from each arm's own docker run arguments.
+# fcfs and priority carry no SRPF variable; each SRPF arm carries VLLM_ENABLE_SRPF=1 and its own threshold.
+# Mutation that turns this red: give priority the SRPF variables, set every SRPF arm's threshold to 5, or reorder the arms.
+BH="$WORK/benchharness"
+if ! (cd "$ROOT" && GOFLAGS= GOWORK=off go build -o "$BH" ./cmd/benchharness) >"$WORK/build.log" 2>&1; then
+  echo "FAIL the harness did not build: $(tail -5 "$WORK/build.log")" >&2
+  failures=$((failures + 1))
+else
+  arms_got=$("$BH" srpf-sweep -print-arms 2>&1)
+  arms_want="1 priority policy=priority no-srpf-env
+2 srpf-s10 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=10
+3 srpf-s2 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=2
+4 srpf-s5 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=5
+5 fcfs policy=fcfs no-srpf-env
+6 srpf-s3 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=3
+7 srpf-s8 policy=fcfs VLLM_ENABLE_SRPF=1 VLLM_SRPF_STARVATION_THRESHOLD=8"
+  if [[ "$arms_got" != "$arms_want" ]]; then
+    echo "FAIL the harness runs these arms:" >&2
+    echo "$arms_got" >&2
+    failures=$((failures + 1))
+  elif [[ "$(grep -c . <<<"$arms_got")" != "$(script_value ARMS)" ]]; then
+    echo "FAIL the harness prints $(grep -c . <<<"$arms_got") arms and the script is sized for $(script_value ARMS)" >&2
+    failures=$((failures + 1))
+  else
+    echo "ok   the arms are fcfs, priority and SRPF at 2, 3, 5, 8 and 10, each with its own variables, in the frozen order"
+  fi
+fi
+# The session records the printed arms before anything is bought, and refuses a count it was not sized for.
+if ! grep -qF '"$OUT/benchharness" srpf-sweep -print-arms >"$OUT/arms.txt"' "$SCRIPT" ||
+  ! grep -qF '[ "$(grep -c . "$OUT/arms.txt")" = "$ARMS" ] || fail' "$SCRIPT" ||
+  ! grep -qF 'echo "arms_sha256=' "$SCRIPT"; then
+  echo "FAIL the session does not record the harness's arms or check their count against its schedule" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the session records the harness's arms in its provenance and refuses a count it was not sized for"
+fi
+
+# The pins are the 2026-11-18 head's, not run 8's.
+if ! grep -qx 'PR_COMMIT=b8b0d3610dee138db57ba465897f4b7af74abbd5' "$SCRIPT" ||
+  ! grep -qx 'SCHED_SHA256=2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a' "$SCRIPT" ||
+  ! grep -qF 'SRPFSweepImage = "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467"' "$GO_SRC" ||
+  ! grep -qF 'SRPFSweepBaseCommit = "5039f736e612ae637099eba3fa645031d416ef53"' "$GO_SRC"; then
+  echo "FAIL the PR head, its scheduler hash, the image digest or the merge base is not the one this sweep was prepared for" >&2
+  failures=$((failures + 1))
+else
+  echo "ok   the PR head b8b0d36, its scheduler 2b394353, merge base 5039f736 and image bfb59377 are pinned"
 fi
 
 if [[ $failures -ne 0 ]]; then

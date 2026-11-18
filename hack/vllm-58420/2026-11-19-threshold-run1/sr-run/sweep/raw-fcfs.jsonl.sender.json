@@ -1,0 +1,16 @@
+{
+  "study": "vllm-58420-threshold-2026-11-19",
+  "arm": "fcfs",
+  "connMode": "pooled",
+  "maxIdleConnsPerHost": 600,
+  "drainForReuse": true,
+  "timeoutMs": 30000,
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "target": "http://127.0.0.1:8000",
+  "priorities": {
+    "premium-1": 0,
+    "standard-noisy": 1
+  },
+  "requestIdPrefix": "srpf-fcfs",
+  "binarySha256": "71dd2cd01bbc2c546560aaed8f9fa4f706ef8ee35cd1b4096ed84a403fc00d74"
+}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
@@ -17,10 +18,11 @@ import (
 // srpfSweepPort is the port every arm's engine publishes on loopback; one engine runs at a time.
 const srpfSweepPort = 8000
 
-// srpfSweep runs the vLLM #58420 sweep on the instance: the pull, the image's identity, the model download, and six
+// srpfSweep runs the vLLM #58420 sweep on the instance: the pull, the image's identity, the model download, and seven
 // arms on fresh engines, every record written as it ends.
 //
 // It is the paid session's only workload, so the image, the arms, their order and the bounds are constants and no flag moves them.
+// -print-arms only prints them, so the session can record, and its offline test check, what the built binary will run.
 func srpfSweep(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("srpf-sweep", flag.ContinueOnError)
 	dir := fs.String("dir", "", "an existing, empty directory every record is written to")
@@ -29,8 +31,12 @@ func srpfSweep(args []string, out io.Writer) error {
 	overlay := fs.String("overlay", "", "the PR head's vllm/v1/core/sched/scheduler.py")
 	trace := fs.String("trace", "", "the diagnostic's trace-off-3.jsonl")
 	manifest := fs.String("archived-manifest", "", "the diagnostic's manifest-off-3.yaml")
+	printArms := fs.Bool("print-arms", false, "print the arms in run order with the SRPF variables each engine is started with, and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *printArms {
+		return printSRPFArms(out)
 	}
 	if *dir == "" || *hfCache == "" || *compileCache == "" || *overlay == "" || *trace == "" || *manifest == "" {
 		return errors.New("-dir, -hf-cache, -compile-cache, -overlay, -trace and -archived-manifest are required")
@@ -45,9 +51,9 @@ func srpfSweep(args []string, out io.Writer) error {
 		}
 		return p
 	}
-	st, ok := bench.LookupStudy(bench.StudySRPF58420)
+	st, ok := bench.LookupStudy(bench.StudySRPF58420Threshold)
 	if !ok || st.Frozen == nil {
-		return fmt.Errorf("study %q is not registered with a frozen load", bench.StudySRPF58420)
+		return fmt.Errorf("study %q is not registered with a frozen load", bench.StudySRPF58420Threshold)
 	}
 	timeout := time.Duration(st.Frozen.TimeoutMs) * time.Millisecond
 	sweep := &bench.SRPFSweep{
@@ -89,4 +95,36 @@ func srpfSweep(args []string, out io.Writer) error {
 		}
 	}
 	return err
+}
+
+// printSRPFArms prints one line per arm in run order: its position, name, policy and the SRPF variables its engine gets.
+//
+// The variables are read back from the arm's own docker run arguments, so the line shows what the engine is given rather
+// than what the arm table says it should be.
+func printSRPFArms(out io.Writer) error {
+	s := &bench.SRPFSweep{HFCache: "/hf", CompileRoot: "/compile", Overlay: "/overlay", Port: srpfSweepPort}
+	for i, a := range bench.SRPFSweepOrder(bench.SRPFSweepOrderSeed) {
+		args, err := s.RunArgs(a, "/scheduler.py")
+		if err != nil {
+			return err
+		}
+		var line strings.Builder
+		fmt.Fprintf(&line, "%d %s", i+1, a.Name)
+		env := []string{}
+		for _, arg := range args {
+			if p, ok := strings.CutPrefix(arg, "--scheduling-policy="); ok {
+				line.WriteString(" policy=" + p)
+			}
+			if v, ok := strings.CutPrefix(arg, "--env="); ok && strings.HasPrefix(v, "VLLM_") && strings.Contains(v, "SRPF") {
+				env = append(env, v)
+			}
+		}
+		if len(env) == 0 {
+			env = []string{"no-srpf-env"}
+		}
+		if _, err := fmt.Fprintln(out, line.String()+" "+strings.Join(env, " ")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
