@@ -55,18 +55,32 @@ echo "$args" >"$RUN/sim-args.json"
 
 for arm in "${ARMS[@]}"; do
   fresh_arm "$arm"
+  # fresh_arm waits for the expected pod count but goes on when it never arrives, so the count is enforced here:
+  # an arm run on three backends would be a different experiment from the two experiment A had.
+  replicas=$(k get deployment vllm-d -o jsonpath='{.spec.replicas}')
+  pods=$(sim_pods | wc -l)
+  [ "$replicas" = "$LAB_SIM_REPLICAS" ] && [ "$pods" = "$LAB_SIM_REPLICAS" ] \
+    || { say "[$arm] deployment wants $replicas simulators and $pods run; the replay needs exactly $LAB_SIM_REPLICAS"; exit 1; }
   snap before
   targets=
   for p in $(sim_pods); do targets+="$p=$(pod_url "$p")/metrics,"; done
   say "[$arm] replaying shared-942 at 1/$SCALE prompt length"
   # The EPP's log is followed while the replay runs, because at --v 4 kubelet rotates it at 10 MiB within minutes and
   # "kubectl logs" afterwards returned only the last fifth of run 20261118-replay599-1's score lines.
-  k logs -f "$(epp_pod)" >"$RUN/$arm/epp-follow.log" 2>&1 &
+  # kubectl is called without k's 30 s request timeout, which ended the first follower 30 s into the replay.
+  kubectl --context "$CTX" logs -f "$(epp_pod)" >"$RUN/$arm/epp-follow.log" 2>&1 &
   follow=$!
-  "$REPLAY" -arm "$arm" -scale "$SCALE" -out "$RUN/$arm/replay.jsonl" -samples "$RUN/$arm/samples.jsonl" \
-    -metrics "${targets%,}" ${REPLAY_LIMIT:+-limit "$REPLAY_LIMIT"} || say "[$arm] replay reported failed requests"
+  "$REPLAY" -url "$GATEWAY" -arm "$arm" -scale "$SCALE" -out "$RUN/$arm/replay.jsonl" \
+    -samples "$RUN/$arm/samples.jsonl" -metrics "${targets%,}" ${REPLAY_LIMIT:+-limit "$REPLAY_LIMIT"} \
+    || say "[$arm] replay reported failed requests"
   sleep 2
-  kill "$follow" 2>/dev/null || true
+  # A follower that has already exited lost the log from that moment on, so the arm says so instead of looking whole.
+  if kill -0 "$follow" 2>/dev/null; then
+    kill "$follow"
+  else
+    say "[$arm] the EPP log follower ended before the replay did; its score lines are incomplete"
+    touch "$RUN/$arm/epp-follow-ended-early"
+  fi
   wait "$follow" 2>/dev/null || true
   snap after
   gzip -f "$RUN/$arm"/epp-*.log

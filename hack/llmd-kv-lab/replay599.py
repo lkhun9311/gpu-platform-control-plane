@@ -123,12 +123,14 @@ def summarise_arm(run, arm):
     out["pod_p99"] = {p: nearest_rank([ttft_ms(r) for r in rows if r["pod"] == p], 0.99) for p in pods}
     late = [ttft_ms(r) for r in rows if r["offset_ms"] >= COLD_START_MS]
     out["p99_after_cold"] = nearest_rank(late, 0.99)
-    out["top5"] = [(r["index"], r["offset_ms"], round(ttft_ms(r)), r["pod"][-5:], r["cached_tokens"])
+    # fmt, not round: a failed request's TTFT is +inf, which round() cannot take, and it must still be printed.
+    out["top5"] = [(r["index"], r["offset_ms"], fmt(ttft_ms(r), 0), r["pod"][-5:], r["cached_tokens"])
                    for r in sorted(rows, key=ttft_ms, reverse=True)[:5]]
     per_pod, imbalance, failed = queue_stats(samples, pods)
     out["queue"] = {p: (sum(v) / len(v), max(v)) for p, v in per_pod.items() if v}
     out["imbalance"], out["sample_failures"], out["samples"] = imbalance, failed, len(samples)
-    out["cold"] = [(r["index"], r["pod"][-5:], round(ttft_ms(r))) for r in rows if r["offset_ms"] < COLD_START_MS]
+    out["cold"] = [(r["index"], r["pod"][-5:], fmt(ttft_ms(r), 0)) for r in rows if r["offset_ms"] < COLD_START_MS]
+    out["follow_ended_early"] = os.path.exists(os.path.join(arm_dir, "epp-follow-ended-early"))
     return out
 
 
@@ -154,7 +156,8 @@ def main(run):
     for o in results:
         print(f"== {o['arm']}: pods {', '.join(o['pods'])}; via EPP {o['via_epp']}/{o['n']}; joined to EPP scores "
               f"{o['joined']}/{o['ok']}; cached count missing {o['unknown_cached']}; samples {o['samples']} "
-              f"({o['sample_failures']} failed reads)")
+              f"({o['sample_failures']} failed reads)"
+              + ("; EPP LOG FOLLOWER ENDED EARLY, score joins incomplete" if o["follow_ended_early"] else ""))
         for p, (mean, mx) in sorted(o["queue"].items()):
             print(f"   queue {p}: mean {mean:.2f}, max {mx:.0f} (running+waiting)")
         if "scored" in o:
