@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -100,8 +101,17 @@ const maxEngineMetricsBytes = 8 << 20
 //
 // Missing gauges are an error: an engine that does not report its queue cannot be shown drained.
 func ParseEngineQueue(r io.Reader) (running, waiting int, err error) {
+	// The bound is read past by one byte, because a reader cut at the bound ends like a whole response and a series past
+	// the cut, possibly the busy one, would go unread.
+	body, err := io.ReadAll(io.LimitReader(r, maxEngineMetricsBytes+1))
+	if err != nil {
+		return 0, 0, fmt.Errorf("read engine metrics: %w", err)
+	}
+	if len(body) > maxEngineMetricsBytes {
+		return 0, 0, fmt.Errorf("engine metrics are longer than %d bytes, so the queue they report is not read whole", maxEngineMetricsBytes)
+	}
 	parser := expfmt.NewTextParser(model.LegacyValidation)
-	mfs, err := parser.TextToMetricFamilies(io.LimitReader(r, maxEngineMetricsBytes))
+	mfs, err := parser.TextToMetricFamilies(bytes.NewReader(body))
 	if err != nil {
 		return 0, 0, fmt.Errorf("parse engine metrics: %w", err)
 	}

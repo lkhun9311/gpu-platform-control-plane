@@ -136,6 +136,21 @@ func TestParseEngineQueueReadsRunningAndWaiting(t *testing.T) {
 			t.Errorf("%s was read as running %d waiting %d", name, r, w)
 		}
 	}
+	// A response cut at the size bound is not the engine's whole answer: the series past the cut may be the busy one.
+	idle := "# TYPE vllm:num_requests_running gauge\nvllm:num_requests_running{model_name=\"m\"} 0\n" + idleWaiting
+	pad := strings.Repeat("# padding\n", (maxEngineMetricsBytes-len(idle))/10)
+	pad += strings.Repeat("#", maxEngineMetricsBytes-len(idle)-len(pad)-1) + "\n"
+	// The first byte past the bound ends a blank line, so even the bound plus one byte parses and only the size check refuses it.
+	cut := idle + pad + "\nvllm:num_requests_running{model_name=\"other\"} 1\n"
+	if len(idle+pad) != maxEngineMetricsBytes {
+		t.Fatalf("the padded prefix is %d bytes, want the bound %d", len(idle+pad), maxEngineMetricsBytes)
+	}
+	if r, w, err := ParseEngineQueue(strings.NewReader(cut)); err == nil {
+		t.Fatalf("a response past the size bound was read as running %d waiting %d", r, w)
+	}
+	if _, _, err := ParseEngineQueue(strings.NewReader(idle + pad)); err != nil {
+		t.Fatalf("a response of exactly the bound was refused: %v", err)
+	}
 	// An untyped exposition still carries the count, so it is read rather than refused.
 	untyped := "vllm:num_requests_running 1\nvllm:num_requests_waiting 0\n"
 	if r, w, err := ParseEngineQueue(strings.NewReader(untyped)); err != nil || r != 1 || w != 0 {
