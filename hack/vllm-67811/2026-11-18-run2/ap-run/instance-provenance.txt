@@ -1,0 +1,5 @@
+commit=672fac4800efab39159736b83fe2a84e82c8bfbc
+launch_time_epoch=1794971444
+bringup_rc=0
+656e3583b63db09243a506345065ad1070d49e185f339ea42e5636bb8f040197  /opt/ap/inputs.tgz
+harness_rc=0

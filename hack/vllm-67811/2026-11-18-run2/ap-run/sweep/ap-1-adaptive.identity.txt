@@ -1,0 +1,10 @@
+W1118 03:34:27.788000 239 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1118 03:34:27.789000 239 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1118 03:34:27.789000 239 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+235f4f23be12c03ab3c4184e134797cca5947c864af295eefa62c4c2ff28e1bf  /usr/local/lib/python3.12/dist-packages/vllm/config/scheduler.py
+1bcfc89c5a5d3a038e617c29cc4b5a09917d6d5f808f3577c5b89d3b7f9f6b5b  /usr/local/lib/python3.12/dist-packages/vllm/engine/arg_utils.py
+34d0b0c696df729c3ea44dcbc00ef46686976bf020e6f0d7f4da2bbfc21ffda9  /usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/adaptive_prefill.py
+df43d03c1da9772e18b6e46405b8d21eb4e7e8807e4772f76fa68cb5b6fcb8d9  /usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py
+1c3fb383d6931ae7ffd93bf67d1892e8e6c09e37794fab9630aa963dcbf18bbf  /usr/local/lib/python3.12/dist-packages/vllm/v1/outputs.py
+36eb2c44f33d983d1f53038f99f7700add3736cbe46eddeee5fcb9f86918eb7b  /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/async_utils.py
+d0dd317bc16d0475f46897055c5ecc4b80a95e02ccb55c703674d4bb6b3a5f33  /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/model_runner.py
