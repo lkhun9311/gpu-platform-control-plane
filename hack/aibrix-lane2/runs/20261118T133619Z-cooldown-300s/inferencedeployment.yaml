@@ -1,0 +1,32 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: InferenceDeployment
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"platform.lkhun9311.github.io/v1","kind":"InferenceDeployment","metadata":{"annotations":{},"name":"chat","namespace":"lane2"},"spec":{"gpuCount":0,"image":"gpuaas-aibrix-lane2/simshim:6ab9d4b2367a","model":{"name":"chat","storageUri":"s3://lab/chat"},"replicas":4,"replicasOwner":"External"}}
+  creationTimestamp: "2026-11-18T13:36:31Z"
+  generation: 1
+  name: chat
+  namespace: lane2
+  resourceVersion: "6649"
+  uid: b30db140-8f39-431f-b4fa-d45cf5c34c0a
+spec:
+  gpuCount: 0
+  image: gpuaas-aibrix-lane2/simshim:6ab9d4b2367a
+  model:
+    name: chat
+    storageUri: s3://lab/chat
+  port: 8080
+  replicas: 4
+  replicasOwner: External
+status:
+  conditions:
+  - lastTransitionTime: "2026-11-18T13:45:21Z"
+    message: all replicas ready
+    observedGeneration: 1
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  observedGeneration: 1
+  phase: Ready
+  readyReplicas: 6
