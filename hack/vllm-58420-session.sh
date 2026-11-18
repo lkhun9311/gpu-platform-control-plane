@@ -14,7 +14,9 @@
 # the PR's merge base, a check that the image ships the merge base's scheduler and imports the PR's once it is
 # mounted, the model download, then seven arms on fresh engines, each warmed up and replayed the diagnostic's 420 s trace.
 # Each arm is measured only after a probe inside its container shows the process that spawned the engine core carried
-# that arm's two variables; the engine core's own /proc environment is overwritten by its retitling and is not read.
+# that arm's two variables, and the scheduler the engine core constructed holds the arm's threshold.
+# The second comes from an observer (srpfObserveSource) mounted beside the package, which records srpf_starvation_threshold
+# from inside the engine core; /proc cannot show it, since it keeps the exec-time environment and the retitling overwrites it.
 # It is modelled on hack/version-readiness-session.sh and shares its EC2 lifecycle (hack/lib/spot-run.sh) and the
 # NVIDIA container toolkit set-up spliced from hack/m5c-gpu-session.sh between two anchors.
 #

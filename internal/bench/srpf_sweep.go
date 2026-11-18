@@ -624,7 +624,9 @@ func srpfNonDefaultArgsRefusal(a SRPFArm, line string) error {
 // The bytecode the server wrote under the prefix records the size of the source it compiled, which tells the PR's
 // scheduler from the merge base's, so it shows what the server imported rather than what a later import would.
 // It is read before this probe's own import, which would otherwise write it.
-// Every other process's environment is read from /proc, so the SRPF variable is shown to have reached the engine core.
+// Every other process's environment is read from /proc, so the SRPF variables are shown to have reached the engine core's parent.
+// The records srpfObserveModule wrote from inside each scheduler it saw constructed are read back, so the threshold the
+// engine core's scheduler actually initialised is shown too.
 const srpfCodeProbe = `import hashlib, importlib.util, json, os
 src = os.path.join(os.path.dirname(importlib.util.find_spec("vllm").origin), "v1", "core", "sched", "scheduler.py")
 pyc = importlib.util.cache_from_source(src)
@@ -640,25 +642,123 @@ for pid in os.listdir("/proc"):
     except (OSError, ValueError, IndexError):
         continue
     procs.append({"pid": int(pid), "ppid": ppid, "cmd": cmd[:160], "envCount": len(env), "env": env.get("` + SRPFSweepEnableEnv + `"), "starvation": env.get("` + SRPFSweepStarvationEnv + `"), "pycachePrefix": env.get("PYTHONPYCACHEPREFIX"), "syncCheck": env.get("` + srpfSyncCheckEnv + `")})
+schedulers = []
+od = os.environ.get("SRPF_OBSERVE_DIR", "` + srpfObserveDir + `")
+if os.path.isdir(od):
+    for n in sorted(os.listdir(od)):
+        if not n.endswith(".json"):
+            continue
+        try:
+            schedulers.append(json.load(open(os.path.join(od, n))))
+        except (OSError, ValueError) as e:
+            schedulers.append({"error": "%s: %r" % (n, e)})
 import vllm.v1.core.sched.scheduler as s
 data = open(s.__file__, "rb").read()
 print(json.dumps({"file": s.__file__, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
+  "observed": getattr(s.Scheduler.__init__, "__srpf_observed__", False), "schedulers": schedulers,
   "srpfKey": hasattr(s.Scheduler, "_get_srpf_key_for_req"), "env": os.environ.get("` + SRPFSweepEnableEnv + `"),
   "starvation": os.environ.get("` + SRPFSweepStarvationEnv + `"),
   "pycachePrefix": os.environ.get("PYTHONPYCACHEPREFIX"), "pyc": pyc,
   "pycFlags": int.from_bytes(head[4:8], "little") if len(head) == 16 else None,
   "pycSourceSize": int.from_bytes(head[12:16], "little") if len(head) == 16 else None, "procs": procs}))`
 
+// The observer: a module and a .pth file that loads it, mounted into the image's site-packages in every engine.
+//
+// /proc shows a process's environment as it was exec'd, and the engine core's is overwritten by its retitling, so neither
+// shows what its scheduler read.
+// The observer wraps Scheduler.__init__ when vllm.v1.core.sched.scheduler is imported and, after the PR's own __init__
+// has run, writes the threshold that instance holds and the two variables as that process sees them.
+// It leaves the mounted scheduler.py untouched, so the file the hash pins is the code that runs, and it adds one file
+// write per scheduler constructed, which is once per engine before any request.
+// Every arm mounts it, the baselines included, so it is no difference between arms.
+const (
+	srpfObserveDir    = "/tmp/srpf-observe"
+	srpfObserveModule = "srpf_observe.py"
+	srpfObservePth    = "zz_srpf_observe.pth"
+	// srpfObservePthText is the .pth line site runs at every interpreter's start, before anything imports vllm.
+	srpfObservePthText = "import srpf_observe\n"
+)
+
+// srpfObserveSource is srpf_observe.py.
+//
+// SRPF_OBSERVE_DIR exists for the offline test, which must not write to the host's /tmp; no arm sets it, and the code
+// probe reads the same variable.
+const srpfObserveSource = `import importlib.abc, importlib.machinery, json, os, sys
+
+_TARGET = "vllm.v1.core.sched.scheduler"
+
+
+def _wrap(module):
+    cls = getattr(module, "Scheduler", None)
+    if cls is None or getattr(cls.__init__, "__srpf_observed__", False):
+        return
+    init = cls.__init__
+
+    def __init__(self, *args, **kwargs):
+        init(self, *args, **kwargs)
+        try:
+            out = os.environ.get("SRPF_OBSERVE_DIR", "` + srpfObserveDir + `")
+            os.makedirs(out, exist_ok=True)
+            threshold = getattr(self, "srpf_starvation_threshold", None)
+            record = {"pid": os.getpid(), "file": getattr(module, "__file__", None),
+                      "threshold": threshold if isinstance(threshold, int) else repr(threshold),
+                      "env": os.environ.get("` + SRPFSweepEnableEnv + `"),
+                      "starvation": os.environ.get("` + SRPFSweepStarvationEnv + `")}
+            tmp = os.path.join(out, ".%d.tmp" % os.getpid())
+            with open(tmp, "w") as f:
+                json.dump(record, f)
+            os.replace(tmp, os.path.join(out, "%d-%d.json" % (os.getpid(), id(self))))
+        except Exception as e:
+            sys.stderr.write("srpf_observe: %r\n" % (e,))
+
+    __init__.__srpf_observed__ = True
+    cls.__init__ = __init__
+
+
+class _Finder(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path, target=None):
+        if name != _TARGET:
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(name, path)
+        if spec is None or spec.loader is None or not hasattr(spec.loader, "exec_module"):
+            return spec
+        run = spec.loader.exec_module
+
+        def exec_module(module):
+            run(module)
+            _wrap(module)
+
+        spec.loader.exec_module = exec_module
+        return spec
+
+
+sys.meta_path.insert(0, _Finder())
+`
+
+// srpfSchedulerRecord is what the observer wrote from one constructed scheduler.
+type srpfSchedulerRecord struct {
+	PID  int    `json:"pid"`
+	File string `json:"file"`
+	// Threshold is the instance's srpf_starvation_threshold, a JSON number when it is an int and a string otherwise.
+	Threshold  json.RawMessage `json:"threshold"`
+	Env        *string         `json:"env"`
+	Starvation *string         `json:"starvation"`
+	Error      string          `json:"error"`
+}
+
 // srpfProbe is the code probe's answer.
 type srpfProbe struct {
-	File          string  `json:"file"`
-	SHA256        string  `json:"sha256"`
-	Size          int64   `json:"size"`
-	SRPFKey       bool    `json:"srpfKey"`
-	Env           *string `json:"env"`
-	Starvation    *string `json:"starvation"`
-	PycachePrefix *string `json:"pycachePrefix"`
-	Pyc           string  `json:"pyc"`
+	File    string `json:"file"`
+	SHA256  string `json:"sha256"`
+	Size    int64  `json:"size"`
+	SRPFKey bool   `json:"srpfKey"`
+	// Observed says the import was wrapped by the observer, so a scheduler constructed in this image would be recorded.
+	Observed      bool                  `json:"observed"`
+	Schedulers    []srpfSchedulerRecord `json:"schedulers"`
+	Env           *string               `json:"env"`
+	Starvation    *string               `json:"starvation"`
+	PycachePrefix *string               `json:"pycachePrefix"`
+	Pyc           string                `json:"pyc"`
 	// PycFlags and PycSourceSize are the header of the bytecode found under the prefix before the probe imported anything.
 	PycFlags      *int64          `json:"pycFlags"`
 	PycSourceSize *int64          `json:"pycSourceSize"`
@@ -718,6 +818,8 @@ func srpfProbeCheck(a SRPFArm, path string, serving bool, out []byte) (string, e
 		return "", fmt.Errorf("the scheduler imported hashes to %s, not the PR head's %s", p.SHA256, SRPFSweepPRSchedulerSHA256)
 	case !p.SRPFKey:
 		return "", errors.New("the scheduler imported has no _get_srpf_key_for_req")
+	case !p.Observed:
+		return "", errors.New("the scheduler's import was not wrapped by the observer, so what an engine core initialised could not be shown")
 	}
 	if err := envRefusal("the probe", p.Env, p.Starvation, p.PycachePrefix); err != nil {
 		return "", err
@@ -757,9 +859,10 @@ func srpfProbeCheck(a SRPFArm, path string, serving bool, out []byte) (string, e
 			return "", fmt.Errorf("%s runs with %s=%s, the CI image's debug check, which a release image does not set", who, srpfSyncCheckEnv, *pr.SyncCheck)
 		}
 	}
-	// The scheduler, and its read of both variables, runs in the engine core, so an arm is measured only once the
-	// process that spawned each engine core is shown to have carried the arm's values.
-	var proof []string
+	// The scheduler, and its read of both variables, runs in the engine core.
+	// The process that spawned each engine core must carry the arm's values, and, since an environment can change after
+	// exec without /proc showing it, the scheduler inside the engine core must have initialised the arm's threshold.
+	cores := map[int]bool{}
 	for _, pr := range p.Procs {
 		if !strings.HasPrefix(pr.Cmd, srpfEngineCoreTitle) {
 			continue
@@ -772,14 +875,47 @@ func srpfProbeCheck(a SRPFArm, path string, serving bool, out []byte) (string, e
 		if err := envRefusal(who, parent.Env, parent.Starvation, parent.PycachePrefix); err != nil {
 			return "", err
 		}
-		proof = append(proof, fmt.Sprintf("%s %d inherits from %d: %s=%s %s=%s", pr.Cmd, pr.PID, parent.PID,
-			SRPFSweepEnableEnv, show(parent.Env), SRPFSweepStarvationEnv, show(parent.Starvation)))
+		cores[pr.PID] = false
 	}
-	if len(proof) == 0 {
+	if len(cores) == 0 {
 		return "", fmt.Errorf("the probe found no %s process, so the arm's variables are not shown to reach the scheduler", srpfEngineCoreTitle)
+	}
+	// A baseline never consults the threshold, and its scheduler must still hold the PR's default, since it sets no variable.
+	want := strconv.Itoa(srpfStarvationDefault)
+	if a.SRPF {
+		want = strconv.Itoa(a.Starvation)
+	}
+	var proof []string
+	for _, r := range p.Schedulers {
+		who := fmt.Sprintf("the scheduler constructed in process %d", r.PID)
+		_, isCore := cores[r.PID]
+		switch {
+		case r.Error != "":
+			return "", fmt.Errorf("an observer record could not be read: %s", r.Error)
+		case !isCore:
+			return "", fmt.Errorf("%s, which is not a running %s, so the record is not this engine's", who, srpfEngineCoreTitle)
+		case r.File != path:
+			return "", fmt.Errorf("%s came from %s, not the overlaid %s", who, r.File, path)
+		case string(r.Threshold) != want:
+			return "", fmt.Errorf("arm %s needs srpf_starvation_threshold %s and %s holds %s", a.Name, want, who, r.Threshold)
+		}
+		if err := envRefusal(who, r.Env, r.Starvation, new(srpfSweepPycachePrefix)); err != nil {
+			return "", err
+		}
+		cores[r.PID] = true
+		proof = append(proof, fmt.Sprintf("%s %d initialised srpf_starvation_threshold=%s with %s=%s %s=%s", srpfEngineCoreTitle, r.PID, r.Threshold,
+			SRPFSweepEnableEnv, show(r.Env), SRPFSweepStarvationEnv, show(r.Starvation)))
+	}
+	for pid, seen := range cores {
+		if !seen {
+			return "", fmt.Errorf("engine core %d wrote no observer record, so the threshold its scheduler holds is not shown", pid)
+		}
 	}
 	return strings.Join(proof, "; "), nil
 }
+
+// srpfStarvationDefault is the threshold the PR's Scheduler.__init__ falls back to when the variable is unset.
+const srpfStarvationDefault = 5
 
 // srpfEngineCoreTitle is the title vLLM gives the process that runs the scheduler.
 const srpfEngineCoreTitle = "VLLM::EngineCore"
@@ -824,8 +960,8 @@ func lastLine(out []byte) []byte {
 
 // RunArgs is the `docker run` argument list for one arm's engine.
 //
-// Every arm gets the same image, overlay, dev mode and bytecode prefix; the arm's policy, threshold and SRPF variable are
-// its only differences, and its compile cache is its own and empty so no arm starts warmer than another.
+// Every arm gets the same image, overlay, observer, dev mode and bytecode prefix; the arm's policy, threshold and SRPF
+// variables are its only differences, and its compile cache is its own and empty so no arm starts warmer than another.
 func (s *SRPFSweep) RunArgs(a SRPFArm, schedulerPath string) ([]string, error) {
 	profile, err := srpfSweepProfile(a)
 	if err != nil {
@@ -860,6 +996,8 @@ func (s *SRPFSweep) RunArgs(a SRPFArm, schedulerPath string) ([]string, error) {
 		"--volume="+s.HFCache+":/root/.cache/huggingface",
 		"--volume="+filepath.Join(s.CompileRoot, a.Name)+":/root/.cache/vllm",
 		"--volume="+s.Overlay+":"+schedulerPath+":ro",
+		"--volume="+filepath.Join(s.observeDir(), srpfObserveModule)+":"+filepath.Join(srpfSitePackages(schedulerPath), srpfObserveModule)+":ro",
+		"--volume="+filepath.Join(s.observeDir(), srpfObservePth)+":"+filepath.Join(srpfSitePackages(schedulerPath), srpfObservePth)+":ro",
 		"--label=study=srpf-sweep",
 		// An empty value is refused by vLLM's own check of the variable, so env removes it before vllm starts.
 		"--entrypoint=env",
@@ -978,6 +1116,10 @@ func (s *SRPFSweep) run(ctx context.Context, sum SRPFSweepSummary, order []SRPFA
 	if err := s.writeJSON("order.json", map[string]any{"seed": SRPFSweepOrderSeed, "order": sum.Order}); err != nil {
 		return sum, err
 	}
+	// The observer is written before the pull, so the image check below runs the same bytes every arm mounts.
+	if err := s.writeObserver(); err != nil {
+		return sum, err
+	}
 
 	sum.Pull, err = r.pull(ctx, SRPFSweepImage)
 	if wErr := s.writeJSON("pull.json", sum.Pull); wErr != nil || err != nil {
@@ -1031,6 +1173,8 @@ func (s *SRPFSweep) imageIdentity(ctx context.Context) (SRPFImageIdentity, error
 	}
 	out, err = s.probe(ictx, "overlay", []string{
 		"--env=PYTHONPYCACHEPREFIX=" + srpfSweepPycachePrefix, "--volume=" + s.Overlay + ":" + loc.File + ":ro",
+		"--volume=" + filepath.Join(s.observeDir(), srpfObserveModule) + ":" + filepath.Join(srpfSitePackages(loc.File), srpfObserveModule) + ":ro",
+		"--volume=" + filepath.Join(s.observeDir(), srpfObservePth) + ":" + filepath.Join(srpfSitePackages(loc.File), srpfObservePth) + ":ro",
 		"--entrypoint=python3", SRPFSweepImage, "-c", srpfCodeProbe,
 	})
 	id.Probes = append(id.Probes, string(out))
@@ -1396,4 +1540,25 @@ func (s *SRPFSweep) figures(arm, rawFile string, trace []TraceRow) (*SRPFFigures
 // writeJSON writes one record durably and never over another.
 func (s *SRPFSweep) writeJSON(name string, v any) error {
 	return s.readiness().writeJSON(name, v)
+}
+
+// observeDir is the host directory holding the observer's two files, inside the records so they are kept with them.
+func (s *SRPFSweep) observeDir() string { return filepath.Join(s.Out, "observe") }
+
+// writeObserver writes the observer's module and .pth file for the containers to mount.
+func (s *SRPFSweep) writeObserver() error {
+	if err := os.Mkdir(s.observeDir(), 0o755); err != nil {
+		return err
+	}
+	for name, text := range map[string]string{srpfObserveModule: srpfObserveSource, srpfObservePth: srpfObservePthText} {
+		if err := WriteNewFileDurably(filepath.Join(s.observeDir(), name), []byte(text)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// srpfSitePackages is the directory the vllm package that holds schedulerPath is installed in, where site reads .pth files.
+func srpfSitePackages(schedulerPath string) string {
+	return strings.TrimSuffix(schedulerPath, "/vllm/v1/core/sched/scheduler.py")
 }

@@ -107,7 +107,7 @@ func TestSRPFSweepOrderIsCounterbalancedAndFixed(t *testing.T) {
 // Each arm's engine differs from the earlier runs' only by its policy and the two SRPF variables.
 // Mutations that turn this red: add the SRPF variables whenever Policy is fcfs, or set the starvation one from a constant.
 func TestSRPFSweepRunArgsDifferOnlyByTheArm(t *testing.T) {
-	s := &SRPFSweep{HFCache: "/hf", CompileRoot: "/compile", Overlay: "/opt/srpf/scheduler.py", Port: 8000}
+	s := &SRPFSweep{HFCache: "/hf", CompileRoot: "/compile", Overlay: "/opt/srpf/scheduler.py", Out: "/out", Port: 8000}
 	const path = "/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py"
 	args, err := s.RunArgs(SRPFArm{Name: "srpf-s2", Policy: "fcfs", SRPF: true, Starvation: 2}, path)
 	if err != nil {
@@ -118,7 +118,10 @@ func TestSRPFSweepRunArgsDifferOnlyByTheArm(t *testing.T) {
 		"--env=VLLM_SERVER_DEV_MODE=1", "--env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache", "--env=VLLM_ENABLE_SRPF=1",
 		"--env=VLLM_SRPF_STARVATION_THRESHOLD=2",
 		"--publish=127.0.0.1:8000:8000", "--volume=/hf:/root/.cache/huggingface", "--volume=/compile/srpf-s2:/root/.cache/vllm",
-		"--volume=/opt/srpf/scheduler.py:" + path + ":ro", "--label=study=srpf-sweep", "--entrypoint=env", SRPFSweepImage, "-u", "VLLM_GPU_SYNC_CHECK", "vllm", "serve",
+		"--volume=/opt/srpf/scheduler.py:" + path + ":ro",
+		"--volume=/out/observe/srpf_observe.py:/usr/local/lib/python3.12/dist-packages/srpf_observe.py:ro",
+		"--volume=/out/observe/zz_srpf_observe.pth:/usr/local/lib/python3.12/dist-packages/zz_srpf_observe.pth:ro",
+		"--label=study=srpf-sweep", "--entrypoint=env", SRPFSweepImage, "-u", "VLLM_GPU_SYNC_CHECK", "vllm", "serve",
 		"Qwen/Qwen2.5-3B-Instruct", "--dtype=half", "--max-model-len=16384", "--max-num-seqs=64", "--gpu-memory-utilization=0.90",
 		"--no-enable-prefix-caching", "--max-num-batched-tokens=512", "--scheduling-policy=fcfs", "--no-async-scheduling",
 		"--port=8000", "--served-model-name=Qwen/Qwen2.5-3B-Instruct", "--revision=" + SRPFSweepRevision,
@@ -213,9 +216,18 @@ func TestSRPFNonDefaultArgsRefusal(t *testing.T) {
 // srpfProbeJSON is a serving probe's answer for the PR's scheduler, with env and starvation for every readable process.
 // Its engine core is retitled under the server, with /proc showing 30 variables and none of the server's, as on 2026-11-17.
 func srpfProbeJSON(env, starvation *string, pycSize int64) string {
+	// The engine core's scheduler holds what it read, and the PR's default 5 when the variable is unset.
+	// It reads the variable with int(), as the PR does, so "02" is held as 2.
+	threshold := json.RawMessage("5")
+	if starvation != nil {
+		if v, err := strconv.Atoi(*starvation); err == nil {
+			threshold = json.RawMessage(strconv.Itoa(v))
+		}
+	}
 	p := srpfProbe{
-		File: srpfFakePath, SHA256: SRPFSweepPRSchedulerSHA256, Size: 170000, SRPFKey: true,
-		Env: env, Starvation: starvation, PycachePrefix: new(srpfSweepPycachePrefix), PycFlags: new(int64(0)), PycSourceSize: new(pycSize),
+		File: srpfFakePath, SHA256: SRPFSweepPRSchedulerSHA256, Size: 170000, SRPFKey: true, Observed: true,
+		Schedulers: []srpfSchedulerRecord{{PID: 97, File: srpfFakePath, Threshold: threshold, Env: env, Starvation: starvation}},
+		Env:        env, Starvation: starvation, PycachePrefix: new(srpfSweepPycachePrefix), PycFlags: new(int64(0)), PycSourceSize: new(pycSize),
 		Procs: []srpfProbeProc{
 			{PID: 1, EnvCount: 12, Cmd: "vllm serve", Env: env, Starvation: starvation, PycachePrefix: new(srpfSweepPycachePrefix)},
 			{PID: 97, PPID: 1, EnvCount: 30, Cmd: "VLLM::EngineCore"},
@@ -235,8 +247,8 @@ func TestSRPFProbeRefusal(t *testing.T) {
 	if err != nil {
 		t.Errorf("a conforming srpf probe was refused: %v", err)
 	}
-	// Mutation that turns this red: record the engine core's own /proc environment instead of its ancestor's.
-	if want := `VLLM::EngineCore 97 inherits from 1: VLLM_ENABLE_SRPF="1" VLLM_SRPF_STARVATION_THRESHOLD="2"`; proof != want {
+	// Mutation that turns this red: build the proof from the engine core's ancestor instead of its scheduler's record.
+	if want := `VLLM::EngineCore 97 initialised srpf_starvation_threshold=2 with VLLM_ENABLE_SRPF="1" VLLM_SRPF_STARVATION_THRESHOLD="2"`; proof != want {
 		t.Errorf("the engine core's proof is %q, want %q", proof, want)
 	}
 	if err := srpfProbeRefusal(fcfs, path, true, []byte(srpfProbeJSON(nil, nil, 170000))); err != nil {
@@ -283,6 +295,25 @@ func TestSRPFProbeRefusal(t *testing.T) {
 		// The variables reach the scheduler only in the engine core, so a container without one shows nothing.
 		// Mutation that turns this red: drop the engine-core requirement from srpfProbeCheck.
 		{"no engine core", srpf, mutate(func(p *srpfProbe) { p.Procs = p.Procs[:1] }), true, "no VLLM::EngineCore process"},
+		// The parent carried the arm's variables and the scheduler still runs the default: only the engine core's own record shows it.
+		// Mutation that turns this red: drop the threshold comparison on the observer's records.
+		{"an engine core whose scheduler holds the default", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].Threshold = json.RawMessage("5") }), true,
+			"needs srpf_starvation_threshold 2 and the scheduler constructed in process 97 holds 5"},
+		{"a threshold that is not an int", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].Threshold = json.RawMessage(`"'2'"`) }), true, "needs srpf_starvation_threshold 2"},
+		{"an engine core whose scheduler lost the variable", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].Starvation = nil }), true,
+			"needs VLLM_SRPF_STARVATION_THRESHOLD=2 and the scheduler constructed in process 97 has unset"},
+		// Mutation that turns this red: drop the check that every engine core wrote a record.
+		{"an engine core with no record", srpf, mutate(func(p *srpfProbe) { p.Schedulers = nil }), true, "engine core 97 wrote no observer record"},
+		{"a record from another process", srpf, mutate(func(p *srpfProbe) {
+			p.Schedulers = append(p.Schedulers, srpfSchedulerRecord{PID: 1, File: srpfFakePath, Threshold: json.RawMessage("2"), Env: one, Starvation: two})
+		}), true, "process 1, which is not a running VLLM::EngineCore"},
+		{"a record of another scheduler file", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].File = "/x/scheduler.py" }), true, "not the overlaid"},
+		{"an unreadable record", srpf, mutate(func(p *srpfProbe) { p.Schedulers[0].Error = "97-1.json: ValueError" }), true, "could not be read"},
+		{"an image without the observer", srpf, mutate(func(p *srpfProbe) { p.Observed = false }), false, "not wrapped by the observer"},
+		{"a baseline whose scheduler does not hold the default", fcfs, mutate(func(p *srpfProbe) {
+			p.Env, p.Starvation, p.Procs[0].Env, p.Procs[0].Starvation = nil, nil, nil, nil
+			p.Schedulers[0] = srpfSchedulerRecord{PID: 97, File: srpfFakePath, Threshold: json.RawMessage("3")}
+		}), true, "needs srpf_starvation_threshold 5"},
 		{"no prefix", srpf, mutate(func(p *srpfProbe) { p.PycachePrefix = nil }), true, "PYTHONPYCACHEPREFIX"},
 		{"a server with the CI image's sync check", srpf, mutate(func(p *srpfProbe) { p.Procs[0].SyncCheck = new("error") }), true, "VLLM_GPU_SYNC_CHECK=error"},
 		{"no server process", srpf, mutate(func(p *srpfProbe) { p.Procs = nil }), true, "no server process"},
@@ -310,12 +341,12 @@ func TestSRPFProbeRefusal(t *testing.T) {
 		p.Procs[1].PPID = 50
 		p.Procs = append(p.Procs, srpfProbeProc{PID: 50, PPID: 1, EnvCount: 30, Cmd: "VLLM::APIServer"})
 	})
-	if proof, err := srpfProbeCheck(srpf, path, true, nested); err != nil || !strings.Contains(proof, "VLLM::EngineCore 97 inherits from 1: ") {
+	if proof, err := srpfProbeCheck(srpf, path, true, nested); err != nil || !strings.Contains(proof, "VLLM::EngineCore 97 initialised srpf_starvation_threshold=2 ") {
 		t.Errorf("an engine core under a retitled parent was judged by %q (%v), not by the server above it", proof, err)
 	}
 	// Before any server ran, the image check has no bytecode or process to read.
 	if err := srpfProbeRefusal(SRPFArm{Name: "image"}, path, false, mutate(func(p *srpfProbe) {
-		p.Env, p.Starvation, p.PycSourceSize, p.PycFlags, p.Procs = nil, nil, nil, nil, nil
+		p.Env, p.Starvation, p.PycSourceSize, p.PycFlags, p.Procs, p.Schedulers = nil, nil, nil, nil, nil, nil
 	})); err != nil {
 		t.Errorf("the image probe was refused: %v", err)
 	}
@@ -406,6 +437,98 @@ func TestSRPFProbesRunUnderPython(t *testing.T) {
 		p.Procs[i].Starvation == nil || *p.Procs[i].Starvation != "7" ||
 		p.Procs[i].SyncCheck == nil || *p.Procs[i].SyncCheck != "error" {
 		t.Errorf("the probe did not report the server's environment: %+v", p.Procs)
+	}
+}
+
+// The observer is Python loaded by site in every engine process, so it is run here against a fake vllm package whose
+// Scheduler reads the threshold as the PR's does.
+// The "engine core" changes its own os.environ after exec, which /proc does not show, and the record must show what the
+// constructed scheduler holds, as codex's review of this sweep reproduced.
+// Mutations that turn this red: record the variable from /proc instead of the instance, or drop the .pth file.
+func TestSRPFObserverRecordsWhatTheSchedulerHolds(t *testing.T) {
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not installed")
+	}
+	root := t.TempDir()
+	site := filepath.Join(root, "site")
+	sched := filepath.Join(site, "vllm", "v1", "core", "sched")
+	if err := os.MkdirAll(sched, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"vllm", "vllm/v1", "vllm/v1/core", "vllm/v1/core/sched"} {
+		if err := os.WriteFile(filepath.Join(site, d, "__init__.py"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := "import os\nclass Scheduler:\n    def __init__(self):\n        self.srpf_starvation_threshold = int(os.environ.get(\"VLLM_SRPF_STARVATION_THRESHOLD\", \"5\"))\n" +
+		"    def _get_srpf_key_for_req(self, req):\n        return ()\n"
+	if err := os.WriteFile(filepath.Join(sched, "scheduler.py"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &SRPFSweep{Out: filepath.Join(root, "out")}
+	if err := os.Mkdir(s.Out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeObserver(); err != nil {
+		t.Fatal(err)
+	}
+	// The mounts put both files in the package's site directory, which is what site.addsitedir reads here.
+	for _, name := range []string{srpfObserveModule, srpfObservePth} {
+		b, err := os.ReadFile(filepath.Join(s.observeDir(), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(srpfSitePackages(filepath.Join(sched, "scheduler.py")), name), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	records := filepath.Join(root, "records")
+	env := append(os.Environ(), "PYTHONPYCACHEPREFIX="+filepath.Join(root, "pycache"), "SRPF_OBSERVE_DIR="+records,
+		"VLLM_ENABLE_SRPF=1", "VLLM_SRPF_STARVATION_THRESHOLD=3")
+	withSite := "import site; site.addsitedir(" + strconv.Quote(site) + ")\n"
+	core := exec.Command(py, "-c", withSite+"import os, sys\nos.environ['VLLM_SRPF_STARVATION_THRESHOLD'] = '9'\n"+
+		"import vllm.v1.core.sched.scheduler as m\nm.Scheduler()\nprint('up', flush=True)\nsys.stdin.read()")
+	core.Env, core.Dir = env, t.TempDir()
+	stdin, _ := core.StdinPipe()
+	stdout, _ := core.StdoutPipe()
+	core.Stderr = os.Stderr
+	if err := core.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stdin.Close(); _ = core.Wait() })
+	if line, _ := bufio.NewReader(stdout).ReadString('\n'); line != "up\n" {
+		t.Fatalf("the engine core printed %q", line)
+	}
+	out, err := runPython(t, py, env, withSite+srpfCodeProbe)
+	if err != nil {
+		t.Fatalf("code probe: %v: %s", err, out)
+	}
+	var p srpfProbe
+	if err := json.Unmarshal(lastLine(out), &p); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Observed || len(p.Schedulers) != 1 {
+		t.Fatalf("the probe saw observed=%t and %d scheduler records: %s", p.Observed, len(p.Schedulers), out)
+	}
+	r := p.Schedulers[0]
+	if r.PID != core.Process.Pid || string(r.Threshold) != "9" || r.Starvation == nil || *r.Starvation != "9" || r.Env == nil || *r.Env != "1" ||
+		r.File != filepath.Join(sched, "scheduler.py") {
+		t.Errorf("the observer recorded %+v, want pid %d holding 9", r, core.Process.Pid)
+	}
+	i := slices.IndexFunc(p.Procs, func(pr srpfProbeProc) bool { return pr.PID == core.Process.Pid })
+	if i < 0 || p.Procs[i].Starvation == nil || *p.Procs[i].Starvation != "3" {
+		t.Errorf("/proc was expected to keep the exec-time 3, which is why the record is needed: %+v", p.Procs)
+	}
+	// Under the arm that set 3, with every environment /proc shows carrying 3, this record is what refuses it.
+	arm := SRPFArm{Name: "srpf-s3", Policy: "fcfs", SRPF: true, Starvation: 3}
+	var fake srpfProbe
+	_ = json.Unmarshal(lastLine([]byte(srpfProbeJSON(new("1"), new("3"), 170000))), &fake)
+	r.PID, r.File = 97, srpfFakePath
+	fake.Schedulers = []srpfSchedulerRecord{r}
+	b, _ := json.Marshal(fake)
+	if err := srpfProbeRefusal(arm, srpfFakePath, true, b); err == nil || !strings.Contains(err.Error(), "holds 9") {
+		t.Errorf("an engine core holding 9 under arm srpf-s3 was not refused for it: %v", err)
 	}
 }
 
@@ -581,7 +704,7 @@ type srpfFake struct {
 	requestIDs []string
 	// wrongEnvArm makes that arm's container report the SRPF variable it should not have.
 	wrongEnvArm string
-	// defaultStarvationArm makes that arm's container report the PR's default threshold, as if its variable never reached it.
+	// defaultStarvationArm makes that arm's engine core hold the PR's default threshold while its parent carried the arm's.
 	defaultStarvationArm string
 	// versionHangs makes the version probe print its version and then run past its bound, as `vllm --version` did.
 	versionHangs bool
@@ -608,7 +731,10 @@ func (f *srpfFake) docker(_ context.Context, _ string, args ...string) ([]byte, 
 		case strings.Contains(joined, "find_spec(\"vllm\").origin), \"v1\"") && !strings.Contains(joined, "import vllm.v1"):
 			return fmt.Appendf(nil, `{"file": %q, "sha256": %q}`+"\n", srpfFakePath, SRPFSweepBaseSchedulerSHA256), nil
 		case strings.Contains(joined, "import vllm.v1.core.sched.scheduler"):
-			return fmt.Appendf(nil, `{"file": %q, "sha256": %q, "size": 170000, "srpfKey": true, "env": null, "pycachePrefix": %q, "procs": []}`+"\n",
+			if !strings.Contains(joined, "srpf_observe.py:") || !strings.Contains(joined, "zz_srpf_observe.pth:") {
+				return []byte(`{"error": "the observer is not mounted"}` + "\n"), nil
+			}
+			return fmt.Appendf(nil, `{"file": %q, "sha256": %q, "size": 170000, "srpfKey": true, "observed": true, "schedulers": [], "env": null, "pycachePrefix": %q, "procs": []}`+"\n",
 				srpfFakePath, SRPFSweepPRSchedulerSHA256, srpfSweepPycachePrefix), nil
 		case strings.Contains(joined, "importlib.metadata"):
 			if f.versionHangs {
@@ -635,17 +761,23 @@ func (f *srpfFake) docker(_ context.Context, _ string, args ...string) ([]byte, 
 		if slices.Contains(run, "--env=VLLM_ENABLE_SRPF=1") || slices.Contains(run, "--name=srpf-"+f.wrongEnvArm) {
 			env = new("1")
 		}
-		// The container reports the threshold its run args set, except the arm told to report the PR's default instead.
+		// The container reports the threshold its run args set.
 		var starvation *string
 		for _, a := range run {
 			if v, ok := strings.CutPrefix(a, "--env="+SRPFSweepStarvationEnv+"="); ok {
 				starvation = new(v)
 			}
 		}
+		out := srpfProbeJSON(env, starvation, 170000)
+		// The arm told to lose its threshold keeps it in every environment /proc shows, and its scheduler holds the default.
 		if slices.Contains(run, "--name=srpf-"+f.defaultStarvationArm) {
-			starvation = new("5")
+			var p srpfProbe
+			_ = json.Unmarshal(lastLine([]byte(out)), &p)
+			p.Schedulers[0].Threshold = json.RawMessage("5")
+			b, _ := json.Marshal(p)
+			out = string(b) + "\n"
 		}
-		return []byte(srpfProbeJSON(env, starvation, 170000)), nil
+		return []byte(out), nil
 	case args[0] == "rm":
 		delete(f.running, args[len(args)-1])
 		f.removed = append(f.removed, args[len(args)-1])
@@ -828,7 +960,7 @@ func TestSRPFSweepRunsEveryArmAndFailsAContaminatedOne(t *testing.T) {
 				t.Errorf("the contaminated fcfs arm was %s (%s), raw %q", res.Outcome, res.Reason, res.RawFile)
 			}
 		case "srpf-s8":
-			if res.Outcome != "failed" || !strings.Contains(res.Reason, "needs VLLM_SRPF_STARVATION_THRESHOLD=8") || res.RawFile != "" {
+			if res.Outcome != "failed" || !strings.Contains(res.Reason, "needs srpf_starvation_threshold 8") || res.RawFile != "" {
 				t.Errorf("the srpf-s8 arm on the default threshold was %s (%s), raw %q", res.Outcome, res.Reason, res.RawFile)
 			}
 		default:
@@ -841,11 +973,11 @@ func TestSRPFSweepRunsEveryArmAndFailsAContaminatedOne(t *testing.T) {
 				t.Errorf("arm %s figures %+v, %d warm-up rows", res.Name, res.Figures, len(res.Warmup))
 			}
 			// Mutation that turns this red: leave EngineCoreEnv unset in measureArm.
-			want := SRPFSweepStarvationEnv + "=unset"
+			want := "srpf_starvation_threshold=5 with VLLM_ENABLE_SRPF=unset " + SRPFSweepStarvationEnv + "=unset"
 			if res.SRPF {
-				want = SRPFSweepStarvationEnv + "=" + strconv.Quote(strconv.Itoa(res.Starvation))
+				want = fmt.Sprintf("srpf_starvation_threshold=%d with VLLM_ENABLE_SRPF=\"1\" %s=%q", res.Starvation, SRPFSweepStarvationEnv, strconv.Itoa(res.Starvation))
 			}
-			if !strings.HasPrefix(res.EngineCoreEnv, "VLLM::EngineCore 97 inherits from 1: ") || !strings.HasSuffix(res.EngineCoreEnv, want) {
+			if !strings.HasPrefix(res.EngineCoreEnv, "VLLM::EngineCore 97 initialised ") || !strings.HasSuffix(res.EngineCoreEnv, want) {
 				t.Errorf("arm %s recorded its engine core's environment as %q, want it ending %s", res.Name, res.EngineCoreEnv, want)
 			}
 		}
