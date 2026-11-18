@@ -1,0 +1,187 @@
+== arm precise-load: 172 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-load-churn-warm-a1-000 CA     gateway    zxgb9       0/349      452.7  fnbgz=0 zxgb9=1
+precise-load-churn-warm-a1-001 CA     gateway    zxgb9     336/349      116.2  fnbgz=0.5 zxgb9=0.5
+precise-load-churn-warm-a2-000 CA     gateway    zxgb9     320/349      130.9  fnbgz=0.5 zxgb9=0.5
+precise-load-churn-warm-a2-001 CA     gateway    zxgb9     336/349      116.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-000 CA     gateway    zxgb9     320/347      131.0  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-000 CA     gateway    zxgb9     320/347      256.5  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-001 CA     gateway    zxgb9     336/347      134.7  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-000 CA     gateway    fnbgz       0/347      451.3  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-001 CA     gateway    zxgb9     336/347      119.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-000 CA     gateway    fnbgz     320/347      577.2  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-002 CA     gateway    zxgb9     336/347      119.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-001 CA     gateway    fnbgz     336/347      134.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-002 CA     gateway    zxgb9     336/347      119.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-001 CA     gateway    fnbgz     336/347      119.4  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-003 CA     gateway    zxgb9     336/347      118.7  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-002 CA     gateway    fnbgz     336/347      120.0  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-003 CA     gateway    zxgb9     336/347      118.5  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-002 CA     gateway    fnbgz     336/347      118.6  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-004 CA     gateway    zxgb9     336/347      118.0  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-003 CA     gateway    fnbgz     336/347      118.7  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-004 CA     gateway    zxgb9     336/347      118.2  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-003 CA     gateway    fnbgz     336/347      119.7  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-005 CA     gateway    zxgb9     336/347      118.4  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-004 CA     gateway    fnbgz     336/347      120.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-005 CA     gateway    zxgb9     336/347      117.9  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-004 CA     gateway    fnbgz     336/347      118.5  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-006 CA     gateway    zxgb9     336/347      119.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-005 CA     gateway    fnbgz     336/347      117.8  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-006 CA     gateway    zxgb9     336/347      117.8  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-005 CA     gateway    fnbgz     336/347      117.9  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-007 CA     gateway    zxgb9     336/347      117.3  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-006 CA     gateway    fnbgz     336/347      119.0  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-007 CA     gateway    zxgb9     336/347      119.6  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-006 CA     gateway    fnbgz     336/347      118.6  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-008 CA     gateway    zxgb9     336/347      119.5  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-007 CA     gateway    fnbgz     336/347      117.9  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-008 CA     gateway    zxgb9     336/347      118.4  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-007 CA     gateway    fnbgz     336/347      118.9  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-009 CA     gateway    zxgb9     336/347      117.7  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-008 CA     gateway    fnbgz     336/347      118.3  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-009 CA     gateway    zxgb9     336/347      117.5  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-008 CA     gateway    fnbgz     336/347      117.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-010 CA     gateway    zxgb9     336/347      117.7  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-009 CA     gateway    fnbgz     336/347      117.5  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-010 CA     gateway    zxgb9     336/347      118.7  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-009 CA     gateway    fnbgz     336/347      118.8  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-011 CA     gateway    zxgb9     336/347      118.8  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-010 CA     gateway    fnbgz     336/347      119.8  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-011 CA     gateway    zxgb9     336/347      118.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-010 CA     gateway    fnbgz     336/347      118.3  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-012 CA     gateway    zxgb9     336/347      118.3  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-011 CA     gateway    fnbgz     336/347      117.4  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-012 CA     gateway    zxgb9     336/347      117.6  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-011 CA     gateway    fnbgz     336/347      119.4  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream4-013 CA     gateway    zxgb9     336/347      117.1  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream3-012 CA     gateway    fnbgz     336/347      119.3  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream1-013 CA     gateway    zxgb9     336/347      117.0  fnbgz=0.5 zxgb9=0.5
+precise-load-churn1-stream2-012 CA     gateway    fnbgz     336/347      119.2  fnbgz=0.5
+precise-load-churn1-stream4-014 CA     gateway    fnbgz     320/347      241.8  fnbgz=0.5
+precise-load-churn1-stream3-013 CA     gateway    fnbgz     336/347      245.8  fnbgz=0.5
+precise-load-churn1-stream1-014 CA     gateway    fnbgz     320/347      369.2  fnbgz=0.5
+precise-load-churn1-stream2-013 CA     gateway    fnbgz     336/347      370.5  fnbgz=0.5
+precise-load-churn1-stream4-015 CA     gateway    fnbgz     336/347      352.6  fnbgz=0.5
+precise-load-churn1-stream3-014 CA     gateway    fnbgz     336/347      351.5  fnbgz=0.5
+precise-load-churn1-stream1-015 CA     gateway    fnbgz     336/347      334.7  fnbgz=0.5
+precise-load-churn1-stream2-014 CA     gateway    fnbgz     336/347      335.1  fnbgz=0.5
+precise-load-churn1-stream4-016 CA     gateway    fnbgz     336/347      336.3  fnbgz=0.5
+precise-load-churn1-stream3-015 CA     gateway    fnbgz     336/347      336.3  fnbgz=0.5
+precise-load-churn1-stream1-016 CA     gateway    fnbgz     336/347      337.1  fnbgz=0.5
+precise-load-churn1-stream2-015 CA     gateway    fnbgz     336/347      337.0  fnbgz=0.5
+precise-load-churn1-stream4-017 CA     gateway    fnbgz     336/347      338.3  fnbgz=0.5
+precise-load-churn1-stream3-016 CA     gateway    fnbgz     336/347      338.9  fnbgz=0.5
+precise-load-churn1-stream1-017 CA     gateway    fnbgz     336/347      337.6  fnbgz=0.5
+precise-load-churn1-stream2-016 CA     gateway    fnbgz     336/347      337.1  fnbgz=0.5
+precise-load-churn1-stream4-018 CA     gateway    fnbgz     336/347      337.0  fnbgz=0.5
+precise-load-churn1-stream3-017 CA     gateway    fnbgz     336/347      337.7  fnbgz=0.5
+precise-load-churn1-stream1-018 CA     gateway    fnbgz     336/347      339.7  fnbgz=0.5
+precise-load-churn1-stream2-017 CA     gateway    fnbgz     336/347      340.4  fnbgz=0.5
+precise-load-churn1-stream4-019 CA     gateway    fnbgz     336/347      339.0  fnbgz=0.5
+precise-load-churn1-stream3-018 CA     gateway    fnbgz     336/347      338.7  fnbgz=0.5
+precise-load-churn1-stream1-019 CA     gateway    fnbgz     336/347      338.0  fnbgz=0.5
+precise-load-churn1-stream2-018 CA     gateway    fnbgz     336/347      339.2  fnbgz=0.5
+precise-load-churn1-stream4-020 CA     gateway    fnbgz     336/347      340.3  fnbgz=0.5
+precise-load-churn1-stream3-019 CA     gateway    fnbgz     336/347      339.0  fnbgz=0.5
+precise-load-churn1-stream1-020 CA     gateway    fnbgz     336/347      338.8  fnbgz=0.5
+precise-load-churn1-stream2-019 CA     gateway    fnbgz     336/347      338.3  fnbgz=0.5
+precise-load-churn1-stream4-021 CA     gateway    fnbgz     336/347      338.0  fnbgz=0.5
+precise-load-churn1-stream3-020 CA     gateway    fnbgz     336/347      338.2  fnbgz=0.5
+precise-load-churn1-stream1-021 CA     gateway    fnbgz     336/347      336.7  fnbgz=0.5
+precise-load-churn1-stream2-020 CA     gateway    fnbgz     336/347      336.2  fnbgz=0.5
+precise-load-churn1-stream4-022 CA     gateway    fnbgz     336/347      336.1  fnbgz=0.5
+precise-load-churn1-stream3-021 CA     gateway    fnbgz     336/347      337.1  fnbgz=0.5
+precise-load-churn1-stream1-022 CA     gateway    fnbgz     336/347      338.5  fnbgz=0.5
+precise-load-churn1-stream2-021 CA     gateway    fnbgz     336/347      338.5  fnbgz=0.5
+precise-load-churn1-stream4-023 CA     gateway    fnbgz     336/347      338.7  fnbgz=0.5
+precise-load-churn1-stream3-022 CA     gateway    fnbgz     336/347      337.8  fnbgz=0.5
+precise-load-churn1-stream1-023 CA     gateway    fnbgz     336/347      338.0  fnbgz=0.5
+precise-load-churn1-stream2-022 CA     gateway    fnbgz     336/347      336.7  fnbgz=0.5
+precise-load-churn1-stream4-024 CA     gateway    fnbgz     336/347      335.9  fnbgz=0.5
+precise-load-churn1-stream3-023 CA     gateway    fnbgz     336/347      335.5  fnbgz=0.5
+precise-load-churn1-stream1-024 CA     gateway    fnbgz     336/347      334.5  fnbgz=0.5
+precise-load-churn1-stream2-023 CA     gateway    fnbgz     336/347      336.4  fnbgz=0.5
+precise-load-churn1-stream4-025 CA     gateway    fnbgz     336/347      337.5  fnbgz=0.5
+precise-load-churn1-stream3-024 CA     gateway    fnbgz     336/347      337.5  fnbgz=0.5
+precise-load-churn1-stream1-025 CA     gateway    fnbgz     336/347      339.4  fnbgz=0.5
+precise-load-churn1-stream2-024 CA     gateway    fnbgz     336/347      337.9  fnbgz=0.5
+precise-load-churn1-stream4-026 CA     gateway    fnbgz     336/347      338.1  fnbgz=0.5
+precise-load-churn1-stream3-025 CA     gateway    fnbgz     336/347      339.7  fnbgz=0.5
+precise-load-churn1-stream1-026 CA     gateway    fnbgz     336/347      338.2  fnbgz=0.5
+precise-load-churn1-stream2-025 CA     gateway    fnbgz     336/347      337.9  fnbgz=0.5
+precise-load-churn1-stream4-027 CA     gateway    fnbgz     336/347      336.3  fnbgz=0.5
+precise-load-churn1-stream3-026 CA     gateway    fnbgz     336/347      336.3  fnbgz=0.5
+precise-load-churn1-stream1-027 CA     gateway    fnbgz     336/347      336.2  fnbgz=0.5
+precise-load-churn1-stream2-026 CA     gateway    fnbgz     336/347      337.9  fnbgz=0.5
+precise-load-churn1-stream4-028 CA     gateway    fnbgz     336/347      338.2  fnbgz=0.5
+precise-load-churn1-stream3-027 CA     gateway    fnbgz     336/347      337.6  fnbgz=0.5
+precise-load-churn1-stream1-028 CA     gateway    fnbgz     336/347      338.7  fnbgz=0.5
+precise-load-churn1-stream2-027 CA     gateway    fnbgz     336/347      338.8  fnbgz=0.5
+precise-load-churn1-stream4-029 CA     gateway    fnbgz     336/347      339.3  fnbgz=0.5
+precise-load-churn1-stream3-028 CA     gateway    fnbgz     336/347      339.2  fnbgz=0.5
+precise-load-churn1-stream1-029 CA     gateway    fnbgz     336/347      338.8  fnbgz=0.5
+precise-load-churn1-stream2-028 CA     gateway    fnbgz     336/347      336.8  fnbgz=0.5
+precise-load-churn1-stream4-030 CA     gateway    fnbgz     336/347      337.7  fnbgz=0.5
+precise-load-churn1-stream3-029 CA     gateway    fnbgz     336/347      337.6  fnbgz=0.5
+precise-load-churn1-stream1-030 CA     gateway    fnbgz     336/347      336.9  fnbgz=0.5
+precise-load-churn1-stream2-029 CA     gateway    fnbgz     336/347      336.3  fnbgz=0.5
+precise-load-churn1-stream4-031 CA     gateway    fnbgz     336/347      335.2  fnbgz=0.5
+precise-load-churn1-stream3-030 CA     gateway    fnbgz     336/347      336.4  fnbgz=0.5
+precise-load-churn1-stream1-031 CA     gateway    fnbgz     336/347      336.1  fnbgz=0.5
+precise-load-churn1-stream2-030 CA     gateway    fnbgz     336/347      337.2  fnbgz=0.5
+precise-load-churn1-stream4-032 CA     gateway    fnbgz     336/347      337.8  fnbgz=0.5
+precise-load-churn1-stream3-031 CA     gateway    fnbgz     336/347      336.9  fnbgz=0.5
+precise-load-churn1-stream1-032 CA     gateway    fnbgz     336/347      337.1  fnbgz=0.5
+precise-load-churn1-stream2-031 CA     gateway    fnbgz     336/347      337.9  fnbgz=0.5
+precise-load-churn1-stream4-033 CA     gateway    fnbgz     336/347      337.2  fnbgz=0.5
+precise-load-churn1-stream3-032 CA     gateway    fnbgz     336/347      337.3  fnbgz=0.5
+precise-load-churn1-stream1-033 CA     gateway    fnbgz     336/347      338.0  fnbgz=0.5
+precise-load-churn1-stream2-032 CA     gateway    fnbgz     336/347      336.8  fnbgz=0.5
+precise-load-churn1-stream4-034 CA     gateway    fnbgz     336/347      336.5  fnbgz=0.5
+precise-load-churn1-stream3-033 CA     gateway    fnbgz     336/347      337.4  fnbgz=0.5
+precise-load-churn1-stream1-034 CA     gateway    fnbgz     336/347      336.9  fnbgz=0.5
+precise-load-churn1-stream2-033 CA     gateway    fnbgz     336/347      337.6  fnbgz=0.5
+precise-load-churn1-stream4-035 CA     gateway    fnbgz     336/347      337.7  fnbgz=0.5
+precise-load-churn1-stream3-034 CA     gateway    fnbgz     336/347      336.4  fnbgz=0.5
+precise-load-churn1-stream1-035 CA     gateway    fnbgz     336/347      336.1  fnbgz=0.5
+precise-load-churn1-stream2-034 CA     gateway    fnbgz     336/347      335.6  fnbgz=0.5
+precise-load-churn1-stream4-036 CA     gateway    fnbgz     336/347      336.2  fnbgz=0.5
+precise-load-churn1-stream3-035 CA     gateway    fnbgz     336/347      336.5  fnbgz=0.5
+precise-load-churn1-stream1-036 CA     gateway    fnbgz     336/347      337.5  fnbgz=0.5
+precise-load-churn1-stream2-035 CA     gateway    fnbgz     336/347      339.0  fnbgz=0.5
+precise-load-churn1-stream4-037 CA     gateway    fnbgz     336/347      339.1  fnbgz=0.5
+precise-load-churn1-stream3-036 CA     gateway    fnbgz     336/347      338.8  fnbgz=0.5
+precise-load-churn1-stream1-037 CA     gateway    fnbgz     336/347      338.9  fnbgz=0.5
+precise-load-churn1-stream2-036 CA     gateway    fnbgz     336/347      338.1  fnbgz=0.5
+precise-load-churn1-stream4-038 CA     gateway    fnbgz     336/347      338.5  fnbgz=0.5
+precise-load-churn1-stream3-037 CA     gateway    fnbgz     336/347      339.9  fnbgz=0.5
+precise-load-churn1-stream1-038 CA     gateway    fnbgz     336/347      340.0  fnbgz=0.5
+precise-load-churn1-stream2-037 CA     gateway    fnbgz     336/347      339.1  fnbgz=0.5
+precise-load-churn1-stream4-039 CA     gateway    fnbgz     336/347      338.3  fnbgz=0.5
+precise-load-churn1-stream3-038 CA     gateway    fnbgz     336/347      337.8  fnbgz=0.5
+precise-load-churn1-stream1-039 CA     gateway    fnbgz     336/347      337.7  8q6js=0.5 fnbgz=0.5
+precise-load-churn1-stream3-039 CA     gateway    fnbgz     336/347      118.7  8q6js=0.5 fnbgz=0.5
+precise-load-churn1-stream2-038 CA     gateway    8q6js       0/347      449.5  8q6js=0.5 fnbgz=0.5
+precise-load-churn1-stream2-039 CA     gateway    fnbgz     336/347      113.0  8q6js=0.5 fnbgz=0.5
+precise-load-churn1-after-000 CA     gateway    8q6js     320/346      128.8  8q6js=0.5 fnbgz=0.5
+precise-load-churn1-after-001 CA     gateway    8q6js     336/346      111.5  8q6js=0.5 fnbgz=0.5
+precise-load-churn-warm-b1-000 CB     gateway    8q6js       0/349      450.9  8q6js=1 fnbgz=0
+precise-load-churn-warm-b1-001 CB     gateway    8q6js     336/349      115.2  8q6js=0.5 fnbgz=0.5
+precise-load-churn-warm-b2-000 CB     gateway    8q6js     320/349      131.1  8q6js=0.5 fnbgz=0.5
+precise-load-churn-warm-b2-001 CB     gateway    8q6js     336/349      114.5  8q6js=0.5 fnbgz=0.5
+precise-load-churn2-after-000 CB     gateway    fnbgz       0/346      449.0  8q6js=0 fnbgz=1
+precise-load-churn2-after-001 CB     gateway    fnbgz     336/346      112.1  8q6js=0.5 fnbgz=0.5
+   gateway requests joined to EPP scores: 172/172
+   step                                     gateway   hit  predicted  to warm pod
+   precise-load-churn-warm-a1                     2     1        1/2            -
+   precise-load-churn-warm-a2                     2     2        2/2            -
+   precise-load-churn1-stream4                   40    40      40/40            -
+   precise-load-churn1-stream1                   40    40      40/40            -
+   precise-load-churn1-stream3                   40    39      39/40            -
+   precise-load-churn1-stream2                   40    39      39/40            -
+   precise-load-churn1-after                      2     2        2/2            -
+   precise-load-churn-warm-b1                     2     1        1/2            -
+   precise-load-churn-warm-b2                     2     2        2/2            -
+   precise-load-churn2-after                      2     1        1/2            -
+

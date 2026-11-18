@@ -1,0 +1,187 @@
+== arm approx: 172 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+approx-churn-warm-a1-000     CA     gateway    hn4nk       0/348      450.7  hn4nk=0 nwb5w=0
+approx-churn-warm-a1-001     CA     gateway    hn4nk     336/348      113.2  hn4nk=0.857143 nwb5w=0
+approx-churn-warm-a2-000     CA     gateway    hn4nk     320/348      129.7  hn4nk=0.857143 nwb5w=0
+approx-churn-warm-a2-001     CA     gateway    hn4nk     336/348      112.6  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream3-000    CA     gateway    hn4nk     320/346      127.8  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream4-000    CA     gateway    hn4nk     320/346      252.7  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream1-000    CA     gateway    hn4nk     320/346      377.2  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream2-000    CA     gateway    hn4nk     320/346      501.6  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream3-001    CA     gateway    hn4nk     336/346      382.0  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream4-001    CA     gateway    hn4nk     336/346      364.5  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream1-001    CA     gateway    hn4nk     336/346      348.7  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream2-001    CA     gateway    hn4nk     336/346      332.7  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream3-002    CA     gateway    hn4nk     336/346      332.3  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream4-002    CA     gateway    hn4nk     336/346      334.8  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream1-002    CA     gateway    hn4nk     336/346      335.2  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream2-002    CA     gateway    hn4nk     336/346      335.6  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream3-003    CA     gateway    hn4nk     336/346      336.2  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream4-003    CA     gateway    hn4nk     336/346      334.8  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream1-003    CA     gateway    hn4nk     336/346      335.2  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream2-003    CA     gateway    hn4nk     336/346      335.1  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream3-004    CA     gateway    hn4nk     336/346      334.7  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream4-004    CA     gateway    hn4nk     336/346      336.0  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream1-004    CA     gateway    hn4nk     336/346      334.8  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream2-004    CA     gateway    hn4nk     336/346      335.5  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream3-005    CA     gateway    hn4nk     336/346      337.2  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream4-005    CA     gateway    hn4nk     336/346      337.1  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream1-005    CA     gateway    hn4nk     336/346      338.3  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream2-005    CA     gateway    hn4nk     336/346      338.4  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream3-006    CA     gateway    hn4nk     336/346      336.9  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream4-006    CA     gateway    hn4nk     336/346      335.7  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream1-006    CA     gateway    hn4nk     336/346      334.7  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream2-006    CA     gateway    hn4nk     336/346      333.5  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream3-007    CA     gateway    hn4nk     336/346      332.6  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream4-007    CA     gateway    hn4nk     336/346      332.9  hn4nk=0.857143 nwb5w=0
+approx-churn1-stream1-007    CA     gateway    nwb5w       0/346      447.6  nwb5w=0
+approx-churn1-stream2-007    CA     gateway    nwb5w     320/346      463.5  nwb5w=0.857143
+approx-churn1-stream3-008    CA     gateway    nwb5w     320/346      480.3  nwb5w=0.857143
+approx-churn1-stream4-008    CA     gateway    nwb5w     320/346      496.6  nwb5w=0.857143
+approx-churn1-stream1-008    CA     gateway    nwb5w     336/346      382.3  nwb5w=0.857143
+approx-churn1-stream2-008    CA     gateway    nwb5w     336/346      367.8  nwb5w=0.857143
+approx-churn1-stream3-009    CA     gateway    nwb5w     336/346      352.7  nwb5w=0.857143
+approx-churn1-stream4-009    CA     gateway    nwb5w     336/346      337.0  nwb5w=0.857143
+approx-churn1-stream1-009    CA     gateway    nwb5w     336/346      336.2  nwb5w=0.857143
+approx-churn1-stream2-009    CA     gateway    nwb5w     336/346      335.0  nwb5w=0.857143
+approx-churn1-stream3-010    CA     gateway    nwb5w     320/346      350.2  nwb5w=0.857143
+approx-churn1-stream4-010    CA     gateway    nwb5w     320/346      366.1  nwb5w=0.857143
+approx-churn1-stream1-010    CA     gateway    nwb5w     320/346      382.5  nwb5w=0.857143
+approx-churn1-stream2-010    CA     gateway    nwb5w     320/346      399.1  nwb5w=0.857143
+approx-churn1-stream3-011    CA     gateway    nwb5w     336/346      382.6  nwb5w=0.857143
+approx-churn1-stream4-011    CA     gateway    nwb5w     336/346      367.2  nwb5w=0.857143
+approx-churn1-stream1-011    CA     gateway    nwb5w     336/346      350.9  nwb5w=0.857143
+approx-churn1-stream2-011    CA     gateway    nwb5w     336/346      334.5  nwb5w=0.857143
+approx-churn1-stream3-012    CA     gateway    nwb5w     336/346      334.6  nwb5w=0.857143
+approx-churn1-stream4-012    CA     gateway    nwb5w     336/346      333.9  nwb5w=0.857143
+approx-churn1-stream1-012    CA     gateway    nwb5w     336/346      333.7  nwb5w=0.857143
+approx-churn1-stream2-012    CA     gateway    nwb5w     336/346      334.8  nwb5w=0.857143
+approx-churn1-stream3-013    CA     gateway    nwb5w     336/346      335.6  nwb5w=0.857143
+approx-churn1-stream4-013    CA     gateway    nwb5w     336/346      335.5  nwb5w=0.857143
+approx-churn1-stream1-013    CA     gateway    nwb5w     336/346      334.5  nwb5w=0.857143
+approx-churn1-stream2-013    CA     gateway    nwb5w     336/346      334.1  nwb5w=0.857143
+approx-churn1-stream3-014    CA     gateway    nwb5w     336/346      333.3  nwb5w=0.857143
+approx-churn1-stream4-014    CA     gateway    nwb5w     336/346      334.0  nwb5w=0.857143
+approx-churn1-stream1-014    CA     gateway    nwb5w     336/346      335.9  nwb5w=0.857143
+approx-churn1-stream2-014    CA     gateway    nwb5w     336/346      335.6  nwb5w=0.857143
+approx-churn1-stream3-015    CA     gateway    nwb5w     336/346      336.3  nwb5w=0.857143
+approx-churn1-stream4-015    CA     gateway    nwb5w     336/346      335.1  nwb5w=0.857143
+approx-churn1-stream1-015    CA     gateway    nwb5w     336/346      335.3  nwb5w=0.857143
+approx-churn1-stream2-015    CA     gateway    nwb5w     336/346      335.9  nwb5w=0.857143
+approx-churn1-stream3-016    CA     gateway    nwb5w     336/346      335.9  nwb5w=0.857143
+approx-churn1-stream4-016    CA     gateway    nwb5w     336/346      336.0  nwb5w=0.857143
+approx-churn1-stream1-016    CA     gateway    nwb5w     336/346      334.8  nwb5w=0.857143
+approx-churn1-stream2-016    CA     gateway    nwb5w     336/346      334.6  nwb5w=0.857143
+approx-churn1-stream3-017    CA     gateway    nwb5w     336/346      334.9  nwb5w=0.857143
+approx-churn1-stream4-017    CA     gateway    nwb5w     336/346      336.1  nwb5w=0.857143
+approx-churn1-stream1-017    CA     gateway    nwb5w     336/346      336.5  nwb5w=0.857143
+approx-churn1-stream2-017    CA     gateway    nwb5w     336/346      335.8  nwb5w=0.857143
+approx-churn1-stream3-018    CA     gateway    nwb5w     336/346      335.1  nwb5w=0.857143
+approx-churn1-stream4-018    CA     gateway    nwb5w     336/346      333.9  nwb5w=0.857143
+approx-churn1-stream1-018    CA     gateway    nwb5w     336/346      334.0  nwb5w=0.857143
+approx-churn1-stream2-018    CA     gateway    nwb5w     336/346      335.1  nwb5w=0.857143
+approx-churn1-stream3-019    CA     gateway    nwb5w     336/346      334.6  nwb5w=0.857143
+approx-churn1-stream4-019    CA     gateway    nwb5w     336/346      334.5  nwb5w=0.857143
+approx-churn1-stream1-019    CA     gateway    nwb5w     336/346      334.4  nwb5w=0.857143
+approx-churn1-stream2-019    CA     gateway    nwb5w     336/346      333.9  nwb5w=0.857143
+approx-churn1-stream3-020    CA     gateway    nwb5w     320/346      349.6  nwb5w=0.857143
+approx-churn1-stream4-020    CA     gateway    nwb5w     320/346      366.3  nwb5w=0.857143
+approx-churn1-stream1-020    CA     gateway    nwb5w     320/346      382.3  nwb5w=0.857143
+approx-churn1-stream2-020    CA     gateway    nwb5w     320/346      399.1  nwb5w=0.857143
+approx-churn1-stream3-021    CA     gateway    nwb5w     336/346      384.6  nwb5w=0.857143
+approx-churn1-stream4-021    CA     gateway    nwb5w     336/346      368.7  nwb5w=0.857143
+approx-churn1-stream1-021    CA     gateway    nwb5w     336/346      352.9  nwb5w=0.857143
+approx-churn1-stream2-021    CA     gateway    nwb5w     336/346      336.8  nwb5w=0.857143
+approx-churn1-stream3-022    CA     gateway    nwb5w     336/346      335.5  nwb5w=0.857143
+approx-churn1-stream4-022    CA     gateway    nwb5w     336/346      334.7  nwb5w=0.857143
+approx-churn1-stream1-022    CA     gateway    nwb5w     336/346      335.2  nwb5w=0.857143
+approx-churn1-stream2-022    CA     gateway    nwb5w     336/346      334.2  nwb5w=0.857143
+approx-churn1-stream3-023    CA     gateway    nwb5w     336/346      334.2  nwb5w=0.857143
+approx-churn1-stream4-023    CA     gateway    nwb5w     336/346      334.9  nwb5w=0.857143
+approx-churn1-stream1-023    CA     gateway    nwb5w     336/346      334.0  nwb5w=0.857143
+approx-churn1-stream2-023    CA     gateway    nwb5w     336/346      334.3  nwb5w=0.857143
+approx-churn1-stream3-024    CA     gateway    nwb5w     336/346      335.4  nwb5w=0.857143
+approx-churn1-stream4-024    CA     gateway    nwb5w     336/346      334.3  nwb5w=0.857143
+approx-churn1-stream1-024    CA     gateway    nwb5w     336/346      334.4  nwb5w=0.857143
+approx-churn1-stream2-024    CA     gateway    nwb5w     336/346      333.6  nwb5w=0.857143
+approx-churn1-stream3-025    CA     gateway    nwb5w     336/346      332.3  nwb5w=0.857143
+approx-churn1-stream4-025    CA     gateway    nwb5w     336/346      333.6  nwb5w=0.857143
+approx-churn1-stream1-025    CA     gateway    nwb5w     336/346      333.5  nwb5w=0.857143
+approx-churn1-stream2-025    CA     gateway    nwb5w     336/346      333.7  nwb5w=0.857143
+approx-churn1-stream3-026    CA     gateway    nwb5w     336/346      334.5  nwb5w=0.857143
+approx-churn1-stream4-026    CA     gateway    nwb5w     336/346      333.6  nwb5w=0.857143
+approx-churn1-stream1-026    CA     gateway    nwb5w     336/346      334.4  nwb5w=0.857143
+approx-churn1-stream2-026    CA     gateway    nwb5w     336/346      335.6  nwb5w=0.857143
+approx-churn1-stream3-027    CA     gateway    nwb5w     336/346      336.0  nwb5w=0.857143
+approx-churn1-stream4-027    CA     gateway    nwb5w     336/346      335.3  nwb5w=0.857143
+approx-churn1-stream1-027    CA     gateway    nwb5w     336/346      334.3  nwb5w=0.857143
+approx-churn1-stream2-027    CA     gateway    nwb5w     336/346      333.0  nwb5w=0.857143
+approx-churn1-stream3-028    CA     gateway    nwb5w     336/346      333.2  nwb5w=0.857143
+approx-churn1-stream4-028    CA     gateway    nwb5w     336/346      335.2  nwb5w=0.857143
+approx-churn1-stream1-028    CA     gateway    nwb5w     336/346      336.2  nwb5w=0.857143
+approx-churn1-stream2-028    CA     gateway    nwb5w     336/346      337.4  nwb5w=0.857143
+approx-churn1-stream3-029    CA     gateway    nwb5w     336/346      336.7  nwb5w=0.857143
+approx-churn1-stream4-029    CA     gateway    nwb5w     336/346      336.4  nwb5w=0.857143
+approx-churn1-stream1-029    CA     gateway    nwb5w     336/346      336.1  nwb5w=0.857143
+approx-churn1-stream2-029    CA     gateway    nwb5w     336/346      335.3  nwb5w=0.857143
+approx-churn1-stream3-030    CA     gateway    nwb5w     320/346      351.4  nwb5w=0.857143
+approx-churn1-stream4-030    CA     gateway    nwb5w     320/346      367.3  nwb5w=0.857143
+approx-churn1-stream1-030    CA     gateway    nwb5w     320/346      383.4  nwb5w=0.857143
+approx-churn1-stream2-030    CA     gateway    nwb5w     320/346      400.0  nwb5w=0.857143
+approx-churn1-stream3-031    CA     gateway    nwb5w     336/346      383.3  nwb5w=0.857143
+approx-churn1-stream4-031    CA     gateway    nwb5w     336/346      367.7  nwb5w=0.857143
+approx-churn1-stream1-031    CA     gateway    nwb5w     336/346      350.6  nwb5w=0.857143
+approx-churn1-stream2-031    CA     gateway    nwb5w     336/346      333.9  nwb5w=0.857143
+approx-churn1-stream3-032    CA     gateway    nwb5w     336/346      335.4  nwb5w=0.857143
+approx-churn1-stream4-032    CA     gateway    nwb5w     336/346      335.6  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream1-032    CA     gateway    nwb5w     336/346      336.3  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream2-032    CA     gateway    nwb5w     336/346      336.9  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream3-033    CA     gateway    nwb5w     336/346      336.4  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream4-033    CA     gateway    nwb5w     336/346      336.3  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream1-033    CA     gateway    nwb5w     336/346      337.3  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream2-033    CA     gateway    nwb5w     336/346      336.4  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream3-034    CA     gateway    nwb5w     336/346      335.5  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream4-034    CA     gateway    nwb5w     336/346      334.4  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream1-034    CA     gateway    nwb5w     336/346      333.8  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream2-034    CA     gateway    nwb5w     336/346      333.7  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream3-035    CA     gateway    nwb5w     336/346      334.5  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream4-035    CA     gateway    nwb5w     336/346      334.7  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream1-035    CA     gateway    nwb5w     336/346      333.9  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream2-035    CA     gateway    nwb5w     336/346      334.6  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream3-036    CA     gateway    nwb5w     336/346      334.8  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream4-036    CA     gateway    nwb5w     336/346      335.5  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream1-036    CA     gateway    nwb5w     336/346      335.7  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream2-036    CA     gateway    nwb5w     336/346      335.4  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream3-037    CA     gateway    nwb5w     336/346      336.1  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream4-037    CA     gateway    nwb5w     336/346      336.2  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream1-037    CA     gateway    nwb5w     336/346      337.4  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream2-037    CA     gateway    nwb5w     336/346      338.2  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream3-038    CA     gateway    nwb5w     336/346      336.4  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream4-038    CA     gateway    nwb5w     336/346      336.4  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream1-038    CA     gateway    nwb5w     336/346      335.2  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream2-038    CA     gateway    nwb5w     336/346      335.1  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream3-039    CA     gateway    nwb5w     336/346      336.7  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream4-039    CA     gateway    nwb5w     336/346      335.4  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream1-039    CA     gateway    nwb5w     336/346      334.6  mjvfn=0 nwb5w=0.857143
+approx-churn1-stream2-039    CA     gateway    nwb5w     336/346      333.7  mjvfn=0 nwb5w=0.857143
+approx-churn1-after-000      CA     gateway    nwb5w     320/345      125.9  mjvfn=0 nwb5w=0.857143
+approx-churn1-after-001      CA     gateway    nwb5w     320/345      125.9  mjvfn=0 nwb5w=0.857143
+approx-churn-warm-b1-000     CB     gateway    nwb5w       0/348      448.3  mjvfn=0 nwb5w=0
+approx-churn-warm-b1-001     CB     gateway    nwb5w     336/348      112.9  mjvfn=0 nwb5w=0.857143
+approx-churn-warm-b2-000     CB     gateway    nwb5w     320/348      128.5  mjvfn=0 nwb5w=0.857143
+approx-churn-warm-b2-001     CB     gateway    nwb5w     336/348      112.1  mjvfn=0 nwb5w=0.857143
+approx-churn2-after-000      CB     gateway    nwb5w       0/345      447.5  mjvfn=0 nwb5w=0.857143
+approx-churn2-after-001      CB     gateway    nwb5w     320/345      125.5  mjvfn=0 nwb5w=0.857143
+   gateway requests joined to EPP scores: 172/172
+   step                                     gateway   hit  predicted  to warm pod
+   approx-churn-warm-a1                           2     1        1/2            -
+   approx-churn-warm-a2                           2     2        2/2            -
+   approx-churn1-stream3                         40    40      40/40            -
+   approx-churn1-stream4                         40    40      40/40            -
+   approx-churn1-stream1                         40    39      39/40            -
+   approx-churn1-stream2                         40    40      40/40            -
+   approx-churn1-after                            2     2        2/2            -
+   approx-churn-warm-b1                           2     1        1/2            -
+   approx-churn-warm-b2                           2     2        2/2            -
+   approx-churn2-after                            2     1        1/2            -
+

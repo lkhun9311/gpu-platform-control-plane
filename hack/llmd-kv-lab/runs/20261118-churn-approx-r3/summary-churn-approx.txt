@@ -1,0 +1,187 @@
+== arm approx: 172 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+approx-churn-warm-a1-000     CA     gateway    h92zj       0/348      449.5  h92zj=0 t72cw=0
+approx-churn-warm-a1-001     CA     gateway    h92zj     336/348      112.6  h92zj=0.857143 t72cw=0
+approx-churn-warm-a2-000     CA     gateway    h92zj     320/348      128.4  h92zj=0.857143 t72cw=0
+approx-churn-warm-a2-001     CA     gateway    h92zj     336/348      112.3  h92zj=0.857143 t72cw=0
+approx-churn1-stream2-000    CA     gateway    h92zj     320/346      128.3  h92zj=0.857143 t72cw=0
+approx-churn1-stream4-000    CA     gateway    h92zj     320/346      253.2  h92zj=0.857143 t72cw=0
+approx-churn1-stream1-000    CA     gateway    h92zj     320/346      377.8  h92zj=0.857143 t72cw=0
+approx-churn1-stream3-000    CA     gateway    h92zj     320/346      503.1  h92zj=0.857143 t72cw=0
+approx-churn1-stream2-001    CA     gateway    h92zj     336/346      382.8  h92zj=0.857143 t72cw=0
+approx-churn1-stream4-001    CA     gateway    h92zj     336/346      367.0  h92zj=0.857143 t72cw=0
+approx-churn1-stream1-001    CA     gateway    h92zj     336/346      351.6  h92zj=0.857143 t72cw=0
+approx-churn1-stream3-001    CA     gateway    h92zj     336/346      335.1  h92zj=0.857143 t72cw=0
+approx-churn1-stream2-002    CA     gateway    h92zj     336/346      336.2  h92zj=0.857143 t72cw=0
+approx-churn1-stream4-002    CA     gateway    h92zj     336/346      336.0  h92zj=0.857143 t72cw=0
+approx-churn1-stream1-002    CA     gateway    h92zj     336/346      335.6  h92zj=0.857143 t72cw=0
+approx-churn1-stream3-002    CA     gateway    h92zj     336/346      335.5  h92zj=0.857143 t72cw=0
+approx-churn1-stream2-003    CA     gateway    h92zj     336/346      334.1  h92zj=0.857143 t72cw=0
+approx-churn1-stream4-003    CA     gateway    h92zj     336/346      332.6  h92zj=0.857143 t72cw=0
+approx-churn1-stream1-003    CA     gateway    h92zj     336/346      332.3  h92zj=0.857143 t72cw=0
+approx-churn1-stream3-003    CA     gateway    h92zj     336/346      333.0  h92zj=0.857143 t72cw=0
+approx-churn1-stream2-004    CA     gateway    h92zj     336/346      333.3  h92zj=0.857143 t72cw=0
+approx-churn1-stream4-004    CA     gateway    h92zj     336/346      333.6  h92zj=0.857143 t72cw=0
+approx-churn1-stream1-004    CA     gateway    h92zj     336/346      334.9  h92zj=0.857143 t72cw=0
+approx-churn1-stream3-004    CA     gateway    h92zj     336/346      334.3  h92zj=0.857143 t72cw=0
+approx-churn1-stream2-005    CA     gateway    h92zj     336/346      334.6  h92zj=0.857143 t72cw=0
+approx-churn1-stream4-005    CA     gateway    h92zj     336/346      335.7  h92zj=0.857143 t72cw=0
+approx-churn1-stream1-005    CA     gateway    h92zj     336/346      334.6  h92zj=0.857143 t72cw=0
+approx-churn1-stream3-005    CA     gateway    h92zj     336/346      335.2  h92zj=0.857143 t72cw=0
+approx-churn1-stream2-006    CA     gateway    h92zj     336/346      335.1  h92zj=0.857143 t72cw=0
+approx-churn1-stream4-006    CA     gateway    h92zj     336/346      335.3  h92zj=0.857143 t72cw=0
+approx-churn1-stream1-006    CA     gateway    h92zj     336/346      336.4  h92zj=0.857143 t72cw=0
+approx-churn1-stream3-006    CA     gateway    h92zj     336/346      335.6  h92zj=0.857143 t72cw=0
+approx-churn1-stream2-007    CA     gateway    h92zj     336/346      335.0  h92zj=0.857143 t72cw=0
+approx-churn1-stream4-007    CA     gateway    h92zj     336/346      334.0  h92zj=0.857143 t72cw=0
+approx-churn1-stream1-007    CA     gateway    t72cw       0/346      448.1  t72cw=0
+approx-churn1-stream3-007    CA     gateway    t72cw     320/346      464.5  t72cw=0.857143
+approx-churn1-stream2-008    CA     gateway    t72cw     320/346      481.6  t72cw=0.857143
+approx-churn1-stream4-008    CA     gateway    t72cw     320/346      497.3  t72cw=0.857143
+approx-churn1-stream1-008    CA     gateway    t72cw     336/346      383.1  t72cw=0.857143
+approx-churn1-stream3-008    CA     gateway    t72cw     336/346      367.2  t72cw=0.857143
+approx-churn1-stream2-009    CA     gateway    t72cw     336/346      350.6  t72cw=0.857143
+approx-churn1-stream4-009    CA     gateway    t72cw     336/346      336.8  t72cw=0.857143
+approx-churn1-stream1-009    CA     gateway    t72cw     336/346      336.6  t72cw=0.857143
+approx-churn1-stream3-009    CA     gateway    t72cw     336/346      337.0  t72cw=0.857143
+approx-churn1-stream2-010    CA     gateway    t72cw     320/346      353.2  t72cw=0.857143
+approx-churn1-stream4-010    CA     gateway    t72cw     320/346      366.9  t72cw=0.857143
+approx-churn1-stream1-010    CA     gateway    t72cw     320/346      382.6  t72cw=0.857143
+approx-churn1-stream3-010    CA     gateway    t72cw     320/346      397.0  t72cw=0.857143
+approx-churn1-stream2-011    CA     gateway    t72cw     336/346      382.9  t72cw=0.857143
+approx-churn1-stream4-011    CA     gateway    t72cw     336/346      367.2  t72cw=0.857143
+approx-churn1-stream1-011    CA     gateway    t72cw     336/346      350.6  t72cw=0.857143
+approx-churn1-stream3-011    CA     gateway    t72cw     336/346      335.9  t72cw=0.857143
+approx-churn1-stream2-012    CA     gateway    t72cw     336/346      334.4  t72cw=0.857143
+approx-churn1-stream4-012    CA     gateway    t72cw     336/346      335.8  t72cw=0.857143
+approx-churn1-stream1-012    CA     gateway    t72cw     336/346      336.7  t72cw=0.857143
+approx-churn1-stream3-012    CA     gateway    t72cw     336/346      337.3  t72cw=0.857143
+approx-churn1-stream2-013    CA     gateway    t72cw     336/346      337.1  t72cw=0.857143
+approx-churn1-stream4-013    CA     gateway    t72cw     336/346      336.3  t72cw=0.857143
+approx-churn1-stream1-013    CA     gateway    t72cw     336/346      335.8  t72cw=0.857143
+approx-churn1-stream3-013    CA     gateway    t72cw     336/346      335.9  t72cw=0.857143
+approx-churn1-stream2-014    CA     gateway    t72cw     336/346      334.1  t72cw=0.857143
+approx-churn1-stream4-014    CA     gateway    t72cw     336/346      332.8  t72cw=0.857143
+approx-churn1-stream1-014    CA     gateway    t72cw     336/346      334.3  t72cw=0.857143
+approx-churn1-stream3-014    CA     gateway    t72cw     336/346      333.3  t72cw=0.857143
+approx-churn1-stream2-015    CA     gateway    t72cw     336/346      335.4  t72cw=0.857143
+approx-churn1-stream4-015    CA     gateway    t72cw     336/346      337.3  t72cw=0.857143
+approx-churn1-stream1-015    CA     gateway    t72cw     336/346      335.7  t72cw=0.857143
+approx-churn1-stream3-015    CA     gateway    t72cw     336/346      335.2  t72cw=0.857143
+approx-churn1-stream2-016    CA     gateway    t72cw     336/346      334.6  t72cw=0.857143
+approx-churn1-stream4-016    CA     gateway    t72cw     336/346      334.4  t72cw=0.857143
+approx-churn1-stream1-016    CA     gateway    t72cw     336/346      335.1  t72cw=0.857143
+approx-churn1-stream3-016    CA     gateway    t72cw     336/346      336.5  t72cw=0.857143
+approx-churn1-stream2-017    CA     gateway    t72cw     336/346      336.1  t72cw=0.857143
+approx-churn1-stream4-017    CA     gateway    t72cw     336/346      335.8  t72cw=0.857143
+approx-churn1-stream1-017    CA     gateway    t72cw     336/346      335.8  t72cw=0.857143
+approx-churn1-stream3-017    CA     gateway    t72cw     336/346      335.8  t72cw=0.857143
+approx-churn1-stream2-018    CA     gateway    t72cw     336/346      336.8  t72cw=0.857143
+approx-churn1-stream4-018    CA     gateway    t72cw     336/346      336.4  t72cw=0.857143
+approx-churn1-stream1-018    CA     gateway    t72cw     336/346      335.5  t72cw=0.857143
+approx-churn1-stream3-018    CA     gateway    t72cw     336/346      334.2  t72cw=0.857143
+approx-churn1-stream2-019    CA     gateway    t72cw     336/346      333.4  t72cw=0.857143
+approx-churn1-stream4-019    CA     gateway    t72cw     336/346      333.3  t72cw=0.857143
+approx-churn1-stream1-019    CA     gateway    t72cw     336/346      334.2  t72cw=0.857143
+approx-churn1-stream3-019    CA     gateway    t72cw     336/346      333.5  t72cw=0.857143
+approx-churn1-stream2-020    CA     gateway    t72cw     320/346      350.3  t72cw=0.857143
+approx-churn1-stream4-020    CA     gateway    t72cw     320/346      366.7  t72cw=0.857143
+approx-churn1-stream1-020    CA     gateway    t72cw     320/346      383.1  t72cw=0.857143
+approx-churn1-stream3-020    CA     gateway    t72cw     320/346      400.4  t72cw=0.857143
+approx-churn1-stream2-021    CA     gateway    t72cw     336/346      384.2  t72cw=0.857143
+approx-churn1-stream4-021    CA     gateway    t72cw     336/346      367.5  t72cw=0.857143
+approx-churn1-stream1-021    CA     gateway    t72cw     336/346      351.7  t72cw=0.857143
+approx-churn1-stream3-021    CA     gateway    t72cw     336/346      336.4  t72cw=0.857143
+approx-churn1-stream2-022    CA     gateway    t72cw     336/346      335.7  t72cw=0.857143
+approx-churn1-stream4-022    CA     gateway    t72cw     336/346      335.5  t72cw=0.857143
+approx-churn1-stream1-022    CA     gateway    t72cw     336/346      334.1  t72cw=0.857143
+approx-churn1-stream3-022    CA     gateway    t72cw     336/346      334.0  t72cw=0.857143
+approx-churn1-stream2-023    CA     gateway    t72cw     336/346      334.9  t72cw=0.857143
+approx-churn1-stream4-023    CA     gateway    t72cw     336/346      336.3  t72cw=0.857143
+approx-churn1-stream1-023    CA     gateway    t72cw     336/346      336.4  t72cw=0.857143
+approx-churn1-stream3-023    CA     gateway    t72cw     336/346      335.3  t72cw=0.857143
+approx-churn1-stream2-024    CA     gateway    t72cw     336/346      334.1  t72cw=0.857143
+approx-churn1-stream4-024    CA     gateway    t72cw     336/346      333.0  t72cw=0.857143
+approx-churn1-stream1-024    CA     gateway    t72cw     336/346      333.6  t72cw=0.857143
+approx-churn1-stream3-024    CA     gateway    t72cw     336/346      333.7  t72cw=0.857143
+approx-churn1-stream2-025    CA     gateway    t72cw     336/346      334.3  t72cw=0.857143
+approx-churn1-stream4-025    CA     gateway    t72cw     336/346      334.0  t72cw=0.857143
+approx-churn1-stream1-025    CA     gateway    t72cw     336/346      333.3  t72cw=0.857143
+approx-churn1-stream3-025    CA     gateway    t72cw     336/346      333.1  t72cw=0.857143
+approx-churn1-stream2-026    CA     gateway    t72cw     336/346      333.6  t72cw=0.857143
+approx-churn1-stream4-026    CA     gateway    t72cw     336/346      335.5  t72cw=0.857143
+approx-churn1-stream1-026    CA     gateway    t72cw     336/346      335.3  t72cw=0.857143
+approx-churn1-stream3-026    CA     gateway    t72cw     336/346      335.2  t72cw=0.857143
+approx-churn1-stream2-027    CA     gateway    t72cw     336/346      334.7  t72cw=0.857143
+approx-churn1-stream4-027    CA     gateway    t72cw     336/346      333.9  t72cw=0.857143
+approx-churn1-stream1-027    CA     gateway    t72cw     336/346      334.1  t72cw=0.857143
+approx-churn1-stream3-027    CA     gateway    t72cw     336/346      335.1  t72cw=0.857143
+approx-churn1-stream2-028    CA     gateway    t72cw     336/346      335.9  t72cw=0.857143
+approx-churn1-stream4-028    CA     gateway    t72cw     336/346      336.0  t72cw=0.857143
+approx-churn1-stream1-028    CA     gateway    t72cw     336/346      335.8  t72cw=0.857143
+approx-churn1-stream3-028    CA     gateway    t72cw     336/346      335.3  t72cw=0.857143
+approx-churn1-stream2-029    CA     gateway    t72cw     336/346      335.4  t72cw=0.857143
+approx-churn1-stream4-029    CA     gateway    t72cw     336/346      335.4  t72cw=0.857143
+approx-churn1-stream1-029    CA     gateway    t72cw     336/346      335.4  t72cw=0.857143
+approx-churn1-stream3-029    CA     gateway    t72cw     336/346      336.1  t72cw=0.857143
+approx-churn1-stream2-030    CA     gateway    t72cw     320/346      352.2  t72cw=0.857143
+approx-churn1-stream4-030    CA     gateway    t72cw     320/346      368.0  t72cw=0.857143
+approx-churn1-stream1-030    CA     gateway    t72cw     320/346      385.6  t72cw=0.857143
+approx-churn1-stream3-030    CA     gateway    t72cw     320/346      400.3  t72cw=0.857143
+approx-churn1-stream2-031    CA     gateway    t72cw     336/346      384.1  t72cw=0.857143
+approx-churn1-stream4-031    CA     gateway    t72cw     336/346      368.5  t72cw=0.857143
+approx-churn1-stream1-031    CA     gateway    t72cw     336/346      351.6  t72cw=0.857143
+approx-churn1-stream3-031    CA     gateway    t72cw     336/346      335.8  t72cw=0.857143
+approx-churn1-stream2-032    CA     gateway    t72cw     336/346      335.6  t72cw=0.857143
+approx-churn1-stream4-032    CA     gateway    t72cw     336/346      335.8  hc7gt=0 t72cw=0.857143
+approx-churn1-stream1-032    CA     gateway    t72cw     336/346      336.2  hc7gt=0 t72cw=0.857143
+approx-churn1-stream3-032    CA     gateway    t72cw     336/346      337.3  hc7gt=0 t72cw=0.857143
+approx-churn1-stream2-033    CA     gateway    t72cw     336/346      337.3  hc7gt=0 t72cw=0.857143
+approx-churn1-stream4-033    CA     gateway    t72cw     336/346      336.3  hc7gt=0 t72cw=0.857143
+approx-churn1-stream1-033    CA     gateway    t72cw     336/346      336.4  hc7gt=0 t72cw=0.857143
+approx-churn1-stream3-033    CA     gateway    t72cw     336/346      336.3  hc7gt=0 t72cw=0.857143
+approx-churn1-stream2-034    CA     gateway    t72cw     336/346      335.4  hc7gt=0 t72cw=0.857143
+approx-churn1-stream4-034    CA     gateway    t72cw     336/346      336.5  hc7gt=0 t72cw=0.857143
+approx-churn1-stream1-034    CA     gateway    t72cw     336/346      335.4  hc7gt=0 t72cw=0.857143
+approx-churn1-stream3-034    CA     gateway    t72cw     336/346      335.3  hc7gt=0 t72cw=0.857143
+approx-churn1-stream2-035    CA     gateway    t72cw     336/346      336.1  hc7gt=0 t72cw=0.857143
+approx-churn1-stream4-035    CA     gateway    t72cw     336/346      335.4  hc7gt=0 t72cw=0.857143
+approx-churn1-stream1-035    CA     gateway    t72cw     336/346      336.8  hc7gt=0 t72cw=0.857143
+approx-churn1-stream3-035    CA     gateway    t72cw     336/346      336.1  hc7gt=0 t72cw=0.857143
+approx-churn1-stream2-036    CA     gateway    t72cw     336/346      335.4  hc7gt=0 t72cw=0.857143
+approx-churn1-stream4-036    CA     gateway    t72cw     336/346      334.9  hc7gt=0 t72cw=0.857143
+approx-churn1-stream1-036    CA     gateway    t72cw     336/346      334.8  hc7gt=0 t72cw=0.857143
+approx-churn1-stream3-036    CA     gateway    t72cw     336/346      336.1  hc7gt=0 t72cw=0.857143
+approx-churn1-stream2-037    CA     gateway    t72cw     336/346      336.0  hc7gt=0 t72cw=0.857143
+approx-churn1-stream4-037    CA     gateway    t72cw     336/346      335.9  hc7gt=0 t72cw=0.857143
+approx-churn1-stream1-037    CA     gateway    t72cw     336/346      334.4  hc7gt=0 t72cw=0.857143
+approx-churn1-stream3-037    CA     gateway    t72cw     336/346      333.1  hc7gt=0 t72cw=0.857143
+approx-churn1-stream2-038    CA     gateway    t72cw     336/346      333.9  hc7gt=0 t72cw=0.857143
+approx-churn1-stream4-038    CA     gateway    t72cw     336/346      335.1  hc7gt=0 t72cw=0.857143
+approx-churn1-stream1-038    CA     gateway    t72cw     336/346      335.2  hc7gt=0 t72cw=0.857143
+approx-churn1-stream3-038    CA     gateway    t72cw     336/346      335.3  hc7gt=0 t72cw=0.857143
+approx-churn1-stream2-039    CA     gateway    t72cw     336/346      334.9  hc7gt=0 t72cw=0.857143
+approx-churn1-stream4-039    CA     gateway    t72cw     336/346      333.9  hc7gt=0 t72cw=0.857143
+approx-churn1-stream1-039    CA     gateway    t72cw     336/346      334.3  hc7gt=0 t72cw=0.857143
+approx-churn1-stream3-039    CA     gateway    t72cw     336/346      334.1  hc7gt=0 t72cw=0.857143
+approx-churn1-after-000      CA     gateway    t72cw     320/345      126.7  hc7gt=0 t72cw=0.857143
+approx-churn1-after-001      CA     gateway    t72cw     320/345      125.9  hc7gt=0 t72cw=0.857143
+approx-churn-warm-b1-000     CB     gateway    t72cw       0/348      448.4  hc7gt=0 t72cw=0
+approx-churn-warm-b1-001     CB     gateway    t72cw     336/348      112.0  hc7gt=0 t72cw=0.857143
+approx-churn-warm-b2-000     CB     gateway    t72cw     320/348      128.9  hc7gt=0 t72cw=0.857143
+approx-churn-warm-b2-001     CB     gateway    t72cw     336/348      112.2  hc7gt=0 t72cw=0.857143
+approx-churn2-after-000      CB     gateway    t72cw       0/345      446.6  hc7gt=0 t72cw=0.857143
+approx-churn2-after-001      CB     gateway    t72cw     320/345      124.7  hc7gt=0 t72cw=0.857143
+   gateway requests joined to EPP scores: 172/172
+   step                                     gateway   hit  predicted  to warm pod
+   approx-churn-warm-a1                           2     1        1/2            -
+   approx-churn-warm-a2                           2     2        2/2            -
+   approx-churn1-stream2                         40    40      40/40            -
+   approx-churn1-stream4                         40    40      40/40            -
+   approx-churn1-stream1                         40    39      39/40            -
+   approx-churn1-stream3                         40    40      40/40            -
+   approx-churn1-after                            2     2        2/2            -
+   approx-churn-warm-b1                           2     1        1/2            -
+   approx-churn-warm-b2                           2     2        2/2            -
+   approx-churn2-after                            2     1        1/2            -
+

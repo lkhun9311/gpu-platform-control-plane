@@ -1,0 +1,9 @@
+20261118-churn-approx-r1         delete: 160/160 ok, 30 served by the deleted pod, 4 in flight at the delete (4 of them on it, 0 failed) | restart: restarted pod 0.857, other [0], served restarted, cached 0
+20261118-churn-approx-r2         delete: 160/160 ok, 30 served by the deleted pod, 4 in flight at the delete (4 of them on it, 0 failed) | restart: restarted pod 0.857, other [0], served restarted, cached 0
+20261118-churn-approx-r3         delete: 160/160 ok, 30 served by the deleted pod, 4 in flight at the delete (4 of them on it, 0 failed) | restart: restarted pod 0.857, other [0], served restarted, cached 0
+20261118-churn-precise-load-r1   delete: 160/160 ok, 28 served by the deleted pod, 2 in flight at the delete (1 of them on it, 0 failed) | restart: restarted pod 0, other [0], served other, cached 0
+20261118-churn-precise-load-r2   delete: 160/160 ok, 28 served by the deleted pod, 2 in flight at the delete (1 of them on it, 0 failed) | restart: restarted pod 0, other [0], served other, cached 0
+20261118-churn-precise-load-r3   delete: 160/160 ok, 28 served by the deleted pod, 2 in flight at the delete (1 of them on it, 0 failed) | restart: restarted pod 0, other [0], served other, cached 0
+20261118-churn-precise-r1        delete: 160/160 ok, 25 served by the deleted pod, 2 in flight at the delete (1 of them on it, 0 failed) | restart: restarted pod 0.952, other [0], served restarted, cached 0
+20261118-churn-precise-r2        delete: 160/160 ok, 25 served by the deleted pod, 2 in flight at the delete (1 of them on it, 0 failed) | restart: restarted pod 0.952, other [0], served restarted, cached 0
+20261118-churn-precise-r3        delete: 160/160 ok, 25 served by the deleted pod, 2 in flight at the delete (1 of them on it, 0 failed) | restart: restarted pod 0.952, other [0], served restarted, cached 0

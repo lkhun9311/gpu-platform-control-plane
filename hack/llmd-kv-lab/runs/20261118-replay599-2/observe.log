@@ -1,0 +1,21 @@
+replay599: === arm rr: EPP on the rr config, then fresh simulator pods
+llmd-kv-lab: simulator, EPP and renderer pods run their pinned images
+llmd-kv-lab: EPP now runs the rr config, behind freshly started simulators
+replay599: [rr] replaying shared-942 at 1/10 prompt length
+replay599: === arm approx: EPP on the approx config, then fresh simulator pods
+llmd-kv-lab: simulator, EPP and renderer pods run their pinned images
+llmd-kv-lab: EPP now runs the approx config, behind freshly started simulators
+replay599: [approx] replaying shared-942 at 1/10 prompt length
+replay599: === arm approx-load: EPP on the approx-load config, then fresh simulator pods
+llmd-kv-lab: simulator, EPP and renderer pods run their pinned images
+llmd-kv-lab: EPP now runs the approx-load config, behind freshly started simulators
+replay599: [approx-load] replaying shared-942 at 1/10 prompt length
+replay599: === arm precise: EPP on the precise config, then fresh simulator pods
+llmd-kv-lab: simulator, EPP and renderer pods run their pinned images
+llmd-kv-lab: EPP now runs the precise config, behind freshly started simulators
+replay599: [precise] replaying shared-942 at 1/10 prompt length
+replay599: === arm precise-load: EPP on the precise-load config, then fresh simulator pods
+llmd-kv-lab: simulator, EPP and renderer pods run their pinned images
+llmd-kv-lab: EPP now runs the precise-load config, behind freshly started simulators
+replay599: [precise-load] replaying shared-942 at 1/10 prompt length
+replay599: replay written to /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/lane1-599/hack/llmd-kv-lab/runs/20261118-replay599-2

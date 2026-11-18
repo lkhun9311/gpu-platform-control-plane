@@ -1,0 +1,6 @@
+cancel-1 http=200 first_byte_s=0.079128 total_s=1.000596 curl_exit=28
+cancel-2 http=200 first_byte_s=0.078014 total_s=1.000463 curl_exit=28
+cancel-3 http=200 first_byte_s=0.986780 total_s=1.000471 curl_exit=28
+cancel-4 http=200 first_byte_s=0.984438 total_s=1.000273 curl_exit=28
+cancel-5 http=200 first_byte_s=0.985219 total_s=1.000392 curl_exit=28
+cancel-6 http=200 first_byte_s=0.988306 total_s=0.999021 curl_exit=28
