@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -85,6 +86,20 @@ type hangingStop struct {
 
 func (e hangingStop) Stop(context.Context, EngineStart) error {
 	e.h.wait()
+	return nil
+}
+
+// interruptedUnseen is a parent that reports itself cancelled once interrupted is set, while its Done never closes.
+// It holds open the moment when a cancellation has happened but the watchdog's select has not yet seen it.
+type interruptedUnseen struct {
+	context.Context
+	interrupted atomic.Bool
+}
+
+func (c *interruptedUnseen) Err() error {
+	if c.interrupted.Load() {
+		return context.Canceled
+	}
 	return nil
 }
 
@@ -278,6 +293,19 @@ func TestSessionWatchdogTriggers(t *testing.T) {
 			t.Fatalf("teardown began on an ended context: %v", err)
 		}
 		if err := within(t, w.result, "Run's return"); !errors.Is(err, interrupt) {
+			t.Fatalf("Run returned %v, want the interrupt", err)
+		}
+	})
+	t.Run("a session that returns cleanly after an interrupt still reports the interrupt", func(t *testing.T) {
+		// RunBlocks returns nil when its context is cancelled, so the session's result and the interrupt can both be ready when Run selects.
+		// select would then pick either at random; a parent whose Done never closes makes the result branch the one taken, every time.
+		ctx := &interruptedUnseen{Context: context.Background()}
+		w := startWatched(t, ctx, func(context.Context) error { ctx.interrupted.Store(true); return nil })
+		within(t, w.clock.armed, "arming")
+		if cause := within(t, w.teardowns, "teardown"); !errors.Is(cause, context.Canceled) {
+			t.Fatalf("teardown cause %v, want the interrupt", cause)
+		}
+		if err := within(t, w.result, "Run's return"); !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run returned %v, want the interrupt", err)
 		}
 	})

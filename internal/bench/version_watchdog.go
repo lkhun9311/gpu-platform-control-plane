@@ -103,9 +103,13 @@ func (w SessionWatchdog) Run(ctx context.Context, session func(context.Context) 
 	select {
 	case err := <-done:
 		cause = err
-		// select picks among ready cases at random, so a session that returned with the deadline already reached is counted as cut by it.
+		// select picks among ready cases at random, so the deadline and the parent are checked again here.
+		// A session cut by either may still return nil, as RunBlocks does, and its clean result must not hide the cut.
+		if ctx.Err() != nil {
+			cause = errors.Join(context.Cause(ctx), cause)
+		}
 		if !w.Clock.Now().Before(deadline) {
-			cause = errors.Join(ErrTeardownDeadline, err)
+			cause = errors.Join(ErrTeardownDeadline, cause)
 		}
 	case <-fired:
 		cause = ErrTeardownDeadline
