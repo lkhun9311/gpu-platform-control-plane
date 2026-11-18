@@ -135,7 +135,8 @@ func sendOne(ctx context.Context, client *http.Client, url, model, prompt string
 		"model": model, "prompt": prompt, "max_tokens": maxTokens, "ignore_eos": true, "temperature": 0,
 		"stream": true, "stream_options": map[string]any{"include_usage": true},
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(url, "/")+"/v1/completions", bytes.NewReader(body))
+	endpoint := strings.TrimRight(url, "/") + "/v1/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		rec.Error = err.Error()
 		return
@@ -234,8 +235,8 @@ func parseGauges(text string) map[string]float64 {
 		name, rest, _ := strings.Cut(line, " ")
 		if i := strings.IndexByte(name, '{'); i >= 0 {
 			name = name[:i]
-			if j := strings.LastIndexByte(line, '}'); j >= 0 {
-				rest = strings.TrimSpace(line[j+1:])
+			if _, after, ok := strings.CutLast(line, "}"); ok {
+				rest = strings.TrimSpace(after)
 			}
 		}
 		for _, want := range sampledSeries {
@@ -328,7 +329,8 @@ func main() {
 		os.Exit(2)
 	}
 	if *printTrace {
-		fmt.Printf("seed %d: %d requests over %d ms at %.2f/s, %d groups, prompt %d chars of which %d shared, output %d tokens\n",
+		fmt.Printf("seed %d: %d requests over %d ms at %.2f/s, %d groups, "+
+			"prompt %d chars of which %d shared, output %d tokens\n",
 			*seed, len(rows), load.DurationMs, load.RatePerSec, load.Groups, load.PromptChars, load.PrefixChars, *maxTokens)
 		return
 	}
@@ -363,8 +365,7 @@ func main() {
 		}
 		defer func() { _ = sf.Close() }()
 		var smu sync.Mutex
-		samplerDone.Add(1)
-		go func() { defer samplerDone.Done(); sampler(ctx, targets, *every, json.NewEncoder(sf), &smu) }()
+		samplerDone.Go(func() { sampler(ctx, targets, *every, json.NewEncoder(sf), &smu) })
 	}
 
 	// One pooled client with room for every request in flight, so a request never waits for a connection and the

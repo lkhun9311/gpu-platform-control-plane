@@ -20,7 +20,8 @@ func TestScaledTraceKeepsTheFrozenArrivalsAndGroups(t *testing.T) {
 		t.Fatalf("scaled load %+v", load)
 	}
 	if rows[0].OffsetMs != 1583 || rows[6].OffsetMs != 3881 {
-		t.Fatalf("arrivals moved: row 0 at %d, row 6 at %d (run 2 recorded 1583 and 3881)", rows[0].OffsetMs, rows[6].OffsetMs)
+		t.Fatalf("arrivals moved: row 0 at %d, row 6 at %d (run 2 recorded 1583 and 3881)",
+			rows[0].OffsetMs, rows[6].OffsetMs)
 	}
 }
 
@@ -38,7 +39,8 @@ vllm:num_requests_waiting_by_reason{reason="x"} 9
 vllm:num_requests_running{model_name="m"} 1
 vllm:prefix_cache_hits_total{model_name="m"} 1.5e+03
 `)
-	if got["vllm:num_requests_waiting"] != 3 || got["vllm:num_requests_running"] != 1 || got["vllm:prefix_cache_hits_total"] != 1500 {
+	if got["vllm:num_requests_waiting"] != 3 || got["vllm:num_requests_running"] != 1 ||
+		got["vllm:prefix_cache_hits_total"] != 1500 {
 		t.Fatalf("parsed %v", got)
 	}
 }
@@ -47,7 +49,8 @@ vllm:prefix_cache_hits_total{model_name="m"} 1.5e+03
 func TestReadStreamRecordsUsageAndRefusesATruncatedStream(t *testing.T) {
 	var rec record
 	readStream(strings.NewReader("data: {\"choices\":[{\"text\":\"\"}]}\n\ndata: {\"choices\":[{\"text\":\"hi\"}]}\n\n"+
-		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"prompt_tokens_details\":{\"cached_tokens\":8}}}\n\ndata: [DONE]\n\n"), &rec)
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,"+
+		"\"prompt_tokens_details\":{\"cached_tokens\":8}}}\n\ndata: [DONE]\n\n"), &rec)
 	if !rec.Done || rec.Error != "" || rec.CachedTokens != 8 || rec.PromptTokens != 10 || rec.FirstTokenNanos == 0 {
 		t.Fatalf("complete stream read as %+v", rec)
 	}
