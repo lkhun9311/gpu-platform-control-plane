@@ -400,7 +400,8 @@ Clarified 2026-11-16, before any run (#607), where the table left the phases' co
 - What keeps spending under $20 is the stop rules, not the sum:
   - `MayStartBlock` admits a block, planned or replacement, only if what has been spent plus every valid block still needed, teardown and the reserve fit under $20;
   - the watchdog ends the session at `TeardownDeadlineSeconds` after launch, whatever phase is running.
-  The watchdog has no production caller yet (#607). Showing it enforces that deadline remains a release gate.
+  The in-process watchdog (`SessionWatchdog`, #597) is shown offline to begin teardown at that deadline in every phase, even one that ignores cancellation.
+  It has no production caller yet (#607), and it does not end the billing on its own: the instance-side backstop and the AWS-side enforcer (#616) remain a release gate.
 - The owner's 2026-11-15 decision, "measure, then amend", was that readiness is measured and this page is amended with tighter bounds before any paid run. This amendment meets its condition that the planned phases fit under $20 with the reserve.
 
 ## Release gates (before any paid run)
@@ -443,6 +444,8 @@ The registered protocol is not executable at this head (attack item 1). Before a
     - Before the first rung it checks that the engine is A (#645). See the identity section for what that check proves.
 - **An engine path** that runs v0.32.0 with the registered settings: done. The `experimental-a10g` profile renders release `v0.32.0` on its pinned digest with either async choice (#586 and this change). What remains is showing it in the free rehearsal.
 - **The watchdog** enforces the absolute teardown deadline.
+  - The in-process layer is done in code (`SessionWatchdog`, #597) and shown offline on a fake clock in every phase. It still needs a caller (#607).
+  - The instance-side backstop and the AWS-side enforcer, verified before purchase, are still to do (#616).
 - **The bounds are measured by a paid readiness preflight (#594)**, and only then amended. This section changes no registered number.
   - Tooling: `benchharness version-readiness` (`ReadinessRun`), run on one g5.xlarge by `hack/version-readiness-session.sh`. Its refusals are tested offline by `hack/version-readiness-session-test.sh`.
   - It times each distinct image's `docker pull` and the model download as separate steps, so neither is counted as engine readiness.
