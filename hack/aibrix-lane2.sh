@@ -120,10 +120,14 @@ cmd_up() {
   done
   # gpuaas's CRDs, so the reconciler can read InferenceDeployments and the GPUQuotaPolicies it lists for the queue label.
   k apply --server-side -f "$REPO/config/crd/bases" >/dev/null
-  # Upstream's standalone overlay, with its release image swapped for the pinned build and nothing else changed.
+  # Upstream's standalone overlay, with its release image swapped for the pinned build.
+  # The one added argument is --v=2: the line that lists every source's recommendation and the max taken over them,
+  # "Multi metric autoscaling computed result", is logged only at that level.
   k kustomize "$CHECKOUT/config/standalone/autoscaler-controller" \
-    | sed "s#image: aibrix/controller-manager:v0.8.0#image: $AIBRIX_IMAGE#" >"$LAB_HOME/aibrix-autoscaler.yaml"
+    | sed -e "s#image: aibrix/controller-manager:v0.8.0#image: $AIBRIX_IMAGE#" \
+      -e 's#^\( *\)- --disable-webhook$#&\n\1- --v=2#' >"$LAB_HOME/aibrix-autoscaler.yaml"
   grep -q "image: $AIBRIX_IMAGE" "$LAB_HOME/aibrix-autoscaler.yaml" || die "the upstream overlay no longer names aibrix/controller-manager:v0.8.0"
+  grep -q -- "- --v=2" "$LAB_HOME/aibrix-autoscaler.yaml" || die "the upstream overlay no longer passes --disable-webhook, where --v=2 is added"
   # The overlay places everything in aibrix-system without creating it.
   k create namespace aibrix-system --dry-run=client -o yaml | k apply -f - >/dev/null
   k apply --server-side -f "$LAB_HOME/aibrix-autoscaler.yaml" >/dev/null
