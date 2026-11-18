@@ -17,7 +17,8 @@ var ErrWatchdogUnarmed = errors.New("the teardown deadline cannot be computed")
 // WatchdogClock is the watchdog's time source; SystemClock is the real one, and a test moves a fake one by hand.
 type WatchdogClock interface {
 	Now() time.Time
-	After(d time.Duration) <-chan time.Time
+	// At delivers once the clock reaches t.
+	At(t time.Time) <-chan time.Time
 }
 
 // SystemClock is the process's own clock.
@@ -25,7 +26,8 @@ type SystemClock struct{}
 
 func (SystemClock) Now() time.Time { return time.Now() }
 
-func (SystemClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
+// At converts t to a wait at the last moment, and on t's monotonic reading when it carries one, so neither a wall-clock step nor time spent before the call moves it.
+func (SystemClock) At(t time.Time) <-chan time.Time { return time.After(time.Until(t)) }
 
 // SessionWatchdog begins teardown at the version study's absolute deadline, TeardownDeadlineSeconds after launch, whatever phase is running.
 //
@@ -79,13 +81,16 @@ func (w SessionWatchdog) Run(ctx context.Context, session func(context.Context) 
 	if ctx.Err() != nil {
 		return teardown(context.Cause(ctx))
 	}
-	// The remaining time is read once against LaunchTime's wall clock, and the timer then counts on the monotonic clock, so a later wall-clock step cannot move it.
-	remaining := deadline.Sub(w.Clock.Now())
+	// LaunchTime carries no monotonic reading, so the remaining time is read once against the wall clock.
+	// due is that deadline on this clock's monotonic reading, so neither time spent arming nor a later wall-clock step moves it.
+	now := w.Clock.Now()
+	remaining := deadline.Sub(now)
 	if remaining <= 0 {
 		return teardown(ErrTeardownDeadline)
 	}
+	due := now.Add(remaining)
 	// Armed before the session starts, so no session work runs unwatched.
-	fired := w.Clock.After(remaining)
+	fired := w.Clock.At(due)
 	sctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	// Buffered, so a session that returns after teardown has begun does not block forever on a result nobody reads.
@@ -100,21 +105,21 @@ func (w SessionWatchdog) Run(ctx context.Context, session func(context.Context) 
 		done <- session(sctx)
 	}()
 	var cause error
+	// A timer that fired is the deadline even if the clock is read a moment before it catches up.
+	timedOut := false
 	select {
-	case err := <-done:
-		cause = err
-		// select picks among ready cases at random, so the deadline and the parent are checked again here.
-		// A session cut by either may still return nil, as RunBlocks does, and its clean result must not hide the cut.
-		if ctx.Err() != nil {
-			cause = errors.Join(context.Cause(ctx), cause)
-		}
-		if !w.Clock.Now().Before(deadline) {
-			cause = errors.Join(ErrTeardownDeadline, cause)
-		}
+	case cause = <-done:
 	case <-fired:
-		cause = ErrTeardownDeadline
+		timedOut = true
 	case <-ctx.Done():
-		cause = context.Cause(ctx)
+	}
+	// select picks among ready cases at random, so every trigger is read again rather than taken from the case that won.
+	// A session cut by either may still return nil, as RunBlocks does, and its clean result must not hide the cut.
+	if ctx.Err() != nil {
+		cause = errors.Join(context.Cause(ctx), cause)
+	}
+	if timedOut || !w.Clock.Now().Before(due) {
+		cause = errors.Join(ErrTeardownDeadline, cause)
 	}
 	if cause != nil {
 		cancel(cause)

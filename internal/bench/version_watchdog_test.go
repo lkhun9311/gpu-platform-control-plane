@@ -18,6 +18,8 @@ type fakeWatchClock struct {
 	timers []fakeWatchTimer
 	// armed receives each timer's due time as it is registered, so a test advances only after the watchdog has armed.
 	armed chan time.Time
+	// step moves the clock on after every reading, as time passes between reading the clock and arming a timer.
+	step time.Duration
 }
 
 type fakeWatchTimer struct {
@@ -32,14 +34,16 @@ func newFakeWatchClock(now time.Time) *fakeWatchClock {
 func (c *fakeWatchClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.now
+	now := c.now
+	c.now = c.now.Add(c.step)
+	return now
 }
 
-func (c *fakeWatchClock) After(d time.Duration) <-chan time.Time {
+func (c *fakeWatchClock) At(at time.Time) <-chan time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	t := fakeWatchTimer{at: c.now.Add(d), c: make(chan time.Time, 1)}
-	if d <= 0 {
+	t := fakeWatchTimer{at: at, c: make(chan time.Time, 1)}
+	if !at.After(c.now) {
 		t.c <- c.now
 	} else {
 		c.timers = append(c.timers, t)
@@ -62,6 +66,16 @@ func (c *fakeWatchClock) Advance(at time.Time) {
 		t.c <- at
 	}
 	c.timers = kept
+}
+
+// Fire delivers every armed timer without moving the clock, as a timer read a moment before the clock that set it.
+func (c *fakeWatchClock) Fire() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, t := range c.timers {
+		t.c <- c.now
+	}
+	c.timers = nil
 }
 
 // hang is a step that ignores every context, as a hung docker command or model download does, until the test releases it.
@@ -309,6 +323,59 @@ func TestSessionWatchdogTriggers(t *testing.T) {
 			t.Fatalf("Run returned %v, want the interrupt", err)
 		}
 	})
+	t.Run("an interrupt and the deadline together are both reported, whichever select took", func(t *testing.T) {
+		h := newHang()
+		defer close(h.release)
+		ctx := &interruptedUnseen{Context: context.Background()}
+		w := startWatched(t, ctx, func(context.Context) error { h.wait(); return nil })
+		within(t, w.clock.armed, "arming")
+		within(t, h.entered, "the hang")
+		// The interrupt happens first, but its Done never closes, so the timer is the case select takes.
+		ctx.interrupted.Store(true)
+		w.clock.Advance(w.deadline)
+		cause := within(t, w.teardowns, "teardown")
+		if !errors.Is(cause, ErrTeardownDeadline) || !errors.Is(cause, context.Canceled) {
+			t.Fatalf("teardown cause %v, want both the deadline and the interrupt", cause)
+		}
+		if err := within(t, w.result, "Run's return"); !errors.Is(err, ErrTeardownDeadline) || !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run returned %v, want both the deadline and the interrupt", err)
+		}
+	})
+	t.Run("a timer that fires is the deadline even when the clock reads a moment earlier", func(t *testing.T) {
+		h := newHang()
+		defer close(h.release)
+		w := startWatched(t, context.Background(), func(context.Context) error { h.wait(); return nil })
+		within(t, w.clock.armed, "arming")
+		within(t, h.entered, "the hang")
+		w.clock.Fire()
+		if cause := within(t, w.teardowns, "teardown"); !errors.Is(cause, ErrTeardownDeadline) {
+			t.Fatalf("teardown cause %v, want ErrTeardownDeadline", cause)
+		}
+		if err := within(t, w.result, "Run's return"); !errors.Is(err, ErrTeardownDeadline) {
+			t.Fatalf("Run returned %v, want ErrTeardownDeadline", err)
+		}
+	})
+	t.Run("time that passes while arming does not move the deadline", func(t *testing.T) {
+		d := versionAsyncDesign()
+		launched := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+		deadline := launched.Add(time.Duration(d.TeardownDeadlineSeconds(1.337)) * time.Second)
+		clock := newFakeWatchClock(launched.Add(5 * time.Minute))
+		clock.step = time.Second
+		result := make(chan error, 1)
+		go func() {
+			result <- SessionWatchdog{
+				Design: d, RatePerHour: 1.337, LaunchedAt: launched, Clock: clock,
+				Teardown: func(context.Context, error) error { return nil },
+			}.Run(context.Background(), func(context.Context) error { return nil })
+		}()
+		if at := within(t, clock.armed, "arming"); !at.Equal(deadline) {
+			t.Fatalf("armed for %v, want %v: the time spent arming was added to the deadline", at, deadline)
+		}
+		// The session ended at once, so the run ends cleanly.
+		if err := within(t, result, "Run's return"); err != nil {
+			t.Fatalf("Run returned %v, want a clean end", err)
+		}
+	})
 	t.Run("a session that returns once the deadline is reached counts as cut by it", func(t *testing.T) {
 		var w *watched
 		assigned := make(chan struct{})
@@ -370,13 +437,18 @@ func TestSessionWatchdogNeverRunsASessionItCannotBound(t *testing.T) {
 				ctx = tc.ctx()
 			}
 			var causes []error
+			var ran atomic.Bool
 			clock := newFakeWatchClock(tc.now)
-			// Run does not join the session goroutine, so a flag the session sets could be set after Run returns.
-			// Arming comes before the session starts, so a clock never armed is a session never started.
 			err := SessionWatchdog{
 				Design: d, RatePerHour: tc.rate, LaunchedAt: tc.launched, Clock: clock,
 				Teardown: func(_ context.Context, cause error) error { causes = append(causes, cause); return nil },
-			}.Run(ctx, func(context.Context) error { return nil })
+			}.Run(ctx, func(context.Context) error { ran.Store(true); return nil })
+			// The flag catches a session run in Run's own goroutine.
+			// Run does not join a session goroutine, so one started there might not have set it yet.
+			// Arming comes before any such start, so a clock never armed is a goroutine never started.
+			if ran.Load() {
+				t.Fatal("the session ran")
+			}
 			if n := len(clock.armed); n != 0 {
 				t.Fatalf("the watchdog armed %d timer(s), so the session was started", n)
 			}
