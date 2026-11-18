@@ -88,6 +88,8 @@ def kubectl(m):
     if "wait" in A:
         if env("FAKE_S3_POD1_PENDING") and "pod/pod-1" in A:
             sys.exit(1)
+        if env("FAKE_S3_POD0_PENDING") and "pod/pod-0" in A:
+            sys.exit(1)
         out()
     if "rollout" in A:
         out()
@@ -101,6 +103,9 @@ def kubectl(m):
         out()
     if "delete" in A:
         ns = arg("-n", "")
+        # A namespace whose deletion does not finish inside its timeout, as one held by a finalizer would.
+        if env("FAKE_NS_DELETE_FAIL") and has("ns", "gpu-test-mps") and "--ignore-not-found" not in A:
+            sys.exit(1)
         if "pod/pod" in A:
             m["claims"].pop(ns + "/pod", None)
         if "resourceclaim/gpu" in A:
@@ -116,6 +121,10 @@ def kubectl(m):
     if "get" in A:
         ns = arg("-n", "")
         q = arg("-o", "")
+        # An API server that cannot answer a presence query, which must not read as the object being gone.
+        if env("FAKE_GET_FAIL") and ns.startswith("s1-") and "-o" in A and arg("-o") == "name":
+            sys.stderr.write("Unable to connect to the server\n")
+            sys.exit(1)
         if "--ignore-not-found" in A:
             if "ns" in A:
                 out("namespace/gpu-test-mps" if "gpu-test-mps/claim" in m["claims"] else "")

@@ -169,6 +169,7 @@ sed -i "s|^SRC=.*|SRC=$WORK/src|" "$IN/runner.sh"
 sed -i 's/^WATCH_S=150$/WATCH_S=2/' "$IN/s1.sh"
 sed -i 's/^SETTLE_S=60$/SETTLE_S=1/' "$IN/s2.sh"
 sed -i 's/poll 120 3 in_state "\$uid" PrepareStarted/poll 4 3 in_state "$uid" PrepareStarted/' "$IN/s2.sh"
+sed -i -e 's/poll 60 3 gone pod\/pod/poll 2 3 gone pod\/pod/' -e 's/poll 15 3 gone resourceclaim/poll 1 3 gone resourceclaim/' "$IN/s1.sh"
 check "the shortened waits are the shipped 150 s, 60 s and 120 s" \
   "grep -qx 'WATCH_S=150' '$RD/s1.sh' && grep -qx 'SETTLE_S=60' '$RD/s2.sh' && grep -qx 'WATCH_S=2' '$IN/s1.sh' && grep -qx 'SETTLE_S=1' '$IN/s2.sh' &&
    grep -q 'poll 120 3 in_state \"\$uid\" PrepareStarted' '$RD/s2.sh' && grep -q 'poll 4 3 in_state \"\$uid\" PrepareStarted' '$IN/s2.sh'"
@@ -244,6 +245,9 @@ runner leak FAKE_S1_LEAK=1 FAKE_PHASE=x
 check "S1 reports an entry that survives the watch as still PrepareCompleted, and that is a valid result" \
   "[ \"\$(awk -F'\t' 'NR>1 && \$2==\"yes\" && \$8==\"PrepareCompleted\"' '$WORK/rout-leak/s1/result.tsv' | wc -l)\" = 3 ] &&
    awk -F'\t' '\$1==\"s1\" && \$2==0' '$WORK/rout-leak/summary.tsv' | grep -q ."
+runner getfail FAKE_GET_FAIL=1
+check "S1 records a presence query the API could not answer as unread, not as gone" \
+  "[ \"\$(awk -F'\t' 'NR>1 && \$5==\"unread\" && \$6==\"unread\"' '$WORK/rout-getfail/s1/result.tsv' | wc -l)\" = 3 ]"
 runner notprepared FAKE_S1_NOT_PREPARED=1
 check "S1 whose claim never reached PrepareCompleted is invalid: it exits 4, and S2 and S3 still run" \
   "awk -F'\t' '\$1==\"s1\" && \$2==4' '$WORK/rout-notprepared/summary.tsv' | grep -q . && [ \"\$(awk -F'\t' 'NR>1 && \$2==\"no\"' '$WORK/rout-notprepared/s1/result.tsv' | wc -l)\" = 3 ] &&
@@ -267,6 +271,10 @@ check "S2 records the four survivors after the restart and after the release, th
    head -1 '$R/s2/result.tsv' | grep -q 'deploy_settled.node_mount_settled.host_mount_settled.compute_mode_settled'"
 check "S2 keeps the killed plugin's log and the restarted one's" "[ -s '$R/s2/r1.plugin-before-kill.log' ] && [ -s '$R/s2/r3.plugin-settled.log' ]"
 runner mpsnever FAKE_MPS_NEVER=1
+runner nsstuck FAKE_NS_DELETE_FAIL=1
+check "S2 whose release did not complete is invalid: it exits 4, and its readings are not marked released" \
+  "awk -F'\t' '\$1==\"s2\" && \$2==4' '$WORK/rout-nsstuck/summary.tsv' | grep -q . &&
+   [ \"\$(awk -F'\t' 'NR>1 && \$2==\"no\" && \$6==\"no\"' '$WORK/rout-nsstuck/s2/result.tsv' | wc -l)\" = 3 ]"
 check "S2 whose claim never reached PrepareStarted kills nothing and is invalid: it exits 4" \
   "awk -F'\t' '\$1==\"s2\" && \$2==4' '$WORK/rout-mpsnever/summary.tsv' | grep -q . && ! grep -q 'kill -KILL' '$WORK/rst-mpsnever/calls'"
 check "S2 enables MPS and resets the GPU to Default after each rep" \
@@ -282,6 +290,9 @@ check "S3 submits the second claim only after the first pod is ready" \
   "w=\$(grep -n '^kubectl wait -n s3-shares --for=condition=Ready pod/pod-0' '$RC' | cut -d: -f1) &&
    a=\$(grep -n '^kubectl apply -f $R/s3/claim-1.yaml' '$RC' | cut -d: -f1) && [ -n \"\$w\" ] && [ -n \"\$a\" ] && [ \"\$w\" -lt \"\$a\" ]"
 check "S3 is valid on a slice that carries memory's requestPolicy" "awk -F'\t' 'NR==2 && \$1==\"yes\" && \$2==\"yes\"' '$R/s3/result.tsv' | grep -q ."
+runner pod0pending FAKE_S3_POD0_PENDING=1
+check "S3 whose first pod never became ready submits no second claim and is invalid: it exits 4" \
+  "awk -F'\t' '\$1==\"s3\" && \$2==4' '$WORK/rout-pod0pending/summary.tsv' | grep -q . && ! grep -q 'claim-1.yaml' '$WORK/rst-pod0pending/calls'"
 runner nopolicy FAKE_NO_POLICY=1
 check "S3 on a slice without requestPolicy (the Kubernetes gate off) is invalid: it exits 4" \
   "awk -F'\t' '\$1==\"s3\" && \$2==4' '$WORK/rout-nopolicy/summary.tsv' | grep -q ."
