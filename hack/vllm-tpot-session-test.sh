@@ -62,6 +62,8 @@ first_cmd=$(grep -n -v -E '^(#|$)' "$WORK/ud.sh" | sed -n '4p')
 first_aws=$(grep -n -m1 'aws ' "$WORK/ud.sh" | cut -d: -f1)
 check "the user-data parses, is under 16 KB, and has no placeholder left" \
   "[ -s '$WORK/ud.sh' ] && bash -n '$WORK/ud.sh' && [ \$(wc -c < '$WORK/ud.sh') -lt 16384 ] && ! grep -q _PLACEHOLDER '$WORK/ud.sh'"
+check "the instance refuses a driver older than 580 before the pull" \
+  "grep -q 'PREFLIGHT FAILED: driver' '$WORK/ud.sh' && [ \"\$(grep -n 'PREFLIGHT FAILED: driver' '$WORK/ud.sh' | cut -d: -f1)\" -lt \"\$(grep -n 'runner.sh' '$WORK/ud.sh' | head -1 | cut -d: -f1)\" ]"
 check "the instance arms its 4,500 s backstop before anything else can fail ($first_cmd)" \
   "[ '${first_cmd#*:}' = '( sleep 4500; shutdown -h now ) &' ] && [ '${first_cmd%%:*}' -lt '$first_aws' ]"
 check "the precise backstop counts from LaunchTime, and the runner ends at LaunchTime + 4,320 s" \
@@ -145,9 +147,9 @@ case "$1" in
       PYTHONPATH="$WORK/site" bash "$WORK/in/state.sh" $args; exit $?
     fi
     printf '%s\n' "$@" | grep -qx cat && { cat "$WORK/wheel.sha256"; exit 0; }
-    printf '%s\n' "$@" | grep -q snapshot_download && { echo /root/.cache/huggingface/hub/models--x/snapshots/0123abcd; exit 0; }
+    printf '%s\n' "$@" | grep -q snapshot_download && { echo "/root/.cache/huggingface/hub/models--x/snapshots/${FAKE_MODEL_REV:-fe8a4ea1ffedaf415f4da2f062534de366a451e6}"; exit 0; }
     exit 1 ;;
-  inspect) exit 1 ;;
+  ps) [ -z "${FAKE_PS_FAIL:-}" ] || exit 1 ;;
   rm) exit 0 ;;
 esac
 EOF
@@ -159,12 +161,13 @@ if [ "\$1 \$2" = "-m pytest" ]; then
   echo "pytest \$*" >> "$WORK/calls"
   x=""; for a in "\$@"; do case \$a in --junitxml=*) x=\${a#--junitxml=} ;; esac; done
   lf=\$($REAL_PY -c 'import vllm.v1.metrics.loggers as l; print(l.__file__)')
+  [ -z "\${FAKE_PYTEST_TIMEOUT:-}" ] || exit 124
   if [ -n "\${FAKE_PYTEST_ERROR:-}" ]; then
     echo '<testsuites><testsuite errors="1" failures="0" tests="1"><testcase classname="t" name="test_tpot_skips_single_token_requests[text-]"><error message="failed to start server">x</error></testcase></testsuite></testsuites>' > "\$x"
     echo "ERROR tests/t.py::test_tpot_skips_single_token_requests[text-]"; exit 1
   fi
   case "\$*" in *"tpot_skips and text"*) n=3 ;; *) n=5 ;; esac
-  if grep -q 'num_generation_tokens > 1' "\$lf"; then
+  if [ -z "\${FAKE_PYTEST_FAIL_ALWAYS:-}" ] && grep -q 'num_generation_tokens > 1' "\$lf"; then
     { echo '<testsuites><testsuite>'
       for i in \$(seq 1 \$n); do echo "<testcase classname=\"t\" name=\"test_tpot_skips_single_token_requests[text-\$i]\" time=\"1\"/>"; done
       echo '</testsuite></testsuites>'; } > "\$x"
@@ -186,7 +189,7 @@ runfake() {
   serving_sha=$(sha256sum "$WORK/in/serving-test-only.diff" | cut -d' ' -f1); fix_sha=$(sha256sum "$WORK/in/fix.diff" | cut -d' ' -f1)
   python3 "$V" "$WORK/out" "$serving_sha" "$fix_sha" > "$WORK/verdict-$1.txt" 2>&1
   echo $? > "$WORK/vrc-$1"
-  cp -r "$WORK/out" "$WORK/out-$1"
+  cp -r "$WORK/out" "$WORK/out-$1"; cp "$WORK/calls" "$WORK/out-$1/calls"
 }
 runfake good env
 check "the runner does BEFORE, then AFTER, and ends" \
@@ -217,12 +220,26 @@ check "an image whose label is not 3a1c6c43df is refused before any state runs" 
 runfake pyerr env FAKE_PYTEST_ERROR=1
 check "a BEFORE whose server never started is an error, not the expected failure, and is not confirmed" \
   "fake_verdict pyerr | grep -q '^before=error' && fake_verdict pyerr | grep -qx 'verdict=not-confirmed'"
+check "both states run offline against the one cached model" \
+  "[ \"\$(grep -c 'run --rm --name tp-.* -e HF_HUB_OFFLINE=1 ' '$WORK/out-good/calls')\" = 2 ]"
+runfake timeout env FAKE_PYTEST_TIMEOUT=1
+check "a BEFORE that timed out stops the run before AFTER" \
+  "[ \"\$(cat '$WORK/rc-timeout')\" = 2 ] && grep -q 'BEFORE did not fail (tpot_rc=124)' '$WORK/out-timeout/steps.log' && ! grep -q 'tp-after' '$WORK/calls'"
+runfake alwaysfail env FAKE_PYTEST_FAIL_ALWAYS=1
+check "an AFTER whose TPOT test fails does not go on to the whole file" \
+  "grep -qx 'tpot_rc=1' '$WORK/out-alwaysfail/after/state.txt' && ! grep -q '^file_rc=' '$WORK/out-alwaysfail/after/state.txt' && [ \"\$(grep -c '^pytest' '$WORK/calls')\" = 2 ] && fake_verdict alwaysfail | grep -qx 'after=failed'"
+runfake psfail env FAKE_PS_FAIL=1
+check "a container whose removal cannot be shown stops the run" \
+  "grep -q 'state before: container was not shown removed' '$WORK/out-psfail/steps.log' && ! grep -q 'tp-after' '$WORK/calls'"
+runfake modelrev env FAKE_MODEL_REV=1111111111111111111111111111111111111111
+check "a model whose main is not the pinned revision is refused before any state runs" \
+  "grep -q 'MODEL REVISION FAILED' '$WORK/out-modelrev/steps.log' && ! grep -q 'tp-before' '$WORK/calls'"
 # The fix already in the image: BEFORE then passes, and the report must lead with the import check.
 cp "$WORK/fix.diff" "$WORK/in/serving-test-only.diff"; mkpins
 sed -i 's/^before /x /; s/^after \(.*\)/after \1\nbefore \1/' "$WORK/in/pins.txt"
 runfake fixedbefore env
-check "a BEFORE that imported the fix passes, and the verdict names the import check first and is not confirmed" \
-  "[ \"\$(fake_verdict fixedbefore | head -1)\" = 'import_check=fix-present-or-unread-before(grep_rc=0)' ] && fake_verdict fixedbefore | grep -qx 'before=passed' && fake_verdict fixedbefore | grep -qx 'verdict=before-passed'"
+check "a BEFORE that imported the fix passes, stops the run, and the verdict names the import check first" \
+  "[ \"\$(cat '$WORK/rc-fixedbefore')\" = 2 ] && ! grep -q 'tp-after' '$WORK/out-fixedbefore/calls' && [ \"\$(fake_verdict fixedbefore | head -1)\" = 'import_check=fix-present-or-unread-before(grep_rc=0)' ] && fake_verdict fixedbefore | grep -qx 'before=passed' && fake_verdict fixedbefore | grep -qx 'verdict=before-passed'"
 cp "$WORK/serving.diff" "$WORK/in/serving-test-only.diff"; mkpins
 
 # ---------------------------------------------------------------- the verdict, case by case
@@ -236,6 +253,8 @@ case_dir() { # case_dir NAME, then edits; writes a confirmed run that each case 
   printf 'started=100\ndiff_sha256=SERV\nbase_identity=ok\napply=ok\napplied_identity=ok\nloggers_file=%s\ngrep_rc=1\ntpot_rc=1\nended=200\n' "$LG" > "$d/before/state.txt"
   printf 'started=300\ndiff_sha256=FIX\nbase_identity=ok\napply=ok\napplied_identity=ok\nloggers_file=%s\ngrep_rc=0\ntpot_rc=0\nfile_rc=0\nended=900\n' "$LG" > "$d/after/state.txt"
   echo "$FAIL5" > "$d/before/tpot.xml"; pass_n 3 > "$d/after/tpot.xml"; pass_n 7 > "$d/after/file.xml"
+  echo '["public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:9f77cb6501aa29d5bfa70d0819c153ecebd604d41fc77a9e8cc097cb0e4145bb"] 3a1c6c43df5eb5344a3f853c34fac93c274a372f' > "$d/image-identity.txt"
+  echo "abc123  vllm.whl" > "$d/wheel-sha256.txt"
   echo "$d"
 }
 vd() { python3 "$V" "$1" SERV FIX; true; }
@@ -262,9 +281,15 @@ notconf "the fix line is in loggers.py BEFORE" "sed -i 's/^grep_rc=1/grep_rc=0/'
 notconf "the fix line is not in loggers.py AFTER" "sed -i 's/^grep_rc=0/grep_rc=1/' after/state.txt"
 notconf "the loggers.py grep could not read the file" "sed -i 's/^grep_rc=0/grep_rc=2/' after/state.txt"
 notconf "Python imported loggers.py from somewhere else" "sed -i 's|^loggers_file=.*|loggers_file=/vllm-workspace/src/vllm/v1/metrics/loggers.py|' after/state.txt"
+notconf "BEFORE imported loggers.py from somewhere else" "sed -i 's|^loggers_file=.*|loggers_file=/vllm-workspace/src/vllm/v1/metrics/loggers.py|' before/state.txt"
 notconf "AFTER started before BEFORE ended" "sed -i 's/^started=300/started=150/' after/state.txt"
 notconf "BEFORE applied another diff" "sed -i 's/^diff_sha256=SERV/diff_sha256=OTHER/' before/state.txt"
 notconf "the image's files were not the commit's" "sed -i 's/^base_identity=ok/base_identity=bad/' after/state.txt"
+notconf "BEFORE's expected failure came with a teardown error" "sed -i 's|</failure>|</failure><error message=\"teardown\">server did not stop</error>|' before/tpot.xml"
+notconf "AFTER's three passes are one server's name repeated" "sed -i 's/text-p[0-9]/text-p1/' after/tpot.xml"
+notconf "the image identity record is missing" "rm image-identity.txt"
+notconf "the image was built from another commit" "sed -i 's/ 3a1c6c43df5eb5344a3f853c34fac93c274a372f\$/ 0000000000000000000000000000000000000000/' image-identity.txt"
+notconf "the wheel's hash is empty" ": > wheel-sha256.txt"
 notconf "the fix did not apply to the pinned result" "sed -i 's/^applied_identity=ok/applied_identity=bad/' after/state.txt"
 d=$(case_dir bp); (cd "$d" && pass_n 1 > before/tpot.xml && sed -i 's/^tpot_rc=1/tpot_rc=0/; s/^grep_rc=1/grep_rc=0/' before/state.txt)
 check "a BEFORE that passed is named, with the import check that explains it on the first line" \
