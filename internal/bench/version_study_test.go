@@ -113,6 +113,18 @@ func TestVersionStudyNamesWhatIsNotYetFrozen(t *testing.T) {
 	if err := frozen.PreflightRefusal(); err != nil {
 		t.Fatalf("a fully frozen design was refused: %v", err)
 	}
+	// A review deleted outright is as open as one emptied, or a design that lost the key would pass as frozen.
+	for _, tr := range []string{TreatmentB, TreatmentC} {
+		missing := versionAsyncDesign()
+		delete(missing.EngineFlagReviews, tr)
+		if got, want := missing.Unfrozen(), []string{"treatment " + tr + " flag review (engine-path track)"}; !slices.Equal(got, want) {
+			t.Fatalf("with no review key for %s, unfrozen = %v, want %v", tr, got, want)
+		}
+	}
+	// A carries the validated v0.27.1 profile, which no engine-path review covers, so it needs none.
+	if _, ok := frozen.EngineFlagReviews[TreatmentA]; ok {
+		t.Fatalf("the registered design reviews A's flags, which the frozen list assumes it does not")
+	}
 }
 
 // TestArmOrderIsASeededPermutation checks the order is reproducible, a permutation, and distinct across six blocks.

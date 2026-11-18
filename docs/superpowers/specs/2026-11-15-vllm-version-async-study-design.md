@@ -273,6 +273,7 @@ These rules decide validity without looking at endpoint values. They apply with 
 1. **Incomplete accounting:** a scheduled row without exactly one disposition, or a measured population that differs from the trace's.
    - Clarified 2026-11-16, before any run (#645): a row whose clock places its intended arrival anywhere but its trace offset, or that was sent without one, does not account for its trace either (`ReconcileRecording`). Lag, TTFT and E2E are all measured from that stamp, so a later one would hide the client's lag and shorten every latency. Validity, `CellOutcomes` and preflight all reconcile first, so none of them reads such a row.
 2. **Dispatch lag:** transport write − intended arrival, p99 over P above 10 ms or maximum above 100 ms. The reader refuses a row whose transport write precedes its send, which would shorten the lag, or follows its terminal, which the harness cannot record (#645). The client shares the instance with the engine, so lag could become treatment-dependent. If lag invalidates cells of the same treatment in two blocks, the campaign stops as an incomplete pilot rather than replacing blocks that a treatment keeps invalidating.
+   - Clarified 2026-11-18, before any run (#645): a cell whose accounting is incomplete is still judged for lag, so it still counts toward that stop. Its p99 and maximum are lower bounds (`leastCellLag`): a measured request recorded once at its own offset gives its lag, and every request that is missing, copied or misplaced counts as 0. Only a breach of those bounds is lag. Lost rows cannot raise the p99, and copies cannot dilute it.
 3. **Protocol fault:** a nonconforming completed stream, a request not dispatched without a recorded engine-unavailable visit, or a row labelled engine-unavailable that shows it was dispatched (#645).
 4. **Identity:** a manifest that `LoadManifest` refuses is never run. A running engine that `CampaignBundle.CompareRuntime` refuses (version, image digest, model revision, tokenizer, chat template, reviewed effective arguments, any registered setting) invalidates its visit's cells.
 5. **Recorder failure:** any write or durability error, or backlog overflow.
@@ -338,6 +339,11 @@ Every phase has a ceiling the runner enforces (`PhaseBounds`):
 | drain, per cell | 120 s |
 | block (`BlockBoundSeconds`): per treatment two starts and two cells | 3 × (2 × 450 + 2 × (60 + W + 120)) s; 5,580 s at W = 300 |
 | teardown | 600 s |
+
+Clarified 2026-11-18, before any run (#645): the block bound is enforced per block, not only through the session deadline.
+- `RunBlocks` gives each block a deadline of `BlockBoundSeconds` counted from the start it records in the attempt journal.
+- A block that reaches it closes as **stopped**, like one the teardown deadline cut, and the campaign ends as an incomplete pilot. The budget check before every block charged each block at this bound, so a block that ran on would spend money no check had counted.
+- Engine stops inside a block (each visit's stop and any drain restart's) count against the bound although the sum above leaves them out, so a block that uses both of every treatment's starts, each to the full readiness bound, can be stopped by it.
 
 **Amendment 2026-11-16, before any run (owner decision of 2026-11-15, "measure, then amend").**
 - **What was measured.** The paid readiness preflight (#594) ran the study's exact containers on g5.xlarge (A10G), in `hack/version-readiness/2026-11-16-run2` and `run6`:
@@ -438,6 +444,7 @@ The registered protocol is not executable at this head (attack item 1). Before a
   - Each round-trips through `LoadCampaignBundle`, `LoadManifest` and `CheckVersionCampaign`.
   - **The calibration runner:** done in code (`benchharness version-calibrate`).
     - Each rung waits until the engine's own `vllm:num_requests_running` and `vllm:num_requests_waiting` read 0 (`WaitDrained`). A rung that cannot start drained sends nothing and is invalid.
+      - Clarified 2026-11-18 (#645): `ParseEngineQueue` refuses either one exposed as a counter or any other type than a gauge or untyped sample, and any value that is not a whole, non-negative request count. A refused read is not idle, so 0.5 running is no longer truncated to the drained answer 0.
     - The rung then replays `CalibrationTrace` at the rung's rate. `ObserveRung` reads arrivals, departures, outstanding work and its trend, failures and unresolved requests off the rows' own monotonic clock.
     - Every rung's rows and record are written as it ends. The artifact is written for an unresolved ladder too.
     - It has only been run against stub engines. A live engine is the rehearsal's job, and its readiness the paid preflight's (#594).

@@ -415,13 +415,19 @@ var openForRecovery = func(path string) (recoveryFile, error) {
 }
 
 // recoverJournal returns a refusal, which changed nothing, separately from an I/O failure, which may have.
-func recoverJournal(path, campaign string, now time.Time, s *journalState, tail []byte, whole int64) (JournalRecovery, error, error) {
+func recoverJournal(path, campaign string, now time.Time, s *journalState, tail []byte, whole int64) (out JournalRecovery, refused, ioErr error) {
 	var rec JournalRecovery
 	f, err := openForRecovery(path)
 	if err != nil {
 		return JournalRecovery{}, nil, err
 	}
-	defer func() { _ = f.Close() }()
+	// A close can be where the filesystem reports a write it deferred, so a failed one leaves the recovery unestablished.
+	// A refusal changed nothing, so its close failure adds nothing to it.
+	defer func() {
+		if cerr := f.Close(); cerr != nil && refused == nil {
+			ioErr = errors.Join(ioErr, fmt.Errorf("close %s: %w", path, cerr))
+		}
+	}()
 	fault, hasFault, err := readFaultMarker(path)
 	if err != nil {
 		return JournalRecovery{}, err, nil

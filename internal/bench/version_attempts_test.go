@@ -491,6 +491,35 @@ func TestAFailedRecoveryIsItselfARecorderFailure(t *testing.T) {
 	}
 }
 
+// closeFailFile writes and syncs normally and fails its close, as a network filesystem reports a deferred write error.
+type closeFailFile struct{ *os.File }
+
+func (f *closeFailFile) Close() error {
+	_ = f.File.Close()
+	return errors.New("input/output error")
+}
+
+// TestARecoveryWhoseCloseFailsIsNotDone: the closing end it wrote is not established, so recovery must not report it written.
+func TestARecoveryWhoseCloseFailsIsNotDone(t *testing.T) {
+	path, j := openTestJournal(t)
+	_ = j.Start(1, 0, journalT0)
+	_ = j.Close()
+	open := openForRecovery
+	openForRecovery = func(p string) (recoveryFile, error) {
+		f, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND, 0)
+		return &closeFailFile{File: f}, err
+	}
+	rec, err := RecoverAttemptJournal(path, "camp-1", journalT0.Add(time.Hour))
+	openForRecovery = open
+	if err == nil || !strings.Contains(err.Error(), "input/output error") || rec.Recovered != nil {
+		t.Fatalf("recovery %+v err %v, want the close failure and nothing reported recovered", rec, err)
+	}
+	// The failure is a recorder failure like any other recovery write, so the campaign stops on it.
+	if _, err := os.Stat(faultMarkerPath(path)); err != nil {
+		t.Fatalf("no fault marker after a failed close: %v", err)
+	}
+}
+
 // TestARecordTheReaderCannotReadIsNeverWritten: every acknowledged record must stay readable, so an oversized one is refused before the file changes.
 func TestARecordTheReaderCannotReadIsNeverWritten(t *testing.T) {
 	path, j := openTestJournal(t)

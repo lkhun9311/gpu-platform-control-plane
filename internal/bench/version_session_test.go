@@ -27,7 +27,8 @@ func blocksRun(t *testing.T, spent float64, outcome func(block int, treatment st
 	if err != nil {
 		t.Fatal(err)
 	}
-	clock := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	// Each block's deadline counts from the start this clock gives, so a fixed date would cut every block once it had passed.
+	clock := time.Now()
 	now := func() time.Time { clock = clock.Add(time.Minute); return clock }
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -159,6 +160,20 @@ func TestRunBlocksStopRules(t *testing.T) {
 			t.Fatalf("result %+v, attempts %+v after %d visits, want block 2 stopped at its first visit", res, l.Attempts, len(visits))
 		}
 	})
+	t.Run("a recorder failure that arrives with the deadline is still a recorder failure", func(t *testing.T) {
+		// The visit's final stop runs after the deadline, so its failure comes back together with the cancelled context.
+		stopAt := ArmOrder(20261115, 2)[0]
+		_, l, _ := blocksRun(t, 0, func(block int, treatment string) (VisitOutcome, error) {
+			if block == 2 && treatment == stopAt {
+				return VisitOutcome{}, errors.New("stopping engine b2: container still present")
+			}
+			return VisitOutcome{}, nil
+		}, &visit{block: 2, treatment: stopAt})
+		last := l.Attempts[len(l.Attempts)-1]
+		if last.Status != AttemptStopped || !strings.Contains(last.Reason, "recorder failure") || !strings.Contains(last.Reason, "container still present") {
+			t.Fatalf("block 2 ended %s: %q, want a recorder failure that names the error", last.Status, last.Reason)
+		}
+	})
 	t.Run("the budget refuses before block 1", func(t *testing.T) {
 		res, l, visits := blocksRun(t, 19, allValid, nil)
 		if !strings.Contains(res.Stop, "budget") || len(l.Attempts) != 0 || len(visits) != 0 {
@@ -174,6 +189,71 @@ func TestRunBlocksStopRules(t *testing.T) {
 		// The ledger is one the analysis reads; it reads it as the incomplete pilot the stop made.
 		if _, err := versionAsyncDesign().AnalysisSet(l); err == nil || !strings.Contains(err.Error(), "incomplete pilot") {
 			t.Fatalf("analysis: %v, want an incomplete pilot", err)
+		}
+	})
+}
+
+// memLedger is a BlockLedger that keeps each start and end in memory.
+type memLedger struct {
+	starts map[int]time.Time
+	ends   []BlockAttempt
+}
+
+func (l *memLedger) Start(block, _ int, at time.Time) error {
+	l.starts[block] = at
+	return nil
+}
+
+func (l *memLedger) End(block int, status AttemptStatus, reason string, at time.Time) error {
+	l.ends = append(l.ends, BlockAttempt{Block: block, Status: status, Reason: reason, EndedAt: at})
+	return nil
+}
+
+// TestRunBlocksHoldsEachBlockToItsBound: the budget charges every block at BlockBoundSeconds, so no block may run past it.
+//
+// The bound counts from the start the ledger records, so the block a reader sees is the block that was bounded.
+func TestRunBlocksHoldsEachBlockToItsBound(t *testing.T) {
+	d := versionAsyncDesign()
+	bound := time.Duration(d.BlockBoundSeconds(300)) * time.Second
+	run := func(start time.Time, visit VisitRunner) (BlocksResult, *memLedger) {
+		t.Helper()
+		l := &memLedger{starts: map[int]time.Time{}}
+		clock := start
+		res, err := RunBlocks(context.Background(), SessionBlocks{
+			Design: d, WindowSeconds: 300, RatePerHour: 1.0,
+			Spent: func() float64 { return 0 }, Now: func() time.Time { clock = clock.Add(time.Second); return clock },
+			Ledger: l, Visit: visit,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res, l
+	}
+	t.Run("every visit runs under its block's deadline", func(t *testing.T) {
+		deadlines := map[int]time.Time{}
+		_, l := run(time.Now(), func(ctx context.Context, block int, _ string, _ []string) (VisitOutcome, error) {
+			dl, ok := ctx.Deadline()
+			if !ok {
+				t.Fatalf("block %d's visit has no deadline", block)
+			}
+			if prev, seen := deadlines[block]; seen && !prev.Equal(dl) {
+				t.Fatalf("block %d's visits have deadlines %v and %v, want one per block", block, prev, dl)
+			}
+			deadlines[block] = dl
+			return VisitOutcome{}, nil
+		})
+		for block, dl := range deadlines {
+			if want := l.starts[block].Add(bound); !dl.Equal(want) {
+				t.Fatalf("block %d's deadline is %v, want its recorded start plus %v (%v)", block, dl, bound, want)
+			}
+		}
+	})
+	t.Run("a block past its bound is stopped", func(t *testing.T) {
+		res, l := run(time.Now().Add(-2*bound), func(ctx context.Context, _ int, _ string, _ []string) (VisitOutcome, error) {
+			return VisitOutcome{}, nil
+		})
+		if len(l.ends) != 1 || l.ends[0].Status != AttemptStopped || !strings.Contains(l.ends[0].Reason, "bound") || !strings.Contains(res.Stop, "block 1 stopped") {
+			t.Fatalf("result %+v, ends %+v, want block 1 stopped at its bound", res, l.ends)
 		}
 	})
 }

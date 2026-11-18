@@ -354,7 +354,10 @@ func (d VersionStudyDesign) Unfrozen() []string {
 		if d.Engines[t].Image == "" {
 			out = append(out, "treatment "+t+" image digest (engine-path track)")
 		}
-		if review, ok := d.EngineFlagReviews[t]; ok && !isSHA256Hex(review) {
+		// B and C run the v0.32.0 image whose flags the engine-path track reviews, so a missing review is open, not absent.
+		// A runs the validated v0.27.1 profile and has no review, but one registered for it must still be a hash.
+		review, ok := d.EngineFlagReviews[t]
+		if (ok || t != TreatmentA) && !isSHA256Hex(review) {
 			out = append(out, "treatment "+t+" flag review (engine-path track)")
 		}
 	}

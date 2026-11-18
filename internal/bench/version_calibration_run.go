@@ -1,10 +1,12 @@
 package bench
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"time"
 
@@ -99,8 +101,17 @@ const maxEngineMetricsBytes = 8 << 20
 //
 // Missing gauges are an error: an engine that does not report its queue cannot be shown drained.
 func ParseEngineQueue(r io.Reader) (running, waiting int, err error) {
+	// The bound is read past by one byte, because a reader cut at the bound ends like a whole response and a series past
+	// the cut, possibly the busy one, would go unread.
+	body, err := io.ReadAll(io.LimitReader(r, maxEngineMetricsBytes+1))
+	if err != nil {
+		return 0, 0, fmt.Errorf("read engine metrics: %w", err)
+	}
+	if len(body) > maxEngineMetricsBytes {
+		return 0, 0, fmt.Errorf("engine metrics are longer than %d bytes, so the queue they report is not read whole", maxEngineMetricsBytes)
+	}
 	parser := expfmt.NewTextParser(model.LegacyValidation)
-	mfs, err := parser.TextToMetricFamilies(io.LimitReader(r, maxEngineMetricsBytes))
+	mfs, err := parser.TextToMetricFamilies(bytes.NewReader(body))
 	if err != nil {
 		return 0, 0, fmt.Errorf("parse engine metrics: %w", err)
 	}
@@ -109,9 +120,21 @@ func ParseEngineQueue(r io.Reader) (running, waiting int, err error) {
 		if !ok || len(mf.GetMetric()) == 0 {
 			return 0, fmt.Errorf("engine metrics carry no %s", name)
 		}
+		// Any other type keeps its value elsewhere in the sample, so it would read as 0, the drained answer.
+		if t := mf.GetType(); t != dto.MetricType_GAUGE && t != dto.MetricType_UNTYPED {
+			return 0, fmt.Errorf("engine metrics carry %s as a %s, not a gauge", name, t)
+		}
 		total := 0.0
 		for _, m := range mf.GetMetric() {
-			total += gaugeOrUntyped(m)
+			v := gaugeOrUntyped(m)
+			// A request count is a whole number of requests; truncating 0.5 to 0 would report a busy engine drained.
+			if v < 0 || v != math.Trunc(v) || math.IsInf(v, 0) || math.IsNaN(v) {
+				return 0, fmt.Errorf("engine metrics carry %s = %v, not a request count", name, v)
+			}
+			total += v
+		}
+		if total > math.MaxInt32 {
+			return 0, fmt.Errorf("engine metrics carry %s = %v, more requests than any engine holds", name, total)
 		}
 		return int(total), nil
 	}
