@@ -10,6 +10,12 @@ snap s4.before
 
 # The bats runner is a container on the kind network, so it needs the kubeconfig that names the API server by its
 # in-network address (hack/ci/mock-nvml/e2e-test.sh).
+# Every pod in the three files runs ubuntu:24.04, and test_gpu_basic gives its first pod 8 s to become ready; a cold
+# pull lost that race on the mock-NVML kind run of 2026-11-18 (7.999 s), and a failed S4 stops the run.
+# S1 and S3 use ubuntu:22.04. Both are pulled into the GPU node first.
+for img in docker.io/library/ubuntu:24.04 docker.io/library/ubuntu:22.04; do
+  timeout "$(left 180)" docker exec "$WORKER" crictl pull "$img" >>"$D/prepull.log" 2>&1 || note "could not pre-pull $img"
+done
 kind get kubeconfig --internal --name "$CLUSTER" >"$D/kind-internal-kubeconfig" || { note "no internal kubeconfig"; exit 2; }
 # multi-gpu needs two GPUs and version-specific pins another release's attributes; both filters are the Lambda CI's.
 # CI=true keeps RUN_BATS from asking docker for a terminal, which cloud-init does not have.

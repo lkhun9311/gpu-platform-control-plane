@@ -72,11 +72,15 @@ def kubectl(m):
         for ns in re.findall(r"namespace: (s1-r\d+)\n  name: gpu\n", text):
             uid = "uid-" + ns
             m["claims"][ns + "/gpu"] = uid
-            m["cp"][uid] = "PrepareCompleted"
+            if not env("FAKE_S1_NOT_PREPARED"):
+                m["cp"][uid] = "PrepareCompleted"
             m["claims"][ns + "/pod"] = "pod"
         if "gpu-test-mps" in text:
             m["claims"]["gpu-test-mps/claim"] = "uid-mps"
-            m["cp"]["uid-mps"] = "PrepareStarted"
+            # The entry appears a second after the apply, as a prepare does, so a kill that does not wait for it is seen.
+            if not env("FAKE_MPS_NEVER"):
+                m["cp"]["uid-mps"] = "PrepareStarted"
+                m["mps_at"] = time.time() + 1.0
         for name in re.findall(r"kind: ResourceClaim\nmetadata:\n  namespace: s3-shares\n  name: (mem-\d)", text):
             m["claims"]["s3-shares/" + name] = "uid-" + name
         save(m)
@@ -112,6 +116,17 @@ def kubectl(m):
     if "get" in A:
         ns = arg("-n", "")
         q = arg("-o", "")
+        if "--ignore-not-found" in A:
+            if "ns" in A:
+                out("namespace/gpu-test-mps" if "gpu-test-mps/claim" in m["claims"] else "")
+            obj = [a for a in A if "/" in a][0]
+            kind, name = obj.split("/", 1)
+            out(obj if ns + "/" + (name if kind == "resourceclaim" else "pod") in m["claims"] else "")
+        if "resourceslices" in A and q == "json":
+            mem = {"value": "23034Mi"}
+            if not env("FAKE_NO_POLICY"):
+                mem["requestPolicy"] = {"default": "0", "validRange": {"min": "0", "max": "23034Mi", "step": "1Mi"}}
+            out(json.dumps({"items": [{"spec": {"devices": [{"name": "gpu-0", "capacity": {"memory": mem, "multiprocessors": {"value": "58"}}}]}}]}))
         if "ds" in A:
             out("dra-driver-nvidia-gpu-kubelet-plugin")
         if "resourceslices" in A and q == "name":
@@ -150,8 +165,11 @@ def docker(m):
         out(env("FAKE_WORKERS", "dra-session-worker"))
     if A[:1] == ["exec"]:
         rest = A[2:]
+        if rest[:2] == ["cat", "/proc/mounts"]:
+            out("overlay / overlay rw 0 0")
         if rest[:1] == ["cat"]:
-            out(json.dumps({"checksum": 1, "v2": {"preparedClaims": {u: {"checkpointState": s} for u, s in m["cp"].items()}}}))
+            live = {u: s for u, s in m["cp"].items() if u != "uid-mps" or time.time() >= m.get("mps_at", 0)}
+            out(json.dumps({"checksum": 1, "v2": {"preparedClaims": {u: {"checkpointState": s} for u, s in live.items()}}}))
         if rest[:2] == ["crictl", "ps"]:
             out("cid-gpus")
         if rest[:2] == ["crictl", "inspect"]:

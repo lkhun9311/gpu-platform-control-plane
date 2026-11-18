@@ -15,9 +15,20 @@ git -C "$SRC" checkout -q FETCH_HEAD || exit 2
 [ "$(git -C "$SRC" rev-parse HEAD)" = "$DRA_COMMIT" ] || { note "the checkout is not $DRA_COMMIT"; exit 2; }
 note "checked out $(git -C "$SRC" rev-parse HEAD)"
 
+# S3 needs Kubernetes' DRAConsumableCapacity, alpha and off in 1.34; upstream's docs at the pinned commit require it on the
+# API server, controller manager, scheduler and kubelet, which are exactly the five places upstream's template sets
+# DynamicResourceAllocation, plus the cluster-wide list.
+# Without it the API server drops the slice's requestPolicy and S3 would measure ordinary exclusive allocation.
+TPL="$D/nvkind-config.yaml.tmpl"
+sed -e 's/feature-gates: "DynamicResourceAllocation=true"/feature-gates: "DynamicResourceAllocation=true,DRAConsumableCapacity=true"/' \
+  -e 's/^  DynamicResourceAllocation: true$/  DynamicResourceAllocation: true\n  DRAConsumableCapacity: true/' \
+  "$SRC/hack/ci/gcp-nvkind/lib/nvkind-config.yaml.tmpl" >"$TPL" || exit 2
+[ "$(grep -c 'feature-gates: "DynamicResourceAllocation=true,DRAConsumableCapacity=true"' "$TPL")" = 5 ] &&
+  [ "$(grep -cx '  DRAConsumableCapacity: true' "$TPL")" = 1 ] || { note "upstream's nvkind template is not the shape this phase edits"; exit 2; }
+
 note "setup-nvkind-node.sh, cluster $CLUSTER, Kubernetes $K8S_VERSION"
 NVKIND_CLUSTER_NAME="$CLUSTER" NVKIND_K8S_VERSION="$K8S_VERSION" \
-  NVKIND_CONFIG_PATH="$SRC/hack/ci/gcp-nvkind/lib/nvkind-config.yaml.tmpl" NVKIND_DELETE_EXISTING=true \
+  NVKIND_CONFIG_PATH="$TPL" NVKIND_DELETE_EXISTING=true \
   bash "$SRC/hack/ci/gcp-nvkind/lib/setup-nvkind-node.sh" >"$D/setup-nvkind-node.log" 2>&1
 rc=$?
 note "setup-nvkind-node.sh exited $rc"

@@ -8,10 +8,14 @@
 #   - the schedule: the session's bounds are the runner's, and the stop and the worst case are their sum;
 #   - the cost: constants that put the worst case over $5, or a cap above the all-in rate, are refused;
 #   - the refusals a caller can trip, each before any AWS call;
-#   - the session end to end against a fake AWS: the pinned AMI, the caps, the backstop first, deadlines from LaunchTime,
-#     the termination confirmed, the evidence downloaded, and the fallback to g5.xlarge;
-#   - the runner end to end against a fake cluster: each phase's commands are the plan's, the checkpoint is captured
-#     before and after every step, and a failing S4 stops the run.
+#   - the session's laptop side against a fake AWS: the pinned AMI, the caps, the rendered user-data's backstop and
+#     deadlines, the termination confirmed, the evidence downloaded and read, and the fallback to g5.xlarge;
+#   - the runner's command sequence against a fake cluster: each phase runs the plan's commands in the plan's order,
+#     the checkpoint is captured before and after every step, a failing S4 stops the run, and an experiment whose
+#     precondition never held exits 4.
+# What they do not cover: the fake instance never executes the user-data (it writes DONE and a summary at launch), and
+# the fake cluster accepts any chart value and any feature gate, so neither proves the real bring-up or the real
+# Kubernetes configuration works; the paid run's own phase records are what show that.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 S="$ROOT/hack/dra-nvidia-gpu-session.sh"
@@ -71,6 +75,10 @@ echo "setup-nvkind-node $NVKIND_CLUSTER_NAME $NVKIND_K8S_VERSION $NVKIND_CONFIG_
 exit "${FAKE_SETUP_RC:-0}"
 EOF
 printf 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: gpu-test-mps\n' >"$UPS/demo/specs/quickstart/v1/gpu-test-mps.yaml"
+# The template's shape at the pinned commit: the gate in the cluster-wide list and in five component flags.
+{ printf 'kind: Cluster\nfeatureGates:\n  DynamicResourceAllocation: true\nnodes:\n'
+  for i in 1 2 3 4 5; do printf '        feature-gates: "DynamicResourceAllocation=true"\n'; done; } \
+  >"$UPS/hack/ci/gcp-nvkind/lib/nvkind-config.yaml.tmpl"
 git -C "$UPS" add -A && git -C "$UPS" -c user.name=t -c user.email=t@invalid -c commit.gpgsign=false commit -qm upstream
 git -C "$UPS" config uploadpack.allowAnySHA1InWant true
 UPC=$(git -C "$UPS" rev-parse HEAD)
@@ -145,6 +153,8 @@ check "with no g6.xlarge capacity the fallback is g5.xlarge at its own \$1.24 ca
    grep '^aws ec2 run-instances' '$WORK/st-fallback/calls' | tail -1 | grep -qF '\"MaxPrice\":\"1.24\"'"
 session s4fail "$REPO" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI FAKE_PHASE_RCS="cluster=0 build=0 s4=1"
 check "a session whose S4 failed exits 3" "[ \"\$(cat '$WORK/s4fail.rc')\" = 3 ] && grep -qx 's4=1' '$WORK/out-s4fail/outcome.txt'"
+session s1invalid "$REPO" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI FAKE_PHASE_RCS="cluster=0 build=0 s4=0 s1=4 s2=0 s3=0"
+check "a session whose S1 was not a valid experiment exits 2, not 0" "[ \"\$(cat '$WORK/s1invalid.rc')\" = 2 ]"
 session stuck "$REPO" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI FAKE_STUCK=1 FAKE_LAUNCH_AGO=5690
 check "a termination EC2 never reports done is reported unconfirmed and fails the session" \
   "[ \"\$(cat '$WORK/stuck.rc')\" = 1 ] && grep -q 'TERMINATION UNCONFIRMED for i-0fake' '$WORK/out-stuck/termination.txt'"
@@ -158,8 +168,10 @@ pin "$IN/runner.sh"
 sed -i "s|^SRC=.*|SRC=$WORK/src|" "$IN/runner.sh"
 sed -i 's/^WATCH_S=150$/WATCH_S=2/' "$IN/s1.sh"
 sed -i 's/^SETTLE_S=60$/SETTLE_S=1/' "$IN/s2.sh"
-check "the shortened waits are the shipped 150 s and 60 s" \
-  "grep -qx 'WATCH_S=150' '$RD/s1.sh' && grep -qx 'SETTLE_S=60' '$RD/s2.sh' && grep -qx 'WATCH_S=2' '$IN/s1.sh' && grep -qx 'SETTLE_S=1' '$IN/s2.sh'"
+sed -i 's/poll 120 3 in_state "\$uid" PrepareStarted/poll 4 3 in_state "$uid" PrepareStarted/' "$IN/s2.sh"
+check "the shortened waits are the shipped 150 s, 60 s and 120 s" \
+  "grep -qx 'WATCH_S=150' '$RD/s1.sh' && grep -qx 'SETTLE_S=60' '$RD/s2.sh' && grep -qx 'WATCH_S=2' '$IN/s1.sh' && grep -qx 'SETTLE_S=1' '$IN/s2.sh' &&
+   grep -q 'poll 120 3 in_state \"\$uid\" PrepareStarted' '$RD/s2.sh' && grep -q 'poll 4 3 in_state \"\$uid\" PrepareStarted' '$IN/s2.sh'"
 runner() {
   local name=$1
   shift
@@ -172,8 +184,14 @@ runner good
 R="$WORK/rout-good" RC="$WORK/rst-good/calls"
 check "the runner completes every phase" \
   "[ \"\$(cat '$WORK/rout-good.rc')\" = 0 ] && grep -q 'all scenarios done' '$R/steps.log' && [ \"\$(awk -F'\t' 'NR>1 && \$2==0' '$R/summary.tsv' | wc -l)\" = 6 ]"
-check "the cluster is upstream's setup-nvkind-node.sh at the pinned commit, Kubernetes v1.34.3, with their nvkind template" \
-  "grep -q 'setup-nvkind-node dra-session v1.34.3 $WORK/src/hack/ci/gcp-nvkind/lib/nvkind-config.yaml.tmpl' '$RC' && [ \"\$(git -C '$WORK/src' rev-parse HEAD)\" = '$UPC' ]"
+check "the cluster is upstream's setup-nvkind-node.sh at the pinned commit, Kubernetes v1.34.3" \
+  "grep -q 'setup-nvkind-node dra-session v1.34.3 $R/cluster/nvkind-config.yaml.tmpl' '$RC' && [ \"\$(git -C '$WORK/src' rev-parse HEAD)\" = '$UPC' ]"
+check "the cluster's template is upstream's with DRAConsumableCapacity on all four components and cluster-wide" \
+  "[ \"\$(grep -c 'feature-gates: \"DynamicResourceAllocation=true,DRAConsumableCapacity=true\"' '$R/cluster/nvkind-config.yaml.tmpl')\" = 5 ] &&
+   grep -qx '  DRAConsumableCapacity: true' '$R/cluster/nvkind-config.yaml.tmpl'"
+check "S4 pre-pulls the bats files' image into the GPU node before bats runs" \
+  "p=\$(grep -n '^docker exec dra-session-worker crictl pull docker.io/library/ubuntu:24.04' '$RC' | cut -d: -f1) &&
+   b=\$(grep -n 'tests-session-s4' '$RC' | cut -d: -f1) && [ -n \"\$p\" ] && [ \"\$p\" -lt \"\$b\" ]"
 check "the driver is built from the checkout and loaded into the cluster" \
   "grep -q '^make -f deployments/container/Makefile build DOCKER_BUILD_OPTIONS=--load CI=true' '$RC' && grep -q '^kind load docker-image registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev --name dra-session' '$RC'"
 s4call=$(grep 'tests-session-s4' "$RC")
@@ -208,8 +226,10 @@ done
 check "S1 takes the plugin down, then deletes the pod, then the claim, then brings the plugin back, in each of three reps" "[ $order_ok = 1 ]"
 check "S1's claim is a ResourceClaim of its own, so deleting it is a step and not garbage collection" \
   "grep -q 'resourceClaimName: gpu' '$R/s1/r1.yaml' && grep -q '^kind: ResourceClaim\$' '$R/s1/r1.yaml'"
-check "S1 records three reps, each read from the checkpoint: PrepareCompleted, then gone once the plugin is back" \
-  "[ \"\$(awk -F'\t' 'NR>1 && \$3==\"PrepareCompleted\" && \$4==\"yes\" && \$5==\"yes\" && \$7==\"absent\"' '$R/s1/result.tsv' | wc -l)\" = 3 ]"
+check "S1 records three valid reps, each read from the checkpoint: PrepareCompleted, then gone once the plugin is back" \
+  "[ \"\$(awk -F'\t' 'NR>1 && \$2==\"yes\" && \$4==\"PrepareCompleted\" && \$5==\"gone\" && \$6==\"gone\" && \$8==\"absent\"' '$R/s1/result.tsv' | wc -l)\" = 3 ]"
+check "S1 saves the plugin's log of every rep before the pod is replaced" \
+  "[ -s '$R/s1/r1.plugin-before-down.log' ] && [ -s '$R/s3/../s1/r3.plugin-after-watch.log' ]"
 check "S1 installs its chart after removing the bats suite's release" \
   "grep -q '^helm uninstall -n dra-driver-nvidia-gpu dra-driver-nvidia-gpu-batssuite' '$RC' && grep -q '^helm upgrade -i dra-gpu-session .*--set resources.computeDomains.enabled=false --set logVerbosity=6' '$RC'"
 snaps_ok=1
@@ -221,8 +241,13 @@ done
 check "S1 captures the checkpoint JSON before and after every step" "[ $snaps_ok = 1 ]"
 check "S1 keeps both sides' logs" "[ -s '$R/s1/kubelet.log' ] && [ -s '$R/s1/plugin.log' ] && [ -s '$R/s1/resources.yaml' ]"
 runner leak FAKE_S1_LEAK=1 FAKE_PHASE=x
-check "S1 reports an entry that survives the watch as still PrepareCompleted" \
-  "[ \"\$(awk -F'\t' 'NR>1 && \$7==\"PrepareCompleted\"' '$WORK/rout-leak/s1/result.tsv' | wc -l)\" = 3 ]"
+check "S1 reports an entry that survives the watch as still PrepareCompleted, and that is a valid result" \
+  "[ \"\$(awk -F'\t' 'NR>1 && \$2==\"yes\" && \$8==\"PrepareCompleted\"' '$WORK/rout-leak/s1/result.tsv' | wc -l)\" = 3 ] &&
+   awk -F'\t' '\$1==\"s1\" && \$2==0' '$WORK/rout-leak/summary.tsv' | grep -q ."
+runner notprepared FAKE_S1_NOT_PREPARED=1
+check "S1 whose claim never reached PrepareCompleted is invalid: it exits 4, and S2 and S3 still run" \
+  "awk -F'\t' '\$1==\"s1\" && \$2==4' '$WORK/rout-notprepared/summary.tsv' | grep -q . && [ \"\$(awk -F'\t' 'NR>1 && \$2==\"no\"' '$WORK/rout-notprepared/s1/result.tsv' | wc -l)\" = 3 ] &&
+   awk -F'\t' '\$1==\"s3\" && \$2==0' '$WORK/rout-notprepared/summary.tsv' | grep -q ."
 
 # S2, #1639's trigger: the quota, then the MPS claim, then SIGKILL only once the checkpoint says PrepareStarted.
 s2_ok=1
@@ -237,21 +262,32 @@ done
 check "S2 blocks new pods, applies #1639's MPS spec, SIGKILLs the plugin, then releases, in each of three reps" "[ $s2_ok = 1 ]"
 check "S2's kill comes after a checkpoint read showed PrepareStarted" \
   "jq -e '.v2.preparedClaims[\"uid-mps\"].checkpointState == \"PrepareStarted\"' \"\$(ls '$R'/s2/snap/*-r1-sigkill.before.checkpoint.json)\" >/dev/null"
-check "S2 records the four survivors after the restart and after the release, three times" \
-  "[ \"\$(awk -F'\t' 'NR>1 && \$3==\"yes\" && \$4==\"yes\" && \$5==\"PrepareStarted\" && \$8==\"Default\" && \$13==\"Default\"' '$R/s2/result.tsv' | wc -l)\" = 3 ] &&
-   head -1 '$R/s2/result.tsv' | grep -q 'deploy_after_release.node_mount_after_release.host_mount_after_release.compute_mode_after_release'"
+check "S2 records the four survivors after the restart and after the release, three valid times" \
+  "[ \"\$(awk -F'\t' 'NR>1 && \$2==\"yes\" && \$4==\"yes\" && \$5==\"yes\" && \$6==\"yes\" && \$7==\"PrepareStarted\" && \$8==0 && \$9==0 && \$10==\"Default\" && \$15==\"Default\"' '$R/s2/result.tsv' | wc -l)\" = 3 ] &&
+   head -1 '$R/s2/result.tsv' | grep -q 'deploy_settled.node_mount_settled.host_mount_settled.compute_mode_settled'"
+check "S2 keeps the killed plugin's log and the restarted one's" "[ -s '$R/s2/r1.plugin-before-kill.log' ] && [ -s '$R/s2/r3.plugin-settled.log' ]"
+runner mpsnever FAKE_MPS_NEVER=1
+check "S2 whose claim never reached PrepareStarted kills nothing and is invalid: it exits 4" \
+  "awk -F'\t' '\$1==\"s2\" && \$2==4' '$WORK/rout-mpsnever/summary.tsv' | grep -q . && ! grep -q 'kill -KILL' '$WORK/rst-mpsnever/calls'"
 check "S2 enables MPS and resets the GPU to Default after each rep" \
   "grep -q '^helm upgrade -i dra-gpu-session .*--set featureGates.MPSSupport=true' '$RC' && [ \"\$(grep -c '^nvidia-smi -c DEFAULT' '$RC')\" = 3 ]"
 
 # S3, #1572: memory mode, two claims of 4Gi.
-s3y=$(grep -l 's3-shares' "$WORK"/rst-good/applied-*.yaml | head -1)
+s3y=$(grep -l 'namespace: s3-shares' "$WORK"/rst-good/applied-*.yaml | paste -sd' ')
 check "S3 installs ConsumableShares in memory mode" \
   "grep -q '^helm upgrade -i dra-gpu-session .*--set featureGates.ConsumableShares=true --set consumableShares=memory' '$RC'"
 check "S3 applies two ResourceClaims of memory 4Gi each and a pod for each" \
-  "[ \"\$(grep -c '^kind: ResourceClaim\$' '$s3y')\" = 2 ] && [ \"\$(grep -c '            memory: 4Gi' '$s3y')\" = 2 ] && [ \"\$(grep -c 'resourceClaimName: mem-' '$s3y')\" = 2 ]"
+  "[ \"\$(cat $s3y | grep -c '^kind: ResourceClaim\$')\" = 2 ] && [ \"\$(cat $s3y | grep -c '            memory: 4Gi')\" = 2 ] && [ \"\$(cat $s3y | grep -c 'resourceClaimName: mem-')\" = 2 ]"
+check "S3 submits the second claim only after the first pod is ready" \
+  "w=\$(grep -n '^kubectl wait -n s3-shares --for=condition=Ready pod/pod-0' '$RC' | cut -d: -f1) &&
+   a=\$(grep -n '^kubectl apply -f $R/s3/claim-1.yaml' '$RC' | cut -d: -f1) && [ -n \"\$w\" ] && [ -n \"\$a\" ] && [ \"\$w\" -lt \"\$a\" ]"
+check "S3 is valid on a slice that carries memory's requestPolicy" "awk -F'\t' 'NR==2 && \$1==\"yes\" && \$2==\"yes\"' '$R/s3/result.tsv' | grep -q ."
+runner nopolicy FAKE_NO_POLICY=1
+check "S3 on a slice without requestPolicy (the Kubernetes gate off) is invalid: it exits 4" \
+  "awk -F'\t' '\$1==\"s3\" && \$2==4' '$WORK/rout-nopolicy/summary.tsv' | grep -q ."
 runner pending FAKE_S3_POD1_PENDING=1
 check "S3 records a second pod that never schedules, with the scheduler's reason" \
-  "awk -F'\t' 'NR==2 && \$1==\"yes\" && \$2==\"no\" && \$5 ~ /cannot allocate all claims/' '$WORK/rout-pending/s3/result.tsv' | grep -q ."
+  "awk -F'\t' 'NR==2 && \$1==\"yes\" && \$3==\"yes\" && \$4==\"no\" && \$7 ~ /cannot allocate all claims/' '$WORK/rout-pending/s3/result.tsv' | grep -q ."
 check "each phase's evidence leaves the instance as the phase ends" \
   "[ \"\$(grep -c '^aws s3 cp --only-show-errors $WORK/tmp/phase-[a-z0-9]*.tgz s3://b/run/phase-' '$RC')\" = 6 ]"
 

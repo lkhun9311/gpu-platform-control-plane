@@ -8,6 +8,8 @@
 # The cluster, the build and S4 each gate everything after them: a rig that fails upstream's own baseline cannot support
 # a claim about S1-S3.
 # S1, S2 and S3 are independent, so one that fails is recorded and the next still runs.
+# They exit 4 when the experiment itself was not valid (a precondition never held), so the session can tell that apart
+# from a valid run, whatever it observed.
 # With UPLOAD_PREFIX set, each phase's evidence leaves the instance as that phase ends, so a Spot reclaim loses at most
 # the phase it interrupted.
 set -u
@@ -26,6 +28,8 @@ DRA_COMMIT=e775fdb63e593a121b40fc1cc4c9a9c89955e635
 # Upstream's nvkind CI default (hack/ci/gcp-nvkind/e2e-test.sh): DRA is GA in 1.34.
 K8S_VERSION=v1.34.3
 CLUSTER=dra-session
+# The archive and upload after each phase come out of that phase's bound, so the bounds still sum to the schedule.
+PHASE_UPLOAD_S=45
 SRC=/opt/dra/src
 # cloud-init runs this without HOME, and setup-nvkind-node.sh installs Go tools under $HOME/go.
 export HOME="${HOME:-/root}"
@@ -42,7 +46,7 @@ phase() {
   local name=$1 bound=$2 b t0 rc
   b=$(( HE - $(date +%s) ))
   [ "$b" -gt "$bound" ] && b=$bound
-  if [ "$b" -lt 30 ]; then
+  if [ "$b" -lt $(( PHASE_UPLOAD_S + 45 )) ]; then
     say "phase $name not started: $b s to the harness end"
     printf '%s\tskipped\t0\t%s\n' "$name" "$bound" >>"$OUT/summary.tsv"
     echo 124
@@ -51,14 +55,14 @@ phase() {
   mkdir -p "$OUT/$name"
   say "phase $name: start, bound $b s"
   t0=$(date +%s)
-  D="$OUT/$name" DL=$(( t0 + b - 15 )) WORKER="${WORKER:-}" \
-    timeout --kill-after=15 "$b" bash "$IN/$name.sh" >"$OUT/$name/out.log" 2>&1
+  D="$OUT/$name" DL=$(( t0 + b - PHASE_UPLOAD_S - 15 )) WORKER="${WORKER:-}" \
+    timeout --kill-after=15 $(( b - PHASE_UPLOAD_S - 15 )) bash "$IN/$name.sh" >"$OUT/$name/out.log" 2>&1
   rc=$?
   printf '%s\t%s\t%s\t%s\n' "$name" "$rc" "$(( $(date +%s) - t0 ))" "$bound" >>"$OUT/summary.tsv"
   say "phase $name: exit $rc after $(( $(date +%s) - t0 )) s"
   if [ -n "${UPLOAD_PREFIX:-}" ]; then
     tar --warning=no-file-changed -czf "${TMPDIR:-/tmp}/phase-$name.tgz" -C "$OUT" "$name" summary.tsv steps.log 2>>"$OUT/upload.log"
-    timeout 60 aws s3 cp --only-show-errors "${TMPDIR:-/tmp}/phase-$name.tgz" "$UPLOAD_PREFIX/phase-$name.tgz" >>"$OUT/upload.log" 2>&1 ||
+    timeout 30 aws s3 cp --only-show-errors "${TMPDIR:-/tmp}/phase-$name.tgz" "$UPLOAD_PREFIX/phase-$name.tgz" >>"$OUT/upload.log" 2>&1 ||
       say "the evidence of $name did not upload"
   fi
   echo "$rc"
