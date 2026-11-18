@@ -159,6 +159,20 @@ func TestRunBlocksStopRules(t *testing.T) {
 			t.Fatalf("result %+v, attempts %+v after %d visits, want block 2 stopped at its first visit", res, l.Attempts, len(visits))
 		}
 	})
+	t.Run("a recorder failure that arrives with the deadline is still a recorder failure", func(t *testing.T) {
+		// The visit's final stop runs after the deadline, so its failure comes back together with the cancelled context.
+		stopAt := ArmOrder(20261115, 2)[0]
+		_, l, _ := blocksRun(t, 0, func(block int, treatment string) (VisitOutcome, error) {
+			if block == 2 && treatment == stopAt {
+				return VisitOutcome{}, errors.New("stopping engine b2: container still present")
+			}
+			return VisitOutcome{}, nil
+		}, &visit{block: 2, treatment: stopAt})
+		last := l.Attempts[len(l.Attempts)-1]
+		if last.Status != AttemptStopped || !strings.Contains(last.Reason, "recorder failure") || !strings.Contains(last.Reason, "container still present") {
+			t.Fatalf("block 2 ended %s: %q, want a recorder failure that names the error", last.Status, last.Reason)
+		}
+	})
 	t.Run("the budget refuses before block 1", func(t *testing.T) {
 		res, l, visits := blocksRun(t, 19, allValid, nil)
 		if !strings.Contains(res.Stop, "budget") || len(l.Attempts) != 0 || len(visits) != 0 {

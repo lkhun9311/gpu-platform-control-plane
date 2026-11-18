@@ -124,11 +124,17 @@ func (s SessionBlocks) runBlock(ctx context.Context, block int) (AttemptStatus, 
 	loads := LoadOrder(block)
 	for _, t := range ArmOrder(s.Design.CampaignSeed, block) {
 		out, err := s.Visit(ctx, block, t, loads)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return AttemptStopped, fmt.Sprintf("cut short in treatment %s: %v", t, ctxErr), nil
-		}
+		// The error is read first: an engine stop or a write that failed as the deadline passed is still evidence that is not
+		// whole, and reporting only the deadline would hide it.
 		if err != nil {
-			return AttemptStopped, fmt.Sprintf("recorder failure in treatment %s: %v", t, err), nil
+			reason := fmt.Sprintf("recorder failure in treatment %s: %v", t, err)
+			if ctx.Err() != nil {
+				reason += fmt.Sprintf(" (the block was also cut short: %v)", context.Cause(ctx))
+			}
+			return AttemptStopped, reason, nil
+		}
+		if ctx.Err() != nil {
+			return AttemptStopped, fmt.Sprintf("cut short in treatment %s: %v", t, context.Cause(ctx)), nil
 		}
 		if out.Invalid != "" {
 			reasons = append(reasons, fmt.Errorf("treatment %s: %s", t, out.Invalid))
