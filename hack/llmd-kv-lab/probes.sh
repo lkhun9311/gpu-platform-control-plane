@@ -160,8 +160,8 @@ gauges() {
 
 # probe_churn replaces a simulator two ways while the EPP holds cache state about it, for issue #599's week-1 exit.
 #
-# 1. Pod delete under traffic: the Deployment brings a pod with a new name and address, so the question is whether
-#    requests sent while the old pod goes fail, and whether the EPP credits the new pod with the old one's prefixes.
+# 1. Pod delete under traffic: requests for the family the pod holds are in flight on it when it is deleted, and the
+#    Deployment brings a pod with a new name and address; the question is whether any request fails.
 # 2. Container restart in place: kubelet restarts the simulator inside the same pod, so the name and address the EPP
 #    keys its state by do not change while the cache behind them is emptied.
 #    The question is whether the EPP still believes the pod holds what it held, and routes a prefix there as a hit.
@@ -170,15 +170,24 @@ probe_churn() {
   local victim i rc0 rc1 cid
   for i in 1 2; do drive "churn-warm-a$i" "$GATEWAY" gateway "CA*2"; done
   victim=$(family_pod CA)
-  say "[$ARM] churn 1: CA lives on $victim; deleting it while one request is sent every 0.25 s for 20 s"
+  say "[$ARM] churn 1: CA lives on $victim; deleting it under four concurrent streams of CA"
+  echo "$victim" >"$RUN/$ARM/churn1-victim.txt"
   snap churn1-before
-  # The background stream uses a family of its own, so its rows are told apart from the CA checks.
-  "$DRIVER" -url "$GATEWAY" -target gateway -plan "CS*80" -gap 250ms -tag "$ARM-churn1-stream" \
-    -out "$RUN/$ARM/requests.jsonl" >/dev/null 2>"$RUN/$ARM/churn1-stream.err" &
-  local stream=$!
-  sleep 2
+  # The streams send CA, the family the victim holds, so the prefix scorer steers them to the victim and requests are
+  # in flight there when it goes; four at once keep its one-at-a-time queue non-empty.
+  # A stream of a family of its own reached the victim 0 to 5 times in the first runs, which tested nothing.
+  local streams=() s
+  for s in 1 2 3 4; do
+    "$DRIVER" -url "$GATEWAY" -target gateway -plan "CA*40" -gap 100ms -tag "$ARM-churn1-stream$s" \
+      -out "$RUN/$ARM/requests.jsonl" >/dev/null 2>"$RUN/$ARM/churn1-stream$s.err" &
+    streams+=($!)
+  done
+  sleep 3
+  date -u +%Y-%m-%dT%H:%M:%S.%NZ >"$RUN/$ARM/churn1-delete-at.txt"
   k delete pod "$victim" --wait=false >/dev/null
-  wait "$stream" || say "[$ARM] churn 1: the stream during the delete had failed requests ($(cat "$RUN/$ARM/churn1-stream.err"))"
+  for s in "${streams[@]}"; do
+    wait "$s" || say "[$ARM] churn 1: a stream during the delete had failed requests (churn1-stream*.err)"
+  done
   for i in $(seq 1 60); do
     [ "$(sim_pods | wc -l)" = "${LAB_SIM_REPLICAS:-3}" ] \
       && [ "$(k get pods -l llm-d.ai/component=decode --no-headers | wc -l)" = "${LAB_SIM_REPLICAS:-3}" ] && break

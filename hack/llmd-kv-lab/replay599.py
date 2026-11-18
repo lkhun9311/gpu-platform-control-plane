@@ -18,7 +18,8 @@ import sys
 from collections import defaultdict
 
 PREFIX_SCORER = "prefix-cache-scorer"
-# Experiment A's post-hoc split of the shared-942 tail: the first 20 s are the cold start, where every prompt misses.
+# Experiment A's post-hoc split of the shared-942 tail: the first 20 s are the cold start, while the caches fill.
+# Most of its requests miss then, though not all: experiment A's #18, at 13.1 s, matched.
 COLD_START_MS = 20_000
 WINDOW_MS = 30_000
 
@@ -96,11 +97,13 @@ def summarise_arm(run, arm):
     t = [ttft_ms(r) for r in rows]
     out = {"arm": arm, "n": n, "ok": len(ok), "via_epp": sum(r["via_epp"] for r in rows), "pods": pods}
     out["share"] = {p: sum(r["pod"] == p for r in rows) / n for p in pods}
-    # The worst 30 s window: how far the busiest pod's share of that window's arrivals went above an even split.
+    # The busiest pod's share of the arrivals in any 30 s window that starts at an arrival and ends inside the trace.
+    # Windows run from every arrival, not in fixed bins, which read a burst straddling two bins lower than its peak.
     worst = 0.0
-    for w in range(0, max(r["offset_ms"] for r in rows) + 1, WINDOW_MS):
-        win = [r for r in rows if w <= r["offset_ms"] < w + WINDOW_MS and r["pod"]]
-        if win and len(pods) > 0:
+    last = max(r["offset_ms"] for r in rows)
+    for start in (r["offset_ms"] for r in rows if r["offset_ms"] + WINDOW_MS <= last):
+        win = [r for r in rows if start <= r["offset_ms"] < start + WINDOW_MS and r["pod"]]
+        if win and pods:
             worst = max(worst, max(sum(r["pod"] == p for r in win) / len(win) for p in pods))
     out["worst_window_share"] = worst
     known = [r for r in ok if r["cached_tokens"] >= 0]
@@ -142,7 +145,7 @@ def main(run):
     arms = [a for a in sorted(os.listdir(run)) if os.path.isfile(os.path.join(run, a, "replay.jsonl"))]
     results = [summarise_arm(run, a) for a in arms]
     print("Simulator latencies: they show where requests queued, not GPU performance.\n")
-    print(f"{'arm':13} {'ok/n':>8} {'share by pod':>16} {'worst30s':>8} {'hit(sim)':>8} {'scorer':>7} "
+    print(f"{'arm':13} {'ok/n':>8} {'share by pod':>16} {'roll30s':>8} {'hit(sim)':>8} {'scorer':>7} "
           f"{'pred':>9} {'pred-miss':>9} {'p50':>7} {'p99':>7} {'p99 by pod':>16} {'p99>20s':>7} {'imbal':>5}")
     for o in results:
         share = " / ".join(fmt(o["share"][p], 3) for p in o["pods"])
@@ -159,7 +162,7 @@ def main(run):
               f"({o['sample_failures']} failed reads)"
               + ("; EPP LOG FOLLOWER ENDED EARLY, score joins incomplete" if o["follow_ended_early"] else ""))
         for p, (mean, mx) in sorted(o["queue"].items()):
-            print(f"   queue {p}: mean {mean:.2f}, max {mx:.0f} (running+waiting)")
+            print(f"   queue {p}: mean {mean:.2f}, highest sampled {mx:.0f} (running+waiting, read once a second)")
         if "scored" in o:
             print(f"   scorer: picked pod scored above 0 for {o['predicted']}/{o['scored']}; of those, simulator hit "
                   f"{o['predicted_hit']}, missed {o['predicted_miss']}; hits it did not predict {o['unpredicted_hit']}")
