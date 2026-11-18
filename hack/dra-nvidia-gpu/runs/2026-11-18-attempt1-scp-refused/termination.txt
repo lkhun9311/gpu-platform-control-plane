@@ -1,0 +1,1 @@
+TERMINATION UNCONFIRMED for the launch under token dragpu-60855d64-g6.xlarge-ap-northeast-2c

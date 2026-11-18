@@ -1,0 +1,14 @@
+== dra-driver-nvidia-gpu S4, S1, S2, S3 for dra-nvidia-gpu-single-2026-11-18, from 141872a226a1eddf250ef4e58bd26dfca8410197, into hack/dra-nvidia-gpu-20261118T141706Z
+== hard stop 5400 s after LaunchTime; worst case 5700 s at $1.2575/h = $1.9910
+== upstream e775fdb63e593a121b40fc1cc4c9a9c89955e635 has the 10 files the phases use
+== AMI ami-035e3088f6b7821fb: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261113	available
+== Spot candidates, in order: g6.xlarge:ap-northeast-2c g6.xlarge:ap-northeast-2d g6.xlarge:ap-northeast-2a g5.xlarge:ap-northeast-2c g5.xlarge:ap-northeast-2d g5.xlarge:ap-northeast-2a
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 712 minutes
+== creating results bucket dra-gpu-007635145730
+== creating instance role dra-gpu
+== waiting for the instance profile to propagate
+== before the purchase: credentials expire in 711 minutes
+== launching one of g6.xlarge:ap-northeast-2c g6.xlarge:ap-northeast-2d g6.xlarge:ap-northeast-2a g5.xlarge:ap-northeast-2c g5.xlarge:ap-northeast-2d g5.xlarge:ap-northeast-2a ($1.2575/h all in at worst), study-deadline 2026-11-18T15:46:45Z -- the instance bills from here
+SESSION REFUSED: the g6.xlarge launch in ap-northeast-2c was refused for a reason that is not capacity; see hack/dra-nvidia-gpu-20261118T141706Z/launch-errors.txt
+== reconciling the launch token dragpu-60855d64-g6.xlarge-ap-northeast-2c: asking AWS what it actually created

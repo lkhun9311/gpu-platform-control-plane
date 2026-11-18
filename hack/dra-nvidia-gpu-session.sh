@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 #
-# kubernetes-sigs/dra-driver-nvidia-gpu on one real GPU: one g6.xlarge (L4) Spot instance, g5.xlarge (A10G) if no zone
-# has g6 capacity, one attempt, stopped by itself 5,400 s after launch.
+# kubernetes-sigs/dra-driver-nvidia-gpu on one real GPU: one g5.xlarge (A10G) Spot instance, one attempt, stopped by itself
+# 5,400 s after launch.
+# The account's service control policy (infra/aws/org/scp/deny-instance-family.json) allows only t3, g4dn and g5, and
+# refused a g6.xlarge launch on 2026-11-18, so g6 is not tried.
 #
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab DRA_GPU_AMI_ID=ami-... bash hack/dra-nvidia-gpu-session.sh
 #
@@ -40,7 +42,7 @@
 # The all-in rate is the higher cap plus that, $1.2575/h, whichever type launches, and the worst case is $1.9910.
 # The script refuses to run if the constants below stop giving a worst case under $5, or if the all-in rate is under
 # either cap plus the volume and the address.
-# Expected, at 2026-11-18's g6.xlarge Spot of about $0.47/h: 1.5 h x ($0.4717 + $0.0175) = about $0.73.
+# Expected, at 2026-11-18's g5.xlarge Spot of about $0.61/h: 1.5 h x ($0.6115 + $0.0175) = about $0.94.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instances, the commit, the phases, the bounds and the stop are
 # constants, and a caller who sets one is refused rather than ignored.
@@ -57,7 +59,7 @@ done
 REGION=ap-northeast-2
 ACCOUNT_WANT=007635145730
 # In the order tried: the L4 first, the A10G only if no zone has an L4 at or under its cap.
-INSTANCE_TYPES="g6.xlarge g5.xlarge"
+INSTANCE_TYPES="g5.xlarge"
 MAX_PRICE_G6=0.99
 MAX_PRICE_G5=1.24
 # 100 GB gp3 ($0.0125/h) and a public IPv4 ($0.005/h).

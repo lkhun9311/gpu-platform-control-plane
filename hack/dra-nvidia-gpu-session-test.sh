@@ -131,9 +131,9 @@ session ok "$REPO" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI
 O="$WORK/out-ok" C="$WORK/st-ok/calls"
 check "a valid session exits 0 and confirms the termination" \
   "[ \"\$(cat '$WORK/ok.rc')\" = 0 ] && grep -qx 'terminated i-0fake' '$O/termination.txt' && grep -qx 'termination=confirmed' '$O/outcome.txt'"
-check "the launch is one g6.xlarge Spot at the \$0.99 cap, on the pinned AMI, 100 GB, terminating on shutdown" \
-  "[ \"\$(grep -c '^aws ec2 run-instances' '$C')\" = 1 ] && grep '^aws ec2 run-instances' '$C' | grep -q -- '--image-id $AMI --instance-type g6.xlarge' &&
-   grep '^aws ec2 run-instances' '$C' | grep -qF '\"MaxPrice\":\"0.99\"' && grep '^aws ec2 run-instances' '$C' | grep -qF '\"VolumeSize\":100' &&
+check "the launch is one g5.xlarge Spot at the \$1.24 cap (the SCP allows no g6), on the pinned AMI, 100 GB, terminating on shutdown" \
+  "[ \"\$(grep -c '^aws ec2 run-instances' '$C')\" = 1 ] && grep '^aws ec2 run-instances' '$C' | grep -q -- '--image-id $AMI --instance-type g5.xlarge' &&
+   ! grep -q 'g6.xlarge' '$C' && grep '^aws ec2 run-instances' '$C' | grep -qF '\"MaxPrice\":\"1.24\"' && grep '^aws ec2 run-instances' '$C' | grep -qF '\"VolumeSize\":100' &&
    grep '^aws ec2 run-instances' '$C' | grep -q -- '--instance-initiated-shutdown-behavior terminate'"
 check "the user-data's first command is the backstop at the stop, before its logging" \
   "[ \"\$(sed -n 2p '$WORK/st-ok/user-data.sh')\" = '( sleep 5400; shutdown -h now ) >/dev/null 2>&1 &' ] && bash -n '$WORK/st-ok/user-data.sh'"
@@ -147,10 +147,6 @@ check "terminate is called after the wait, and the evidence is downloaded and un
   "grep -q '^aws ec2 terminate-instances .*i-0fake' '$C' && [ -s '$O/dra-run/run/summary.tsv' ] && grep -qx 'evidence=returned' '$O/outcome.txt'"
 check "the upstream files the phases use were checked at the pinned commit" "[ \"\$(wc -l <'$O/upstream-files.txt')\" = 10 ]"
 
-session fallback "$REPO" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI FAKE_NO_CAPACITY=g6.xlarge
-check "with no g6.xlarge capacity the fallback is g5.xlarge at its own \$1.24 cap" \
-  "[ \"\$(cat '$WORK/fallback.rc')\" = 0 ] && grep '^aws ec2 run-instances' '$WORK/st-fallback/calls' | tail -1 | grep -q -- '--instance-type g5.xlarge' &&
-   grep '^aws ec2 run-instances' '$WORK/st-fallback/calls' | tail -1 | grep -qF '\"MaxPrice\":\"1.24\"'"
 session s4fail "$REPO" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI FAKE_PHASE_RCS="cluster=0 build=0 s4=1"
 check "a session whose S4 failed exits 3" "[ \"\$(cat '$WORK/s4fail.rc')\" = 3 ] && grep -qx 's4=1' '$WORK/out-s4fail/outcome.txt'"
 session s1invalid "$REPO" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI FAKE_PHASE_RCS="cluster=0 build=0 s4=0 s1=4 s2=0 s3=0"

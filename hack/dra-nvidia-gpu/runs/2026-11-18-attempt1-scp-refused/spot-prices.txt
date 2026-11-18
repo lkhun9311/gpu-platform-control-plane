@@ -1,0 +1,2 @@
+g6.xlarge ap-northeast-2a	0.470000 ap-northeast-2c	0.471700 ap-northeast-2d	0.465300
+g5.xlarge ap-northeast-2c	0.629000 ap-northeast-2a	0.615400 ap-northeast-2d	0.611500
