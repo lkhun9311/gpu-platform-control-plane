@@ -444,7 +444,7 @@ func TestSRPFProbesRunUnderPython(t *testing.T) {
 // Scheduler reads the threshold as the PR's does.
 // The "engine core" changes its own os.environ after exec, which /proc does not show, and the record must show what the
 // constructed scheduler holds, as codex's review of this sweep reproduced.
-// Mutations that turn this red: record the variable from /proc instead of the instance, or drop the .pth file.
+// Mutations that turn this red: record the variable instead of the instance's field, or drop the .pth file.
 func TestSRPFObserverRecordsWhatTheSchedulerHolds(t *testing.T) {
 	py, err := exec.LookPath("python3")
 	if err != nil {
@@ -461,7 +461,10 @@ func TestSRPFObserverRecordsWhatTheSchedulerHolds(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// After reading the threshold, this Scheduler sets the variable to 4, so when the observer writes its record the
+	// instance holds 9 and the environment says 4, and only a record of the instance's field reports 9.
 	src := "import os\nclass Scheduler:\n    def __init__(self):\n        self.srpf_starvation_threshold = int(os.environ.get(\"VLLM_SRPF_STARVATION_THRESHOLD\", \"5\"))\n" +
+		"        os.environ[\"VLLM_SRPF_STARVATION_THRESHOLD\"] = \"4\"\n" +
 		"    def _get_srpf_key_for_req(self, req):\n        return ()\n"
 	if err := os.WriteFile(filepath.Join(sched, "scheduler.py"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
@@ -512,7 +515,8 @@ func TestSRPFObserverRecordsWhatTheSchedulerHolds(t *testing.T) {
 		t.Fatalf("the probe saw observed=%t and %d scheduler records: %s", p.Observed, len(p.Schedulers), out)
 	}
 	r := p.Schedulers[0]
-	if r.PID != core.Process.Pid || string(r.Threshold) != "9" || r.Starvation == nil || *r.Starvation != "9" || r.Env == nil || *r.Env != "1" ||
+	// Mutation that turns this red: record int(os.environ.get(...)) in place of the instance's srpf_starvation_threshold.
+	if r.PID != core.Process.Pid || string(r.Threshold) != "9" || r.Starvation == nil || *r.Starvation != "4" || r.Env == nil || *r.Env != "1" ||
 		r.File != filepath.Join(sched, "scheduler.py") {
 		t.Errorf("the observer recorded %+v, want pid %d holding 9", r, core.Process.Pid)
 	}
