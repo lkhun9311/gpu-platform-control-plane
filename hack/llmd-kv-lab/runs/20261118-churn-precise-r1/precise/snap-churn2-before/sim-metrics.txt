@@ -1,0 +1,6 @@
+vllm-d-865df8f7b4-524gj vllm:kv_cache_usage_perc{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 0
+vllm-d-865df8f7b4-524gj vllm:prefix_cache_hits_total{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 44160
+vllm-d-865df8f7b4-524gj vllm:prefix_cache_queries_total{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 47957
+vllm-d-865df8f7b4-dsjhk vllm:kv_cache_usage_perc{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 0
+vllm-d-865df8f7b4-dsjhk vllm:prefix_cache_hits_total{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 992
+vllm-d-865df8f7b4-dsjhk vllm:prefix_cache_queries_total{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 1388

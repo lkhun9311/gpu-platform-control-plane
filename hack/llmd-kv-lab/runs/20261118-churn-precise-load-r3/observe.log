@@ -1,0 +1,6 @@
+probes: === arm precise-load: EPP on the precise-load config, then fresh simulator pods
+llmd-kv-lab: simulator, EPP and renderer pods run their pinned images
+llmd-kv-lab: EPP now runs the precise-load config, behind freshly started simulators
+probes: [precise-load] churn 1: CA lives on vllm-d-54d995c76-zxgb9; deleting it under four concurrent streams of CA
+probes: [precise-load] churn 2: CB lives on vllm-d-54d995c76-8q6js (restarts 0); stopping its simulator container e267c75c2fdfc69a5e3945acc8d0968d5c2cdcecd119f7645104667c96e3e36d
+probes: probe churn on precise-load written to hack/llmd-kv-lab/runs/20261118-churn-precise-load-r3

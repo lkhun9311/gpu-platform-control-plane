@@ -1,0 +1,16 @@
+== arm precise-load: 10 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-load-cancel-after-000 K1     gateway    nt6xj       0/344      447.7  kg78m=0 nt6xj=1
+precise-load-cancel-after-001 K2     gateway    kg78m       0/344      446.7  kg78m=1 nt6xj=0
+precise-load-cancel-after-002 K3     gateway    nt6xj       0/343      444.4  kg78m=0 nt6xj=1
+precise-load-cancel-after-003 K4     gateway    kg78m       0/344      446.0  kg78m=1 nt6xj=0
+precise-load-cancel-after-004 K5     gateway    nt6xj       0/343      444.4  kg78m=0 nt6xj=1
+precise-load-cancel-after-005 K6     gateway    kg78m       0/343      445.7  kg78m=1 nt6xj=0
+precise-load-cancel-after-006 K7     gateway    nt6xj       0/344      446.6  kg78m=0 nt6xj=1
+precise-load-cancel-after-007 K8     gateway    kg78m       0/343      445.5  kg78m=1 nt6xj=0
+precise-load-cancel-after-008 K9     gateway    nt6xj       0/344      445.7  kg78m=0 nt6xj=1
+precise-load-cancel-after-009 K10    gateway    kg78m       0/346      448.5  kg78m=1 nt6xj=0
+   gateway requests joined to EPP scores: 10/10
+   step                                     gateway   hit  predicted  to warm pod
+   precise-load-cancel-after                     10     0       0/10            -
+

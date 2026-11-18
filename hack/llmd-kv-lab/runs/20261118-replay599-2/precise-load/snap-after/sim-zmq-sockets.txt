@@ -1,0 +1,2 @@
+vllm-d-fd8dfd6cd-28mjw ESTAB 0      0      [::ffff:10.244.0.87]:5557 [::ffff:10.244.0.85]:34874
+vllm-d-fd8dfd6cd-kr95m ESTAB 0      0      [::ffff:10.244.0.86]:5557 [::ffff:10.244.0.85]:33698

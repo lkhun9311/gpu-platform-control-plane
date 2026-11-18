@@ -1,0 +1,38 @@
+Simulator latencies: they show where requests queued, not GPU performance.
+
+arm               ok/n     share by pod  roll30s hit(sim)  scorer      pred pred-miss     p50     p99       p99 by pod p99>20s imbal
+approx         482/482    0.550 / 0.450     0.79    0.803   0.792    93/103         0      93    2043      2012 / 2043    1575  0.38
+approx-load    482/482    0.488 / 0.512     0.68    0.791   0.588       2/3         0      93    2003      1867 / 2003    1293  0.37
+precise        482/482    0.560 / 0.440     0.79    0.815   0.982   101/101         0      95    2040      2015 / 2040    1579  0.38
+precise-load   482/482    0.471 / 0.529     0.71    0.716   0.803     14/16         0      95    2040      1898 / 2040    1393  0.33
+rr             482/482    0.500 / 0.500     0.54    0.555       -         -         -     203    2352      2384 / 2278    1893  0.37
+
+== approx: pods vllm-d-5568b5fcbd-br9mt, vllm-d-5568b5fcbd-kzvw5; via EPP 482/482; joined to EPP scores 103/482; cached count missing 0; samples 1206 (0 failed reads)
+   queue vllm-d-5568b5fcbd-br9mt: mean 0.29, highest sampled 4 (running+waiting, read once a second)
+   queue vllm-d-5568b5fcbd-kzvw5: mean 0.24, highest sampled 2 (running+waiting, read once a second)
+   scorer: picked pod scored above 0 for 93/103; of those, simulator hit 93, missed 0; hits it did not predict 7
+   five worst TTFT (index, offset ms, ms, pod, cached): [(6, 3881, '2814', 'br9mt', 0), (12, 8148, '2386', 'br9mt', 0), (13, 8796, '2354', 'kzvw5', 0), (7, 4567, '2278', 'kzvw5', 0), (59, 64593, '2043', 'kzvw5', 0)]
+   first 20 s (index, pod, ms): [(0, 'br9mt', '954'), (1, 'kzvw5', '955'), (2, 'br9mt', '955'), (3, 'kzvw5', '953'), (4, 'br9mt', '2003'), (5, 'kzvw5', '1864'), (6, 'br9mt', '2814'), (7, 'kzvw5', '2278'), (8, 'br9mt', '1390'), (9, 'kzvw5', '954'), (10, 'br9mt', '1362'), (11, 'kzvw5', '1760'), (12, 'br9mt', '2386'), (13, 'kzvw5', '2354'), (14, 'br9mt', '1279'), (15, 'kzvw5', '1740'), (16, 'br9mt', '1953'), (17, 'kzvw5', '1630'), (18, 'kzvw5', '978'), (19, 'kzvw5', '1326'), (20, 'br9mt', '956'), (21, 'kzvw5', '957'), (22, 'br9mt', '956'), (23, 'kzvw5', '1356'), (24, 'br9mt', '956')]
+== approx-load: pods vllm-d-664b67b459-h52k5, vllm-d-664b67b459-jgq6x; via EPP 482/482; joined to EPP scores 3/482; cached count missing 0; samples 1206 (0 failed reads)
+   queue vllm-d-664b67b459-h52k5: mean 0.25, highest sampled 3 (running+waiting, read once a second)
+   queue vllm-d-664b67b459-jgq6x: mean 0.28, highest sampled 3 (running+waiting, read once a second)
+   scorer: picked pod scored above 0 for 2/3; of those, simulator hit 2, missed 0; hits it did not predict 1
+   five worst TTFT (index, offset ms, ms, pod, cached): [(6, 3881, '2813', 'jgq6x', 0), (12, 8148, '2386', 'jgq6x', 0), (13, 8796, '2353', 'h52k5', 0), (7, 4567, '2282', 'h52k5', 0), (4, 3413, '2003', 'jgq6x', 0)]
+   first 20 s (index, pod, ms): [(0, 'jgq6x', '956'), (1, 'h52k5', '954'), (2, 'jgq6x', '954'), (3, 'h52k5', '955'), (4, 'jgq6x', '2003'), (5, 'h52k5', '1867'), (6, 'jgq6x', '2813'), (7, 'h52k5', '2282'), (8, 'jgq6x', '1391'), (9, 'h52k5', '954'), (10, 'jgq6x', '1363'), (11, 'h52k5', '1759'), (12, 'jgq6x', '2386'), (13, 'h52k5', '2353'), (14, 'jgq6x', '1281'), (15, 'h52k5', '1741'), (16, 'jgq6x', '1956'), (17, 'h52k5', '1631'), (18, 'h52k5', '981'), (19, 'jgq6x', '957'), (20, 'h52k5', '957'), (21, 'jgq6x', '957'), (22, 'h52k5', '956'), (23, 'jgq6x', '1356'), (24, 'h52k5', '956')]
+== precise: pods vllm-d-7b7d7b9bb-4llfx, vllm-d-7b7d7b9bb-ncbjn; via EPP 482/482; joined to EPP scores 101/482; cached count missing 0; samples 1206 (0 failed reads)
+   queue vllm-d-7b7d7b9bb-4llfx: mean 0.30, highest sampled 4 (running+waiting, read once a second)
+   queue vllm-d-7b7d7b9bb-ncbjn: mean 0.24, highest sampled 3 (running+waiting, read once a second)
+   scorer: picked pod scored above 0 for 101/101; of those, simulator hit 101, missed 0; hits it did not predict 0
+   five worst TTFT (index, offset ms, ms, pod, cached): [(6, 3881, '2815', '4llfx', 0), (12, 8148, '2385', '4llfx', 0), (13, 8796, '2351', 'ncbjn', 0), (7, 4567, '2282', 'ncbjn', 0), (59, 64593, '2040', 'ncbjn', 0)]
+   first 20 s (index, pod, ms): [(0, '4llfx', '963'), (1, 'ncbjn', '958'), (2, '4llfx', '956'), (3, 'ncbjn', '957'), (4, '4llfx', '2005'), (5, 'ncbjn', '1870'), (6, '4llfx', '2815'), (7, 'ncbjn', '2282'), (8, '4llfx', '1391'), (9, 'ncbjn', '955'), (10, '4llfx', '1362'), (11, 'ncbjn', '1758'), (12, '4llfx', '2385'), (13, 'ncbjn', '2351'), (14, '4llfx', '1278'), (15, 'ncbjn', '1736'), (16, '4llfx', '1953'), (17, 'ncbjn', '1625'), (18, 'ncbjn', '974'), (19, 'ncbjn', '1321'), (20, '4llfx', '959'), (21, 'ncbjn', '957'), (22, '4llfx', '959'), (23, 'ncbjn', '1358'), (24, '4llfx', '958')]
+== precise-load: pods vllm-d-5f66585788-dvdpv, vllm-d-5f66585788-vmgf4; via EPP 482/482; joined to EPP scores 16/482; cached count missing 0; samples 1208 (0 failed reads)
+   queue vllm-d-5f66585788-dvdpv: mean 0.26, highest sampled 2 (running+waiting, read once a second)
+   queue vllm-d-5f66585788-vmgf4: mean 0.30, highest sampled 3 (running+waiting, read once a second)
+   scorer: picked pod scored above 0 for 14/16; of those, simulator hit 14, missed 0; hits it did not predict 0
+   five worst TTFT (index, offset ms, ms, pod, cached): [(6, 3881, '2817', 'vmgf4', 0), (12, 8148, '2390', 'vmgf4', 0), (13, 8796, '2357', 'dvdpv', 0), (7, 4567, '2280', 'dvdpv', 0), (58, 64055, '2040', 'vmgf4', 0)]
+   first 20 s (index, pod, ms): [(0, 'vmgf4', '959'), (1, 'dvdpv', '957'), (2, 'vmgf4', '959'), (3, 'dvdpv', '956'), (4, 'vmgf4', '2007'), (5, 'dvdpv', '1868'), (6, 'vmgf4', '2817'), (7, 'dvdpv', '2280'), (8, 'vmgf4', '1394'), (9, 'dvdpv', '958'), (10, 'vmgf4', '1366'), (11, 'dvdpv', '1762'), (12, 'vmgf4', '2390'), (13, 'dvdpv', '2357'), (14, 'vmgf4', '1286'), (15, 'dvdpv', '1744'), (16, 'vmgf4', '1961'), (17, 'dvdpv', '1633'), (18, 'dvdpv', '984'), (19, 'vmgf4', '959'), (20, 'dvdpv', '959'), (21, 'vmgf4', '959'), (22, 'dvdpv', '959'), (23, 'vmgf4', '1358'), (24, 'dvdpv', '959')]
+== rr: pods vllm-d-54c899d766-mpvbw, vllm-d-54c899d766-x2c7r; via EPP 482/482; joined to EPP scores 0/482; cached count missing 0; samples 1208 (0 failed reads)
+   queue vllm-d-54c899d766-mpvbw: mean 0.36, highest sampled 3 (running+waiting, read once a second)
+   queue vllm-d-54c899d766-x2c7r: mean 0.33, highest sampled 4 (running+waiting, read once a second)
+   five worst TTFT (index, offset ms, ms, pod, cached): [(6, 3881, '2813', 'mpvbw', 0), (58, 64055, '2471', 'mpvbw', 0), (12, 8148, '2384', 'mpvbw', 0), (59, 64593, '2380', 'x2c7r', 0), (13, 8796, '2352', 'x2c7r', 0)]
+   first 20 s (index, pod, ms): [(0, 'mpvbw', '956'), (1, 'x2c7r', '955'), (2, 'mpvbw', '954'), (3, 'x2c7r', '953'), (4, 'mpvbw', '2004'), (5, 'x2c7r', '1865'), (6, 'mpvbw', '2813'), (7, 'x2c7r', '2278'), (8, 'mpvbw', '1390'), (9, 'x2c7r', '954'), (10, 'mpvbw', '1361'), (11, 'x2c7r', '1759'), (12, 'mpvbw', '2384'), (13, 'x2c7r', '2352'), (14, 'mpvbw', '1277'), (15, 'x2c7r', '1739'), (16, 'mpvbw', '1951'), (17, 'x2c7r', '1628'), (18, 'mpvbw', '1224'), (19, 'x2c7r', '955'), (20, 'mpvbw', '956'), (21, 'x2c7r', '957'), (22, 'mpvbw', '956'), (23, 'x2c7r', '1357'), (24, 'mpvbw', '956')]

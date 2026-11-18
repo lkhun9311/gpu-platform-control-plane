@@ -1,0 +1,32 @@
+# The approximate prefix scorer with load awareness, as upstream deploys it rather than as its dev config tests it.
+# The plugins and weights are the optimized-baseline guide's, copied from llm-d-router's
+# test/perf/config/router-configs/optimized-baseline.yaml at the pinned commit; only decode-filter and the picker are
+# named here, because that file relies on the chart to add them.
+# This is the arm that answers "does upstream's default prefix routing concentrate this trace", since a lone prefix
+# scorer (epp-approx.yaml) has no load signal at all and would concentrate by construction.
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+plugins:
+- type: queue-scorer
+- type: kv-cache-utilization-scorer
+- type: approx-prefix-cache-producer
+  parameters:
+    maxPrefixTokensToMatch: 100000
+- type: prefix-cache-scorer
+- type: no-hit-lru-scorer
+- type: decode-filter
+- type: max-score-picker
+- type: single-profile-handler
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: max-score-picker
+  - pluginRef: queue-scorer
+    weight: 2
+  - pluginRef: kv-cache-utilization-scorer
+    weight: 2
+  - pluginRef: prefix-cache-scorer
+    weight: 3
+  - pluginRef: no-hit-lru-scorer
+    weight: 2

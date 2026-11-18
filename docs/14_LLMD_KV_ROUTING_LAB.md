@@ -20,6 +20,7 @@ claimed.
 - [What was only read in code](#what-was-only-read-in-code)
 - [Limits](#limits)
 - [Upstream-relevant findings](#upstream-relevant-findings)
+- [#599: shared-942 through the prefix scorers](#599-shared-942-through-the-prefix-scorers)
 - [What #599 and #600 can take from here](#what-599-and-600-can-take-from-here)
 
 ## What runs
@@ -60,7 +61,9 @@ approximate 0.857 is 6 of 7 and the precise 0.95 is 19 of 20 (1.0 when the promp
 ```
 router commit      3d0b21d51d29c2f773556c924e5aaf3ee32cc344 (llm-d/llm-d-router main on 2026-11-15)
 EPP image          gpuaas-llmd-kv-lab/epp:3d0b21d51d29, built from that commit's Dockerfile.epp (golang:1.27.4)
-simulator          ghcr.io/llm-d/llm-d-inference-sim:v1.2.0@sha256:9992453829c0dea8d120b8e0322bb0e4237cbb3c6d9ea3bdce060410c40c91c9
+simulator          gpuaas-llmd-kv-lab/sim:6ab9d4b2367a, built from llm-d-inference-sim main at
+                   6ab9d4b2367abe9338665368f61b3ff7e5547e4a (2026-11-17), labelled with that commit
+                   (runs before 2026-11-18: ghcr.io/llm-d/llm-d-inference-sim:v1.2.0@sha256:99924538…c40c91c9)
 render (tokenizer) vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9
 kind node          kindest/node:v1.31.12@sha256:0f5cc49c5e73c0c2bb6e2df56e7df189240d83cf94edfa30946482eb08ec57d2
 kind CLI           v0.24.0
@@ -72,6 +75,9 @@ model              TinyLlama/TinyLlama-1.1B-Chat-v1.0 (tokenizer only)
 `hack/llmd-kv-lab.sh pins` prints these, and each run directory keeps a copy in `pins.txt` with the drift check's
 verdict.
 The EPP is built rather than pulled because the v1.0.0 release image predates fixes the follow-up issues test.
+The simulator is built for the same reason since 2026-11-18: no release carries llm-d-inference-sim #915 (the running
+gauge and latency histograms count only started requests) or #920 (a startup error exits non-zero), and the #599
+replay reads that gauge.
 This machine's Docker has no buildx, so the build uses a copy of `Dockerfile.epp` with only the
 `--platform=${BUILDPLATFORM}` flag removed; the copy lives outside the checkout so the clean-tree check still holds.
 
@@ -100,6 +106,8 @@ The runs this page cites:
 | `20261115-oob-*`, `-lag-*`, `-leave-*`, `-restart-*`, `-nowait-*` | `probes.sh`, one probe and arm each |
 | `20261115-run1` | the first `observe.sh` run, whose precise arm is invalid and is kept only as the evidence of Observation 8 |
 | `20261115-setup` | `evidence-extra-args.sh`: why the lab appends the simulator's second flag itself |
+| `20261118-replay599-1`, `-2` | `replay599.sh run`: shared-942 through five arms, twice ([#599](#599-shared-942-through-the-prefix-scorers)) |
+| `20261118-churn-<arm>-r1` to `-r3`, `20261118-cancel-<arm>` | `probes.sh churn` and `probes.sh cancel`, the #599 week-1 checks |
 
 ## How a request is recorded
 
@@ -407,7 +415,222 @@ report was found; that is a search result, not proof that none exists.
 Findings 1 and 2 matter only while the bound-socket mode exists, and #4105 may remove it; their value upstream is as
 evidence for that change, measured on upstream's own dev environment.
 
+## #599: shared-942 through the prefix scorers
+
+Issue #599 asked whether llm-d-router's prefix scorers reproduce what gpuaas's own `PrefixAffinity` did in experiment
+A's block `shared-942`: a higher prefix-cache hit ratio (0.8191 against `RoundRobin`'s 0.5467) with a worse TTFT p99
+(3,139.0 against 2,577.0 ms), the one block that made experiment A's verdict NOT MET
+(docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md, "Run 2").
+Short answer: **not observed on the simulator, and in experiment A's own rows the requests that set the p99 were placed
+by `PrefixAffinity`'s no-match fallback, exactly as `LeastQueue` placed them, not by prefix affinity.**
+Nothing here is posted upstream, and no upstream claim follows from it.
+
+### What shared-942 is
+
+The study `prefix-route-2026-10-27`'s load (`internal/bench/study.go`), with seed 942: one tenant, Poisson arrivals at
+0.8 requests a second for 600 s, 482 requests; each a single user message of 41,000 characters, of which 40,000 are one
+of 77 system prompts drawn uniformly (each opening with its own header line, so no two share a first chunk) and 1,000
+are the request's own, opening with its seed and index; output fixed at 64 tokens.
+On the A10G each prompt was about 7,900 tokens (`engineInputTokens` 7,896–7,897), and 77 prompts were 1.5 times one
+engine's 393,232-token cache, so routing decides which prompts each engine keeps.
+Trace sha256 `2b42ce96…5392e1`; two vLLM 0.27.1 engines, `qwen-a` and `qwen-b`.
+
+### What set experiment A's p99 in shared-942
+
+`hack/llmd-kv-lab/shared942_tail.py` reads run 2's archived `raw.jsonl` rows and nothing else.
+
+- With 482 requests the p99 is the 478th, so the five slowest requests set it.
+- For `LeastQueue` and `PrefixAffinity` they are the same five requests, #6, #12, #13, #16 and #17, all scheduled
+  between 3.9 and 12.1 s, while both engines' caches were still empty; every one is a `prefix_none` row, a miss.
+- `PrefixAffinity` sends a request with no indexed prefix to the least-loaded backend, which is `LeastQueue`'s rule.
+  21 of requests #0 to #21 had no match, and the one that matched (#18, at 13.1 s) went where `LeastQueue` sent it
+  too, so the two arms routed #0 to #21 identically; the first difference is #22, at 17.8 s.
+  Their p99s, 3,129.2 and 3,139.0 ms, are the same request (#6) a few milliseconds apart.
+- `RoundRobin`'s five are #6, #12, #13, #58 and #7: three of the same cold-start requests, placed by strict alternation,
+  which put #12 and #13 on different engines where the outstanding-count rule had put both on `qwen-b`.
+
+Leaving the first seconds out, which no registered rule did, reverses the order:
+
+| p99 over requests scheduled after | `RoundRobin` | `LeastQueue` | `PrefixAffinity` |
+|---|---:|---:|---:|
+| 0 s (the registered endpoint) | 2,577.0 | 3,129.2 | 3,139.0 |
+| 10 s | 2,137.2 | 2,314.4 | 1,693.5 |
+| 20 s | 1,977.6 | 2,078.1 | 1,327.5 |
+| 30 s | 1,822.4 | 1,997.9 | 1,309.7 |
+
+So in shared-942 the requests that decided the p99 arrived while the caches were filling, and `PrefixAffinity` placed
+them by its fallback, as `LeastQueue` did; over the whole trace its share was 0.527 / 0.473.
+Why the outstanding-count placement of the cold start was slower than strict alternation is not established: it is one
+trace, and no arm varied only that.
+This is a reading after the result: experiment A's verdict stands as registered, and the table above is not a result.
+
+### The replay
+
+`hack/llmd-kv-lab/replay599.sh run` regenerates shared-942 from the study's registration, refuses it unless the
+unscaled trace's checksum is the frozen one, and divides every prompt length by ten (4,100 characters, 4,000 shared);
+the arrivals and prompt draws do not depend on the lengths, and the replay checks they are unchanged row by row.
+It sends the 482 requests open-loop at their scheduled times as streamed `/v1/completions` through the gateway, and
+records per request the serving pod, the simulator's cached and prompt tokens and the first content chunk's arrival,
+with each simulator's running and waiting gauges sampled every second and the EPP's log followed for its scores.
+
+The simulator shape (`replay599.sh env`), each value tied to experiment A rather than tuned:
+
+| Setting | Value | Why |
+|---|---|---|
+| Simulators | 2 | experiment A's two engines |
+| Prompt | 889–891 tokens (TinyLlama), of which 864 cached on a hit | the scaled prompt as the simulator counts it |
+| KV cache | 2,769 blocks of 16 tokens | 51.1 shared prefixes, experiment A's 393,232 / 7,695 |
+| `--max-num-seqs` | 1 | one request at a time, so a burst of misses queues as long prefills do on one engine |
+| Prefill | 60 ms + 1 ms a token not cached | a miss 0.95 s, a hit 0.09 s, the A10G's 1.0 and 0.09 s |
+| Decode | 5 ms a token, 64 tokens | |
+
+Arms, all on the same pinned EPP:
+
+| Arm | Config | What it is |
+|---|---|---|
+| `rr` | `epp-rr.yaml` | no scorer; every endpoint ties and the max-score picker rotates, so round-robin |
+| `approx` | `epp-approx.yaml` | upstream's dev config: the approximate prefix scorer alone |
+| `approx-load` | `epp-approx-load.yaml` | upstream's optimized-baseline guide: queue 2, KV utilization 2, prefix 3, no-hit-LRU 2 |
+| `precise` | `epp-precise.yaml` | upstream's dev KV-event config, push mode: the precise prefix scorer alone |
+| `precise-load` | `epp-precise-load.yaml` | upstream's precise-prefix perf config: active requests 4, KV utilization 2, prefix 2, no-hit-LRU 2, with speculative indexing and pull mode |
+
+`precise-load` differs from `precise` in three ways at once (load scorers, speculative indexing, pull mode), because
+each config is upstream's as shipped; a difference between the two is upstream's deployed configs' difference and is
+not attributed to any one of the three.
+
+The approximate producer sized its index from the simulators' metrics, 692 entries of 64 tokens a pod (2,769 × 16 / 64),
+the same rule experiment A borrowed for its own index (plugin state in each run's `snap-after`).
+
+**Results** (`20261118-replay599-2/summary.txt`; every request succeeded and was joined to the EPP's scores, every
+gauge read succeeded).
+"Hit" is the simulator's cached tokens over prompt tokens, summed; the simulators' own prefix-cache counters agree
+(approx in run 1: 344,736 / 429,442 = 0.803).
+"Scorer > 0" counts requests whose picked pod the prefix scorer scored above zero; "of those, missed" counts such a
+request that the simulator then served with nothing cached.
+TTFT is from the scheduled send to the first content chunk, nearest rank; **it is a simulator's and only says where
+requests queued.**
+
+| Arm | Share by pod | Busiest pod's share, worst 30 s window | Hit | Scorer > 0 | Of those, missed | Queue mean / highest sampled, by pod | TTFT p50 | p99 | p99 by pod | p99 after 20 s |
+|---|---|---:|---:|---:|---:|---|---:|---:|---|---:|
+| `rr` | 0.500 / 0.500 | 0.54 | 0.555 | — | — | 0.36, 0.33 / 3, 4 | 204 | 2,354 | 2,389 / 2,279 | 1,895 |
+| `approx` | 0.550 / 0.450 | 0.79 | 0.803 | 384/482 | 0 | 0.29, 0.24 / 4, 2 | 93 | 2,043 | 2,033 / 2,043 | 1,575 |
+| `approx-load` | 0.512 / 0.488 | 0.68 | 0.791 | 384/482 | 0 | 0.28, 0.25 / 3, 3 | 93 | 2,003 | 2,003 / 1,866 | 1,293 |
+| `precise` | 0.564 / 0.436 | 0.79 | 0.813 | 404/482 | 0 | 0.30, 0.23 / 4, 2 | 95 | 2,041 | 2,015 / 2,041 | 1,576 |
+| `precise-load` | 0.508 / 0.492 | 0.71 | 0.700 | 349/482 | 0 | 0.31, 0.27 / 3, 2 | 95 | 2,040 | 2,040 / 1,896 | 1,535 |
+
+The window column is the worst 30 s window starting at any arrival and ending inside the trace (13 to 24 requests);
+queues are read once a second, so a shorter peak can be missed.
+
+Run 1 (`20261118-replay599-1`) gave shares within 0.04, hit ratios within 0.016 and p99s within 3 ms (2,352, 2,043,
+2,003, 2,040, 2,040); its EPP log was read after the arm, by which time kubelet had rotated most of it away, so its
+scorer columns cover 3 to 103 requests an arm and are not used.
+The simulator's latencies have no random term in this shape, so two runs agreeing says the apparatus is repeatable, not
+that the effect is robust.
+
+What it shows:
+
+1. **The structure carries over to the simulator.**
+   `rr`'s hit ratio, 0.555, is experiment A's `RoundRobin` 0.5467, and its slowest requests (#6, #58, #12, #59, #13)
+   are four of `RoundRobin`'s five; the prefix arms' 0.700 to 0.813 are at or below `PrefixAffinity`'s 0.8191.
+2. **No prefix arm worsened the tail.**
+   All four p99s are below `rr`'s in both runs, and after the first 20 s by 319 to 602 ms.
+3. **The cold start alternated pods in every arm, for two different reasons.**
+   Requests #0 to #17 alternate pods in all five arms.
+   In `rr`, `approx` and `precise` every score is 0 then, and the max-score picker rotates through the tie.
+   In `approx-load` and `precise-load` the scores do not tie: for #5, for example, the queue or active-request scorer
+   and the no-hit-LRU scorer both favoured the pod that got it, so alternation there is the weighted load scores'
+   choice on this trace, not a fallback.
+   In every prefix arm the four slowest requests are the cold-start misses #6, #12, #13 and #7, and the fifth, which
+   is the p99, is a miss at 64 s (#59 or #58) or the cold-start #4.
+4. **Concentration is moderate and the scorer is never wrong about a hit here.**
+   The lone scorers lean to one pod (0.550 and 0.564 of all requests, 0.79 of the worst 30 s window), and upstream's
+   load-aware configs stay near 0.51 (0.68 and 0.71 of the worst window) with a lower hit ratio (0.791 and 0.700).
+   No request the prefix scorer credited a pod for went there and missed, in any arm.
+
+So the conflict **was not observed** under llm-d-router's approximate or precise prefix scorers in this simulator
+configuration, and nothing here is evidence of an upstream defect.
+What this does not show:
+
+- That it cannot happen on vLLM.
+  The simulator matches experiment A's cache ratio and isolated prefill costs, not its engine: vLLM ran up to 64
+  sequences with a 512-token step budget, and the time from first token to the end of a response had a median of
+  1,083.5 ms there (`PrefixAffinity`'s rows) against 326.4 ms here (`approx`, run 2), so outstanding counts, and anything
+  a load scorer or experiment A's fallback reads from them, are not reproduced.
+- That llm-d's placement would have avoided gpuaas's tail: no arm here applies the outstanding-count fallback, so there
+  is no positive control showing that this simulator turns that placement into a worse p99.
+- Robustness: one trace, two runs of a simulator with no random term.
+
+Any statement about GPU latency still needs the separately approved GPU run the issue names.
+
+### Endpoint replacement and cancellation (week-1 exit)
+
+`hack/llmd-kv-lab/probes.sh churn ARM` and `probes.sh cancel ARM`, on the replay's simulator shape; `churn599.py`
+prints one line per churn run.
+
+**Pod delete under traffic** (three runs per arm): four concurrent streams of family CA, 40 requests each, 0.1 s apart
+after each answer, so the prefix scorer steers them to the pod that holds CA; that pod is deleted 3 s in, with
+kubectl's default grace period.
+
+| Arm | Requests that succeeded | Served by the deleted pod | In flight at the delete, on the deleted pod | Of those, failed |
+|---|---|---|---|---|
+| `approx` | 160/160, each run | 30 | 4 | 0 |
+| `precise` | 160/160, each run | 25 | 1 | 0 |
+| `precise-load` | 160/160, each run | 28 | 1 | 0 |
+
+The counts repeat exactly across the three runs because the simulator has no random term and the delete is timed by a
+fixed sleep.
+"In flight" is a request sent before the delete was issued and answered after it.
+Requests caught on the deleting pod finished there during its termination; a forced delete (`--grace-period=0`) or a
+node loss was not tried, and that is the case where a request in flight would be cut.
+The first version of this probe sent a family of its own one request at a time, which reached the deleted pod 0 to 5
+times a run; it was replaced and its runs dropped.
+
+**Container restart in place** (three runs per arm): kubelet restarts the simulator inside the same pod, so its name and
+address stay while its cache empties; then CB, which it held, is sent once.
+
+| Arm | Restarted pod's prefix score for CB | Served by | Cached |
+|---|---|---|---|
+| `approx` | 0.857, 3 of 3 | the restarted pod | 0, 3 of 3 |
+| `precise` (push) | 0.952, 3 of 3 | the restarted pod | 0, 3 of 3 |
+| `precise-load` (pull) | 0, 3 of 3 | the other pod | 0 |
+
+In pull mode the restart made the pod leave the pool for a moment; the EPP removed its subscriber and its index
+entries, and re-subscribed when it returned (its log shows one "Removed KV-events subscriber" and a second "Creating new
+subscriber" for the restarted pod in each of the three runs).
+That clearing follows from the endpoint leaving the pool; a restart quick enough that the pod never left it was not
+produced here, and nothing says pull mode would clear in that case.
+The approximate producer drops a pod's index only when a two-minute sweep finds it absent
+(its CleanUpInactivePods loop in llm-d-router's
+`pkg/epp/framework/plugins/requesthandling/dataproducer/approximateprefix/plugin.go` at the pinned commit), and the push-mode subscriber has no per-pod
+lifecycle at all, so both kept crediting the restarted pod.
+The cost measured here is one miss per stale prefix, which a cold pod pays anyway; it routes a request wrongly only
+when another pod holds the same prefix, which these probes did not construct.
+Push mode is being retired upstream for other reasons (llm-d-router#4105, with this lab's earlier data in its thread),
+and an approximate index is by design blind to evictions it did not cause ([Observation 3](#3-eviction-the-precise-index-follows-the-cache-the-approximate-one-does-not)),
+so neither is reported as a defect.
+
+**Cancellation** (`approx-load` and `precise-load`, once each): six streamed requests of 900 tokens sent within 0.3 s
+to two pods that run one request at a time, every client gone after 1 s (curl exit 28 for all six).
+Both simulators read 0 running and 0 waiting from the first read 1.3 s after the start and in all 80 reads over the
+next 20 s, so the cancelled requests were dropped rather than generated; a simulator that kept them would have been
+busy for about 13 s.
+The next ten requests alternated pods with equal active-request and queue scores, so neither the EPP's in-flight count
+nor its scraped queue kept the cancelled requests.
+
+### Where this leaves lane 1
+
+- No upstream defect from #599; nothing drafted.
+- The lab now replays a registered gpuaas trace through upstream routing with the simulator pinned past #915 and #920,
+  which is the fixture week 2 needs for any routing discrepancy that does appear.
+- Not done here: several EPP replicas, a restart of a pod that shares a prefix with another, and cancellation while the
+  EPP's flow control queues requests (off in this lab; #600's territory).
+
 ## What #599 and #600 can take from here
+
+#599 has since run on this lab, with the three cautions below applied: the predicted column, a precise-spec style arm
+(`precise-load`), and a load, concurrency and latency shape of its own
+([#599](#599-shared-942-through-the-prefix-scorers)).
+What follows is as written before it.
 
 **#599 (reproduce the PrefixAffinity tail regression under llm-d-router's scorers) can proceed on this lab, with three
 cautions the lab itself found.**

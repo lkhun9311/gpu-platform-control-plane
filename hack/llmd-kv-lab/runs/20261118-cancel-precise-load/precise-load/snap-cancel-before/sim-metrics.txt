@@ -1,0 +1,2 @@
+vllm-d-5c96bf4cf5-kg78m vllm:kv_cache_usage_perc{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 0
+vllm-d-5c96bf4cf5-nt6xj vllm:kv_cache_usage_perc{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 0

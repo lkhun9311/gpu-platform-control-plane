@@ -15,7 +15,12 @@
 #                         Do simulators that predate the new EPP deliver events to it? Then a rolling restart tested
 #                         before the old EPP has exited, which is the window a real rollout leaves open.
 #
-# Usage: hack/llmd-kv-lab/probes.sh oob|lag|leave|epp-restart|rollout-nowait ARM [N]
+#   churn ARM             a simulator deleted under traffic, then one restarted in place; does the EPP keep crediting
+#                         a pod with a cache it no longer has (issue #599)?
+#   cancel ARM            six long requests cancelled by their clients after 1 s; does the simulators' work stop, and
+#                         what do the EPP's load scorers believe afterwards (issue #599)?
+#
+# Usage: hack/llmd-kv-lab/probes.sh oob|lag|leave|epp-restart|rollout-nowait|churn|cancel ARM [N]
 set -euo pipefail
 
 SAY_AS=probes
@@ -56,7 +61,7 @@ probe_leave() {
     k rollout status deployment/vllm-d --timeout=300s >/dev/null
     # The replacement for the previous round's deleted pod must have rejoined before this round starts.
     for i in $(seq 1 60); do
-      [ "$(sim_pods | wc -l)" = 3 ] && [ "$(k get pods -l llm-d.ai/component=decode --no-headers | wc -l)" = 3 ] && break
+      [ "$(sim_pods | wc -l)" = "${LAB_SIM_REPLICAS:-3}" ] && [ "$(k get pods -l llm-d.ai/component=decode --no-headers | wc -l)" = "${LAB_SIM_REPLICAS:-3}" ] && break
       sleep 2
     done
     sleep 10
@@ -146,7 +151,113 @@ probe_rollout_nowait() {
     >"$RUN/$ARM/restart-nowait-timing.txt"
 }
 
-[ $# -ge 2 ] || { echo "usage: $0 oob|lag|leave|epp-restart|rollout-nowait ARM [N]" >&2; exit 2; }
+# gauges POD: the simulator's running and waiting counts, read through the API server proxy, as "running waiting".
+gauges() {
+  curl -sf "$(pod_url "$1")/metrics" | awk '
+    /^vllm:num_requests_running[{ ]/ {r += $NF} /^vllm:num_requests_waiting[{ ]/ {w += $NF}
+    END {printf "%d %d\n", r, w}'
+}
+
+# probe_churn replaces a simulator two ways while the EPP holds cache state about it, for issue #599's week-1 exit.
+#
+# 1. Pod delete under traffic: requests for the family the pod holds are in flight on it when it is deleted, and the
+#    Deployment brings a pod with a new name and address; the question is whether any request fails.
+# 2. Container restart in place: kubelet restarts the simulator inside the same pod, so the name and address the EPP
+#    keys its state by do not change while the cache behind them is emptied.
+#    The question is whether the EPP still believes the pod holds what it held, and routes a prefix there as a hit.
+# Each step records, per gateway request, the served pod, the simulator's cached tokens and the EPP's scores.
+probe_churn() {
+  local victim i rc0 rc1 cid
+  for i in 1 2; do drive "churn-warm-a$i" "$GATEWAY" gateway "CA*2"; done
+  victim=$(family_pod CA)
+  say "[$ARM] churn 1: CA lives on $victim; deleting it under four concurrent streams of CA"
+  echo "$victim" >"$RUN/$ARM/churn1-victim.txt"
+  snap churn1-before
+  # The streams send CA, the family the victim holds, so the prefix scorer steers them to the victim and requests are
+  # in flight there when it goes; four at once keep its one-at-a-time queue non-empty.
+  # A stream of a family of its own reached the victim 0 to 5 times in the first runs, which tested nothing.
+  local streams=() s
+  for s in 1 2 3 4; do
+    "$DRIVER" -url "$GATEWAY" -target gateway -plan "CA*40" -gap 100ms -tag "$ARM-churn1-stream$s" \
+      -out "$RUN/$ARM/requests.jsonl" >/dev/null 2>"$RUN/$ARM/churn1-stream$s.err" &
+    streams+=($!)
+  done
+  sleep 3
+  date -u +%Y-%m-%dT%H:%M:%S.%NZ >"$RUN/$ARM/churn1-delete-at.txt"
+  k delete pod "$victim" --wait=false >/dev/null
+  for s in "${streams[@]}"; do
+    wait "$s" || say "[$ARM] churn 1: a stream during the delete had failed requests (churn1-stream*.err)"
+  done
+  for i in $(seq 1 60); do
+    [ "$(sim_pods | wc -l)" = "${LAB_SIM_REPLICAS:-3}" ] \
+      && [ "$(k get pods -l llm-d.ai/component=decode --no-headers | wc -l)" = "${LAB_SIM_REPLICAS:-3}" ] && break
+    sleep 2
+  done
+  sleep 10
+  sim_pods >"$RUN/$ARM/churn1-pods-after.txt"
+  drive "churn1-after" "$GATEWAY" gateway "CA*2"
+  snap churn1-after
+
+  for i in 1 2; do drive "churn-warm-b$i" "$GATEWAY" gateway "CB*2"; done
+  victim=$(family_pod CB)
+  rc0=$(k get pod "$victim" -o jsonpath='{.status.containerStatuses[0].restartCount}')
+  cid=$(k get pod "$victim" -o jsonpath='{.status.containerStatuses[0].containerID}')
+  say "[$ARM] churn 2: CB lives on $victim (restarts $rc0); stopping its simulator container ${cid#containerd://}"
+  snap churn2-before
+  docker exec "$NODE" crictl stop "${cid#containerd://}" >/dev/null
+  for i in $(seq 1 90); do
+    rc1=$(k get pod "$victim" -o jsonpath='{.status.containerStatuses[0].restartCount}')
+    [ "$rc1" -gt "$rc0" ] && [ "$(k get pod "$victim" -o jsonpath='{.status.containerStatuses[0].ready}')" = true ] && break
+    sleep 2
+  done
+  echo "victim=$victim restarts $rc0 -> $rc1 ip=$(k get pod "$victim" -o jsonpath='{.status.podIP}')" >"$RUN/$ARM/churn2-restart.txt"
+  # Ten seconds covers the EPP's metrics refresh and, in push and pull modes alike, the simulator's 1 s reconnect.
+  sleep 10
+  snap churn2-after-restart
+  drive "churn2-after" "$GATEWAY" gateway "CB*2"
+  snap churn2-after
+}
+
+# probe_cancel cancels requests the simulators are running or queueing, and asks whether the work stops.
+#
+# With one request at a time per simulator (the #599 shape), six long requests leave each of two pods one running and
+# two waiting; every client gives up after 1 s.
+# A simulator that aborts a request whose client left, as vLLM does, is idle within about a second; one that keeps
+# generating stays busy for the queue's whole output, about 13 s here, and every later request waits behind it.
+# Then ten short requests through the gateway show what the EPP's load scorers believe after the cancellations.
+probe_cancel() {
+  local i p t0 body pids=()
+  [ -n "$(k get deployment vllm-d -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -o -- '--max-num-seqs=1')" ] \
+    || { say "[$ARM] cancel expects --max-num-seqs=1 (replay599.sh env); refusing to read a different shape"; return 1; }
+  snap cancel-before
+  t0=$(date +%s.%N)
+  for i in 1 2 3 4 5 6; do
+    body=$(printf '{"model":"%s","prompt":"cancel probe %s-%d: count slowly.","max_tokens":900,"ignore_eos":true,"stream":true}' \
+      "TinyLlama/TinyLlama-1.1B-Chat-v1.0" "$ARM" "$i")
+    # curl exits 28 on its own timeout, which is the cancellation; its status is recorded rather than judged.
+    # The "|| rc=" keeps errexit, which the subshell inherits, from ending it before the status is written.
+    (rc=0
+      curl -sN -o /dev/null -w "cancel-$i http=%{http_code} first_byte_s=%{time_starttransfer} total_s=%{time_total}" \
+        --max-time 1 -H 'Content-Type: application/json' -H "x-request-id: $ARM-cancel-$i" \
+        -d "$body" "$GATEWAY/v1/completions" || rc=$?
+      echo " curl_exit=$rc") >>"$RUN/$ARM/cancel-clients.txt" &
+    pids+=($!)
+    sleep 0.05
+  done
+  # Only the clients are waited for: a bare wait would also wait for lab_init's kubectl proxy, which never exits.
+  wait "${pids[@]}"
+  # Twice a second for 20 s: each pod's running and waiting counts after every client has gone.
+  for i in $(seq 1 40); do
+    for p in $(sim_pods); do
+      printf '%s %s %s\n' "$(awk -v a="$(date +%s.%N)" -v b="$t0" 'BEGIN {printf "%.1f", a - b}')" "$p" "$(gauges "$p")"
+    done
+    sleep 0.5
+  done >"$RUN/$ARM/cancel-gauges.txt"
+  snap cancel-after
+  drive "cancel-after" "$GATEWAY" gateway "$(for i in $(seq 1 10); do printf 'K%d,' "$i"; done)" 500ms
+}
+
+[ $# -ge 2 ] || { echo "usage: $0 oob|lag|leave|epp-restart|rollout-nowait|churn|cancel ARM [N]" >&2; exit 2; }
 lab_init
 fresh_arm "$2"
 touch "$RUN/$ARM/requests.jsonl"
@@ -156,8 +267,10 @@ case $1 in
   leave) probe_leave "${3:-5}" ;;
   epp-restart) probe_epp_restart ;;
   rollout-nowait) probe_rollout_nowait ;;
-  *) echo "usage: $0 oob|lag|leave|epp-restart|rollout-nowait ARM [N]" >&2; exit 2 ;;
+  churn) probe_churn ;;
+  cancel) probe_cancel ;;
+  *) echo "usage: $0 oob|lag|leave|epp-restart|rollout-nowait|churn|cancel ARM [N]" >&2; exit 2 ;;
 esac
 save_epp_log "$(epp_pod)" end
 python3 -I "$REPO/hack/llmd-kv-lab/summarize.py" "$RUN" >"$RUN/summary-$1-$2.txt"
-say "probe $1 on $2 written to $RUN"
+say "probe $1 on $2 written to ${RUN#"$REPO"/}"

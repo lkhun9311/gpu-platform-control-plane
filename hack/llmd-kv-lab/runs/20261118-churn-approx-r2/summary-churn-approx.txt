@@ -1,0 +1,187 @@
+== arm approx: 172 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+approx-churn-warm-a1-000     CA     gateway    ggbfn       0/348      449.9  ggbfn=0 t7sgs=0
+approx-churn-warm-a1-001     CA     gateway    ggbfn     336/348      112.0  ggbfn=0.857143 t7sgs=0
+approx-churn-warm-a2-000     CA     gateway    ggbfn     320/348      129.4  ggbfn=0.857143 t7sgs=0
+approx-churn-warm-a2-001     CA     gateway    ggbfn     336/348      112.8  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream3-000    CA     gateway    ggbfn     320/346      127.0  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream1-000    CA     gateway    ggbfn     320/346      251.3  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream4-000    CA     gateway    ggbfn     320/346      377.3  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream2-000    CA     gateway    ggbfn     320/346      502.6  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream3-001    CA     gateway    ggbfn     336/346      384.2  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream1-001    CA     gateway    ggbfn     336/346      369.6  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream4-001    CA     gateway    ggbfn     336/346      353.2  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream2-001    CA     gateway    ggbfn     336/346      336.5  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream3-002    CA     gateway    ggbfn     336/346      336.2  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream1-002    CA     gateway    ggbfn     336/346      335.7  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream4-002    CA     gateway    ggbfn     336/346      334.4  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream2-002    CA     gateway    ggbfn     336/346      333.7  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream3-003    CA     gateway    ggbfn     336/346      334.5  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream1-003    CA     gateway    ggbfn     336/346      333.7  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream4-003    CA     gateway    ggbfn     336/346      333.8  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream2-003    CA     gateway    ggbfn     336/346      334.7  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream3-004    CA     gateway    ggbfn     336/346      333.7  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream1-004    CA     gateway    ggbfn     336/346      333.6  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream4-004    CA     gateway    ggbfn     336/346      333.4  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream2-004    CA     gateway    ggbfn     336/346      334.0  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream3-005    CA     gateway    ggbfn     336/346      333.8  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream1-005    CA     gateway    ggbfn     336/346      334.4  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream4-005    CA     gateway    ggbfn     336/346      335.6  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream2-005    CA     gateway    ggbfn     336/346      335.0  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream3-006    CA     gateway    ggbfn     336/346      336.5  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream1-006    CA     gateway    ggbfn     336/346      336.7  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream4-006    CA     gateway    ggbfn     336/346      336.8  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream2-006    CA     gateway    ggbfn     336/346      336.9  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream3-007    CA     gateway    ggbfn     336/346      335.2  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream1-007    CA     gateway    ggbfn     336/346      335.0  ggbfn=0.857143 t7sgs=0
+approx-churn1-stream4-007    CA     gateway    t7sgs       0/346      446.6  t7sgs=0
+approx-churn1-stream2-007    CA     gateway    t7sgs     320/346      462.6  t7sgs=0.857143
+approx-churn1-stream3-008    CA     gateway    t7sgs     320/346      479.7  t7sgs=0.857143
+approx-churn1-stream1-008    CA     gateway    t7sgs     320/346      495.7  t7sgs=0.857143
+approx-churn1-stream4-008    CA     gateway    t7sgs     336/346      383.2  t7sgs=0.857143
+approx-churn1-stream2-008    CA     gateway    t7sgs     336/346      366.8  t7sgs=0.857143
+approx-churn1-stream3-009    CA     gateway    t7sgs     336/346      351.7  t7sgs=0.857143
+approx-churn1-stream1-009    CA     gateway    t7sgs     336/346      336.1  t7sgs=0.857143
+approx-churn1-stream4-009    CA     gateway    t7sgs     336/346      337.1  t7sgs=0.857143
+approx-churn1-stream2-009    CA     gateway    t7sgs     336/346      335.9  t7sgs=0.857143
+approx-churn1-stream3-010    CA     gateway    t7sgs     320/346      351.5  t7sgs=0.857143
+approx-churn1-stream1-010    CA     gateway    t7sgs     320/346      366.9  t7sgs=0.857143
+approx-churn1-stream4-010    CA     gateway    t7sgs     320/346      383.0  t7sgs=0.857143
+approx-churn1-stream2-010    CA     gateway    t7sgs     320/346      399.7  t7sgs=0.857143
+approx-churn1-stream3-011    CA     gateway    t7sgs     336/346      383.5  t7sgs=0.857143
+approx-churn1-stream1-011    CA     gateway    t7sgs     336/346      367.2  t7sgs=0.857143
+approx-churn1-stream4-011    CA     gateway    t7sgs     336/346      351.1  t7sgs=0.857143
+approx-churn1-stream2-011    CA     gateway    t7sgs     336/346      336.5  t7sgs=0.857143
+approx-churn1-stream3-012    CA     gateway    t7sgs     336/346      335.4  t7sgs=0.857143
+approx-churn1-stream1-012    CA     gateway    t7sgs     336/346      335.1  t7sgs=0.857143
+approx-churn1-stream4-012    CA     gateway    t7sgs     336/346      334.7  t7sgs=0.857143
+approx-churn1-stream2-012    CA     gateway    t7sgs     336/346      333.9  t7sgs=0.857143
+approx-churn1-stream3-013    CA     gateway    t7sgs     336/346      335.4  t7sgs=0.857143
+approx-churn1-stream1-013    CA     gateway    t7sgs     336/346      336.7  t7sgs=0.857143
+approx-churn1-stream4-013    CA     gateway    t7sgs     336/346      336.0  t7sgs=0.857143
+approx-churn1-stream2-013    CA     gateway    t7sgs     336/346      337.4  t7sgs=0.857143
+approx-churn1-stream3-014    CA     gateway    t7sgs     336/346      335.9  t7sgs=0.857143
+approx-churn1-stream1-014    CA     gateway    t7sgs     336/346      335.4  t7sgs=0.857143
+approx-churn1-stream4-014    CA     gateway    t7sgs     336/346      335.6  t7sgs=0.857143
+approx-churn1-stream2-014    CA     gateway    t7sgs     336/346      333.4  t7sgs=0.857143
+approx-churn1-stream3-015    CA     gateway    t7sgs     336/346      333.9  t7sgs=0.857143
+approx-churn1-stream1-015    CA     gateway    t7sgs     336/346      333.9  t7sgs=0.857143
+approx-churn1-stream4-015    CA     gateway    t7sgs     336/346      334.0  t7sgs=0.857143
+approx-churn1-stream2-015    CA     gateway    t7sgs     336/346      334.5  t7sgs=0.857143
+approx-churn1-stream3-016    CA     gateway    t7sgs     336/346      334.4  t7sgs=0.857143
+approx-churn1-stream1-016    CA     gateway    t7sgs     336/346      333.9  t7sgs=0.857143
+approx-churn1-stream4-016    CA     gateway    t7sgs     336/346      333.4  t7sgs=0.857143
+approx-churn1-stream2-016    CA     gateway    t7sgs     336/346      334.3  t7sgs=0.857143
+approx-churn1-stream3-017    CA     gateway    t7sgs     336/346      335.9  t7sgs=0.857143
+approx-churn1-stream1-017    CA     gateway    t7sgs     336/346      335.8  t7sgs=0.857143
+approx-churn1-stream4-017    CA     gateway    t7sgs     336/346      336.3  t7sgs=0.857143
+approx-churn1-stream2-017    CA     gateway    t7sgs     336/346      335.1  t7sgs=0.857143
+approx-churn1-stream3-018    CA     gateway    t7sgs     336/346      333.4  t7sgs=0.857143
+approx-churn1-stream1-018    CA     gateway    t7sgs     336/346      333.2  t7sgs=0.857143
+approx-churn1-stream4-018    CA     gateway    t7sgs     336/346      333.9  t7sgs=0.857143
+approx-churn1-stream2-018    CA     gateway    t7sgs     336/346      335.0  t7sgs=0.857143
+approx-churn1-stream3-019    CA     gateway    t7sgs     336/346      335.0  t7sgs=0.857143
+approx-churn1-stream1-019    CA     gateway    t7sgs     336/346      335.6  t7sgs=0.857143
+approx-churn1-stream4-019    CA     gateway    t7sgs     336/346      336.2  t7sgs=0.857143
+approx-churn1-stream2-019    CA     gateway    t7sgs     336/346      335.2  t7sgs=0.857143
+approx-churn1-stream3-020    CA     gateway    t7sgs     320/346      352.4  t7sgs=0.857143
+approx-churn1-stream1-020    CA     gateway    t7sgs     320/346      368.8  t7sgs=0.857143
+approx-churn1-stream4-020    CA     gateway    t7sgs     320/346      383.5  t7sgs=0.857143
+approx-churn1-stream2-020    CA     gateway    t7sgs     320/346      401.1  t7sgs=0.857143
+approx-churn1-stream3-021    CA     gateway    t7sgs     336/346      384.6  t7sgs=0.857143
+approx-churn1-stream1-021    CA     gateway    t7sgs     336/346      368.8  t7sgs=0.857143
+approx-churn1-stream4-021    CA     gateway    t7sgs     336/346      352.7  t7sgs=0.857143
+approx-churn1-stream2-021    CA     gateway    t7sgs     336/346      335.1  t7sgs=0.857143
+approx-churn1-stream3-022    CA     gateway    t7sgs     336/346      333.9  t7sgs=0.857143
+approx-churn1-stream1-022    CA     gateway    t7sgs     336/346      332.7  t7sgs=0.857143
+approx-churn1-stream4-022    CA     gateway    t7sgs     336/346      333.7  t7sgs=0.857143
+approx-churn1-stream2-022    CA     gateway    t7sgs     336/346      335.1  t7sgs=0.857143
+approx-churn1-stream3-023    CA     gateway    t7sgs     336/346      335.2  t7sgs=0.857143
+approx-churn1-stream1-023    CA     gateway    t7sgs     336/346      335.3  t7sgs=0.857143
+approx-churn1-stream4-023    CA     gateway    t7sgs     336/346      334.2  t7sgs=0.857143
+approx-churn1-stream2-023    CA     gateway    t7sgs     336/346      333.9  t7sgs=0.857143
+approx-churn1-stream3-024    CA     gateway    t7sgs     336/346      335.1  t7sgs=0.857143
+approx-churn1-stream1-024    CA     gateway    t7sgs     336/346      336.0  t7sgs=0.857143
+approx-churn1-stream4-024    CA     gateway    t7sgs     336/346      336.0  t7sgs=0.857143
+approx-churn1-stream2-024    CA     gateway    t7sgs     336/346      335.9  t7sgs=0.857143
+approx-churn1-stream3-025    CA     gateway    t7sgs     336/346      334.7  t7sgs=0.857143
+approx-churn1-stream1-025    CA     gateway    t7sgs     336/346      334.6  t7sgs=0.857143
+approx-churn1-stream4-025    CA     gateway    t7sgs     336/346      335.5  t7sgs=0.857143
+approx-churn1-stream2-025    CA     gateway    t7sgs     336/346      334.6  t7sgs=0.857143
+approx-churn1-stream3-026    CA     gateway    t7sgs     336/346      334.6  t7sgs=0.857143
+approx-churn1-stream1-026    CA     gateway    t7sgs     336/346      333.5  t7sgs=0.857143
+approx-churn1-stream4-026    CA     gateway    t7sgs     336/346      333.1  t7sgs=0.857143
+approx-churn1-stream2-026    CA     gateway    t7sgs     336/346      334.1  t7sgs=0.857143
+approx-churn1-stream3-027    CA     gateway    t7sgs     336/346      335.2  t7sgs=0.857143
+approx-churn1-stream1-027    CA     gateway    t7sgs     336/346      335.5  t7sgs=0.857143
+approx-churn1-stream4-027    CA     gateway    t7sgs     336/346      335.0  t7sgs=0.857143
+approx-churn1-stream2-027    CA     gateway    t7sgs     336/346      334.1  t7sgs=0.857143
+approx-churn1-stream3-028    CA     gateway    t7sgs     336/346      332.9  t7sgs=0.857143
+approx-churn1-stream1-028    CA     gateway    t7sgs     336/346      334.0  t7sgs=0.857143
+approx-churn1-stream4-028    CA     gateway    t7sgs     336/346      336.0  t7sgs=0.857143
+approx-churn1-stream2-028    CA     gateway    t7sgs     336/346      336.2  t7sgs=0.857143
+approx-churn1-stream3-029    CA     gateway    t7sgs     336/346      337.0  t7sgs=0.857143
+approx-churn1-stream1-029    CA     gateway    t7sgs     336/346      336.7  t7sgs=0.857143
+approx-churn1-stream4-029    CA     gateway    t7sgs     336/346      335.6  t7sgs=0.857143
+approx-churn1-stream2-029    CA     gateway    t7sgs     336/346      335.4  t7sgs=0.857143
+approx-churn1-stream3-030    CA     gateway    t7sgs     320/346      352.4  t7sgs=0.857143
+approx-churn1-stream1-030    CA     gateway    t7sgs     320/346      368.9  t7sgs=0.857143
+approx-churn1-stream4-030    CA     gateway    t7sgs     320/346      384.9  t7sgs=0.857143
+approx-churn1-stream2-030    CA     gateway    t7sgs     320/346      402.2  t7sgs=0.857143
+approx-churn1-stream3-031    CA     gateway    t7sgs     336/346      384.4  t7sgs=0.857143
+approx-churn1-stream1-031    CA     gateway    t7sgs     336/346      367.2  t7sgs=0.857143
+approx-churn1-stream4-031    CA     gateway    t7sgs     336/346      350.4  t7sgs=0.857143
+approx-churn1-stream2-031    CA     gateway    t7sgs     336/346      333.5  t7sgs=0.857143
+approx-churn1-stream3-032    CA     gateway    t7sgs     336/346      334.5  t7sgs=0.857143
+approx-churn1-stream1-032    CA     gateway    t7sgs     336/346      335.2  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream4-032    CA     gateway    t7sgs     336/346      335.5  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream2-032    CA     gateway    t7sgs     336/346      335.6  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream3-033    CA     gateway    t7sgs     336/346      334.7  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream1-033    CA     gateway    t7sgs     336/346      335.0  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream4-033    CA     gateway    t7sgs     336/346      334.8  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream2-033    CA     gateway    t7sgs     336/346      334.9  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream3-034    CA     gateway    t7sgs     336/346      334.8  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream1-034    CA     gateway    t7sgs     336/346      334.4  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream4-034    CA     gateway    t7sgs     336/346      335.6  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream2-034    CA     gateway    t7sgs     336/346      334.9  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream3-035    CA     gateway    t7sgs     336/346      335.8  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream1-035    CA     gateway    t7sgs     336/346      335.3  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream4-035    CA     gateway    t7sgs     336/346      334.9  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream2-035    CA     gateway    t7sgs     336/346      334.8  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream3-036    CA     gateway    t7sgs     336/346      333.5  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream1-036    CA     gateway    t7sgs     336/346      333.7  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream4-036    CA     gateway    t7sgs     336/346      333.8  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream2-036    CA     gateway    t7sgs     336/346      333.8  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream3-037    CA     gateway    t7sgs     336/346      334.0  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream1-037    CA     gateway    t7sgs     336/346      333.7  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream4-037    CA     gateway    t7sgs     336/346      334.2  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream2-037    CA     gateway    t7sgs     336/346      335.3  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream3-038    CA     gateway    t7sgs     336/346      336.4  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream1-038    CA     gateway    t7sgs     336/346      336.6  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream4-038    CA     gateway    t7sgs     336/346      336.3  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream2-038    CA     gateway    t7sgs     336/346      336.3  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream3-039    CA     gateway    t7sgs     336/346      336.1  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream1-039    CA     gateway    t7sgs     336/346      336.9  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream4-039    CA     gateway    t7sgs     336/346      335.6  sl6t8=0 t7sgs=0.857143
+approx-churn1-stream2-039    CA     gateway    t7sgs     336/346      334.1  sl6t8=0 t7sgs=0.857143
+approx-churn1-after-000      CA     gateway    t7sgs     320/345      126.2  sl6t8=0 t7sgs=0.857143
+approx-churn1-after-001      CA     gateway    t7sgs     320/345      125.4  sl6t8=0 t7sgs=0.857143
+approx-churn-warm-b1-000     CB     gateway    t7sgs       0/348      448.6  sl6t8=0 t7sgs=0
+approx-churn-warm-b1-001     CB     gateway    t7sgs     336/348      111.9  sl6t8=0 t7sgs=0.857143
+approx-churn-warm-b2-000     CB     gateway    t7sgs     320/348      128.6  sl6t8=0 t7sgs=0.857143
+approx-churn-warm-b2-001     CB     gateway    t7sgs     336/348      112.7  sl6t8=0 t7sgs=0.857143
+approx-churn2-after-000      CB     gateway    t7sgs       0/345      447.1  sl6t8=0 t7sgs=0.857143
+approx-churn2-after-001      CB     gateway    t7sgs     320/345      126.8  sl6t8=0 t7sgs=0.857143
+   gateway requests joined to EPP scores: 172/172
+   step                                     gateway   hit  predicted  to warm pod
+   approx-churn-warm-a1                           2     1        1/2            -
+   approx-churn-warm-a2                           2     2        2/2            -
+   approx-churn1-stream3                         40    40      40/40            -
+   approx-churn1-stream1                         40    40      40/40            -
+   approx-churn1-stream4                         40    39      39/40            -
+   approx-churn1-stream2                         40    40      40/40            -
+   approx-churn1-after                            2     2        2/2            -
+   approx-churn-warm-b1                           2     1        1/2            -
+   approx-churn-warm-b2                           2     2        2/2            -
+   approx-churn2-after                            2     1        1/2            -
+

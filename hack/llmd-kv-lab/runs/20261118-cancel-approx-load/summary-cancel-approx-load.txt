@@ -1,0 +1,16 @@
+== arm approx-load: 10 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+approx-load-cancel-after-000 K1     gateway    9rcwg       0/345      445.7  4t6bc=0 9rcwg=1
+approx-load-cancel-after-001 K2     gateway    4t6bc       0/345      446.1  4t6bc=1 9rcwg=0
+approx-load-cancel-after-002 K3     gateway    9rcwg       0/344      445.4  4t6bc=0 9rcwg=1
+approx-load-cancel-after-003 K4     gateway    4t6bc       0/345      446.9  4t6bc=1 9rcwg=0
+approx-load-cancel-after-004 K5     gateway    9rcwg       0/344      445.3  4t6bc=0 9rcwg=1
+approx-load-cancel-after-005 K6     gateway    4t6bc       0/344      444.5  4t6bc=1 9rcwg=0
+approx-load-cancel-after-006 K7     gateway    9rcwg       0/345      445.9  4t6bc=0 9rcwg=1
+approx-load-cancel-after-007 K8     gateway    4t6bc       0/344      445.0  4t6bc=1 9rcwg=0
+approx-load-cancel-after-008 K9     gateway    9rcwg       0/345      444.8  4t6bc=0 9rcwg=1
+approx-load-cancel-after-009 K10    gateway    4t6bc       0/347      447.6  4t6bc=1 9rcwg=0
+   gateway requests joined to EPP scores: 10/10
+   step                                     gateway   hit  predicted  to warm pod
+   approx-load-cancel-after                      10     0       0/10            -
+

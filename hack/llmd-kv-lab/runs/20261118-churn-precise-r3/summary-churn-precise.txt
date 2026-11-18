@@ -1,0 +1,187 @@
+== arm precise: 172 requests
+request_id                   family target     pod    cached/prompt      ms  epp scores
+precise-churn-warm-a1-000    CA     gateway    2skdm       0/347      452.5  2skdm=0 k6t2v=0
+precise-churn-warm-a1-001    CA     gateway    k6t2v       0/347      450.0  2skdm=0 k6t2v=0
+precise-churn-warm-a2-000    CA     gateway    2skdm     320/347      129.0  2skdm=0.952381 k6t2v=0.952381
+precise-churn-warm-a2-001    CA     gateway    2skdm     336/347      112.3  2skdm=1 k6t2v=0.952381
+precise-churn1-stream3-000   CA     gateway    k6t2v     320/345      127.3  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-000   CA     gateway    2skdm     320/345      127.9  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-000   CA     gateway    2skdm     320/345      250.7  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-000   CA     gateway    k6t2v     320/345      251.4  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-001   CA     gateway    2skdm     320/345      146.8  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-001   CA     gateway    k6t2v     320/345      146.4  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-001   CA     gateway    2skdm     320/345      147.5  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-001   CA     gateway    k6t2v     320/345      147.1  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-002   CA     gateway    2skdm     320/345      147.3  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-002   CA     gateway    k6t2v     320/345      148.1  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-002   CA     gateway    2skdm     320/345      146.4  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-002   CA     gateway    k6t2v     320/345      147.3  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-003   CA     gateway    2skdm     320/345      145.9  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-003   CA     gateway    k6t2v     320/345      147.0  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-003   CA     gateway    2skdm     320/345      145.7  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-003   CA     gateway    k6t2v     320/345      146.0  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-004   CA     gateway    2skdm     320/345      146.7  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-004   CA     gateway    k6t2v     320/345      146.2  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-004   CA     gateway    2skdm     320/345      147.6  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-004   CA     gateway    k6t2v     320/345      147.5  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-005   CA     gateway    2skdm     320/345      147.3  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-005   CA     gateway    k6t2v     320/345      146.8  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-005   CA     gateway    2skdm     320/345      146.6  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-005   CA     gateway    k6t2v     320/345      146.4  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-006   CA     gateway    2skdm     320/345      146.4  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-006   CA     gateway    k6t2v     320/345      146.8  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-006   CA     gateway    2skdm     320/345      146.9  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-006   CA     gateway    k6t2v     320/345      147.0  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-007   CA     gateway    k6t2v     320/345      146.7  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-007   CA     gateway    2skdm     320/345      147.8  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-007   CA     gateway    k6t2v     320/345      146.4  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-007   CA     gateway    2skdm     320/345      148.0  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-008   CA     gateway    k6t2v     320/345      146.1  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-008   CA     gateway    2skdm     320/345      146.7  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-008   CA     gateway    k6t2v     320/345      146.3  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-008   CA     gateway    2skdm     320/345      147.1  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-009   CA     gateway    k6t2v     320/345      147.4  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-009   CA     gateway    2skdm     320/345      148.2  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-009   CA     gateway    2skdm     320/345      147.5  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-009   CA     gateway    k6t2v     320/345      148.5  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-010   CA     gateway    2skdm     320/345      147.2  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-010   CA     gateway    k6t2v     320/345      147.4  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-010   CA     gateway    2skdm     320/345      147.0  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-010   CA     gateway    k6t2v     320/345      146.2  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-011   CA     gateway    2skdm     320/345      146.9  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-011   CA     gateway    k6t2v     320/345      146.8  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-011   CA     gateway    k6t2v     320/345      146.3  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream2-011   CA     gateway    2skdm     320/345      147.3  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream4-012   CA     gateway    2skdm     320/345      146.0  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream3-012   CA     gateway    k6t2v     320/345      146.5  2skdm=0.952381 k6t2v=0.952381
+precise-churn1-stream1-012   CA     gateway    k6t2v     320/345      148.0  k6t2v=0.952381
+precise-churn1-stream2-012   CA     gateway    k6t2v     320/345      272.2  k6t2v=0.952381
+precise-churn1-stream4-013   CA     gateway    k6t2v     320/345      273.2  k6t2v=0.952381
+precise-churn1-stream3-013   CA     gateway    k6t2v     320/345      397.1  k6t2v=0.952381
+precise-churn1-stream1-013   CA     gateway    k6t2v     320/345      396.8  k6t2v=0.952381
+precise-churn1-stream2-013   CA     gateway    k6t2v     320/345      396.8  k6t2v=0.952381
+precise-churn1-stream4-014   CA     gateway    k6t2v     320/345      396.9  k6t2v=0.952381
+precise-churn1-stream3-014   CA     gateway    k6t2v     320/345      395.6  k6t2v=0.952381
+precise-churn1-stream1-014   CA     gateway    k6t2v     320/345      396.0  k6t2v=0.952381
+precise-churn1-stream2-014   CA     gateway    k6t2v     320/345      394.5  k6t2v=0.952381
+precise-churn1-stream4-015   CA     gateway    k6t2v     320/345      393.9  k6t2v=0.952381
+precise-churn1-stream3-015   CA     gateway    k6t2v     320/345      394.7  k6t2v=0.952381
+precise-churn1-stream1-015   CA     gateway    k6t2v     320/345      393.8  k6t2v=0.952381
+precise-churn1-stream2-015   CA     gateway    k6t2v     320/345      394.4  k6t2v=0.952381
+precise-churn1-stream4-016   CA     gateway    k6t2v     320/345      393.8  k6t2v=0.952381
+precise-churn1-stream3-016   CA     gateway    k6t2v     320/345      394.7  k6t2v=0.952381
+precise-churn1-stream1-016   CA     gateway    k6t2v     320/345      394.6  k6t2v=0.952381
+precise-churn1-stream2-016   CA     gateway    k6t2v     320/345      395.2  k6t2v=0.952381
+precise-churn1-stream4-017   CA     gateway    k6t2v     320/345      395.8  k6t2v=0.952381
+precise-churn1-stream3-017   CA     gateway    k6t2v     320/345      394.2  k6t2v=0.952381
+precise-churn1-stream1-017   CA     gateway    k6t2v     320/345      395.1  k6t2v=0.952381
+precise-churn1-stream2-017   CA     gateway    k6t2v     320/345      394.1  k6t2v=0.952381
+precise-churn1-stream4-018   CA     gateway    k6t2v     320/345      394.8  k6t2v=0.952381
+precise-churn1-stream3-018   CA     gateway    k6t2v     320/345      396.8  k6t2v=0.952381
+precise-churn1-stream1-018   CA     gateway    k6t2v     320/345      396.9  k6t2v=0.952381
+precise-churn1-stream2-018   CA     gateway    k6t2v     320/345      396.3  k6t2v=0.952381
+precise-churn1-stream4-019   CA     gateway    k6t2v     320/345      396.5  k6t2v=0.952381
+precise-churn1-stream3-019   CA     gateway    k6t2v     320/345      395.3  k6t2v=0.952381
+precise-churn1-stream1-019   CA     gateway    k6t2v     320/345      395.1  k6t2v=0.952381
+precise-churn1-stream2-019   CA     gateway    k6t2v     320/345      395.2  k6t2v=0.952381
+precise-churn1-stream4-020   CA     gateway    k6t2v     320/345      394.2  k6t2v=0.952381
+precise-churn1-stream3-020   CA     gateway    k6t2v     320/345      393.4  k6t2v=0.952381
+precise-churn1-stream1-020   CA     gateway    k6t2v     320/345      392.6  k6t2v=0.952381
+precise-churn1-stream2-020   CA     gateway    k6t2v     320/345      392.6  k6t2v=0.952381
+precise-churn1-stream4-021   CA     gateway    k6t2v     320/345      393.3  k6t2v=0.952381
+precise-churn1-stream3-021   CA     gateway    k6t2v     320/345      393.6  k6t2v=0.952381
+precise-churn1-stream1-021   CA     gateway    k6t2v     320/345      394.8  k6t2v=0.952381
+precise-churn1-stream2-021   CA     gateway    k6t2v     320/345      395.5  k6t2v=0.952381
+precise-churn1-stream4-022   CA     gateway    k6t2v     320/345      395.7  k6t2v=0.952381
+precise-churn1-stream3-022   CA     gateway    k6t2v     320/345      396.0  k6t2v=0.952381
+precise-churn1-stream1-022   CA     gateway    k6t2v     320/345      395.0  k6t2v=0.952381
+precise-churn1-stream2-022   CA     gateway    k6t2v     320/345      395.4  k6t2v=0.952381
+precise-churn1-stream4-023   CA     gateway    k6t2v     320/345      395.3  k6t2v=0.952381
+precise-churn1-stream3-023   CA     gateway    k6t2v     320/345      396.0  k6t2v=0.952381
+precise-churn1-stream1-023   CA     gateway    k6t2v     320/345      395.3  k6t2v=0.952381
+precise-churn1-stream2-023   CA     gateway    k6t2v     320/345      395.0  k6t2v=0.952381
+precise-churn1-stream4-024   CA     gateway    k6t2v     320/345      394.1  k6t2v=0.952381
+precise-churn1-stream3-024   CA     gateway    k6t2v     320/345      393.8  k6t2v=0.952381
+precise-churn1-stream1-024   CA     gateway    k6t2v     320/345      393.4  k6t2v=0.952381
+precise-churn1-stream2-024   CA     gateway    k6t2v     320/345      393.5  k6t2v=0.952381
+precise-churn1-stream4-025   CA     gateway    k6t2v     320/345      393.9  k6t2v=0.952381
+precise-churn1-stream3-025   CA     gateway    k6t2v     320/345      393.2  k6t2v=0.952381
+precise-churn1-stream1-025   CA     gateway    k6t2v     320/345      393.8  k6t2v=0.952381
+precise-churn1-stream2-025   CA     gateway    k6t2v     320/345      393.6  k6t2v=0.952381
+precise-churn1-stream4-026   CA     gateway    k6t2v     320/345      393.9  k6t2v=0.952381
+precise-churn1-stream3-026   CA     gateway    k6t2v     320/345      395.1  k6t2v=0.952381
+precise-churn1-stream1-026   CA     gateway    k6t2v     320/345      396.4  k6t2v=0.952381
+precise-churn1-stream2-026   CA     gateway    k6t2v     320/345      396.8  k6t2v=0.952381
+precise-churn1-stream4-027   CA     gateway    k6t2v     320/345      396.5  k6t2v=0.952381
+precise-churn1-stream3-027   CA     gateway    k6t2v     320/345      394.9  k6t2v=0.952381
+precise-churn1-stream1-027   CA     gateway    k6t2v     320/345      395.1  k6t2v=0.952381
+precise-churn1-stream2-027   CA     gateway    k6t2v     320/345      394.6  k6t2v=0.952381
+precise-churn1-stream4-028   CA     gateway    k6t2v     320/345      395.5  k6t2v=0.952381
+precise-churn1-stream3-028   CA     gateway    k6t2v     320/345      396.0  k6t2v=0.952381
+precise-churn1-stream1-028   CA     gateway    k6t2v     320/345      395.9  k6t2v=0.952381
+precise-churn1-stream2-028   CA     gateway    k6t2v     320/345      395.7  k6t2v=0.952381
+precise-churn1-stream4-029   CA     gateway    k6t2v     320/345      395.9  k6t2v=0.952381
+precise-churn1-stream3-029   CA     gateway    k6t2v     320/345      395.3  k6t2v=0.952381
+precise-churn1-stream1-029   CA     gateway    k6t2v     320/345      395.0  k6t2v=0.952381
+precise-churn1-stream2-029   CA     gateway    k6t2v     320/345      395.2  k6t2v=0.952381
+precise-churn1-stream4-030   CA     gateway    k6t2v     320/345      395.0  k6t2v=0.952381
+precise-churn1-stream3-030   CA     gateway    k6t2v     320/345      395.1  k6t2v=0.952381
+precise-churn1-stream1-030   CA     gateway    k6t2v     320/345      394.1  k6t2v=0.952381
+precise-churn1-stream2-030   CA     gateway    k6t2v     320/345      394.5  k6t2v=0.952381
+precise-churn1-stream4-031   CA     gateway    k6t2v     320/345      393.8  k6t2v=0.952381
+precise-churn1-stream3-031   CA     gateway    k6t2v     320/345      394.6  k6t2v=0.952381
+precise-churn1-stream1-031   CA     gateway    k6t2v     320/345      394.7  k6t2v=0.952381
+precise-churn1-stream2-031   CA     gateway    k6t2v     320/345      394.2  k6t2v=0.952381
+precise-churn1-stream4-032   CA     gateway    k6t2v     320/345      394.2  k6t2v=0.952381
+precise-churn1-stream3-032   CA     gateway    k6t2v     320/345      394.5  k6t2v=0.952381
+precise-churn1-stream1-032   CA     gateway    k6t2v     320/345      394.5  k6t2v=0.952381
+precise-churn1-stream2-032   CA     gateway    k6t2v     320/345      395.7  k6t2v=0.952381
+precise-churn1-stream4-033   CA     gateway    k6t2v     320/345      395.8  k6t2v=0.952381
+precise-churn1-stream3-033   CA     gateway    k6t2v     320/345      395.1  k6t2v=0.952381
+precise-churn1-stream1-033   CA     gateway    k6t2v     320/345      395.9  k6t2v=0.952381
+precise-churn1-stream2-033   CA     gateway    k6t2v     320/345      394.8  k6t2v=0.952381
+precise-churn1-stream4-034   CA     gateway    k6t2v     320/345      394.8  k6t2v=0.952381
+precise-churn1-stream3-034   CA     gateway    k6t2v     320/345      394.8  k6t2v=0.952381
+precise-churn1-stream1-034   CA     gateway    k6t2v     320/345      395.1  k6t2v=0.952381
+precise-churn1-stream2-034   CA     gateway    k6t2v     320/345      394.9  k6t2v=0.952381
+precise-churn1-stream4-035   CA     gateway    k6t2v     320/345      394.4  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream3-035   CA     gateway    k6t2v     320/345      394.5  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream1-035   CA     gateway    k6t2v     320/345      393.4  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream2-035   CA     gateway    k6t2v     320/345      393.3  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream4-036   CA     gateway    k6t2v     320/345      393.7  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream3-036   CA     gateway    k6t2v     320/345      394.5  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream1-036   CA     gateway    k6t2v     320/345      394.1  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream2-036   CA     gateway    k6t2v     320/345      395.2  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream4-037   CA     gateway    k6t2v     320/345      395.2  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream3-037   CA     gateway    k6t2v     320/345      394.8  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream1-037   CA     gateway    k6t2v     320/345      395.2  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream2-037   CA     gateway    k6t2v     320/345      394.7  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream4-038   CA     gateway    k6t2v     320/345      394.1  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream3-038   CA     gateway    k6t2v     320/345      395.0  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream1-038   CA     gateway    k6t2v     320/345      394.7  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream2-038   CA     gateway    k6t2v     320/345      394.7  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream4-039   CA     gateway    k6t2v     320/345      395.4  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream3-039   CA     gateway    k6t2v     320/345      394.1  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream1-039   CA     gateway    k6t2v     320/345      394.3  cq8rr=0 k6t2v=0.952381
+precise-churn1-stream2-039   CA     gateway    k6t2v     320/345      394.0  cq8rr=0 k6t2v=0.952381
+precise-churn1-after-000     CA     gateway    k6t2v     320/344      126.6  cq8rr=0 k6t2v=0.952381
+precise-churn1-after-001     CA     gateway    k6t2v     320/344      125.0  cq8rr=0 k6t2v=0.952381
+precise-churn-warm-b1-000    CB     gateway    cq8rr       0/347      450.1  cq8rr=0 k6t2v=0
+precise-churn-warm-b1-001    CB     gateway    cq8rr     336/347      112.9  cq8rr=1 k6t2v=0
+precise-churn-warm-b2-000    CB     gateway    cq8rr     320/347      129.3  cq8rr=0.952381 k6t2v=0
+precise-churn-warm-b2-001    CB     gateway    cq8rr     336/347      115.0  cq8rr=1 k6t2v=0
+precise-churn2-after-000     CB     gateway    cq8rr       0/344      447.4  cq8rr=0.952381 k6t2v=0
+precise-churn2-after-001     CB     gateway    cq8rr     320/344      126.5  cq8rr=0.952381 k6t2v=0
+   gateway requests joined to EPP scores: 172/172
+   step                                     gateway   hit  predicted  to warm pod
+   precise-churn-warm-a1                          2     0        0/2            -
+   precise-churn-warm-a2                          2     2        2/2            -
+   precise-churn1-stream3                        40    40      40/40            -
+   precise-churn1-stream4                        40    40      40/40            -
+   precise-churn1-stream2                        40    40      40/40            -
+   precise-churn1-stream1                        40    40      40/40            -
+   precise-churn1-after                           2     2        2/2            -
+   precise-churn-warm-b1                          2     1        1/2            -
+   precise-churn-warm-b2                          2     2        2/2            -
+   precise-churn2-after                           2     1        1/2            -
+

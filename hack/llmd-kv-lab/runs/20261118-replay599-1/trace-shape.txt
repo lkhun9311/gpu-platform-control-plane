@@ -1,0 +1,1 @@
+seed 942: 482 requests over 600000 ms at 0.80/s, 77 groups, prompt 4100 chars of which 4000 shared, output 64 tokens

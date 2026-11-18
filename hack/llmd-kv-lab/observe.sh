@@ -151,4 +151,4 @@ case "${1:-all}" in
   *) echo "usage: $0 [precise|precise-pull|precise-spec|approx|all]" >&2; exit 2 ;;
 esac
 python3 -I "$REPO/hack/llmd-kv-lab/summarize.py" "$RUN" | tee "$RUN/summary.txt"
-say "run written to $RUN"
+say "run written to ${RUN#"$REPO"/}"

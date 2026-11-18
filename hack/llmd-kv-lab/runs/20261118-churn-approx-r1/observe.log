@@ -1,0 +1,6 @@
+probes: === arm approx: EPP on the approx config, then fresh simulator pods
+llmd-kv-lab: simulator, EPP and renderer pods run their pinned images
+llmd-kv-lab: EPP now runs the approx config, behind freshly started simulators
+probes: [approx] churn 1: CA lives on vllm-d-54588844b-hn4nk; deleting it under four concurrent streams of CA
+probes: [approx] churn 2: CB lives on vllm-d-54588844b-nwb5w (restarts 0); stopping its simulator container 730632db2f4de7deb180bb3be415812ab68de9d155a67f48f7e5e45465342a4e
+probes: probe churn on approx written to hack/llmd-kv-lab/runs/20261118-churn-approx-r1

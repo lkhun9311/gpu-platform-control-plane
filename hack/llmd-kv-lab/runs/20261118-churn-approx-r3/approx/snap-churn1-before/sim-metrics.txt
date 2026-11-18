@@ -1,0 +1,4 @@
+vllm-d-fd686c9c4-h92zj vllm:kv_cache_usage_perc{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 0
+vllm-d-fd686c9c4-h92zj vllm:prefix_cache_hits_total{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 992
+vllm-d-fd686c9c4-h92zj vllm:prefix_cache_queries_total{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 1392
+vllm-d-fd686c9c4-t72cw vllm:kv_cache_usage_perc{model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0"} 0

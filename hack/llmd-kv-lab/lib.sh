@@ -148,7 +148,7 @@ fresh_arm() {
   # Terminating pods still answer the label selector for a while; wait until only the new ReplicaSet's pods remain.
   local _
   for _ in $(seq 1 60); do
-    [ "$(k get pods -l llm-d.ai/component=decode --no-headers | wc -l)" = 3 ] && break
+    [ "$(k get pods -l llm-d.ai/component=decode --no-headers | wc -l)" = "${LAB_SIM_REPLICAS:-3}" ] && break
     sleep 2
   done
   wait_epp_ready
