@@ -4,7 +4,7 @@ simulator         gpuaas-llmd-kv-lab/sim:6ab9d4b2367a (built from https://github
 render (tokenizer) vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9
 kind node         kindest/node:v1.31.12@sha256:0f5cc49c5e73c0c2bb6e2df56e7df189240d83cf94edfa30946482eb08ec57d2
 kind CLI          v0.24.0
-cluster           gpuaas-llmd-kv-lab (context kind-gpuaas-llmd-kv-lab, kubeconfig /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/lane1-599/tmp/llmd-kv-lab/kubeconfig)
+cluster           gpuaas-llmd-kv-lab (context kind-gpuaas-llmd-kv-lab, kubeconfig tmp/llmd-kv-lab/kubeconfig)
 gateway           127.0.0.1:30598
 simulator pods    2 x 2769 KV blocks of 16 tokens
 simulator args    --enable-request-id-headers --max-num-seqs=1 --prefill-overhead=60ms --prefill-time-per-token=1ms --inter-token-latency=5ms (beyond upstream's)

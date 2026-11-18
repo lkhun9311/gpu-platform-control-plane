@@ -3,4 +3,4 @@ llmd-kv-lab: simulator, EPP and renderer pods run their pinned images
 llmd-kv-lab: EPP now runs the precise-load config, behind freshly started simulators
 probes: [precise-load] churn 1: CA lives on vllm-d-d59584685-p4f9j; deleting it under four concurrent streams of CA
 probes: [precise-load] churn 2: CB lives on vllm-d-d59584685-77cds (restarts 0); stopping its simulator container adfb63c5691c8a85a2422083de4ba08501ad998b83c97ce32d418a42889da14a
-probes: probe churn on precise-load written to /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/lane1-599/hack/llmd-kv-lab/runs/20261118-churn-precise-load-r2
+probes: probe churn on precise-load written to hack/llmd-kv-lab/runs/20261118-churn-precise-load-r2

@@ -87,7 +87,7 @@ simulator         $SIM_IMAGE (built from $SIM_REPO $SIM_COMMIT)
 render (tokenizer) $RENDER_IMAGE@$RENDER_DIGEST
 kind node         $KIND_NODE_IMAGE@$KIND_NODE_DIGEST
 kind CLI          $KIND_CLI_VERSION
-cluster           $CLUSTER (context $CTX, kubeconfig $KUBECONFIG)
+cluster           $CLUSTER (context $CTX, kubeconfig ${KUBECONFIG#"$REPO"/})
 gateway           127.0.0.1:$GATEWAY_HOST_PORT
 simulator pods    $SIM_REPLICAS x $SIM_KV_BLOCKS KV blocks of 16 tokens
 simulator args    $SIM_ECHO_REQUEST_ID $SIM_EXTRA_ARGS (beyond upstream's)

@@ -88,4 +88,4 @@ for arm in "${ARMS[@]}"; do
   gzip -f "$RUN/$arm"/sim-*.log
 done
 python3 -I "$REPO/hack/llmd-kv-lab/replay599.py" "$RUN" | tee "$RUN/summary.txt"
-say "replay written to $RUN"
+say "replay written to ${RUN#"$REPO"/}"

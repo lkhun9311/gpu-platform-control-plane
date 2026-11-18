@@ -1,4 +1,4 @@
 probes: === arm approx-load: EPP on the approx-load config, then fresh simulator pods
 llmd-kv-lab: simulator, EPP and renderer pods run their pinned images
 llmd-kv-lab: EPP now runs the approx-load config, behind freshly started simulators
-probes: probe cancel on approx-load written to /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/lane1-599/hack/llmd-kv-lab/runs/20261118-cancel-approx-load
+probes: probe cancel on approx-load written to hack/llmd-kv-lab/runs/20261118-cancel-approx-load

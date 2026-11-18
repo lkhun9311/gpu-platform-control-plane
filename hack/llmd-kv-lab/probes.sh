@@ -273,4 +273,4 @@ case $1 in
 esac
 save_epp_log "$(epp_pod)" end
 python3 -I "$REPO/hack/llmd-kv-lab/summarize.py" "$RUN" >"$RUN/summary-$1-$2.txt"
-say "probe $1 on $2 written to $RUN"
+say "probe $1 on $2 written to ${RUN#"$REPO"/}"
