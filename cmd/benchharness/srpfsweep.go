@@ -108,11 +108,12 @@ func printSRPFArms(out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		line := fmt.Sprintf("%d %s", i+1, a.Name)
+		var line strings.Builder
+		fmt.Fprintf(&line, "%d %s", i+1, a.Name)
 		env := []string{}
 		for _, arg := range args {
 			if p, ok := strings.CutPrefix(arg, "--scheduling-policy="); ok {
-				line += " policy=" + p
+				line.WriteString(" policy=" + p)
 			}
 			if v, ok := strings.CutPrefix(arg, "--env="); ok && strings.HasPrefix(v, "VLLM_") && strings.Contains(v, "SRPF") {
 				env = append(env, v)
@@ -121,7 +122,7 @@ func printSRPFArms(out io.Writer) error {
 		if len(env) == 0 {
 			env = []string{"no-srpf-env"}
 		}
-		if _, err := fmt.Fprintln(out, line+" "+strings.Join(env, " ")); err != nil {
+		if _, err := fmt.Fprintln(out, line.String()+" "+strings.Join(env, " ")); err != nil {
 			return err
 		}
 	}

@@ -794,46 +794,67 @@ func srpfProbeCheck(a SRPFArm, path string, serving bool, out []byte) (string, e
 	if err := json.Unmarshal(lastLine(out), &p); err != nil {
 		return "", fmt.Errorf("the code probe's answer is not JSON: %w: %q", err, out)
 	}
-	wantStarvation := strconv.Itoa(a.Starvation)
-	envRefusal := func(who string, env, starvation, prefix *string) error {
-		switch {
-		case prefix == nil || *prefix != srpfSweepPycachePrefix:
-			return fmt.Errorf("%s has PYTHONPYCACHEPREFIX %s, not %s", who, show(prefix), srpfSweepPycachePrefix)
-		case a.SRPF && (env == nil || *env != "1"):
-			return fmt.Errorf("arm %s needs %s=1 and %s has %s", a.Name, SRPFSweepEnableEnv, who, show(env))
-		case !a.SRPF && env != nil:
-			return fmt.Errorf("arm %s must not set %s and %s has %s", a.Name, SRPFSweepEnableEnv, who, show(env))
-		// The value is compared as the string the arm set, so "05" or " 5", which int() would also read as 5, is still refused.
-		case a.SRPF && (starvation == nil || *starvation != wantStarvation):
-			return fmt.Errorf("arm %s needs %s=%s and %s has %s", a.Name, SRPFSweepStarvationEnv, wantStarvation, who, show(starvation))
-		case !a.SRPF && starvation != nil:
-			return fmt.Errorf("arm %s must not set %s and %s has %s", a.Name, SRPFSweepStarvationEnv, who, show(starvation))
-		}
-		return nil
+	if err := srpfImportRefusal(p, path); err != nil {
+		return "", err
 	}
-	switch {
-	case p.File != path:
-		return "", fmt.Errorf("the scheduler imported is %s, not the overlaid %s", p.File, path)
-	case p.SHA256 != SRPFSweepPRSchedulerSHA256:
-		return "", fmt.Errorf("the scheduler imported hashes to %s, not the PR head's %s", p.SHA256, SRPFSweepPRSchedulerSHA256)
-	case !p.SRPFKey:
-		return "", errors.New("the scheduler imported has no _get_srpf_key_for_req")
-	case !p.Observed:
-		return "", errors.New("the scheduler's import was not wrapped by the observer, so what an engine core initialised could not be shown")
-	}
-	if err := envRefusal("the probe", p.Env, p.Starvation, p.PycachePrefix); err != nil {
+	if err := srpfEnvRefusal(a, "the probe", p.Env, p.Starvation, p.PycachePrefix); err != nil {
 		return "", err
 	}
 	if !serving {
 		return "", nil
 	}
+	cores, err := srpfServingCores(a, p)
+	if err != nil {
+		return "", err
+	}
+	return srpfObserverProof(a, path, p, cores)
+}
+
+// srpfImportRefusal checks that the probe imported the overlaid PR scheduler and that the observer wrapped it.
+func srpfImportRefusal(p srpfProbe, path string) error {
+	switch {
+	case p.File != path:
+		return fmt.Errorf("the scheduler imported is %s, not the overlaid %s", p.File, path)
+	case p.SHA256 != SRPFSweepPRSchedulerSHA256:
+		return fmt.Errorf("the scheduler imported hashes to %s, not the PR head's %s", p.SHA256, SRPFSweepPRSchedulerSHA256)
+	case !p.SRPFKey:
+		return errors.New("the scheduler imported has no _get_srpf_key_for_req")
+	case !p.Observed:
+		return errors.New("the scheduler's import was not wrapped by the observer, so what an engine core initialised could not be shown")
+	}
+	return nil
+}
+
+// srpfEnvRefusal checks one environment against the arm: the bytecode prefix, and the SRPF variables set exactly when
+// the arm runs SRPF, at the arm's threshold.
+func srpfEnvRefusal(a SRPFArm, who string, env, starvation, prefix *string) error {
+	wantStarvation := strconv.Itoa(a.Starvation)
+	switch {
+	case prefix == nil || *prefix != srpfSweepPycachePrefix:
+		return fmt.Errorf("%s has PYTHONPYCACHEPREFIX %s, not %s", who, show(prefix), srpfSweepPycachePrefix)
+	case a.SRPF && (env == nil || *env != "1"):
+		return fmt.Errorf("arm %s needs %s=1 and %s has %s", a.Name, SRPFSweepEnableEnv, who, show(env))
+	case !a.SRPF && env != nil:
+		return fmt.Errorf("arm %s must not set %s and %s has %s", a.Name, SRPFSweepEnableEnv, who, show(env))
+	// The value is compared as the string the arm set, so "05" or " 5", which int() would also read as 5, is still refused.
+	case a.SRPF && (starvation == nil || *starvation != wantStarvation):
+		return fmt.Errorf("arm %s needs %s=%s and %s has %s", a.Name, SRPFSweepStarvationEnv, wantStarvation, who, show(starvation))
+	case !a.SRPF && starvation != nil:
+		return fmt.Errorf("arm %s must not set %s and %s has %s", a.Name, SRPFSweepStarvationEnv, who, show(starvation))
+	}
+	return nil
+}
+
+// srpfServingCores checks the serving container's bytecode and processes, and returns its engine cores, each marked as
+// not yet vouched for by an observer record.
+func srpfServingCores(a SRPFArm, p srpfProbe) (map[int]bool, error) {
 	switch {
 	case p.PycFlags == nil || p.PycSourceSize == nil:
-		return "", fmt.Errorf("no server process wrote bytecode for the scheduler at %s, so what it imported is not shown", p.Pyc)
+		return nil, fmt.Errorf("no server process wrote bytecode for the scheduler at %s, so what it imported is not shown", p.Pyc)
 	case *p.PycFlags != 0 || *p.PycSourceSize != p.Size:
-		return "", fmt.Errorf("the server compiled a scheduler of %d bytes (pyc flags %d), and the PR head's is %d", *p.PycSourceSize, *p.PycFlags, p.Size)
+		return nil, fmt.Errorf("the server compiled a scheduler of %d bytes (pyc flags %d), and the PR head's is %d", *p.PycSourceSize, *p.PycFlags, p.Size)
 	case len(p.Procs) == 0:
-		return "", errors.New("the probe found no server process in the container")
+		return nil, errors.New("the probe found no server process in the container")
 	}
 	byPID := make(map[int]srpfProbeProc, len(p.Procs))
 	for _, pr := range p.Procs {
@@ -848,15 +869,15 @@ func srpfProbeCheck(a SRPFArm, path string, serving bool, out []byte) (string, e
 		// It inherited its environment from its parent at spawn, so its nearest readable ancestor is checked instead.
 		if pr.EnvCount == 0 || srpfRenamed(pr) {
 			if _, ok := readableAncestor(byPID, pr); !ok {
-				return "", fmt.Errorf("%s shows no environment and no ancestor whose environment can be read", who)
+				return nil, fmt.Errorf("%s shows no environment and no ancestor whose environment can be read", who)
 			}
 			continue
 		}
-		if err := envRefusal(who, pr.Env, pr.Starvation, pr.PycachePrefix); err != nil {
-			return "", err
+		if err := srpfEnvRefusal(a, who, pr.Env, pr.Starvation, pr.PycachePrefix); err != nil {
+			return nil, err
 		}
 		if pr.SyncCheck != nil {
-			return "", fmt.Errorf("%s runs with %s=%s, the CI image's debug check, which a release image does not set", who, srpfSyncCheckEnv, *pr.SyncCheck)
+			return nil, fmt.Errorf("%s runs with %s=%s, the CI image's debug check, which a release image does not set", who, srpfSyncCheckEnv, *pr.SyncCheck)
 		}
 	}
 	// The scheduler, and its read of both variables, runs in the engine core.
@@ -869,17 +890,23 @@ func srpfProbeCheck(a SRPFArm, path string, serving bool, out []byte) (string, e
 		}
 		parent, ok := readableAncestor(byPID, pr)
 		if !ok {
-			return "", fmt.Errorf("engine core %d has no ancestor whose environment can be read", pr.PID)
+			return nil, fmt.Errorf("engine core %d has no ancestor whose environment can be read", pr.PID)
 		}
 		who := fmt.Sprintf("engine core %d's ancestor %d (%s)", pr.PID, parent.PID, parent.Cmd)
-		if err := envRefusal(who, parent.Env, parent.Starvation, parent.PycachePrefix); err != nil {
-			return "", err
+		if err := srpfEnvRefusal(a, who, parent.Env, parent.Starvation, parent.PycachePrefix); err != nil {
+			return nil, err
 		}
 		cores[pr.PID] = false
 	}
 	if len(cores) == 0 {
-		return "", fmt.Errorf("the probe found no %s process, so the arm's variables are not shown to reach the scheduler", srpfEngineCoreTitle)
+		return nil, fmt.Errorf("the probe found no %s process, so the arm's variables are not shown to reach the scheduler", srpfEngineCoreTitle)
 	}
+	return cores, nil
+}
+
+// srpfObserverProof checks every observer record against the engine cores and the arm's threshold, requires one from
+// every engine core, and returns what each recorded.
+func srpfObserverProof(a SRPFArm, path string, p srpfProbe, cores map[int]bool) (string, error) {
 	// A baseline never consults the threshold, and its scheduler must still hold the PR's default, since it sets no variable.
 	want := strconv.Itoa(srpfStarvationDefault)
 	if a.SRPF {
@@ -899,7 +926,7 @@ func srpfProbeCheck(a SRPFArm, path string, serving bool, out []byte) (string, e
 		case string(r.Threshold) != want:
 			return "", fmt.Errorf("arm %s needs srpf_starvation_threshold %s and %s holds %s", a.Name, want, who, r.Threshold)
 		}
-		if err := envRefusal(who, r.Env, r.Starvation, new(srpfSweepPycachePrefix)); err != nil {
+		if err := srpfEnvRefusal(a, who, r.Env, r.Starvation, new(srpfSweepPycachePrefix)); err != nil {
 			return "", err
 		}
 		cores[r.PID] = true
