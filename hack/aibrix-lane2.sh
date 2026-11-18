@@ -189,7 +189,9 @@ collect() {
   # The reconciler runs on the host, so its log is wherever it was started; LAB_HOME is the place the usage line names.
   cp "$LAB_HOME/reconciler.log" "$OUT/reconciler.log" 2>/dev/null || true
   cmd_pins >"$OUT/pins.txt"
-  echo "gpuaas $(git -C "$REPO" rev-parse HEAD)$([ -n "$(git -C "$REPO" status --porcelain -- api internal hack/aibrix-lane2)" ] && echo ' (with uncommitted changes)')" >>"$OUT/pins.txt"
+  # The runs directory is excluded, because this run's own output would otherwise mark every run as uncommitted.
+  echo "gpuaas $(git -C "$REPO" rev-parse HEAD)$([ -n "$(git -C "$REPO" status --porcelain -- api internal hack/aibrix-lane2.sh \
+    ':(exclude)hack/aibrix-lane2/runs' hack/aibrix-lane2)" ] && echo ' (with uncommitted changes)')" >>"$OUT/pins.txt"
 }
 
 cmd_replay() {
