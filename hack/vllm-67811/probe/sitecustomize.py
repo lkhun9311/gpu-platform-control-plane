@@ -75,8 +75,16 @@ def _patch(module):
         return granted
 
     def traced_begin(self, now, decode_reqs, max_tokens, prefill_ids):
+        # The scheduler skips commit when a step schedules no token at all, which is the stall this run is for.
+        # The previous budget's limit decisions are written here instead, before a new budget replaces it.
+        prev = state.pop("budget", None)
+        if prev is not None and getattr(prev, "_ap_limits", None):
+            timed(emit)({"ev": "nocommit", "t": time.time(), "limit_calls": len(prev._ap_limits),
+                         "limit_zero": sorted(r for r, (g, _, _) in prev._ap_limits.items() if g == 0),
+                         "limit_granted": {r: g for r, (g, _, _) in prev._ap_limits.items() if g}})
         inflight = sum(p.reserved_ms for p in self.pending.values())
         budget = begin(self, now, decode_reqs, max_tokens, prefill_ids)
+        state["budget"] = budget
         timed(emit)({"ev": "begin", "t": time.time(), "now": now, "decode_reqs": decode_reqs,
                      "prefill_reqs": len(prefill_ids), "inflight_before_ms": inflight, "limit_ms": budget.limit_ms,
                      "request_limit_ms": budget.request_limit_ms, "force_progress": budget.force_progress,
@@ -86,6 +94,8 @@ def _patch(module):
     def traced_commit(self, step_id, budget, actual, contexts, decode_reqs, now):
         result = commit(self, step_id, budget, actual, contexts, decode_reqs, now)
         t0 = time.perf_counter()
+        if state.get("budget") is budget:
+            del state["budget"]
         prefill = {r: [c, contexts[r]] for r, c in actual.items() if r in contexts}
         limits = getattr(budget, "_ap_limits", {})
         step = self.pending.get(step_id)

@@ -62,10 +62,13 @@ c = C()
 b = c.begin(0.0, 1, 8192, {"p", "w"})
 assert b.limit_ms == 3.5 and b.limit("p", 64, 0) == 64 and b.limit("w", 16, 0) == 0
 c.commit(7, b, {"p": 64, "d": 1}, {"p": 0}, 1, 0.0)
+z = c.begin(0.1, 0, 8192, {"w"})
+assert z.limit("w", 16, 0) == 0
+c.begin(0.2, 0, 8192, {"w"})
 assert c.complete(7, 12.5) == 7
 c.complete(8, None)'
-check "the probe traces begin, commit and complete with what each was given" \
-  "[ \"\$(cat '$WORK'/probe-out/probe-t-*.jsonl | wc -l)\" = 4 ] && grep -q '\"device_ms\": 12.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"commit\".*\"prefill_tokens\": 64.*\"limit_zero\": \[\"w\"\].*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"begin\".*\"limit_ms\": 3.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"complete\".*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl"
+check "the probe traces begin, commit, complete, and the limits of a step that scheduled nothing" \
+  "[ \"\$(cat '$WORK'/probe-out/probe-t-*.jsonl | wc -l)\" = 7 ] && grep -q '\"ev\": \"nocommit\".*\"limit_zero\": \[\"w\"\]' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"device_ms\": 12.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"commit\".*\"prefill_tokens\": 64.*\"limit_zero\": \[\"w\"\].*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"begin\".*\"limit_ms\": 3.5' '$WORK'/probe-out/probe-t-*.jsonl && grep -q '\"ev\": \"complete\".*\"units\": 64' '$WORK'/probe-out/probe-t-*.jsonl"
 
 # The runner's whole path, against fakes that answer as the image and the engine would.
 mkfakes() {
