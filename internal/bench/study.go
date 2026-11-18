@@ -472,6 +472,11 @@ const (
 	//
 	// A study of its own because no gateway stands in front of the engine and the engine is a build no earlier run used.
 	StudySRPF58420 = "vllm-58420-srpf-2026-11-16"
+	// StudySRPF58420Threshold is StudySRPF58420's load and engine at the PR's 2026-11-18 head, which reads the aging
+	// step threshold from VLLM_SRPF_STARVATION_THRESHOLD, swept against fcfs and priority on one instance.
+	//
+	// A study of its own so its rows, whose arm names include fcfs and priority again, are never pooled with run 8's.
+	StudySRPF58420Threshold = "vllm-58420-threshold-2026-11-19"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -1206,9 +1211,16 @@ var studies = map[string]Study{
 	},
 	// The diagnostic's load, lengths, sender and frozen token counts, so a row here was sent as a row there was.
 	// The token contract is set because the newer engine may put several tokens in one frame (audit finding 1).
-	StudySRPF58420: {
-		ID:       StudySRPF58420,
-		Arms:     SRPFSweepArmNames(),
+	// Its arms are the six run 8 measured on 2026-11-17, kept so that run's rows still resolve.
+	StudySRPF58420:          srpfStudy(StudySRPF58420, []string{"fcfs", "fcfs-t384", "priority", "priority-t384", "srpf", "srpf-t384"}),
+	StudySRPF58420Threshold: srpfStudy(StudySRPF58420Threshold, SRPFSweepArmNames()),
+}
+
+// srpfStudy is the diagnostic's load as the SRPF sweeps replay it, under id with these arms.
+func srpfStudy(id string, arms []string) Study {
+	return Study{
+		ID:       id,
+		Arms:     arms,
 		Arrivals: ArrivalsIndependent,
 		Frozen: &FrozenTuple{
 			PremiumPromptChars:    200,
@@ -1223,7 +1235,7 @@ var studies = map[string]Study{
 		SenderPoolSize:      600,
 		FrozenExactTokens:   map[int]int{200: 68, 40000: 7695},
 		OutputCount:         OutputCountEngineTokens,
-	},
+	}
 }
 
 // CanonicalStudyID resolves an identifier as recorded to the identifier it means.

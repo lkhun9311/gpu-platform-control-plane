@@ -20,14 +20,19 @@ import (
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/engineargs"
 )
 
-// The SRPF sweep: vLLM PR #58420 at its head, measured under fcfs, priority and its own SRPF, each with and without
-// the 384-token prefill threshold, on one A10G with the admission diagnostic's frozen two-tenant load.
+// The SRPF threshold sweep: vLLM PR #58420 at its 2026-11-18 head, measured under fcfs, priority and its own SRPF at
+// five aging thresholds, on one A10G with the admission diagnostic's frozen two-tenant load.
 //
+// Run 8 on 2026-11-17 measured the earlier head aae949c, whose aging rule was the literal "starvation > 5" scheduler
+// steps; the PR's author then made the step count VLLM_SRPF_STARVATION_THRESHOLD (default 5) and asked for 2 or 3 and
+// 8 or 10 beside it.
+// The new head b8b0d36 has the same merge base, so the image is run 8's, and it changes only scheduler.py against it.
 // The PR changes only vllm/v1/core/sched/scheduler.py inside the package (and adds a stray top-level script), so the
 // build is vLLM CI's post-merge image of the PR's merge base with that one file mounted over the installed copy.
 // SRPF is not a --scheduling-policy value at the merge base, whose SchedulerPolicy is Literal["fcfs", "priority"].
-// The PR switches it on with VLLM_ENABLE_SRPF=1 under the fcfs policy, and its aging threshold is the literal
-// "starvation > 5" scheduler steps in _get_srpf_key_for_req, so the SRPF arms set that variable and nothing else.
+// The PR switches it on with VLLM_ENABLE_SRPF=1 under the fcfs policy and reads the threshold in Scheduler.__init__, so
+// the SRPF arms set those two variables and nothing else, and the baselines set neither.
+// The 384-token prefill threshold arms of run 8 are not repeated: none of the author's questions is about it.
 
 const (
 	// SRPFSweepImage is vLLM CI's post-merge image of the merge base, pinned by its manifest-list digest.
@@ -36,14 +41,19 @@ const (
 	SRPFSweepImage = "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467"
 	// SRPFSweepBaseCommit is the PR's merge base on main, the commit the image was built from.
 	SRPFSweepBaseCommit = "5039f736e612ae637099eba3fa645031d416ef53"
-	// SRPFSweepPRCommit is the PR's head, the one commit on top of the merge base.
-	SRPFSweepPRCommit = "aae949c81dfe216e18ac56887ca2cdf7d4969e48"
+	// SRPFSweepPRCommit is the PR's head as force-pushed on 2026-11-18, still one commit on top of the merge base.
+	// Against run 8's head aae949c it changes scheduler.py alone; the stray top-level script is the same blob 690e1de2.
+	SRPFSweepPRCommit = "b8b0d3610dee138db57ba465897f4b7af74abbd5"
 	// SRPFSweepBaseSchedulerSHA256 is scheduler.py at the merge base (git blob c6801611cb90), which the image must carry.
 	SRPFSweepBaseSchedulerSHA256 = "b67848721847aa8f45cddee43cabdbb2f35205eb3b441e16d79823d30f3be097"
-	// SRPFSweepPRSchedulerSHA256 is scheduler.py at the PR head (git blob 87e31dcc425d), the file mounted over it.
-	SRPFSweepPRSchedulerSHA256 = "19502766a57a37432cda1ac0a581979d22845cc0fe2d5f08be8647ca113d2fa9"
+	// SRPFSweepPRSchedulerSHA256 is scheduler.py at the PR head (git blob be34356a5faa), the file mounted over it.
+	// Run 8's, at aae949c, was 19502766a57a (git blob 87e31dcc425d).
+	SRPFSweepPRSchedulerSHA256 = "2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a"
 	// SRPFSweepEnableEnv is the variable the PR reads, in three places of scheduler.py, to switch SRPF on.
 	SRPFSweepEnableEnv = "VLLM_ENABLE_SRPF"
+	// SRPFSweepStarvationEnv is the variable Scheduler.__init__ reads, with int() and a default of "5", as the number of
+	// scheduler steps after which a waiting request counts as starved.
+	SRPFSweepStarvationEnv = "VLLM_SRPF_STARVATION_THRESHOLD"
 	// SRPFSweepTraceSeed and SRPFSweepTraceChecksum name the diagnostic's frozen trace of block 3.
 	// It is the block the 452 against 1,486 ms of the vLLM #57413 comment came from.
 	SRPFSweepTraceSeed     = 853
@@ -84,8 +94,10 @@ const (
 	SRPFSweepModelBound = 900 * time.Second
 	// SRPFSweepReadyBound bounds one engine's start to /health 200, from before docker run.
 	// Each arm starts on an empty compile cache, so every start is cold.
-	// On 2026-11-16 a cold v0.32.0 start was ready at 124 s and a cold v0.27.1 start at 350-377 s.
-	SRPFSweepReadyBound = 500 * time.Second
+	// Run 8 on 2026-11-17 started this image six times cold on g5.xlarge, ready at 102-108 s and at 158 s for the first.
+	// That run's 500 s bound, times seven arms, would put the session's worst case over $3, so it is 300 s, near twice the slowest.
+	// An arm that overruns it is one failed arm, not a failed sweep.
+	SRPFSweepReadyBound = 300 * time.Second
 	// SRPFSweepArmIdentityBound bounds checking the running engine's arguments and the code it imports.
 	SRPFSweepArmIdentityBound = 90 * time.Second
 	// SRPFSweepCaptureBound bounds saving the ready engine's identity endpoints.
@@ -114,27 +126,35 @@ const SRPFSweepArmBound = SRPFSweepReadyBound + SRPFSweepArmIdentityBound + SRPF
 const SRPFSweepBound = SRPFSweepPullBound + SRPFSweepImageIdentityBound + SRPFSweepModelBound + srpfSweepArmCount*SRPFSweepArmBound
 
 // srpfSweepArmCount is len(srpfSweepArms), as a constant so the bound above is one; a test holds the two equal.
-const srpfSweepArmCount = 6
+const srpfSweepArmCount = 7
 
-// SRPFArm is one arm: a scheduling policy, whether the prefill threshold is set, and whether SRPF is switched on.
+// SRPFArm is one arm: a scheduling policy, whether the prefill threshold is set, whether SRPF is switched on, and the
+// SRPF aging threshold it runs with.
 type SRPFArm struct {
 	Name   string `json:"name"`
 	Policy string `json:"policy"`
 	// Threshold is the --long-prefill-token-threshold passed, 0 when the flag is left out.
 	Threshold int  `json:"threshold"`
 	SRPF      bool `json:"srpf"`
+	// Starvation is the VLLM_SRPF_STARVATION_THRESHOLD an SRPF arm sets, and 0, the variable unset, for any other arm.
+	// Every SRPF arm sets it, the default 5 included, so each one runs the PR's new read of it.
+	Starvation int `json:"starvationThreshold"`
 }
 
+// srpfSweepArms are fcfs, the baseline the author compares the tail to, priority, the client-label reference the short
+// p99 is compared to, and SRPF at the author's tighter (2, 3) and looser (8, 10) thresholds.
+// srpf-s5 is the default, the same rule run 8's srpf arm ran, so it is the drift check against that run.
 var srpfSweepArms = []SRPFArm{
 	{Name: "fcfs", Policy: "fcfs"},
-	{Name: "fcfs-t384", Policy: "fcfs", Threshold: engineargs.HoldCapPrefillThreshold},
 	{Name: "priority", Policy: "priority"},
-	{Name: "priority-t384", Policy: "priority", Threshold: engineargs.HoldCapPrefillThreshold},
-	{Name: "srpf", Policy: "fcfs", SRPF: true},
-	{Name: "srpf-t384", Policy: "fcfs", Threshold: engineargs.HoldCapPrefillThreshold, SRPF: true},
+	{Name: "srpf-s2", Policy: "fcfs", SRPF: true, Starvation: 2},
+	{Name: "srpf-s3", Policy: "fcfs", SRPF: true, Starvation: 3},
+	{Name: "srpf-s5", Policy: "fcfs", SRPF: true, Starvation: 5},
+	{Name: "srpf-s8", Policy: "fcfs", SRPF: true, Starvation: 8},
+	{Name: "srpf-s10", Policy: "fcfs", SRPF: true, Starvation: 10},
 }
 
-// SRPFSweepArms returns the six arms in their canonical order, as a copy.
+// SRPFSweepArms returns the seven arms in their canonical order, as a copy.
 func SRPFSweepArms() []SRPFArm { return slices.Clone(srpfSweepArms) }
 
 // SRPFSweepArmNames returns the arms' names in their canonical order.
@@ -148,10 +168,10 @@ func SRPFSweepArmNames() []string {
 
 // SRPFSweepOrder is the order the arms run in, counterbalanced and then drawn by the seed.
 //
-// Plain hashing of the names put the three threshold arms first, so position on the instance would have been
-// confounded with the threshold.
-// The order is therefore drawn from the orders in which the threshold alternates and each policy runs once in each half,
-// as the one whose sha256("<seed>/<arm>,<arm>,...") is least.
+// The comparison is across thresholds, so a threshold that rose or fell with position on the instance would be
+// confounded with whatever drifts over the session.
+// The order is therefore drawn from the balanced ones (srpfBalanced), as the one whose sha256("<seed>/<arm>,<arm>,...")
+// is least.
 func SRPFSweepOrder(seed int64) []SRPFArm {
 	var best []SRPFArm
 	bestKey := ""
@@ -171,26 +191,52 @@ func SRPFSweepOrder(seed int64) []SRPFArm {
 	return best
 }
 
-// srpfBalanced says the threshold alternates along the order and each policy appears once in each half.
+// srpfBalanced says the order keeps position from standing in for an arm's scheduler:
+//   - fcfs and priority run in opposite halves, with an SRPF arm in the middle, so neither baseline holds both ends;
+//   - the SRPF thresholds' Spearman correlation with their positions is within ±0.2, so no trend in time reads as one in threshold;
+//   - no two thresholds next to each other on the ladder run back to back, so a neighbouring pair shares no stretch of the session.
 func srpfBalanced(order []SRPFArm) bool {
-	for i := 1; i < len(order); i++ {
-		if (order[i].Threshold == 0) == (order[i-1].Threshold == 0) {
-			return false
+	n := len(order)
+	half := func(name string) int {
+		i := slices.IndexFunc(order, func(a SRPFArm) bool { return a.Name == name })
+		switch {
+		case i < 0 || i == n/2:
+			return 0
+		case i < n/2:
+			return -1
+		}
+		return 1
+	}
+	if f, p := half("fcfs"), half("priority"); f == 0 || p == 0 || f == p {
+		return false
+	}
+	ladder := []int{}
+	for _, a := range order {
+		if a.SRPF {
+			ladder = append(ladder, a.Starvation)
 		}
 	}
-	half := map[string]bool{}
-	for _, a := range order[:len(order)/2] {
-		half[srpfPolicyLabel(a)] = true
+	rank := slices.Sorted(slices.Values(ladder))
+	rankOf := func(v int) int { return slices.Index(rank, v) }
+	// With m distinct ranks, rho = 1 - 6*S/(m^3-m) for S the sum of squared rank differences, so |rho| <= 0.2 is
+	// 0.8*(m^3-m) <= 6*S <= 1.2*(m^3-m), kept in integers as 8*(m^3-m) <= 60*S <= 12*(m^3-m).
+	m := len(ladder)
+	s := 0
+	for pos, v := range ladder {
+		d := rankOf(v) - pos
+		s += d * d
 	}
-	return len(half) == len(order)/2
-}
-
-// srpfPolicyLabel names an arm's scheduler: srpf, or its --scheduling-policy.
-func srpfPolicyLabel(a SRPFArm) string {
-	if a.SRPF {
-		return "srpf"
+	if span := m*m*m - m; m < 2 || 60*s < 8*span || 60*s > 12*span {
+		return false
 	}
-	return a.Policy
+	for i := 1; i < n; i++ {
+		if order[i].SRPF && order[i-1].SRPF {
+			if d := rankOf(order[i].Starvation) - rankOf(order[i-1].Starvation); d == 1 || d == -1 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // permutations returns every ordering of arms, each a fresh slice.
@@ -300,9 +346,11 @@ type SRPFArmResult struct {
 	// NonDefaultArgs is the engine's own "non-default args" log line, which must show the arm's policy and threshold.
 	NonDefaultArgs string `json:"nonDefaultArgs,omitempty"`
 	// CodeProbe is the running container's own report of the scheduler it imports and the SRPF variable it sees.
-	CodeProbe string          `json:"codeProbe,omitempty"`
-	Capture   []CaptureRecord `json:"capture"`
-	Warmup    []RawRow        `json:"warmup"`
+	CodeProbe string `json:"codeProbe,omitempty"`
+	// EngineCoreEnv names each engine core, the process it inherited from, and the SRPF variables that process carried.
+	EngineCoreEnv string          `json:"engineCoreEnv,omitempty"`
+	Capture       []CaptureRecord `json:"capture"`
+	Warmup        []RawRow        `json:"warmup"`
 	// ReplayError is the replay subcommand's failure, empty when it exited 0.
 	ReplayError string `json:"replayError,omitempty"`
 	// MetricsError is why the engine's counters could not be read after the replay, kept beside a replay failure.
@@ -414,8 +462,8 @@ func SRPFSweepFigures(arm string, trace []TraceRow, rows []RawRow) (*SRPFFigures
 			return nil, fmt.Errorf("no row for trace index %d", tr.Index)
 		}
 		// A file of another arm or study scored under this arm's name would be contamination no figure shows.
-		if r.Study != StudySRPF58420 || r.Arm != arm {
-			return nil, fmt.Errorf("row %d is study %q arm %q, not %s arm %s", tr.Index, r.Study, r.Arm, StudySRPF58420, arm)
+		if r.Study != StudySRPF58420Threshold || r.Arm != arm {
+			return nil, fmt.Errorf("row %d is study %q arm %q, not %s arm %s", tr.Index, r.Study, r.Arm, StudySRPF58420Threshold, arm)
 		}
 		if r.TraceChecksum != SRPFSweepTraceChecksum {
 			return nil, fmt.Errorf("row %d replayed trace %q, not %s", tr.Index, r.TraceChecksum, SRPFSweepTraceChecksum)
@@ -591,11 +639,12 @@ for pid in os.listdir("/proc"):
         ppid = int(open("/proc/%s/stat" % pid).read().rsplit(")", 1)[1].split()[1])
     except (OSError, ValueError, IndexError):
         continue
-    procs.append({"pid": int(pid), "ppid": ppid, "cmd": cmd[:160], "envCount": len(env), "env": env.get("` + SRPFSweepEnableEnv + `"), "pycachePrefix": env.get("PYTHONPYCACHEPREFIX"), "syncCheck": env.get("` + srpfSyncCheckEnv + `")})
+    procs.append({"pid": int(pid), "ppid": ppid, "cmd": cmd[:160], "envCount": len(env), "env": env.get("` + SRPFSweepEnableEnv + `"), "starvation": env.get("` + SRPFSweepStarvationEnv + `"), "pycachePrefix": env.get("PYTHONPYCACHEPREFIX"), "syncCheck": env.get("` + srpfSyncCheckEnv + `")})
 import vllm.v1.core.sched.scheduler as s
 data = open(s.__file__, "rb").read()
 print(json.dumps({"file": s.__file__, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
   "srpfKey": hasattr(s.Scheduler, "_get_srpf_key_for_req"), "env": os.environ.get("` + SRPFSweepEnableEnv + `"),
+  "starvation": os.environ.get("` + SRPFSweepStarvationEnv + `"),
   "pycachePrefix": os.environ.get("PYTHONPYCACHEPREFIX"), "pyc": pyc,
   "pycFlags": int.from_bytes(head[4:8], "little") if len(head) == 16 else None,
   "pycSourceSize": int.from_bytes(head[12:16], "little") if len(head) == 16 else None, "procs": procs}))`
@@ -607,6 +656,7 @@ type srpfProbe struct {
 	Size          int64   `json:"size"`
 	SRPFKey       bool    `json:"srpfKey"`
 	Env           *string `json:"env"`
+	Starvation    *string `json:"starvation"`
 	PycachePrefix *string `json:"pycachePrefix"`
 	Pyc           string  `json:"pyc"`
 	// PycFlags and PycSourceSize are the header of the bytecode found under the prefix before the probe imported anything.
@@ -623,19 +673,29 @@ type srpfProbeProc struct {
 	EnvCount      int     `json:"envCount"`
 	Cmd           string  `json:"cmd"`
 	Env           *string `json:"env"`
+	Starvation    *string `json:"starvation"`
 	PycachePrefix *string `json:"pycachePrefix"`
 	SyncCheck     *string `json:"syncCheck"`
 }
 
-// srpfProbeRefusal checks a code probe against what the arm must run: the PR's scheduler, and SRPF on exactly when the arm says.
+// srpfProbeRefusal checks a code probe against what the arm must run: the PR's scheduler, and SRPF on, at the arm's
+// aging threshold, exactly when the arm says.
 //
 // serving says a server is running in the container, whose bytecode and processes must then show the same.
 func srpfProbeRefusal(a SRPFArm, path string, serving bool, out []byte) error {
+	_, err := srpfProbeCheck(a, path, serving, out)
+	return err
+}
+
+// srpfProbeCheck is srpfProbeRefusal that also says, for a serving probe, which process vouched for each engine core's
+// environment and what that process carried.
+func srpfProbeCheck(a SRPFArm, path string, serving bool, out []byte) (string, error) {
 	var p srpfProbe
 	if err := json.Unmarshal(lastLine(out), &p); err != nil {
-		return fmt.Errorf("the code probe's answer is not JSON: %w: %q", err, out)
+		return "", fmt.Errorf("the code probe's answer is not JSON: %w: %q", err, out)
 	}
-	envRefusal := func(who string, env, prefix *string) error {
+	wantStarvation := strconv.Itoa(a.Starvation)
+	envRefusal := func(who string, env, starvation, prefix *string) error {
 		switch {
 		case prefix == nil || *prefix != srpfSweepPycachePrefix:
 			return fmt.Errorf("%s has PYTHONPYCACHEPREFIX %s, not %s", who, show(prefix), srpfSweepPycachePrefix)
@@ -643,30 +703,35 @@ func srpfProbeRefusal(a SRPFArm, path string, serving bool, out []byte) error {
 			return fmt.Errorf("arm %s needs %s=1 and %s has %s", a.Name, SRPFSweepEnableEnv, who, show(env))
 		case !a.SRPF && env != nil:
 			return fmt.Errorf("arm %s must not set %s and %s has %s", a.Name, SRPFSweepEnableEnv, who, show(env))
+		// The value is compared as the string the arm set, so "05" or " 5", which int() would also read as 5, is still refused.
+		case a.SRPF && (starvation == nil || *starvation != wantStarvation):
+			return fmt.Errorf("arm %s needs %s=%s and %s has %s", a.Name, SRPFSweepStarvationEnv, wantStarvation, who, show(starvation))
+		case !a.SRPF && starvation != nil:
+			return fmt.Errorf("arm %s must not set %s and %s has %s", a.Name, SRPFSweepStarvationEnv, who, show(starvation))
 		}
 		return nil
 	}
 	switch {
 	case p.File != path:
-		return fmt.Errorf("the scheduler imported is %s, not the overlaid %s", p.File, path)
+		return "", fmt.Errorf("the scheduler imported is %s, not the overlaid %s", p.File, path)
 	case p.SHA256 != SRPFSweepPRSchedulerSHA256:
-		return fmt.Errorf("the scheduler imported hashes to %s, not the PR head's %s", p.SHA256, SRPFSweepPRSchedulerSHA256)
+		return "", fmt.Errorf("the scheduler imported hashes to %s, not the PR head's %s", p.SHA256, SRPFSweepPRSchedulerSHA256)
 	case !p.SRPFKey:
-		return errors.New("the scheduler imported has no _get_srpf_key_for_req")
+		return "", errors.New("the scheduler imported has no _get_srpf_key_for_req")
 	}
-	if err := envRefusal("the probe", p.Env, p.PycachePrefix); err != nil {
-		return err
+	if err := envRefusal("the probe", p.Env, p.Starvation, p.PycachePrefix); err != nil {
+		return "", err
 	}
 	if !serving {
-		return nil
+		return "", nil
 	}
 	switch {
 	case p.PycFlags == nil || p.PycSourceSize == nil:
-		return fmt.Errorf("no server process wrote bytecode for the scheduler at %s, so what it imported is not shown", p.Pyc)
+		return "", fmt.Errorf("no server process wrote bytecode for the scheduler at %s, so what it imported is not shown", p.Pyc)
 	case *p.PycFlags != 0 || *p.PycSourceSize != p.Size:
-		return fmt.Errorf("the server compiled a scheduler of %d bytes (pyc flags %d), and the PR head's is %d", *p.PycSourceSize, *p.PycFlags, p.Size)
+		return "", fmt.Errorf("the server compiled a scheduler of %d bytes (pyc flags %d), and the PR head's is %d", *p.PycSourceSize, *p.PycFlags, p.Size)
 	case len(p.Procs) == 0:
-		return errors.New("the probe found no server process in the container")
+		return "", errors.New("the probe found no server process in the container")
 	}
 	byPID := make(map[int]srpfProbeProc, len(p.Procs))
 	for _, pr := range p.Procs {
@@ -681,19 +746,43 @@ func srpfProbeRefusal(a SRPFArm, path string, serving bool, out []byte) error {
 		// It inherited its environment from its parent at spawn, so its nearest readable ancestor is checked instead.
 		if pr.EnvCount == 0 || srpfRenamed(pr) {
 			if _, ok := readableAncestor(byPID, pr); !ok {
-				return fmt.Errorf("%s shows no environment and no ancestor whose environment can be read", who)
+				return "", fmt.Errorf("%s shows no environment and no ancestor whose environment can be read", who)
 			}
 			continue
 		}
-		if err := envRefusal(who, pr.Env, pr.PycachePrefix); err != nil {
-			return err
+		if err := envRefusal(who, pr.Env, pr.Starvation, pr.PycachePrefix); err != nil {
+			return "", err
 		}
 		if pr.SyncCheck != nil {
-			return fmt.Errorf("%s runs with %s=%s, the CI image's debug check, which a release image does not set", who, srpfSyncCheckEnv, *pr.SyncCheck)
+			return "", fmt.Errorf("%s runs with %s=%s, the CI image's debug check, which a release image does not set", who, srpfSyncCheckEnv, *pr.SyncCheck)
 		}
 	}
-	return nil
+	// The scheduler, and its read of both variables, runs in the engine core, so an arm is measured only once the
+	// process that spawned each engine core is shown to have carried the arm's values.
+	var proof []string
+	for _, pr := range p.Procs {
+		if !strings.HasPrefix(pr.Cmd, srpfEngineCoreTitle) {
+			continue
+		}
+		parent, ok := readableAncestor(byPID, pr)
+		if !ok {
+			return "", fmt.Errorf("engine core %d has no ancestor whose environment can be read", pr.PID)
+		}
+		who := fmt.Sprintf("engine core %d's ancestor %d (%s)", pr.PID, parent.PID, parent.Cmd)
+		if err := envRefusal(who, parent.Env, parent.Starvation, parent.PycachePrefix); err != nil {
+			return "", err
+		}
+		proof = append(proof, fmt.Sprintf("%s %d inherits from %d: %s=%s %s=%s", pr.Cmd, pr.PID, parent.PID,
+			SRPFSweepEnableEnv, show(parent.Env), SRPFSweepStarvationEnv, show(parent.Starvation)))
+	}
+	if len(proof) == 0 {
+		return "", fmt.Errorf("the probe found no %s process, so the arm's variables are not shown to reach the scheduler", srpfEngineCoreTitle)
+	}
+	return strings.Join(proof, "; "), nil
 }
+
+// srpfEngineCoreTitle is the title vLLM gives the process that runs the scheduler.
+const srpfEngineCoreTitle = "VLLM::EngineCore"
 
 // srpfRenamed reports a process vLLM retitled, whose /proc environment setproctitle has overwritten.
 // vLLM titles its processes "VLLM::<role>", and an untitled process's command line starts with its executable.
@@ -701,15 +790,17 @@ func srpfRenamed(pr srpfProbeProc) bool {
 	return strings.HasPrefix(pr.Cmd, "VLLM::")
 }
 
-// readableAncestor walks a process's parents to the nearest one whose environment /proc could read.
+// readableAncestor walks a process's parents to the nearest one whose environment /proc can be trusted: one that
+// showed variables and was not retitled.
 // Every such process is checked in its own right, so finding one is enough.
+// A retitled ancestor is passed over even when /proc showed it variables, since what it showed may be the title's overwrite.
 func readableAncestor(byPID map[int]srpfProbeProc, pr srpfProbeProc) (srpfProbeProc, bool) {
 	for range len(byPID) {
 		parent, ok := byPID[pr.PPID]
 		if !ok {
 			return srpfProbeProc{}, false
 		}
-		if parent.EnvCount > 0 {
+		if parent.EnvCount > 0 && !srpfRenamed(parent) {
 			return parent, true
 		}
 		pr = parent
@@ -747,6 +838,11 @@ func (s *SRPFSweep) RunArgs(a SRPFArm, schedulerPath string) ([]string, error) {
 	if a.Threshold != 0 && a.Threshold != engineargs.HoldCapPrefillThreshold {
 		return nil, fmt.Errorf("arm %s sets threshold %d, and only %d was measured", a.Name, a.Threshold, engineargs.HoldCapPrefillThreshold)
 	}
+	// An SRPF arm left on the default would not show the variable reached the engine, and a baseline that set it would
+	// differ from the other baseline by more than its policy.
+	if a.SRPF != (a.Starvation > 0) {
+		return nil, fmt.Errorf("arm %s has SRPF %t and starvation threshold %d; an SRPF arm sets a positive one and no other arm sets one", a.Name, a.SRPF, a.Starvation)
+	}
 	args := []string{
 		"run", "--detach",
 		"--name=srpf-" + a.Name,
@@ -757,7 +853,7 @@ func (s *SRPFSweep) RunArgs(a SRPFArm, schedulerPath string) ([]string, error) {
 		"--env=PYTHONPYCACHEPREFIX=" + srpfSweepPycachePrefix,
 	}
 	if a.SRPF {
-		args = append(args, "--env="+SRPFSweepEnableEnv+"=1")
+		args = append(args, "--env="+SRPFSweepEnableEnv+"=1", "--env="+SRPFSweepStarvationEnv+"="+strconv.Itoa(a.Starvation))
 	}
 	args = append(args,
 		fmt.Sprintf("--publish=127.0.0.1:%d:%d", s.Port, s.Port),
@@ -777,7 +873,7 @@ func (s *SRPFSweep) RunArgs(a SRPFArm, schedulerPath string) ([]string, error) {
 // runs those steps exactly as the readiness preflight does.
 func (s *SRPFSweep) readiness() *ReadinessRun {
 	return &ReadinessRun{
-		Study:  StudySRPF58420,
+		Study:  StudySRPF58420Threshold,
 		Design: VersionStudyDesign{Model: SRPFSweepModel, ModelRevision: SRPFSweepRevision},
 		Engine: &DockerEngine{
 			Run: s.Docker, HFCache: s.HFCache, CompileCacheRoot: s.CompileRoot,
@@ -846,7 +942,7 @@ func ArmManifest(archived []byte, arm, tracePath, engineURL string) (RunManifest
 	case !slices.Contains(SRPFSweepArmNames(), arm):
 		return RunManifest{}, fmt.Errorf("arm %q is not one of %v", arm, SRPFSweepArmNames())
 	}
-	m.Study, m.Arm, m.TracePath, m.GatewayURL = StudySRPF58420, arm, tracePath, engineURL
+	m.Study, m.Arm, m.TracePath, m.GatewayURL = StudySRPF58420Threshold, arm, tracePath, engineURL
 	m.GatewaySHA, m.GatewayBase, m.GatewayBinarySHA256 = "", "", ""
 	m.ImageDigests = map[string]string{"engine": SRPFSweepImage}
 	return *m, nil
@@ -857,7 +953,7 @@ func ArmManifest(archived []byte, arm, tracePath, engineURL string) (RunManifest
 // A failed arm is an outcome and the sweep goes on; a pull, identity or download failure, a write error, or a container
 // that cannot be removed ends it, because every arm after would be unmeasured or contaminated.
 func (s *SRPFSweep) Run(ctx context.Context) (SRPFSweepSummary, error) {
-	sum := SRPFSweepSummary{Study: StudySRPF58420, OrderSeed: SRPFSweepOrderSeed, Arms: []SRPFArmResult{}}
+	sum := SRPFSweepSummary{Study: StudySRPF58420Threshold, OrderSeed: SRPFSweepOrderSeed, Arms: []SRPFArmResult{}}
 	order := SRPFSweepOrder(SRPFSweepOrderSeed)
 	for _, a := range order {
 		sum.Order = append(sum.Order, a.Name)
@@ -1080,7 +1176,8 @@ func (s *SRPFSweep) measureArm(ctx, rctx context.Context, r *ReadinessRun, res *
 		res.Reason = "the code probe failed: " + err.Error()
 		return nil
 	}
-	if err := srpfProbeRefusal(a, schedulerPath, true, probe); err != nil {
+	res.EngineCoreEnv, err = srpfProbeCheck(a, schedulerPath, true, probe)
+	if err != nil {
 		res.Reason = err.Error()
 		return nil
 	}
@@ -1185,7 +1282,7 @@ func (s *SRPFSweep) warmup(ctx context.Context, res *SRPFArmResult, trace []Trac
 		// The sender sends the X-Request-Id and Replay only records it, so both are given the prefix.
 		sender.SetRequestIDPrefix("warmup-" + res.Name)
 		got := Replay(wctx, sender, []TraceRow{row}, ReplayOptions{
-			Study: StudySRPF58420, Arm: res.Name, Priorities: prio, RequestIDPrefix: "warmup-" + res.Name, RecordTiming: true,
+			Study: StudySRPF58420Threshold, Arm: res.Name, Priorities: prio, RequestIDPrefix: "warmup-" + res.Name, RecordTiming: true,
 		})
 		res.Warmup = append(res.Warmup, got...)
 		if len(got) != 1 {
