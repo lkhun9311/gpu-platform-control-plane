@@ -280,12 +280,6 @@ func TestSRPFProbeRefusal(t *testing.T) {
 		{"an unreadable process with no readable ancestor", srpf, mutate(func(p *srpfProbe) {
 			p.Procs = append(p.Procs, srpfProbeProc{PID: 8, PPID: 99, Cmd: "VLLM::EngineCore"})
 		}), true, "no ancestor"},
-		// A retitled parent's /proc may be the title's overwrite, so it cannot vouch for its child.
-		// Mutation that turns this red: let readableAncestor return a retitled process that showed variables.
-		{"an engine core under a retitled parent", srpf, mutate(func(p *srpfProbe) {
-			p.Procs[1].PPID = 50
-			p.Procs = append(p.Procs, srpfProbeProc{PID: 50, PPID: 0, EnvCount: 30, Cmd: "VLLM::APIServer"})
-		}), true, "no ancestor"},
 		// The variables reach the scheduler only in the engine core, so a container without one shows nothing.
 		// Mutation that turns this red: drop the engine-core requirement from srpfProbeCheck.
 		{"no engine core", srpf, mutate(func(p *srpfProbe) { p.Procs = p.Procs[:1] }), true, "no VLLM::EngineCore process"},
@@ -309,6 +303,15 @@ func TestSRPFProbeRefusal(t *testing.T) {
 	partial := mutate(func(p *srpfProbe) { p.Procs[1].Env, p.Procs[1].Starvation = new("0"), new("99") })
 	if err := srpfProbeRefusal(srpf, path, true, partial); err != nil {
 		t.Errorf("an engine core whose renamed environment is partly overwritten was refused: %v", err)
+	}
+	// A retitled parent's /proc may be the title's overwrite, so it cannot vouch for its child, and the server above it does.
+	// Mutation that turns this red: let readableAncestor return a retitled process that showed variables.
+	nested := mutate(func(p *srpfProbe) {
+		p.Procs[1].PPID = 50
+		p.Procs = append(p.Procs, srpfProbeProc{PID: 50, PPID: 1, EnvCount: 30, Cmd: "VLLM::APIServer"})
+	})
+	if proof, err := srpfProbeCheck(srpf, path, true, nested); err != nil || !strings.Contains(proof, "VLLM::EngineCore 97 inherits from 1: ") {
+		t.Errorf("an engine core under a retitled parent was judged by %q (%v), not by the server above it", proof, err)
 	}
 	// Before any server ran, the image check has no bytecode or process to read.
 	if err := srpfProbeRefusal(SRPFArm{Name: "image"}, path, false, mutate(func(p *srpfProbe) {
