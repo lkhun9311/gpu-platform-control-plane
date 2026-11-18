@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -18,26 +19,21 @@ func (d VersionStudyDesign) CellValidity(p SamplingPolicy, windowSeconds int, tr
 	}
 	// Neither an accounting failure nor a protocol fault ends the check: lag is judged too, because two lagged blocks of one
 	// treatment stop the campaign, and a cell that also broke another rule must still count toward that.
-	accounting, protocol := "", ""
+	measured := func(r RawRow) bool { return d.PhaseOf(byIndex[r.Index].OffsetMs, windowSeconds) == PhaseMeasure }
 	if err := ReconcileRecording(trace, rows); err != nil {
-		accounting = fmt.Sprintf("incomplete accounting: %v", err)
-		// Only a row the trace places at its own offset has a lag to judge; a row the recording misplaced has no established intended arrival.
-		placed := make([]RawRow, 0, len(rows))
-		for _, r := range rows {
-			if tr, ok := byIndex[r.Index]; ok && r.ScheduledOffsetMs == tr.OffsetMs && intendedAtOffset(r.Clock, tr.OffsetMs) {
-				placed = append(placed, r)
-			}
+		lagReason := ""
+		if lag, ok := leastCellLag(trace, rows, measured); ok && d.LagInvalidates(lag) {
+			lagReason = fmt.Sprintf("dispatch lag of at least p99 %v, max %v over the %d measured requests", lag.P99, lag.Max, lag.Rows)
 		}
-		rows = placed
-	} else {
-		for _, r := range rows {
-			if _, err := StudyDisposition(p, r, byIndex[r.Index]); err != nil {
-				protocol = fmt.Sprintf("protocol fault: %v", err)
-				break
-			}
+		return joinReason(fmt.Sprintf("incomplete accounting: %v", err), lagReason), lagReason != ""
+	}
+	protocol := ""
+	for _, r := range rows {
+		if _, err := StudyDisposition(p, r, byIndex[r.Index]); err != nil {
+			protocol = fmt.Sprintf("protocol fault: %v", err)
+			break
 		}
 	}
-	measured := func(r RawRow) bool { return d.PhaseOf(byIndex[r.Index].OffsetMs, windowSeconds) == PhaseMeasure }
 	lagReason := ""
 	lag, err := CellDispatchLag(rows, measured)
 	switch {
@@ -52,7 +48,57 @@ func (d VersionStudyDesign) CellValidity(p SamplingPolicy, windowSeconds int, tr
 	case d.LagInvalidates(lag):
 		lagReason = fmt.Sprintf("dispatch lag p99 %v, max %v over %d rows", lag.P99, lag.Max, lag.Rows)
 	}
-	return joinReason(accounting, protocol, lagReason), lagReason != ""
+	return joinReason(protocol, lagReason), lagReason != ""
+}
+
+// leastCellLag is the smallest dispatch lag a cell's measured population can have when its recording does not account for it.
+//
+// A measured request recorded exactly once, at its own offset, gives its own lag, and one recorded unsent gives none.
+// Every other measured request of the trace counts as a lag of 0, the least it could add, so the p99 and maximum are lower
+// bounds and a breach of them is a breach the full recording would show too.
+// Copies count as unrecorded, so a request written many times cannot outweigh the requests the trace holds once.
+// It reports false when no recorded row gives a lag, because then the recording establishes none.
+func leastCellLag(trace []TraceRow, rows []RawRow, measured func(RawRow) bool) (CellLag, bool) {
+	byIndex := make(map[int]TraceRow, len(trace))
+	for _, tr := range trace {
+		byIndex[tr.Index] = tr
+	}
+	seen := make(map[int]int, len(rows))
+	for _, r := range rows {
+		seen[r.Index]++
+	}
+	known := make(map[int]RawRow, len(rows))
+	for _, r := range rows {
+		// A row placed anywhere but its trace offset has no established intended arrival, so its apparent lag is no evidence.
+		if tr, ok := byIndex[r.Index]; ok && seen[r.Index] == 1 && r.ScheduledOffsetMs == tr.OffsetMs && intendedAtOffset(r.Clock, tr.OffsetMs) {
+			known[r.Index] = r
+		}
+	}
+	var lags []float64
+	sent := false
+	for _, tr := range trace {
+		probe := RawRow{Index: tr.Index}
+		if !measured(probe) {
+			continue
+		}
+		r, ok := known[tr.Index]
+		if !ok {
+			lags = append(lags, 0)
+			continue
+		}
+		lag, err := CellDispatchLag([]RawRow{r}, func(RawRow) bool { return true })
+		if err != nil {
+			// The request was recorded and not dispatched, so it is outside the population.
+			continue
+		}
+		sent = true
+		lags = append(lags, float64(lag.Max))
+	}
+	if !sent {
+		return CellLag{}, false
+	}
+	slices.Sort(lags)
+	return CellLag{Rows: len(lags), P99: time.Duration(percentile(lags, 0.99)), Max: time.Duration(lags[len(lags)-1])}, true
 }
 
 // VisitEngine starts and stops one treatment's engine; DockerEngine is one.

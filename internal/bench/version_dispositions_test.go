@@ -314,6 +314,56 @@ func TestAnIncompleteCellStillCountsItsLag(t *testing.T) {
 	}
 }
 
+// TestAnIncompleteCellCountsOnlyTheLagItEstablishes: a p99 over the rows that survived is not the cell's p99.
+//
+// Losing prompt rows would raise it over the bound, and copies of a prompt row would dilute a real breach.
+func TestAnIncompleteCellCountsOnlyTheLagItEstablishes(t *testing.T) {
+	d := versionAsyncDesign()
+	p := *versionStudySampling()
+	trace := make([]TraceRow, 100)
+	for i := range trace {
+		trace[i] = evalTraceRow(i, int64(i)*10)
+	}
+	// 99 prompt requests and one 50 ms late: the whole cell's p99 is 0 and its maximum under 100 ms, so it does not lag.
+	row := func(i int) RawRow {
+		if i == 99 {
+			return timedRow(trace[i], 50, 400, 2000)
+		}
+		return timedRow(trace[i], 0, 400, 2000)
+	}
+	var survivors []RawRow
+	for i := 95; i < 100; i++ {
+		survivors = append(survivors, row(i))
+	}
+	if reason, lag := d.CellValidity(p, 180, trace, survivors); lag || !strings.Contains(reason, "incomplete accounting") {
+		t.Fatalf("cell validity %q (lag %v): 95 lost prompt rows made a lag the cell does not have", reason, lag)
+	}
+	// Five of 100 requests 50 ms late is a p99 of 50 ms, a breach that a thousand copies of one prompt row must not hide.
+	late := make([]RawRow, 0, 1100)
+	for i := range trace {
+		r := row(i)
+		if i >= 95 {
+			r = timedRow(trace[i], 50, 400, 2000)
+		}
+		late = append(late, r)
+	}
+	for range 1000 {
+		late = append(late, row(0))
+	}
+	if reason, lag := d.CellValidity(p, 180, trace, late); !lag || !strings.Contains(reason, "dispatch lag") {
+		t.Fatalf("cell validity %q (lag %v): copies of a prompt row hid a p99 breach", reason, lag)
+	}
+	// Two copies of one request that disagree establish neither lag, so the later one cannot make a 200 ms maximum.
+	copies := make([]RawRow, 0, 101)
+	for i := range trace {
+		copies = append(copies, timedRow(trace[i], 0, 400, 2000))
+	}
+	copies = append(copies, timedRow(trace[99], 200, 400, 2000))
+	if reason, lag := d.CellValidity(p, 180, trace, copies); lag || !strings.Contains(reason, "incomplete accounting") {
+		t.Fatalf("cell validity %q (lag %v): one of two disagreeing copies was taken as the request's lag", reason, lag)
+	}
+}
+
 // TestRequireAllSuccessRefusesAFailedOutcome: preflight passes only when every request succeeded, not merely when none was refused as nonconforming.
 func TestRequireAllSuccessRefusesAFailedOutcome(t *testing.T) {
 	p := *versionStudySampling()
