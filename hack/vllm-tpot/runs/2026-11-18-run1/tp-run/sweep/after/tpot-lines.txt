@@ -1,0 +1,4 @@
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_tpot_skips_single_token_requests[-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_tpot_skips_single_token_requests[--enable-chunked-prefill-text]
+PASSED tests/entrypoints/serve/instrumentator/test_metrics.py::test_tpot_skips_single_token_requests[--show-hidden-metrics-for-version=0.33-text]
+=========== 3 passed, 22 deselected, 3 warnings in 111.13s (0:01:51) ===========

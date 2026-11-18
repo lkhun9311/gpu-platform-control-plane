@@ -1,0 +1,3 @@
+2026-11-18T14:25:48Z before: loggers imported from /usr/local/lib/python3.12/dist-packages/vllm/v1/metrics/loggers.py; fix line: 
+2026-11-18T14:25:48Z before: pytest tpot: -x tests/entrypoints/serve/instrumentator/test_metrics.py -k tpot_skips and text
+2026-11-18T14:27:56Z before: pytest tpot exited 1: =========== 1 failed, 22 deselected, 3 warnings in 85.51s (0:01:25) ============

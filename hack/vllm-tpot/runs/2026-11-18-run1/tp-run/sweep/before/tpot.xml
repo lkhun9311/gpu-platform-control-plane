@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="85.520" timestamp="2026-11-18T14:26:28.064728+00:00" hostname="bcea32784d63"><testcase classname="tests.entrypoints.serve.instrumentator.test_metrics" name="test_tpot_skips_single_token_requests[-text]" time="83.707"><failure message="assert (5.0 - 0.0) == 2&#10; +  where 5.0 = _tpot_count(&lt;tests.utils.RemoteOpenAIServer object at 0x7bcb7dd5c0b0&gt;)">server = &lt;tests.utils.RemoteOpenAIServer object at 0x7bcb7dd5c0b0&gt;
+client = &lt;openai.AsyncOpenAI object at 0x7bcb7dbeeba0&gt;, model_key = 'text'
+
+    @pytest.mark.asyncio
+    async def test_tpot_skips_single_token_requests(
+        server: RemoteOpenAIServer,
+        client: openai.AsyncClient,
+        model_key: str,
+    ):
+        """Requests with one output token (e.g. P/D prefill with max_tokens=1)
+        have no decode interval and must not add TPOT samples."""
+        if model_key == "multimodal":
+            pytest.skip("Unnecessary test")
+    
+        model_name = MODELS[model_key]
+        before = _tpot_count(server)
+        for max_tokens in (1, 1, 1, 5, 5):
+            await client.completions.create(
+                model=model_name,
+                prompt=_PROMPT,
+                max_tokens=max_tokens,
+                extra_body={"ignore_eos": True},
+            )
+&gt;       assert _tpot_count(server) - before == 2
+E       assert (5.0 - 0.0) == 2
+E        +  where 5.0 = _tpot_count(&lt;tests.utils.RemoteOpenAIServer object at 0x7bcb7dd5c0b0&gt;)
+
+tests/entrypoints/serve/instrumentator/test_metrics.py:214: AssertionError</failure></testcase></testsuite></testsuites>

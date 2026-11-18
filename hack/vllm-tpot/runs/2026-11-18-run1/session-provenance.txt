@@ -1,0 +1,16 @@
+commit=9114dea19e530dd6e2bdd16a94e4e356488b6732
+study=vllm-tpot-single-token-2026-11-18
+ami_id=ami-097edab977037f65f
+ami_name=Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+instance_type=g5.xlarge
+max_spot_price=0.70
+all_in_rate=0.7792
+inputs_sha256=193d99e4dda65a6b61e7f99f44c396649b92ad7c1ad18f1f2523304f7e14cbc6
+serving_test_only_diff_sha256=9050a74bc947195993d781e861c6c7036eb39a9d1bb44312ecf004ee34f32a7b
+fix_diff_sha256=a17086cf04325c126e89e142763ad9e5fd146b1423c77cd9c06026c090771c64
+image=public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:9f77cb6501aa29d5bfa70d0819c153ecebd604d41fc77a9e8cc097cb0e4145bb
+vllm_commit=3a1c6c43df5eb5344a3f853c34fac93c274a372f
+harness_end_from_launch_s=4320
+stop_from_launch_s=4500
+termination_from_launch_s=4800
+run_id=vllm-tpot-20261118T140948Z-40e430b9
