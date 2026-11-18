@@ -59,8 +59,9 @@ type BlocksResult struct {
 // after every planned block has ended, as AnalysisSet requires.
 // When dispatch lag invalidates two blocks of one treatment the campaign stops: replacing blocks a treatment keeps
 // invalidating would keep drawing until the client happens to keep up.
-// A cancelled context (the teardown deadline or an interruption) or a recorder failure records the open block as stopped
-// and runs nothing after.
+// A cancelled context (the teardown deadline, the block's own BlockBoundSeconds, or an interruption) or a recorder failure
+// records the open block as stopped and runs nothing after.
+// A block past its bound is stopped, not invalid, because the budget checks before later blocks assumed it would end in time.
 func RunBlocks(ctx context.Context, s SessionBlocks) (BlocksResult, error) {
 	d := s.Design
 	var res BlocksResult
@@ -89,10 +90,16 @@ func RunBlocks(ctx context.Context, s SessionBlocks) (BlocksResult, error) {
 			res.Stop = fmt.Sprintf("the budget cannot cover the %d valid blocks still needed before block %d", needed, block)
 			return res, nil
 		}
-		if err := s.Ledger.Start(block, replaces, s.Now()); err != nil {
+		started := s.Now()
+		if err := s.Ledger.Start(block, replaces, started); err != nil {
 			return res, fmt.Errorf("block %d start: %w", block, err)
 		}
-		status, reason, lagged := s.runBlock(ctx, block)
+		// MayStartBlock charged this block at its bound, so a block that ran on would spend money the check never counted.
+		// The bound runs from the start the ledger records, so the interval a reader sees is the one that was bounded.
+		bound := time.Duration(d.BlockBoundSeconds(s.WindowSeconds)) * time.Second
+		bctx, cancel := context.WithDeadlineCause(ctx, started.Add(bound), fmt.Errorf("block %d reached its %v bound", block, bound))
+		status, reason, lagged := s.runBlock(bctx, block)
+		cancel()
 		if err := s.Ledger.End(block, status, reason, s.Now()); err != nil {
 			return res, fmt.Errorf("block %d end: %w", block, err)
 		}

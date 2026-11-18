@@ -339,6 +339,11 @@ Every phase has a ceiling the runner enforces (`PhaseBounds`):
 | block (`BlockBoundSeconds`): per treatment two starts and two cells | 3 × (2 × 450 + 2 × (60 + W + 120)) s; 5,580 s at W = 300 |
 | teardown | 600 s |
 
+Clarified 2026-11-18, before any run (#645): the block bound is enforced per block, not only through the session deadline.
+- `RunBlocks` gives each block a deadline of `BlockBoundSeconds` counted from the start it records in the attempt journal.
+- A block that reaches it closes as **stopped**, like one the teardown deadline cut, and the campaign ends as an incomplete pilot. The budget check before every block charged each block at this bound, so a block that ran on would spend money no check had counted.
+- Engine stops inside a block (each visit's stop and any drain restart's) count against the bound although the sum above leaves them out, so a block that uses both of every treatment's starts, each to the full readiness bound, can be stopped by it.
+
 **Amendment 2026-11-16, before any run (owner decision of 2026-11-15, "measure, then amend").**
 - **What was measured.** The paid readiness preflight (#594) ran the study's exact containers on g5.xlarge (A10G), in `hack/version-readiness/2026-11-16-run2` and `run6`:
 
