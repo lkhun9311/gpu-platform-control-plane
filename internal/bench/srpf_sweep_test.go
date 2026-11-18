@@ -375,7 +375,8 @@ func TestSRPFProbesRunUnderPython(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := exec.Command(py, "-c", "import sys, vllm.v1.core.sched.scheduler; print('up', flush=True); sys.stdin.read()")
-	server.Env = append(slices.Clone(env), "VLLM_GPU_SYNC_CHECK=error")
+	// The server's threshold differs from the probe's own, so a probe that reported its own for every process is caught.
+	server.Env = append(slices.Clone(env), "VLLM_GPU_SYNC_CHECK=error", "VLLM_SRPF_STARVATION_THRESHOLD=7")
 	stdin, _ := server.StdinPipe()
 	stdout, _ := server.StdoutPipe()
 	if err := server.Start(); err != nil {
@@ -399,7 +400,7 @@ func TestSRPFProbesRunUnderPython(t *testing.T) {
 	i := slices.IndexFunc(p.Procs, func(pr srpfProbeProc) bool { return pr.PID == server.Process.Pid })
 	// Mutation that turns this red: read the starvation variable from the probe's own environment for every process.
 	if i < 0 || p.Procs[i].Env == nil || *p.Procs[i].Env != "1" || p.Procs[i].PycachePrefix == nil || *p.Procs[i].PycachePrefix != prefix ||
-		p.Procs[i].Starvation == nil || *p.Procs[i].Starvation != "3" ||
+		p.Procs[i].Starvation == nil || *p.Procs[i].Starvation != "7" ||
 		p.Procs[i].SyncCheck == nil || *p.Procs[i].SyncCheck != "error" {
 		t.Errorf("the probe did not report the server's environment: %+v", p.Procs)
 	}
