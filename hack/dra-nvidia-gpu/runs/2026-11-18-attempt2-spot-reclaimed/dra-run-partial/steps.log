@@ -1,0 +1,5 @@
+2026-11-18T14:26:51Z phase cluster: start, bound 840 s
+2026-11-18T14:29:40Z phase cluster: exit 0 after 169 s
+2026-11-18T14:29:41Z worker node dra-session-worker
+2026-11-18T14:29:41Z phase build: start, bound 720 s
+2026-11-18T14:33:10Z phase build: exit 0 after 209 s

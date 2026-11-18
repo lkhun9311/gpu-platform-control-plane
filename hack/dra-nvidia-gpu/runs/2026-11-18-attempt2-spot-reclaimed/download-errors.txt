@@ -1,0 +1,15 @@
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "dra-nvidia-gpu-20261118T142541Z-42b11b04/evidence.tgz" does not exist
+not downloaded: evidence.tgz
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "dra-nvidia-gpu-20261118T142541Z-42b11b04/log.txt" does not exist
+not downloaded: log.txt
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "dra-nvidia-gpu-20261118T142541Z-42b11b04/DONE" does not exist
+not downloaded: DONE
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "dra-nvidia-gpu-20261118T142541Z-42b11b04/phase-s4.tgz" does not exist
+not downloaded: phase-s4.tgz
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "dra-nvidia-gpu-20261118T142541Z-42b11b04/phase-s1.tgz" does not exist
+not downloaded: phase-s1.tgz
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "dra-nvidia-gpu-20261118T142541Z-42b11b04/phase-s2.tgz" does not exist
+not downloaded: phase-s2.tgz
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "dra-nvidia-gpu-20261118T142541Z-42b11b04/phase-s3.tgz" does not exist
+not downloaded: phase-s3.tgz
+the evidence archive was not returned or did not unpack
