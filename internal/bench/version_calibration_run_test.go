@@ -123,6 +123,24 @@ func TestParseEngineQueueReadsRunningAndWaiting(t *testing.T) {
 	if _, _, err := ParseEngineQueue(strings.NewReader("# TYPE other gauge\nother 1\n")); err == nil {
 		t.Fatal("metrics without the queue gauges were accepted as idle")
 	}
+	// Each of these would read as 0 running, which is the drained answer, while the engine says something else.
+	idleWaiting := "# TYPE vllm:num_requests_waiting gauge\nvllm:num_requests_waiting 0\n"
+	for name, running := range map[string]string{
+		"a fraction":       "# TYPE vllm:num_requests_running gauge\nvllm:num_requests_running 0.5\n",
+		"a counter":        "# TYPE vllm:num_requests_running counter\nvllm:num_requests_running 2\n",
+		"a negative count": "# TYPE vllm:num_requests_running gauge\nvllm:num_requests_running -1\n",
+		"NaN":              "# TYPE vllm:num_requests_running gauge\nvllm:num_requests_running NaN\n",
+		"an overflow":      "# TYPE vllm:num_requests_running gauge\nvllm:num_requests_running 1e300\n",
+	} {
+		if r, w, err := ParseEngineQueue(strings.NewReader(running + idleWaiting)); err == nil {
+			t.Errorf("%s was read as running %d waiting %d", name, r, w)
+		}
+	}
+	// An untyped exposition still carries the count, so it is read rather than refused.
+	untyped := "vllm:num_requests_running 1\nvllm:num_requests_waiting 0\n"
+	if r, w, err := ParseEngineQueue(strings.NewReader(untyped)); err != nil || r != 1 || w != 0 {
+		t.Fatalf("untyped gauges read as running %d waiting %d err %v", r, w, err)
+	}
 }
 
 // TestWaitDrainedReturnsOnlyOnAnIdleEngine: a rung starts drained or not at all.

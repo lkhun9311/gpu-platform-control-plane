@@ -443,6 +443,7 @@ The registered protocol is not executable at this head (attack item 1). Before a
   - Each round-trips through `LoadCampaignBundle`, `LoadManifest` and `CheckVersionCampaign`.
   - **The calibration runner:** done in code (`benchharness version-calibrate`).
     - Each rung waits until the engine's own `vllm:num_requests_running` and `vllm:num_requests_waiting` read 0 (`WaitDrained`). A rung that cannot start drained sends nothing and is invalid.
+      - Clarified 2026-11-18 (#645): `ParseEngineQueue` refuses either one exposed as a counter or any other type than a gauge or untyped sample, and any value that is not a whole, non-negative request count. A refused read is not idle, so 0.5 running is no longer truncated to the drained answer 0.
     - The rung then replays `CalibrationTrace` at the rung's rate. `ObserveRung` reads arrivals, departures, outstanding work and its trend, failures and unresolved requests off the rows' own monotonic clock.
     - Every rung's rows and record are written as it ends. The artifact is written for an unresolved ladder too.
     - It has only been run against stub engines. A live engine is the rehearsal's job, and its readiness the paid preflight's (#594).

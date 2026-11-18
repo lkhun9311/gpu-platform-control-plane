@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"time"
 
@@ -109,9 +110,21 @@ func ParseEngineQueue(r io.Reader) (running, waiting int, err error) {
 		if !ok || len(mf.GetMetric()) == 0 {
 			return 0, fmt.Errorf("engine metrics carry no %s", name)
 		}
+		// Any other type keeps its value elsewhere in the sample, so it would read as 0, the drained answer.
+		if t := mf.GetType(); t != dto.MetricType_GAUGE && t != dto.MetricType_UNTYPED {
+			return 0, fmt.Errorf("engine metrics carry %s as a %s, not a gauge", name, t)
+		}
 		total := 0.0
 		for _, m := range mf.GetMetric() {
-			total += gaugeOrUntyped(m)
+			v := gaugeOrUntyped(m)
+			// A request count is a whole number of requests; truncating 0.5 to 0 would report a busy engine drained.
+			if v < 0 || v != math.Trunc(v) || math.IsInf(v, 0) || math.IsNaN(v) {
+				return 0, fmt.Errorf("engine metrics carry %s = %v, not a request count", name, v)
+			}
+			total += v
+		}
+		if total > math.MaxInt32 {
+			return 0, fmt.Errorf("engine metrics carry %s = %v, more requests than any engine holds", name, total)
 		}
 		return int(total), nil
 	}
