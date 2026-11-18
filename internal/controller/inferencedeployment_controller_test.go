@@ -28,6 +28,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -537,6 +538,76 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(k8sClient.Get(ctx, key, depAfter)).To(Succeed())
 			Expect(depAfter.ResourceVersion).To(Equal(depBefore.ResourceVersion))
 			Expect(mustGet(ctx, key).ResourceVersion).To(Equal(infdBefore.ResourceVersion))
+		})
+
+		// scaleDeployment resizes the Deployment the way an autoscaler does, through its scale subresource.
+		scaleDeployment := func(replicas int32) *appsv1.Deployment {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			scale := &autoscalingv1.Scale{}
+			Expect(k8sClient.SubResource("scale").Get(ctx, dep, scale)).To(Succeed())
+			scale.Spec.Replicas = replicas
+			Expect(k8sClient.SubResource("scale").Update(ctx, dep, client.WithSubResourceBody(scale))).To(Succeed())
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			Expect(*dep.Spec.Replicas).To(Equal(replicas))
+			return dep
+		}
+
+		// Two writers of one field undo each other on every reconcile, and the reconcile after an autoscaler's write is the one that would.
+		// Mutation that must turn this red: write dep.Spec.Replicas unconditionally in mutateDeployment.
+		It("leaves the Deployment's replicas to the autoscaler when replicasOwner is External", func() {
+			infd := newInfD(1, 1)
+			infd.Spec.ReplicasOwner = platformv1.ReplicasOwnerExternal
+			Expect(k8sClient.Create(ctx, infd)).To(Succeed())
+			r := reconciler()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			Expect(*dep.Spec.Replicas).To(Equal(int32(1)), "the Deployment starts at spec.replicas")
+
+			scaled := scaleDeployment(3)
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			after := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, after)).To(Succeed())
+			Expect(*after.Spec.Replicas).To(Equal(int32(3)))
+			Expect(after.ResourceVersion).To(Equal(scaled.ResourceVersion), "the reconcile wrote the Deployment")
+
+			// The phase is judged against the autoscaler's count, or three ready replicas would read as a scale-down in flight.
+			markDeploymentObserved(3)
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			got := mustGet(ctx, key)
+			Expect(got.Status.Phase).To(Equal("Ready"))
+			Expect(got.Status.ReadyReplicas).To(Equal(int32(3)))
+		})
+
+		// Without the field the controller stays the one writer, so the same scale is undone, and handing ownership back restores spec.replicas.
+		It("restores spec.replicas over a scale when the controller owns the replicas", func() {
+			infd := newInfD(1, 1)
+			infd.Spec.ReplicasOwner = platformv1.ReplicasOwnerExternal
+			Expect(k8sClient.Create(ctx, infd)).To(Succeed())
+			r := reconciler()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			scaleDeployment(3)
+
+			infd = mustGet(ctx, key)
+			infd.Spec.ReplicasOwner = ""
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			Expect(*dep.Spec.Replicas).To(Equal(int32(1)))
+
+			scaleDeployment(2)
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			Expect(*dep.Spec.Replicas).To(Equal(int32(1)))
 		})
 
 		It("restores a drifted Deployment image", func() {

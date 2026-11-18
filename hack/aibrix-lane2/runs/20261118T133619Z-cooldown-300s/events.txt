@@ -1,0 +1,71 @@
+LAST                   TYPE      REASON              OBJECT                           MESSAGE
+2026-11-18T13:36:31Z   Normal    Created             queue-metrics-7d76d95459-xvzzp   Created container: sim
+2026-11-18T13:36:31Z   Normal    Pulled              chat-6b99bd94b4-4vptn            Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-18T13:36:31Z   Normal    Created             chat-6b99bd94b4-4vptn            Created container: server
+2026-11-18T13:36:31Z   Normal    Started             chat-6b99bd94b4-4vptn            Started container server
+2026-11-18T13:36:31Z   Normal    SuccessfulCreate    chat-6b99bd94b4                  Created pod: chat-6b99bd94b4-4vptn
+2026-11-18T13:36:31Z   Normal    Scheduled           chat-6b99bd94b4-4wl6b            Successfully assigned lane2/chat-6b99bd94b4-4wl6b to aibrix-lane2-control-plane
+2026-11-18T13:36:31Z   Normal    Pulled              chat-6b99bd94b4-4wl6b            Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-18T13:36:31Z   Normal    Created             chat-6b99bd94b4-4wl6b            Created container: server
+2026-11-18T13:36:31Z   Normal    Started             chat-6b99bd94b4-4wl6b            Started container server
+2026-11-18T13:36:31Z   Normal    SuccessfulCreate    chat-6b99bd94b4                  Created pod: chat-6b99bd94b4-vm7sr
+2026-11-18T13:36:31Z   Normal    SuccessfulCreate    chat-6b99bd94b4                  Created pod: chat-6b99bd94b4-5mkpr
+2026-11-18T13:36:31Z   Normal    ScalingReplicaSet   queue-metrics                    Scaled up replica set queue-metrics-7d76d95459 to 1
+2026-11-18T13:36:31Z   Normal    SuccessfulCreate    chat-6b99bd94b4                  Created pod: chat-6b99bd94b4-4wl6b
+2026-11-18T13:36:31Z   Normal    Scheduled           chat-6b99bd94b4-5mkpr            Successfully assigned lane2/chat-6b99bd94b4-5mkpr to aibrix-lane2-control-plane
+2026-11-18T13:36:31Z   Normal    Pulled              chat-6b99bd94b4-5mkpr            Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-18T13:36:31Z   Normal    Created             chat-6b99bd94b4-5mkpr            Created container: server
+2026-11-18T13:36:31Z   Normal    Started             chat-6b99bd94b4-5mkpr            Started container server
+2026-11-18T13:36:31Z   Normal    Scheduled           chat-6b99bd94b4-4vptn            Successfully assigned lane2/chat-6b99bd94b4-4vptn to aibrix-lane2-control-plane
+2026-11-18T13:36:31Z   Normal    SuccessfulCreate    queue-metrics-7d76d95459         Created pod: queue-metrics-7d76d95459-xvzzp
+2026-11-18T13:36:31Z   Normal    Started             chat-6b99bd94b4-vm7sr            Started container server
+2026-11-18T13:36:31Z   Normal    ScalingReplicaSet   chat                             Scaled up replica set chat-6b99bd94b4 to 4
+2026-11-18T13:36:31Z   Normal    Created             chat-6b99bd94b4-vm7sr            Created container: server
+2026-11-18T13:36:31Z   Normal    Started             queue-metrics-7d76d95459-xvzzp   Started container sim
+2026-11-18T13:36:31Z   Normal    Pulled              queue-metrics-7d76d95459-xvzzp   Container image "gpuaas-llmd-kv-lab/sim:6ab9d4b2367a" already present on machine
+2026-11-18T13:36:31Z   Normal    Scheduled           queue-metrics-7d76d95459-xvzzp   Successfully assigned lane2/queue-metrics-7d76d95459-xvzzp to aibrix-lane2-control-plane
+2026-11-18T13:36:31Z   Normal    Scheduled           chat-6b99bd94b4-vm7sr            Successfully assigned lane2/chat-6b99bd94b4-vm7sr to aibrix-lane2-control-plane
+2026-11-18T13:36:31Z   Normal    Pulled              chat-6b99bd94b4-vm7sr            Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-18T13:38:07Z   Warning   Unhealthy           queue-metrics-7d76d95459-xvzzp   Readiness probe failed: Get "http://10.244.0.45:8000/health": dial tcp 10.244.0.45:8000: connect: connection refused
+2026-11-18T13:38:07Z   Normal    Killing             queue-metrics-7d76d95459-xvzzp   Stopping container sim
+2026-11-18T13:38:07Z   Normal    SuccessfulDelete    queue-metrics-7d76d95459         Deleted pod: queue-metrics-7d76d95459-xvzzp
+2026-11-18T13:38:07Z   Normal    ScalingReplicaSet   queue-metrics                    Scaled down replica set queue-metrics-7d76d95459 to 0 from 1
+2026-11-18T13:43:10Z   Normal    SuccessfulDelete    chat-6b99bd94b4                  Deleted pod: chat-6b99bd94b4-4vptn
+2026-11-18T13:43:10Z   Normal    Killing             chat-6b99bd94b4-vm7sr            Stopping container server
+2026-11-18T13:43:10Z   Normal    AlgorithmRun        chat                             KPA algorithm completed. currentReplicas: 4, desiredReplicas: 2, shouldScale: true
+2026-11-18T13:43:10Z   Normal    SuccessfulRescale   chat                             New size: 2; reason: All metrics below target
+2026-11-18T13:43:10Z   Normal    ScalingReplicaSet   chat                             Scaled down replica set chat-6b99bd94b4 to 2 from 4
+2026-11-18T13:43:10Z   Normal    SuccessfulDelete    chat-6b99bd94b4                  Deleted pod: chat-6b99bd94b4-vm7sr
+2026-11-18T13:43:10Z   Normal    Killing             chat-6b99bd94b4-4vptn            Stopping container server
+2026-11-18T13:45:09Z   Normal    ScalingReplicaSet   queue-metrics                    Scaled up replica set queue-metrics-6dbccfd89d to 1 from 0
+2026-11-18T13:45:09Z   Normal    Scheduled           queue-metrics-6dbccfd89d-2sjt9   Successfully assigned lane2/queue-metrics-6dbccfd89d-2sjt9 to aibrix-lane2-control-plane
+2026-11-18T13:45:09Z   Normal    SuccessfulCreate    queue-metrics-6dbccfd89d         Created pod: queue-metrics-6dbccfd89d-2sjt9
+2026-11-18T13:45:11Z   Normal    Pulled              queue-metrics-6dbccfd89d-2sjt9   Container image "gpuaas-llmd-kv-lab/sim:6ab9d4b2367a" already present on machine
+2026-11-18T13:45:11Z   Normal    Created             queue-metrics-6dbccfd89d-2sjt9   Created container: sim
+2026-11-18T13:45:12Z   Normal    Started             queue-metrics-6dbccfd89d-2sjt9   Started container sim
+2026-11-18T13:45:20Z   Normal    Scheduled           chat-6b99bd94b4-7xzl5            Successfully assigned lane2/chat-6b99bd94b4-7xzl5 to aibrix-lane2-control-plane
+2026-11-18T13:45:20Z   Normal    SuccessfulCreate    chat-6b99bd94b4                  Created pod: chat-6b99bd94b4-vwth5
+2026-11-18T13:45:20Z   Normal    SuccessfulCreate    chat-6b99bd94b4                  Created pod: chat-6b99bd94b4-k5jmg
+2026-11-18T13:45:20Z   Normal    SuccessfulCreate    chat-6b99bd94b4                  Created pod: chat-6b99bd94b4-5ktss
+2026-11-18T13:45:20Z   Normal    AlgorithmRun        chat                             KPA algorithm completed. currentReplicas: 2, desiredReplicas: 4, shouldScale: true
+2026-11-18T13:45:20Z   Normal    SuccessfulRescale   chat                             New size: 4; reason: kpa above target
+2026-11-18T13:45:20Z   Normal    ScalingReplicaSet   chat                             Scaled up replica set chat-6b99bd94b4 to 4 from 2
+2026-11-18T13:45:20Z   Normal    AlgorithmRun        chat                             KPA algorithm completed. currentReplicas: 4, desiredReplicas: 6, shouldScale: true
+2026-11-18T13:45:20Z   Normal    SuccessfulRescale   chat                             New size: 6; reason: kpa above target
+2026-11-18T13:45:20Z   Normal    ScalingReplicaSet   chat                             Scaled up replica set chat-6b99bd94b4 to 6 from 4
+2026-11-18T13:45:20Z   Normal    SuccessfulCreate    chat-6b99bd94b4                  Created pod: chat-6b99bd94b4-7xzl5
+2026-11-18T13:45:20Z   Normal    Started             chat-6b99bd94b4-vwth5            Started container server
+2026-11-18T13:45:20Z   Normal    Created             chat-6b99bd94b4-vwth5            Created container: server
+2026-11-18T13:45:20Z   Normal    Pulled              chat-6b99bd94b4-vwth5            Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-18T13:45:20Z   Normal    Scheduled           chat-6b99bd94b4-vwth5            Successfully assigned lane2/chat-6b99bd94b4-vwth5 to aibrix-lane2-control-plane
+2026-11-18T13:45:20Z   Normal    Started             chat-6b99bd94b4-k5jmg            Started container server
+2026-11-18T13:45:20Z   Normal    Created             chat-6b99bd94b4-k5jmg            Created container: server
+2026-11-18T13:45:20Z   Normal    Pulled              chat-6b99bd94b4-k5jmg            Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-18T13:45:20Z   Normal    Scheduled           chat-6b99bd94b4-k5jmg            Successfully assigned lane2/chat-6b99bd94b4-k5jmg to aibrix-lane2-control-plane
+2026-11-18T13:45:20Z   Normal    Started             chat-6b99bd94b4-7xzl5            Started container server
+2026-11-18T13:45:20Z   Normal    Created             chat-6b99bd94b4-7xzl5            Created container: server
+2026-11-18T13:45:20Z   Normal    Pulled              chat-6b99bd94b4-7xzl5            Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-18T13:45:20Z   Normal    Started             chat-6b99bd94b4-5ktss            Started container server
+2026-11-18T13:45:20Z   Normal    Created             chat-6b99bd94b4-5ktss            Created container: server
+2026-11-18T13:45:20Z   Normal    Pulled              chat-6b99bd94b4-5ktss            Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-18T13:45:20Z   Normal    Scheduled           chat-6b99bd94b4-5ktss            Successfully assigned lane2/chat-6b99bd94b4-5ktss to aibrix-lane2-control-plane

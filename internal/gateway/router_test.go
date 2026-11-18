@@ -259,13 +259,18 @@ var _ = Describe("backendAdmission", func() {
 		two.Spec.Replicas = 2
 		shrinking := newInfD("shrinking", "vision", "m", 8000, now.Add(2*time.Minute))
 		shrinking.Spec.Replicas, shrinking.Status.ReadyReplicas = 1, 2
-		s := &Server{Client: newRouterClient(one, two, shrinking)}
+		// An autoscaler may have added an engine that status does not report yet.
+		// Mutation that must turn this red: drop the replicasOwner floor in servingEngines.
+		scaled := newInfD("scaled", "vision", "m", 8000, now.Add(3*time.Minute))
+		scaled.Spec.Replicas, scaled.Status.ReadyReplicas = 1, 1
+		scaled.Spec.ReplicasOwner = platformv1.ReplicasOwnerExternal
+		s := &Server{Client: newRouterClient(one, two, shrinking, scaled)}
 		refs, err := s.backendsFor(context.Background(), policyFor("vision"), "m")
 		Expect(err).NotTo(HaveOccurred())
 		engines := map[string]int32{}
 		for _, r := range refs {
 			engines[r.Name] = r.Engines
 		}
-		Expect(engines).To(Equal(map[string]int32{"one": 1, "two": 2, "shrinking": 2}))
+		Expect(engines).To(Equal(map[string]int32{"one": 1, "two": 2, "shrinking": 2, "scaled": 2}))
 	})
 })

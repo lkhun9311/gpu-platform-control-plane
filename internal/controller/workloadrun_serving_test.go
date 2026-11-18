@@ -140,3 +140,19 @@ func TestIsServingRefusesATargetAskedForZeroReplicas(t *testing.T) {
 		t.Fatal("a target asked for two replicas with two ready was not serving")
 	}
 }
+
+// An autoscaler that owns the replicas may start a target at zero and scale it up, and that target serves.
+//
+// Mutation that turns this red: drop the replicasOwner condition in isServing.
+func TestIsServingReadsAnExternallyScaledTargetByItsReadyReplicas(t *testing.T) {
+	two := int64(2)
+	scaled := targetWith("Ready", &two)
+	scaled.Object["spec"] = map[string]any{"replicas": int64(0), "replicasOwner": "External"}
+	got, err := isServing("InferenceDeployment", "Ready", scaled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("an autoscaled target with two ready replicas was not serving because it started at zero")
+	}
+}

@@ -184,11 +184,21 @@ spec:
               replicas:
                 description: |-
                   replicas is the fixed number of serving replicas.
-
-                  Autoscaling lands in M4.
+                  When replicasOwner is External it is only the count the Deployment is created with.
                 format: int32
                 minimum: 0
                 type: integer
+              replicasOwner:
+                description: |-
+                  replicasOwner names the one writer of the rendered Deployment's spec.replicas: Controller or External.
+                  Absent is Controller, which writes spec.replicas on every reconcile and so undoes any autoscaler.
+                  External leaves spec.replicas to an autoscaler, which may patch the Deployment as an AIBrix PodAutoscaler does or use its scale subresource as an HPA does.
+                  Turning External back to Controller sets the Deployment to spec.replicas on the next reconcile, whatever the autoscaler had chosen.
+                  External refuses HoldCap and PrefixAffinity, which are correct only on one engine and so cannot let a writer outside this spec add a second.
+                enum:
+                - Controller
+                - External
+                type: string
               routing:
                 description: |-
                   routing selects how the gateway spreads this model's requests across the InferenceDeployments serving it.
@@ -234,6 +244,14 @@ spec:
                 the prefix the gateway remembers is cached on only one of them'
               rule: '!has(self.routing) || self.routing.policy != ''PrefixAffinity''
                 || self.replicas <= 1'
+            - message: 'replicasOwner External refuses admission.mode HoldCap: HoldCap
+                requires one engine, and an autoscaler may add a second'
+              rule: '!has(self.replicasOwner) || self.replicasOwner != ''External''
+                || !has(self.admission) || self.admission.mode != ''HoldCap'''
+            - message: 'replicasOwner External refuses routing.policy PrefixAffinity:
+                PrefixAffinity requires one engine, and an autoscaler may add a second'
+              rule: '!has(self.replicasOwner) || self.replicasOwner != ''External''
+                || !has(self.routing) || self.routing.policy != ''PrefixAffinity'''
             - message: 'spec.engine requires gpuCount 1: its only profile is one engine
                 on one A10G'
               rule: '!has(self.engine) || self.gpuCount == 1'

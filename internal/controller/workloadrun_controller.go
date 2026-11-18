@@ -349,7 +349,13 @@ func isServing(kind, phase string, u *unstructured.Unstructured) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("read %s spec.replicas: %w", kind, err)
 		}
-		if desiredFound && desired == 0 {
+		// Under an external replica owner spec.replicas is only the starting count, so a zero there says nothing about now.
+		// The autoscaler's own scale-down to zero reaches this function as phase Progressing until it has drained.
+		owner, _, err := unstructured.NestedString(u.Object, "spec", "replicasOwner")
+		if err != nil {
+			return false, fmt.Errorf("read %s spec.replicasOwner: %w", kind, err)
+		}
+		if desiredFound && desired == 0 && owner != platformv1.ReplicasOwnerExternal {
 			return false, nil
 		}
 		return found && ready > 0, nil

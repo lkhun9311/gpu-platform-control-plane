@@ -69,7 +69,8 @@ func engineInForce(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment)
 		return metav1.Condition{Type: platformv1.ConditionEngineInForce, Status: status, Reason: reason, Message: msg,
 			ObservedGeneration: infd.Generation}
 	}
-	if infd.Spec.Replicas == 0 {
+	want := replicaTarget(infd, dep)
+	if want == 0 {
 		return cond(metav1.ConditionFalse, infdReasonEngineScaled0, "no engine is running")
 	}
 	if dep.Status.ObservedGeneration < dep.Generation {
@@ -78,7 +79,7 @@ func engineInForce(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment)
 	if _, rendered := dep.Spec.Template.Annotations[admissionAnnotation]; !rendered {
 		return cond(metav1.ConditionFalse, infdReasonEngineRollout, "the current template is not rendered from spec.engine")
 	}
-	s, want := dep.Status, infd.Spec.Replicas
+	s := dep.Status
 	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != want || s.Replicas != want || s.UpdatedReplicas != want ||
 		s.ReadyReplicas != want || (s.TerminatingReplicas != nil && *s.TerminatingReplicas != 0) {
 		return cond(metav1.ConditionFalse, infdReasonEngineRollout, "the rendered engine is not yet the only one serving")
