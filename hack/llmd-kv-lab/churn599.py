@@ -59,6 +59,10 @@ def one(run_dir):
     in_flight = [r for r in stream if ts(r["sent_at"]).timestamp() <= deleted_at
                  <= ts(r["sent_at"]).timestamp() + r["latency_ms"] / 1000]
     after_restart = next(r for r in rows if "churn2-after" in r["request_id"])
+    # A failed response leaves cached_tokens at 0, which would read as a stale belief's miss, so it is refused instead.
+    if after_restart["status"] != 200 or after_restart.get("error"):
+        return (f"{os.path.basename(run_dir):32} restart check inconclusive: the request after the restart failed "
+                f"(status {after_restart['status']}, {after_restart.get('error', '')!r})")
     s2 = scores.get(after_restart["served_request_id"])
     if s2 is None:
         return f"{os.path.basename(run_dir):32} EPP scores missing for the restart check; no line is printed from a guess"
