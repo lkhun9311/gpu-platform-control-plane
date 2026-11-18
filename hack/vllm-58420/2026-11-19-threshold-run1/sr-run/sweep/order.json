@@ -1,0 +1,12 @@
+{
+  "order": [
+    "priority",
+    "srpf-s10",
+    "srpf-s2",
+    "srpf-s5",
+    "fcfs",
+    "srpf-s3",
+    "srpf-s8"
+  ],
+  "seed": 58420
+}

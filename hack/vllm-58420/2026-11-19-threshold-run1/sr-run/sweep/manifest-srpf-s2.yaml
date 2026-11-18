@@ -1,0 +1,23 @@
+arm: srpf-s2
+gatewayURL: http://127.0.0.1:8000
+imageDigests:
+  engine: public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467
+longThreshold: 4096
+matchTolerance: "0.05"
+maxOutputTokens:
+  premium-1: 64
+  standard-noisy: 16
+model: Qwen/Qwen2.5-3B-Instruct
+primaryEndpoint: ttft_p99
+promptCorpusSHA: dec1020701584417449f9c7efa5354073682cce69348af3b9fb5244705200a86
+promptLenChars:
+  premium-1: 200
+  standard-noisy: 40000
+schemaVersion: v2
+seed: 853
+study: vllm-58420-threshold-2026-11-19
+timeoutMs: 30000
+timeoutScope: whole-request-including-stream
+tokenizerRev: aa8e72537993ba99e69dfaafa59ed015b17504d1
+traceChecksum: 4360cb83f7c2259040c8ccda45b881a8b817a5087f968334630f26aa12d68167
+tracePath: ../../../opt/sr/trace-off-3.jsonl

@@ -1,0 +1,7 @@
+{
+  "step": "model-download",
+  "image": "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+  "startedAt": "2026-11-18T16:54:46.394972507Z",
+  "endedAt": "2026-11-18T16:55:08.604747481Z",
+  "seconds": 22.209774974
+}

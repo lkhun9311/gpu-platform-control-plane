@@ -1,0 +1,13 @@
+{
+  "image": "public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467",
+  "schedulerPath": "/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py",
+  "installedSHA256": "b67848721847aa8f45cddee43cabdbb2f35205eb3b441e16d79823d30f3be097",
+  "overlaidSHA256": "2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a",
+  "overlaidFile": "/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py",
+  "vllmVersion": "0.34.0rc1.dev527+g5039f736e",
+  "probes": [
+    "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"b67848721847aa8f45cddee43cabdbb2f35205eb3b441e16d79823d30f3be097\"}\n",
+    "{\"file\": \"/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py\", \"sha256\": \"2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a\", \"size\": 187139, \"observed\": true, \"schedulers\": [], \"srpfKey\": true, \"env\": null, \"starvation\": null, \"pycachePrefix\": \"/tmp/srpf-pycache\", \"pyc\": \"/tmp/srpf-pycache/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.cpython-312.pyc\", \"pycFlags\": null, \"pycSourceSize\": null, \"procs\": []}\n",
+    "0.34.0rc1.dev527+g5039f736e\n"
+  ]
+}

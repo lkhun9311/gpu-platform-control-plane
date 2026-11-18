@@ -1,0 +1,5 @@
+client connection mode: pooled (MaxIdleConnsPerHost=600, drain=true) for 4102 rows at timeout 30s
+request priorities: map[premium-1:0 standard-noisy:1]
+request ids: srpf-srpf-s2-<index>
+recording complete: completed 4102
+replayed 4102 rows against http://127.0.0.1:8000 (arm=srpf-s2) to /src/sr-run/sweep/raw-srpf-s2.jsonl
