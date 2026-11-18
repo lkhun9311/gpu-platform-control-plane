@@ -286,6 +286,34 @@ func TestALateIntendedArrivalIsRefusedByEveryConsumer(t *testing.T) {
 	}
 }
 
+// TestAnIncompleteCellStillCountsItsLag: two lagged blocks of one treatment stop the campaign, and a cell that also lost a row lagged all the same.
+//
+// Returning at the accounting failure let such a block be replaced without counting toward that stop.
+func TestAnIncompleteCellStillCountsItsLag(t *testing.T) {
+	d := versionAsyncDesign()
+	p := *versionStudySampling()
+	trace := []TraceRow{evalTraceRow(0, 0), evalTraceRow(1, 10)}
+	rows := []RawRow{timedRow(trace[0], 300, 400, 2000)}
+	reason, lag := d.CellValidity(p, 180, trace, rows)
+	if !lag || !strings.Contains(reason, "incomplete accounting") || !strings.Contains(reason, "dispatch lag") {
+		t.Fatalf("cell validity %q (lag %v), want incomplete accounting and a lag invalidation", reason, lag)
+	}
+	// A cell that lost a row but kept up is invalid for the accounting alone.
+	prompt := []RawRow{timedRow(trace[0], 0, 400, 2000)}
+	if reason, lag := d.CellValidity(p, 180, trace, prompt); lag || !strings.Contains(reason, "incomplete accounting") || strings.Contains(reason, "dispatch lag") {
+		t.Fatalf("cell validity %q (lag %v), want incomplete accounting only", reason, lag)
+	}
+	// A row stamped 300 ms before its trace offset has no established intended arrival, so its apparent lag is not counted.
+	early := timedRow(trace[0], 0, 400, 2000)
+	c := *early.Clock
+	before := *c.IntendedNanos - int64(300*time.Millisecond)
+	c.IntendedNanos = &before
+	early.Clock = &c
+	if reason, lag := d.CellValidity(p, 180, trace, []RawRow{early, timedRow(trace[1], 0, 400, 2000)}); lag || !strings.Contains(reason, "incomplete accounting") {
+		t.Fatalf("cell validity %q (lag %v), want incomplete accounting and no lag from a misplaced stamp", reason, lag)
+	}
+}
+
 // TestRequireAllSuccessRefusesAFailedOutcome: preflight passes only when every request succeeded, not merely when none was refused as nonconforming.
 func TestRequireAllSuccessRefusesAFailedOutcome(t *testing.T) {
 	p := *versionStudySampling()

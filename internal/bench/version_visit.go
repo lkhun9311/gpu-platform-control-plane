@@ -12,20 +12,29 @@ import (
 // It returns the broken rule, or empty when the cell is valid, and whether dispatch lag is among the reasons.
 // Rows of a visit whose engine was unavailable are outcomes: they reconcile and classify, and carry no lag.
 func (d VersionStudyDesign) CellValidity(p SamplingPolicy, windowSeconds int, trace []TraceRow, rows []RawRow) (string, bool) {
-	if err := ReconcileRecording(trace, rows); err != nil {
-		return fmt.Sprintf("incomplete accounting: %v", err), false
-	}
 	byIndex := make(map[int]TraceRow, len(trace))
 	for _, tr := range trace {
 		byIndex[tr.Index] = tr
 	}
-	// A protocol fault does not end the check: lag is judged too, because two lagged blocks of one treatment stop the
-	// campaign, and a cell that also had a fault must still count toward that.
-	protocol := ""
-	for _, r := range rows {
-		if _, err := StudyDisposition(p, r, byIndex[r.Index]); err != nil {
-			protocol = fmt.Sprintf("protocol fault: %v", err)
-			break
+	// Neither an accounting failure nor a protocol fault ends the check: lag is judged too, because two lagged blocks of one
+	// treatment stop the campaign, and a cell that also broke another rule must still count toward that.
+	accounting, protocol := "", ""
+	if err := ReconcileRecording(trace, rows); err != nil {
+		accounting = fmt.Sprintf("incomplete accounting: %v", err)
+		// Only a row the trace places at its own offset has a lag to judge; a row the recording misplaced has no established intended arrival.
+		placed := make([]RawRow, 0, len(rows))
+		for _, r := range rows {
+			if tr, ok := byIndex[r.Index]; ok && r.ScheduledOffsetMs == tr.OffsetMs && intendedAtOffset(r.Clock, tr.OffsetMs) {
+				placed = append(placed, r)
+			}
+		}
+		rows = placed
+	} else {
+		for _, r := range rows {
+			if _, err := StudyDisposition(p, r, byIndex[r.Index]); err != nil {
+				protocol = fmt.Sprintf("protocol fault: %v", err)
+				break
+			}
 		}
 	}
 	measured := func(r RawRow) bool { return d.PhaseOf(byIndex[r.Index].OffsetMs, windowSeconds) == PhaseMeasure }
@@ -43,7 +52,7 @@ func (d VersionStudyDesign) CellValidity(p SamplingPolicy, windowSeconds int, tr
 	case d.LagInvalidates(lag):
 		lagReason = fmt.Sprintf("dispatch lag p99 %v, max %v over %d rows", lag.P99, lag.Max, lag.Rows)
 	}
-	return joinReason(protocol, lagReason), lagReason != ""
+	return joinReason(accounting, protocol, lagReason), lagReason != ""
 }
 
 // VisitEngine starts and stops one treatment's engine; DockerEngine is one.
@@ -206,14 +215,16 @@ func (v Visits) startEngine(ctx context.Context, block int, treatment string, st
 	return visitEngine{start: s, running: true, ready: v.Ready(readyCtx) == nil && readyCtx.Err() == nil}, nil
 }
 
-func joinReason(a, b string) string {
-	return errors.Join(stringErr(a), errors.New(b)).Error()
-}
-
-// stringErr is nil for an empty reason, so joining onto no reason gives just the new one.
-func stringErr(s string) error {
-	if s == "" {
-		return nil
+// joinReason joins the reasons that are not empty, one per line, so a rule that held adds no blank line.
+func joinReason(reasons ...string) string {
+	var errs []error
+	for _, r := range reasons {
+		if r != "" {
+			errs = append(errs, errors.New(r))
+		}
 	}
-	return errors.New(s)
+	if len(errs) == 0 {
+		return ""
+	}
+	return errors.Join(errs...).Error()
 }
