@@ -33,6 +33,8 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(self.admission) || has(self.admission.maxHold) == (self.admission.mode == 'HoldCap')",message="admission.maxHold is set exactly when admission.mode is HoldCap"
 // +kubebuilder:validation:XValidation:rule="!has(self.admission) || self.admission.mode != 'HoldCap' || self.replicas <= 1",message="admission.mode HoldCap requires replicas at most 1: serial-prefill keys on the Service, so two engines behind it would be serialized as one"
 // +kubebuilder:validation:XValidation:rule="!has(self.routing) || self.routing.policy != 'PrefixAffinity' || self.replicas <= 1",message="routing.policy PrefixAffinity requires replicas at most 1: the Service spreads a deployment's requests over its engines, so the prefix the gateway remembers is cached on only one of them"
+// +kubebuilder:validation:XValidation:rule="!has(self.replicasOwner) || self.replicasOwner != 'External' || !has(self.admission) || self.admission.mode != 'HoldCap'",message="replicasOwner External refuses admission.mode HoldCap: HoldCap requires one engine, and an autoscaler may add a second"
+// +kubebuilder:validation:XValidation:rule="!has(self.replicasOwner) || self.replicasOwner != 'External' || !has(self.routing) || self.routing.policy != 'PrefixAffinity'",message="replicasOwner External refuses routing.policy PrefixAffinity: PrefixAffinity requires one engine, and an autoscaler may add a second"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.gpuCount == 1",message="spec.engine requires gpuCount 1: its only profile is one engine on one A10G"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.model.storageUri.matches('^hf://[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$')",message="spec.engine requires model.storageUri of the form hf://<org>/<repo>"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.engine.vllm.profile == 'experimental-a10g' || self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967')",message="spec.engine requires spec.image pinned to the vLLM v0.27.1 digest the profile was measured on, from any registry"
@@ -62,11 +64,19 @@ type InferenceDeploymentSpec struct {
 	GPUCount int32 `json:"gpuCount"`
 
 	// replicas is the fixed number of serving replicas.
-	//
-	// Autoscaling lands in M4.
+	// When replicasOwner is External it is only the count the Deployment is created with.
 	// +kubebuilder:validation:Minimum=0
 	// +required
 	Replicas int32 `json:"replicas"`
+
+	// replicasOwner names the one writer of the rendered Deployment's spec.replicas: Controller or External.
+	// Absent is Controller, which writes spec.replicas on every reconcile and so undoes any autoscaler.
+	// External leaves spec.replicas to an autoscaler acting on the Deployment's scale subresource, such as an AIBrix PodAutoscaler or an HPA.
+	// Turning External back to Controller sets the Deployment to spec.replicas on the next reconcile, whatever the autoscaler had chosen.
+	// External refuses HoldCap and PrefixAffinity, which are correct only on one engine and so cannot let a writer outside this spec add a second.
+	// +kubebuilder:validation:Enum=Controller;External
+	// +optional
+	ReplicasOwner string `json:"replicasOwner,omitempty"`
 
 	// port is the serving container port.
 	// +kubebuilder:validation:Minimum=1
@@ -110,6 +120,12 @@ type InferenceRouting struct {
 	// +required
 	Policy string `json:"policy"`
 }
+
+// The writers spec.replicasOwner can name.
+const (
+	ReplicasOwnerController = "Controller"
+	ReplicasOwnerExternal   = "External"
+)
 
 // The admission modes an InferenceDeployment can ask for.
 const (

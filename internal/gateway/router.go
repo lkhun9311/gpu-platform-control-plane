@@ -71,6 +71,7 @@ type BackendRef struct {
 	Routing string
 	// Engines is how many engines may answer behind this backend's Service: the larger of the replicas asked for and
 	// the replicas reported ready, so a scale-down still counts the engines that have not gone yet.
+	// It is at least 2 when an autoscaler owns the replicas, because then neither number bounds the engines serving.
 	// A guard that reads one engine's state through the Service reads whichever engine answered, not the one the
 	// request will reach, once this exceeds 1.
 	Engines int32
@@ -78,7 +79,13 @@ type BackendRef struct {
 
 // servingEngines is how many engines may be serving d right now.
 func servingEngines(d *platformv1.InferenceDeployment) int32 {
-	return max(d.Spec.Replicas, d.Status.ReadyReplicas)
+	n := max(d.Spec.Replicas, d.Status.ReadyReplicas)
+	// Under an external replica owner spec.replicas is only the starting count, and an autoscaler can add an engine before status reports it ready.
+	// So such a backend is never taken for one engine, and the guards that need exactly one stand aside.
+	if d.Spec.ReplicasOwner == platformv1.ReplicasOwnerExternal {
+		n = max(n, 2)
+	}
+	return n
 }
 
 // specRouting is the policy an InferenceDeployment asks for, or "".

@@ -255,6 +255,36 @@ var _ = Describe("InferenceDeployment HoldCap validation", func() {
 		}
 	})
 
+	// The one-replica rules above bound spec.replicas, which an external owner no longer decides, so External refuses the modes they protect.
+	It("refuses an external replica owner with HoldCap or PrefixAffinity and accepts it otherwise", func() {
+		o := holdCap("external-holdcap")
+		o.Spec.ReplicasOwner = platformv1.ReplicasOwnerExternal
+		refused(o, "replicasOwner External refuses admission.mode HoldCap")
+
+		o = holdCap("external-affinity")
+		o.Spec.Admission = nil
+		o.Spec.ReplicasOwner = platformv1.ReplicasOwnerExternal
+		o.Spec.Routing = &platformv1.InferenceRouting{Policy: platformv1.RoutingPolicyPrefixAffinity}
+		refused(o, "replicasOwner External refuses routing.policy PrefixAffinity")
+
+		o = holdCap("external-unknown")
+		o.Spec.Admission = nil
+		o.Spec.ReplicasOwner = "Autoscaler"
+		refused(o, "spec.replicasOwner")
+
+		for _, owner := range []string{platformv1.ReplicasOwnerController, platformv1.ReplicasOwnerExternal} {
+			o := holdCap("owner-" + strings.ToLower(owner))
+			o.Spec.Admission = nil
+			o.Spec.ReplicasOwner = owner
+			o.Spec.Routing = &platformv1.InferenceRouting{Policy: platformv1.RoutingPolicyLeastQueue}
+			Expect(k8sClient.Create(ctx, o)).To(Succeed())
+		}
+		// HoldCap stays available to the controller as owner.
+		o = holdCap("controller-holdcap")
+		o.Spec.ReplicasOwner = platformv1.ReplicasOwnerController
+		Expect(k8sClient.Create(ctx, o)).To(Succeed())
+	})
+
 	It("still accepts the committed legacy sample unchanged", func() {
 		Expect(createSample("platform_v1_inferencedeployment.yaml", "legacy-sample")).To(Succeed())
 	})

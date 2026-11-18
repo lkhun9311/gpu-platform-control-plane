@@ -229,7 +229,11 @@ func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.Infere
 	port := servingPort(infd)
 
 	dep.Labels = labels
-	dep.Spec.Replicas = new(infd.Spec.Replicas)
+	// An autoscaler and this controller writing the same field would undo each other on every reconcile, so only the declared owner writes it.
+	// Replicas is nil only before the create, because the apiserver defaults it, so an externally owned Deployment still starts at spec.replicas.
+	if !replicasExternal(infd) || dep.Spec.Replicas == nil {
+		dep.Spec.Replicas = new(infd.Spec.Replicas)
+	}
 	dep.Spec.ProgressDeadlineSeconds = new(int32(600))
 	if dep.Spec.Selector == nil {
 		dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{instanceLabel: infd.Name}}
@@ -263,6 +267,20 @@ func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.Infere
 		}
 	}
 	dep.Spec.Template.Spec.Containers = []corev1.Container{container}
+}
+
+// replicasExternal reports whether spec.replicasOwner hands the Deployment's replicas to an autoscaler.
+func replicasExternal(infd *platformv1.InferenceDeployment) bool {
+	return infd.Spec.ReplicasOwner == platformv1.ReplicasOwnerExternal
+}
+
+// replicaTarget is the replica count the serving status is judged against.
+// Under an external owner it is the Deployment's own spec.replicas, because that is the autoscaler's decision and spec.replicas is only the starting count.
+func replicaTarget(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) int32 {
+	if replicasExternal(infd) && dep.Spec.Replicas != nil {
+		return *dep.Spec.Replicas
+	}
+	return infd.Spec.Replicas
 }
 
 // mutateService sets only the fields this controller manages on the Service.
@@ -301,30 +319,33 @@ const (
 //
 // Precedence (top to bottom):
 //
-//  1. stale gate: when spec.Replicas > 0 and ObservedGeneration < Generation → Progressing.
+// The target is replicaTarget: spec.replicas, or the Deployment's own replicas when an autoscaler owns them.
+//
+//  1. stale gate: when the target > 0 and ObservedGeneration < Generation → Progressing.
 //     This ensures a scale-down to 0 not yet observed by the Deployment does not prematurely report Ready.
-//  2. ScaledToZero: Replicas == 0 → Ready (zero replicas is always authoritative from spec alone).
+//  2. ScaledToZero: target == 0 → Ready once nothing is running.
 //  3. Degraded: Deployment Progressing condition is False with ProgressDeadlineExceeded.
 //  4. Pending: ReadyReplicas == 0.
-//  5. Progressing: UpdatedReplicas or ReadyReplicas < spec.Replicas, old replicas not yet drained,
-//     or the three replica counts have not yet converged on spec.Replicas.
+//  5. Progressing: UpdatedReplicas or ReadyReplicas < target, old replicas not yet drained,
+//     or the three replica counts have not yet converged on the target.
 //  6. Ready: fully converged.
 func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) (string, metav1.Condition) {
 	avail := func(status metav1.ConditionStatus, reason, msg string) metav1.Condition {
 		return metav1.Condition{Type: infdCondAvailable, Status: status, Reason: reason, Message: msg, ObservedGeneration: infd.Generation}
 	}
+	want := replicaTarget(infd, dep)
 	// 1. Stale gate: block phase decisions until the Deployment controller has observed the current spec.
 	//
-	// The gate is skipped only when spec wants zero replicas and status already shows zero running replicas, because there is nothing to drain and the spec intent is authoritative.
+	// The gate is skipped only when the target is zero replicas and status already shows zero running replicas, because there is nothing to drain and the target is authoritative.
 	staleDep := dep.Status.ObservedGeneration < dep.Generation
-	zeroAndDrained := infd.Spec.Replicas == 0 && dep.Status.Replicas == 0
+	zeroAndDrained := want == 0 && dep.Status.Replicas == 0
 	if staleDep && !zeroAndDrained {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "deployment not yet observed")
 	}
 	// 2. ScaledToZero: intentional zero-replica state is Ready once the status shows no running replicas.
 	// Until then it is a drain in progress: an observed scale-down still counting replicas, ready ones included,
 	// is not yet the state this phase names (codex review r8).
-	if infd.Spec.Replicas == 0 {
+	if want == 0 {
 		if dep.Status.Replicas > 0 || dep.Status.ReadyReplicas > 0 {
 			return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "scaling down to zero replicas")
 		}
@@ -342,14 +363,14 @@ func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployme
 		return infdPhasePending, avail(metav1.ConditionFalse, infdReasonRollout, "no replicas ready yet")
 	}
 	// 5. Progressing: replicas are not yet fully updated/ready, or old replicas have not been drained.
-	if dep.Status.UpdatedReplicas < infd.Spec.Replicas || dep.Status.ReadyReplicas < infd.Spec.Replicas {
+	if dep.Status.UpdatedReplicas < want || dep.Status.ReadyReplicas < want {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "rollout in progress")
 	}
 	if dep.Status.Replicas != dep.Status.UpdatedReplicas {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for old replicas to drain")
 	}
 	// Still Progressing: all three replica counts must equal the desired count to guard against a scale-down in progress where surplus replicas have not yet been removed.
-	if dep.Status.Replicas != infd.Spec.Replicas || dep.Status.UpdatedReplicas != infd.Spec.Replicas || dep.Status.ReadyReplicas != infd.Spec.Replicas {
+	if dep.Status.Replicas != want || dep.Status.UpdatedReplicas != want || dep.Status.ReadyReplicas != want {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for replica count to converge")
 	}
 	// 6. Ready: fully converged.
