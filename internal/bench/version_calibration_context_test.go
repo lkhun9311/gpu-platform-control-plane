@@ -24,6 +24,29 @@ func TestRunContextStopsTheLadderWhenTheSessionEnds(t *testing.T) {
 	if probes != 3 {
 		t.Fatalf("%d rungs ran, want none after the stop (3)", probes)
 	}
+	// The artifact lists exactly the rungs that have evidence, each with the class its probe recorded.
+	// A made-up invalid rung would have no evidence file, and relabelling the cut rung would contradict its record.
+	if len(res.Rungs) != 3 {
+		t.Fatalf("the result lists %d rungs, want the 3 that ran: %+v", len(res.Rungs), res.Rungs)
+	}
+	for _, r := range res.Rungs {
+		if r.Class != RungStable {
+			t.Fatalf("rung %d is listed %s, but its probe returned %s", r.Ordinal, r.Class, RungStable)
+		}
+	}
+}
+
+// TestRunContextListsNoRungWhenTheSessionEndedFirst: a ladder whose context had ended runs and lists nothing.
+func TestRunContextListsNoRungWhenTheSessionEndedFirst(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	res := versionAsyncDesign().Calibration.RunContext(ctx, func(context.Context, float64, int) RungClass {
+		t.Fatal("a rung ran after the session ended")
+		return RungInvalid
+	})
+	if res.Resolved || len(res.Rungs) != 0 || !strings.Contains(res.Reason, "session") {
+		t.Fatalf("result %+v, want unresolved with no rung", res)
+	}
 }
 
 // TestRunContextKeepsAResolvedLadder: a ladder that resolved before the context ended is not overwritten.

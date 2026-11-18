@@ -166,7 +166,7 @@ func calibrateTreatmentA(ctx context.Context, dir string, d bench.VersionStudyDe
 	if err != nil {
 		return calibrationRun{}, err
 	}
-	// Ending the ladder's context is how a rung is kept from deciding it: RunContext treats a rung its context cut as invalid and the ladder as unresolved.
+	// Ending the ladder's context is how a rung is kept from deciding it: RunContext halts the ladder after a rung its context cut, unresolved.
 	lctx, stopLadder := context.WithCancelCause(ctx)
 	defer stopLadder(nil)
 	checked := func(ctx context.Context, rate float64, ordinal int) bench.RungClass {

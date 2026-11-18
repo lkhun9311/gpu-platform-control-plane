@@ -151,8 +151,20 @@ type CalibrationResult struct {
 //
 // Every way the ladder can fail ends in an explicit unresolved result, and the session stops there: there is no default λ0.
 func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) CalibrationResult {
+	return c.run(func(rate float64, ordinal int) (RungClass, bool, bool) {
+		return probe(rate, ordinal), true, false
+	})
+}
+
+// run is Run with a probe that can also halt the ladder.
+//
+// The probe reports whether it ran the rung, which is then listed with the class it returned, and whether the ladder
+// halts after it.
+// A halted ladder lists no rung its probe did not run, because every listed rung must have its own evidence.
+func (c CalibrationRule) run(probe func(rate float64, ordinal int) (cls RungClass, ran, halt bool)) CalibrationResult {
 	res := CalibrationResult{}
 	retries := 0
+	halted := false
 	stop := func(format string, args ...any) CalibrationResult {
 		res.Resolved, res.Rate, res.Reason = false, 0, fmt.Sprintf(format, args...)
 		return res
@@ -160,8 +172,14 @@ func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) Ca
 	// rung runs one rate, repeating it once per allowed retry while it is invalid.
 	rung := func(rate float64, purpose string) (RungClass, bool) {
 		for {
-			cls := probe(rate, len(res.Rungs)+1)
-			res.Rungs = append(res.Rungs, CalibrationRung{len(res.Rungs) + 1, rate, purpose, cls})
+			cls, ran, halt := probe(rate, len(res.Rungs)+1)
+			if ran {
+				res.Rungs = append(res.Rungs, CalibrationRung{len(res.Rungs) + 1, rate, purpose, cls})
+			}
+			if halt {
+				halted = true
+				return cls, false
+			}
 			if cls != RungInvalid {
 				return cls, true
 			}
@@ -170,6 +188,13 @@ func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) Ca
 			}
 			retries++
 		}
+	}
+	// failed ends the ladder at a rung that did not return a usable class.
+	failed := func() CalibrationResult {
+		if halted {
+			return stop("calibration halted before the ladder resolved")
+		}
+		return stop("calibration unresolved: rungs stayed invalid after %d retries", c.MaxInvalidRetries)
 	}
 	unreliable := func() int {
 		n := 0
@@ -186,7 +211,7 @@ func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) Ca
 	for range c.MaxExpansion {
 		cls, ok := rung(rate, "expansion")
 		if !ok {
-			return stop("calibration unresolved: rungs stayed invalid after %d retries", c.MaxInvalidRetries)
+			return failed()
 		}
 		if cls != RungStable {
 			hi = rate
@@ -204,7 +229,7 @@ func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) Ca
 			rate *= c.FallbackFactor
 			cls, ok := rung(rate, "fallback")
 			if !ok {
-				return stop("calibration unresolved: rungs stayed invalid after %d retries", c.MaxInvalidRetries)
+				return failed()
 			}
 			if cls == RungStable {
 				lo = rate
@@ -223,7 +248,7 @@ func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) Ca
 		mid := math.Sqrt(lo * hi)
 		cls, ok := rung(mid, "refinement")
 		if !ok {
-			return stop("calibration unresolved: rungs stayed invalid after %d retries", c.MaxInvalidRetries)
+			return failed()
 		}
 		if cls == RungStable {
 			lo = mid
@@ -242,7 +267,7 @@ func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) Ca
 		for range needed {
 			cls, ok := rung(candidate, "confirmation")
 			if !ok {
-				return stop("calibration unresolved: rungs stayed invalid after %d retries", c.MaxInvalidRetries)
+				return failed()
 			}
 			if cls != RungStable {
 				confirmed = false
@@ -261,27 +286,24 @@ func (c CalibrationRule) Run(probe func(rate float64, ordinal int) RungClass) Ca
 
 // RunContext runs the ladder like Run, but stops it when ctx ends, the probe receiving ctx for its own steps.
 //
-// Once ctx has ended no further rung is run: each is returned invalid without touching the engine, so the ladder's
-// invalid bound ends it.
+// Once ctx has ended the ladder halts: no further rung is run or listed, so every listed rung has the evidence its probe wrote.
+// A rung the session cut off is listed with the class its probe returned, which is the class its own record holds, but
+// it never decides the ladder.
 // The result is then unresolved with a reason naming the session, never an engine verdict, so a deadline or an
 // operator stop is not mistaken for a capacity found or missed.
 // A ladder that resolved before ctx ended keeps its result.
 func (c CalibrationRule) RunContext(ctx context.Context, probe func(ctx context.Context, rate float64, ordinal int) RungClass) CalibrationResult {
-	skipped := false
-	res := c.Run(func(rate float64, ordinal int) RungClass {
+	halted := false
+	res := c.run(func(rate float64, ordinal int) (RungClass, bool, bool) {
 		if ctx.Err() != nil {
-			skipped = true
-			return RungInvalid
+			halted = true
+			return RungInvalid, false, true
 		}
 		cls := probe(ctx, rate, ordinal)
-		// A rung the session cut off measured nothing, even if it returned a class, so it never decides the ladder.
-		if ctx.Err() != nil {
-			skipped = true
-			return RungInvalid
-		}
-		return cls
+		halted = ctx.Err() != nil
+		return cls, true, halted
 	})
-	if skipped {
+	if halted {
 		res.Resolved, res.Rate = false, 0
 		res.Reason = fmt.Sprintf("calibration stopped: the session ended (%v) before the ladder resolved", context.Cause(ctx))
 	}
