@@ -107,8 +107,10 @@ def tally(rows, scores):
 
 def main():
     run = sys.argv[1]
-    for arm in ("precise", "precise-pull", "precise-spec", "approx"):
-        summarise_arm(run, arm)
+    # Every arm directory is summarised, so an arm added later cannot be silently left out of its own run's summary.
+    for arm in sorted(os.listdir(run)):
+        if os.path.isfile(os.path.join(run, arm, "requests.jsonl")):
+            summarise_arm(run, arm)
 
 
 if __name__ == "__main__":

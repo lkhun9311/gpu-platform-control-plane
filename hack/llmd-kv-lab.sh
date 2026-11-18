@@ -7,7 +7,7 @@
 # What this wrapper adds is what that script does not do: it pins every version, refuses on drift, owns a uniquely
 # named cluster and never touches another, keeps its kubeconfig out of ~/.kube/config, and switches scorers.
 #
-# Usage: hack/llmd-kv-lab.sh pins | check | up [precise|precise-pull|precise-spec|approx] | mode precise|precise-pull|precise-spec|approx | status | down
+# Usage: hack/llmd-kv-lab.sh pins | check | up [precise|precise-pull|precise-spec|precise-load|approx|approx-load|rr] | mode precise|precise-pull|precise-spec|precise-load|approx|approx-load|rr | status | down
 #
 # docs/14_LLMD_KV_ROUTING_LAB.md describes the lab and what it showed.
 set -euo pipefail
@@ -19,8 +19,12 @@ LAB_DIR="$REPO/hack/llmd-kv-lab"
 # A tag can be re-pushed, so every image is pinned by digest and the tag is only what upstream's script loads by name.
 ROUTER_REPO=https://github.com/llm-d/llm-d-router.git
 ROUTER_COMMIT=3d0b21d51d29c2f773556c924e5aaf3ee32cc344
-SIM_IMAGE=ghcr.io/llm-d/llm-d-inference-sim:v1.2.0
-SIM_DIGEST=sha256:9992453829c0dea8d120b8e0322bb0e4237cbb3c6d9ea3bdce060410c40c91c9
+# The simulator is built from a pinned main commit because no release yet carries #915 (running gauge and latency
+# histograms count only started requests) and #920 (a startup error exits non-zero); v1.2.0 predates both.
+# Runs recorded before 2026-11-18 used ghcr.io/llm-d/llm-d-inference-sim:v1.2.0@sha256:99924538…, as their pins.txt says.
+SIM_REPO=https://github.com/llm-d/llm-d-inference-sim.git
+SIM_COMMIT=6ab9d4b2367abe9338665368f61b3ff7e5547e4a
+SIM_IMAGE=gpuaas-llmd-kv-lab/sim:${SIM_COMMIT:0:12}
 RENDER_IMAGE=vllm/vllm-openai-cpu:v0.31.0
 RENDER_DIGEST=sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9
 KIND_NODE_IMAGE=kindest/node:v1.31.12
@@ -41,9 +45,12 @@ CLUSTER=gpuaas-llmd-kv-lab
 CTX=kind-$CLUSTER
 GATEWAY_HOST_PORT=${GATEWAY_HOST_PORT:-30598}
 # Three pods is the fewest where "picked the warm pod" and "picked by tie-break" are distinguishable often enough.
-SIM_REPLICAS=3
+# The #599 replay overrides it with two, the backend count of the experiment it replays.
+SIM_REPLICAS=${LAB_SIM_REPLICAS:-3}
 # 256 blocks of 16 tokens per pod, so a few thousand tokens of other traffic evicts a prefix and eviction is testable.
-SIM_KV_BLOCKS=256
+SIM_KV_BLOCKS=${LAB_SIM_KV_BLOCKS:-256}
+# Further simulator flags, space-separated, such as the latency model the #599 replay sets; empty for the probes.
+SIM_EXTRA_ARGS=${LAB_SIM_ARGS:-}
 # The gateway replaces the client's x-request-id with its own, and that is the id the EPP logs its scores under.
 # The simulator echoing the id it received is what lets a response be joined to the EPP's decision for it.
 SIM_ECHO_REQUEST_ID=--enable-request-id-headers
@@ -53,6 +60,7 @@ OWNER_CM=gpuaas-llmd-kv-lab-owner
 
 LAB_HOME=${LAB_HOME:-$REPO/tmp/llmd-kv-lab}
 CHECKOUT=$LAB_HOME/llm-d-router
+SIM_CHECKOUT=$LAB_HOME/llm-d-inference-sim
 # A private kubeconfig, so creating and deleting the lab never rewrites the contexts of the user's other clusters.
 export KUBECONFIG=$LAB_HOME/kubeconfig
 
@@ -75,13 +83,14 @@ cmd_pins() {
   cat <<EOF
 router commit     $ROUTER_COMMIT ($ROUTER_REPO)
 EPP image         $EPP_IMAGE (built from that commit with its Dockerfile.epp, golang:1.27.4)
-simulator         $SIM_IMAGE@$SIM_DIGEST
+simulator         $SIM_IMAGE (built from $SIM_REPO $SIM_COMMIT)
 render (tokenizer) $RENDER_IMAGE@$RENDER_DIGEST
 kind node         $KIND_NODE_IMAGE@$KIND_NODE_DIGEST
 kind CLI          $KIND_CLI_VERSION
 cluster           $CLUSTER (context $CTX, kubeconfig $KUBECONFIG)
 gateway           127.0.0.1:$GATEWAY_HOST_PORT
 simulator pods    $SIM_REPLICAS x $SIM_KV_BLOCKS KV blocks of 16 tokens
+simulator args    $SIM_ECHO_REQUEST_ID $SIM_EXTRA_ARGS (beyond upstream's)
 EOF
 }
 
@@ -93,6 +102,13 @@ fetch_checkout() {
   if [ "$(git -C "$CHECKOUT" rev-parse HEAD)" != "$ROUTER_COMMIT" ]; then
     git -C "$CHECKOUT" fetch --quiet origin "$ROUTER_COMMIT" 2>/dev/null || git -C "$CHECKOUT" fetch --quiet origin
     git -C "$CHECKOUT" -c advice.detachedHead=false checkout --quiet "$ROUTER_COMMIT"
+  fi
+  if [ ! -d "$SIM_CHECKOUT/.git" ]; then
+    git clone --quiet "$SIM_REPO" "$SIM_CHECKOUT"
+  fi
+  if [ "$(git -C "$SIM_CHECKOUT" rev-parse HEAD)" != "$SIM_COMMIT" ]; then
+    git -C "$SIM_CHECKOUT" fetch --quiet origin "$SIM_COMMIT" 2>/dev/null || git -C "$SIM_CHECKOUT" fetch --quiet origin
+    git -C "$SIM_CHECKOUT" -c advice.detachedHead=false checkout --quiet "$SIM_COMMIT"
   fi
 }
 
@@ -110,6 +126,13 @@ checkout_ok() {
   else
     echo "  missing: router checkout $CHECKOUT (up fetches it)" >&2; bad=1
   fi
+  if [ -d "$SIM_CHECKOUT/.git" ]; then
+    got=$(git -C "$SIM_CHECKOUT" rev-parse HEAD)
+    [ "$got" = "$SIM_COMMIT" ] || { echo "  drift: simulator checkout at $got" >&2; bad=1; }
+    [ -z "$(git -C "$SIM_CHECKOUT" status --porcelain)" ] || { echo "  drift: simulator checkout is dirty" >&2; bad=1; }
+  else
+    echo "  missing: simulator checkout $SIM_CHECKOUT (up fetches it)" >&2; bad=1
+  fi
   [ "$bad" = 0 ]
 }
 
@@ -120,7 +143,8 @@ cmd_check() {
   got=$(kind version | awk '{print $2}')
   [ "$got" = "$KIND_CLI_VERSION" ] || { echo "  drift: kind CLI is $got, pinned $KIND_CLI_VERSION" >&2; bad=1; }
   checkout_ok || bad=1
-  image_digest_ok "$SIM_IMAGE" "$SIM_DIGEST" || { echo "  drift: $SIM_IMAGE is not $SIM_DIGEST locally" >&2; bad=1; }
+  got=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$SIM_IMAGE" 2>/dev/null || true)
+  [ "$got" = "$SIM_COMMIT" ] || { echo "  drift: $SIM_IMAGE is not labelled with the pinned commit (got '$got')" >&2; bad=1; }
   image_digest_ok "$RENDER_IMAGE" "$RENDER_DIGEST" || { echo "  drift: $RENDER_IMAGE is not $RENDER_DIGEST locally" >&2; bad=1; }
   image_digest_ok "$KIND_NODE_IMAGE" "$KIND_NODE_DIGEST" || { echo "  drift: $KIND_NODE_IMAGE is not $KIND_NODE_DIGEST locally" >&2; bad=1; }
   got=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$EPP_IMAGE" 2>/dev/null || true)
@@ -130,7 +154,7 @@ cmd_check() {
 }
 
 prepare_images() {
-  for pair in "$SIM_IMAGE@$SIM_DIGEST" "$RENDER_IMAGE@$RENDER_DIGEST" "$KIND_NODE_IMAGE@$KIND_NODE_DIGEST"; do
+  for pair in "$RENDER_IMAGE@$RENDER_DIGEST" "$KIND_NODE_IMAGE@$KIND_NODE_DIGEST"; do
     local image=${pair%@*} digest=${pair#*@}
     image_digest_ok "$image" "$digest" && continue
     # Pull by digest and tag it, so a re-pushed tag can never be what gets loaded.
@@ -152,6 +176,19 @@ prepare_images() {
       --build-arg TARGETOS=linux --build-arg TARGETARCH=amd64 --build-arg COMMIT_SHA="$ROUTER_COMMIT" \
       --label org.opencontainers.image.revision="$ROUTER_COMMIT" \
       -t "$EPP_IMAGE" -f "$dockerfile" "$CHECKOUT" >/dev/null
+  fi
+  if ! docker image inspect "$SIM_IMAGE" >/dev/null 2>&1; then
+    say "building $SIM_IMAGE from $SIM_COMMIT"
+    # The simulator's Dockerfile has the same BuildKit-only platform flag, removed the same way.
+    local simfile=$SIM_CHECKOUT/Dockerfile
+    if ! docker buildx version >/dev/null 2>&1; then
+      simfile=$LAB_HOME/Dockerfile.sim.legacy-builder
+      # shellcheck disable=SC2016 # the Dockerfile's own $BUILDPLATFORM is matched literally, not expanded
+      sed 's/^FROM --platform=\$BUILDPLATFORM /FROM /' "$SIM_CHECKOUT/Dockerfile" >"$simfile"
+    fi
+    docker build --quiet --platform linux/amd64 --build-arg TARGETOS=linux --build-arg TARGETARCH=amd64 \
+      --label org.opencontainers.image.revision="$SIM_COMMIT" \
+      -t "$SIM_IMAGE" -f "$simfile" "$SIM_CHECKOUT" >/dev/null
   fi
 }
 
@@ -181,7 +218,7 @@ EOF
 
 render_config() {
   local mode=$1 out=$2
-  [ -f "$LAB_DIR/epp-$mode.yaml" ] || die "no EPP config for mode '$mode' (precise, precise-pull, precise-spec or approx)"
+  [ -f "$LAB_DIR/epp-$mode.yaml" ] || die "no EPP config for mode '$mode' (ls $LAB_DIR/epp-*.yaml)"
   # shellcheck disable=SC2016 # envsubst takes the variable names literally
   MODEL_NAME=$MODEL_NAME VLLM_RENDER_URL=http://vllm-render:8082 \
     envsubst '${MODEL_NAME} ${VLLM_RENDER_URL}' <"$LAB_DIR/epp-$mode.yaml" >"$out"
@@ -210,10 +247,16 @@ cmd_up() {
   # VLLM_EXTRA_ARGS_D carries one flag only: kustomize emits the placeholder unquoted, upstream's awk splitter only
   # matches a quoted line, and two flags in it reach the simulator as one argument and crash it (docs/14 records this).
   # So the second flag is appended here, after upstream's apply has reset the args.
-  if ! k get deployment vllm-d -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q -- "$SIM_ECHO_REQUEST_ID"; then
-    k patch deployment vllm-d --type json \
-      -p "[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/args/-\",\"value\":\"$SIM_ECHO_REQUEST_ID\"}]" >/dev/null
-  fi
+  # The latency model and other LAB_SIM_ARGS flags go the same way, for the same reason.
+  local arg current
+  # shellcheck disable=SC2086 # the extra args are split into flags on purpose
+  for arg in "$SIM_ECHO_REQUEST_ID" $SIM_EXTRA_ARGS; do
+    current=$(k get deployment vllm-d -o jsonpath='{.spec.template.spec.containers[0].args}')
+    if ! grep -qF -- "\"$arg\"" <<<"$current"; then
+      k patch deployment vllm-d --type json \
+        -p "[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/args/-\",\"value\":\"$arg\"}]" >/dev/null
+    fi
+  done
   k rollout status deployment/vllm-d --timeout=300s >/dev/null
   # Upstream's script creates the config map but does not restart a running EPP, so a re-run would keep the old
   # config; going through mode applies the chosen one and orders the restarts.
@@ -242,7 +285,7 @@ print(json.dumps(args))' "$1")
 # simulator that dialled the previous EPP pod keeps an ESTABLISHED connection to an address that no longer exists
 # (measured in docs/14), so only a simulator started after the EPP is known to be connected to it.
 cmd_mode() {
-  local mode=${1:?mode precise|precise-pull|precise-spec|approx}
+  local mode=${1:?mode precise|precise-pull|precise-spec|precise-load|approx|approx-load|rr}
   owned || die "$CLUSTER is not up, or not ours"
   local tmp
   tmp=$(mktemp)
@@ -251,7 +294,8 @@ cmd_mode() {
   rm -f "$tmp"
   k rollout restart deployment/"$EPP_NAME" >/dev/null
   k rollout status deployment/"$EPP_NAME" --timeout=180s >/dev/null
-  if [ "$mode" = precise-pull ]; then set_sim_zmq pull; else set_sim_zmq push; fi
+  # A config that discovers pods through the notification source dials each simulator, so they must bind (pull).
+  if grep -q 'endpoint-notification-source' "$LAB_DIR/epp-$mode.yaml"; then set_sim_zmq pull; else set_sim_zmq push; fi
   k rollout restart deployment/vllm-d >/dev/null
   k rollout status deployment/vllm-d --timeout=300s >/dev/null
   # The arm measures only after the restarted pods are shown to run the pinned images.
@@ -301,11 +345,14 @@ deploy_image_ok() {
 # verify_running_images refuses a cluster whose simulator, EPP or renderer is not the pinned image, as they run now.
 #
 # check reads only the host's images and checkout; a Deployment edited after up would otherwise be measured under
-# "all pins match". The simulator's node image is also held to its pinned registry digest.
+# "all pins match".
+# The simulator is built locally, and Docker's containerd store reports a different id than the node's import, so the
+# node's copy is held to the pinned commit through the revision label the build stamped on it.
 verify_running_images() {
-  local node=$CLUSTER-control-plane node_digest bad=0
-  node_digest=$(docker exec "$node" ctr -n k8s.io images ls "name==$SIM_IMAGE" | awk 'NR==2 {print $3}')
-  [ "$node_digest" = "$SIM_DIGEST" ] || { echo "  drift: the node's $SIM_IMAGE is $node_digest, pinned $SIM_DIGEST" >&2; bad=1; }
+  local node=$CLUSTER-control-plane rev bad=0
+  rev=$(docker exec "$node" crictl inspecti "$SIM_IMAGE" | python3 -I -c 'import json, sys
+print(json.load(sys.stdin)["info"]["imageSpec"]["config"].get("Labels", {}).get("org.opencontainers.image.revision", ""))') || rev=
+  [ "$rev" = "$SIM_COMMIT" ] || { echo "  drift: the node's $SIM_IMAGE is labelled '$rev', pinned $SIM_COMMIT" >&2; bad=1; }
   deploy_image_ok vllm-d "$SIM_IMAGE" || bad=1
   deploy_image_ok "$EPP_NAME" "$EPP_IMAGE" || bad=1
   deploy_image_ok vllm-render "$RENDER_IMAGE" || bad=1
@@ -332,6 +379,6 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     mode) cmd_mode "${2:-}" ;;
     status) cmd_status ;;
     down) cmd_down ;;
-    *) echo "usage: $0 pins|check|up [precise|precise-pull|precise-spec|approx]|mode precise|precise-pull|precise-spec|approx|status|down" >&2; exit 2 ;;
+    *) echo "usage: $0 pins|check|up [precise|precise-pull|precise-spec|precise-load|approx|approx-load|rr]|mode precise|precise-pull|precise-spec|precise-load|approx|approx-load|rr|status|down" >&2; exit 2 ;;
   esac
 fi

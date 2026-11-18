@@ -1,0 +1,15 @@
+# The round-robin baseline of the #599 replay: no scorer at all.
+# Every endpoint then scores 0, and the max-score picker rotates through a tier of equal scores in name order
+# (pkg/epp/framework/plugins/scheduling/picker/maxscore/picker.go at the pinned commit), which is round-robin.
+# It stands in for experiment A's RoundRobin arm, and the replay's per-pod shares show whether it behaved as one.
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+plugins:
+- type: decode-filter
+- type: max-score-picker
+- type: single-profile-handler
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: max-score-picker
