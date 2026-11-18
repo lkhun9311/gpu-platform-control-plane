@@ -1,0 +1,11 @@
+2026-11-18T03:12:43Z pull public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:c0c20a4cded4c7a33b479d0a78b74e19e3ff057a5023c1693ef7beaa4d0eac15
+2026-11-18T03:30:57Z pulled
+2026-11-18T03:30:57Z base identity
+2026-11-18T03:31:06Z base identity ok
+2026-11-18T03:31:06Z model download
+2026-11-18T03:31:31Z model downloaded
+2026-11-18T03:31:31Z engine ap-1-adaptive: start
+2026-11-18T03:34:26Z engine ap-1-adaptive: ready=yes after 174 s
+2026-11-18T03:34:32Z engine ap-1-adaptive: identity=yes
+2026-11-18T03:36:49Z engine ap-1-adaptive: done, 0 of 1 scored runs
+2026-11-18T03:36:49Z all engines done

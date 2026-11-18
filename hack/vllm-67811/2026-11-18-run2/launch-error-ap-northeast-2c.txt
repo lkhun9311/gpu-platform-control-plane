@@ -1,0 +1,2 @@
+
+aws: [ERROR]: An error occurred (InsufficientInstanceCapacity) when calling the RunInstances operation (reached max retries: 2): We currently do not have sufficient g5.xlarge capacity in the Availability Zone you requested (ap-northeast-2c). Our system will be working on provisioning additional capacity. You can currently get g5.xlarge capacity by not specifying an Availability Zone in your request or choosing ap-northeast-2a, ap-northeast-2d.

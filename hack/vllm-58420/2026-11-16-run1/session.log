@@ -1,0 +1,72 @@
+== the vLLM #58420 SRPF sweep for vllm-58420-srpf-2026-11-16, from 09d00553095f6fdf8a7172c0b9e16025cea5f3d8, into hack/vllm-58420-20261116T121043Z
+== hard stop 10920 s after LaunchTime; worst case 11220 s at $0.9324/h
+== the PR head's scheduler.py: 19502766a57a37432cda1ac0a581979d22845cc0fe2d5f08be8647ca113d2fa9
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $0.90/h in: ap-northeast-2a ap-northeast-2c ap-northeast-2d (ap-northeast-2a	0.607900 ap-northeast-2d	0.607100 ap-northeast-2c	0.620300)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 332 minutes
+== building the harness from 09d00553095f6fdf8a7172c0b9e16025cea5f3d8
+== creating results bucket srpf58420-gpu-007635145730
+== creating instance role srpf58420-gpu
+== waiting for the instance profile to propagate
+== before the purchase: credentials expire in 331 minutes
+== launching g5.xlarge Spot (max $0.90/h compute, $0.9324/h all in), study-deadline 2026-11-16T15:12:26Z -- the instance bills from here
+== launched i-0733df34a561855fc in ap-northeast-2c
+== LaunchTime 2026-11-16T12:11:33+00:00; the sweeper's deadline moved to 2026-11-16T15:13:03Z
+== the wait ended with status 0 ()
+== waiting up to 9790s for EC2 to report the instance terminated
+== terminating i-0733df34a561855fc
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is shutting-down
+== i-0733df34a561855fc is terminated
+== evidence missing (summary at hack/vllm-58420-20261116T121043Z/sr-run/sweep/summary.json); termination confirmed

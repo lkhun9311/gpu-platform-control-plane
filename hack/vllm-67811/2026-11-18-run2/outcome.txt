@@ -1,0 +1,4 @@
+evidence=returned
+measured=0 of 1
+termination=confirmed
+traced=1 of 1

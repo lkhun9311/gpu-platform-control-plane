@@ -223,8 +223,12 @@ spot_subnet_in_zone() {
 spot_launch() {
   local region="$1" ami="$2" instance_type="$3" subnet="$4" profile="$5" \
         max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9" client_token="${10:-}" security_group="${11:-}" \
-        cpu_credits="${12:-}"
-  local token_arg=() sg_arg=() credit_arg=() why
+        cpu_credits="${12:-}" ebs_throughput="${13:-}" ebs_iops="${14:-}"
+  local token_arg=() sg_arg=() credit_arg=() why ebs_extra=""
+  # gp3 gives 125 MiB/s and 3,000 IOPS unless more is provisioned, and both are billed by the hour while the volume lives.
+  # A caller that provisions more must count it in its own cost cap, so the default stays the free baseline.
+  [ -n "$ebs_throughput" ] && ebs_extra="$ebs_extra,\"Throughput\":$ebs_throughput"
+  [ -n "$ebs_iops" ] && ebs_extra="$ebs_extra,\"Iops\":$ebs_iops"
   if ! why=$(spot_deadline_refusal "$region" "$tags"); then
     printf 'refusing the launch: %s\n' "$why" >&2
     return 1
@@ -241,7 +245,7 @@ spot_launch() {
     --image-id "$ami" --instance-type "$instance_type" --subnet-id "$subnet" \
     --iam-instance-profile "Name=$profile" \
     --instance-initiated-shutdown-behavior terminate \
-    --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":$volume_gb,\"VolumeType\":\"gp3\",\"DeleteOnTermination\":true}}]" \
+    --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":$volume_gb,\"VolumeType\":\"gp3\"$ebs_extra,\"DeleteOnTermination\":true}}]" \
     --instance-market-options "{\"MarketType\":\"spot\",\"SpotOptions\":{\"MaxPrice\":\"$max_price\",\"SpotInstanceType\":\"one-time\"}}" \
     --user-data "file://$user_data_file" \
     --tag-specifications "$tags" \

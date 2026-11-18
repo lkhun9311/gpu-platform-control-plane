@@ -1,0 +1,31 @@
+2026-11-18T01:46:17Z pull public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:c0c20a4cded4c7a33b479d0a78b74e19e3ff057a5023c1693ef7beaa4d0eac15
+2026-11-18T01:59:29Z pulled
+2026-11-18T01:59:29Z base identity
+2026-11-18T01:59:37Z base identity ok
+2026-11-18T01:59:37Z model download
+2026-11-18T02:00:03Z model downloaded
+2026-11-18T02:00:03Z engine ap-1-base: start
+2026-11-18T02:03:21Z engine ap-1-base: ready=yes after 197 s
+2026-11-18T02:03:28Z engine ap-1-base: identity=yes
+2026-11-18T02:05:16Z engine ap-1-base: done, 5 of 5 scored runs
+2026-11-18T02:05:16Z engine ap-2-adaptive: start
+2026-11-18T02:06:50Z engine ap-2-adaptive: ready=yes after 94 s
+2026-11-18T02:06:56Z engine ap-2-adaptive: identity=yes
+2026-11-18T02:09:14Z engine ap-2-adaptive: done, 0 of 5 scored runs
+2026-11-18T02:09:14Z engine ap-3-t512: start
+2026-11-18T02:10:36Z engine ap-3-t512: ready=yes after 82 s
+2026-11-18T02:10:42Z engine ap-3-t512: identity=yes
+2026-11-18T02:12:31Z engine ap-3-t512: done, 5 of 5 scored runs
+2026-11-18T02:12:31Z engine ap-4-t512: start
+2026-11-18T02:13:26Z engine ap-4-t512: ready=yes after 55 s
+2026-11-18T02:13:33Z engine ap-4-t512: identity=yes
+2026-11-18T02:15:22Z engine ap-4-t512: done, 5 of 5 scored runs
+2026-11-18T02:15:22Z engine ap-5-adaptive: start
+2026-11-18T02:16:19Z engine ap-5-adaptive: ready=yes after 57 s
+2026-11-18T02:16:25Z engine ap-5-adaptive: identity=yes
+2026-11-18T02:18:42Z engine ap-5-adaptive: done, 0 of 5 scored runs
+2026-11-18T02:18:42Z engine ap-6-base: start
+2026-11-18T02:19:38Z engine ap-6-base: ready=yes after 55 s
+2026-11-18T02:19:44Z engine ap-6-base: identity=yes
+2026-11-18T02:21:32Z engine ap-6-base: done, 5 of 5 scored runs
+2026-11-18T02:21:32Z all engines done

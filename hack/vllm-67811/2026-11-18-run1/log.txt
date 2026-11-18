@@ -1,0 +1,462 @@
+++ date +%s
++ SR_START=1794966356
++ BUCKET=ap67811-gpu-007635145730
++ PREFIX=vllm-67811-20261118T014341Z-fed74a00
++ COMMIT=2e3197646aac354ce1c1f545305e9d8a3637e1d5
++ trap 'upload /var/log/ap.log log.txt; shutdown -h now' EXIT
++ mkdir -p /src/ap-run /opt/ap
++ sleep 13140
++ fetch inputs.tgz d257bb3543e9826a762cc1eb0f56a66e991026d17f026ff915ec4ea283f85351
++ aws s3 cp --only-show-errors s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/inputs.tgz /opt/ap/inputs.tgz
+++ sha256sum /opt/ap/inputs.tgz
+++ cut '-d ' -f1
++ '[' d257bb3543e9826a762cc1eb0f56a66e991026d17f026ff915ec4ea283f85351 = d257bb3543e9826a762cc1eb0f56a66e991026d17f026ff915ec4ea283f85351 ']'
++ mkdir -p /opt/ap/in
++ tar -xzf /opt/ap/inputs.tgz -C /opt/ap/in
++ L=
+++ date +%s
++ '[' 2 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-11-18T01:44:25+00:00 +%s
++ L=1794966265
++ break
+++ date +%s
++ NOW=1794966359
++ [[ 1794966265 =~ ^[0-9]+$ ]]
++ '[' 1794966265 -gt 1794966359 ']'
++ '[' 94 -gt 900 ']'
++ P1=1794966865
++ HE=1794979225
++ EV=1794979345
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+++ date +%s
+++ date +%s
++ sleep 13046
++ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
++ aws s3 cp --only-show-errors /tmp/nvidia-smi.csv s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/preflight-nvidia-smi.csv
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ wc -l
++ '[' 1 = 1 ']'
++ tail -n +2 /tmp/nvidia-smi.csv
++ grep -q A10G
++ cat
+++ date +%s
++ bringup_left=505
++ bringup_rc=124
++ '[' 505 -gt 0 ']'
++ timeout --kill-after=15 505 bash /tmp/bringup.sh
+time="2026-11-18T01:46:00Z" level=info msg="Loading config from /etc/docker/daemon.json"
+time="2026-11-18T01:46:00Z" level=info msg="Wrote updated config to /etc/docker/daemon.json"
+time="2026-11-18T01:46:00Z" level=info msg="It is recommended that docker daemon be restarted."
++ bringup_rc=0
++ echo 'bring-up exited 0'
+bring-up exited 0
++ echo commit=2e3197646aac354ce1c1f545305e9d8a3637e1d5
++ echo launch_time_epoch=1794966265
++ echo bringup_rc=0
++ sha256sum /opt/ap/inputs.tgz
++ cp /tmp/nvidia-smi.csv /src/ap-run/nvidia-smi.csv
++ '[' 0 = 0 ']'
++ mkdir -p /src/ap-run/sweep
++ sync_pid=1792
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
+++ date +%s
+++ date +%s
++ timeout --kill-after=15 12848 bash /opt/ap/in/runner.sh /opt/ap/in /src/ap-run/sweep 1794979225
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 1 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/ap-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/partial.tgz
++ sleep 30
++ harness_rc=0
++ kill 1792
++ cp /var/log/ap-sync.log /src/ap-run/sync.log
++ cat /src/ap-run/summary.txt
+2026-11-18T01:46:17Z pull public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:c0c20a4cded4c7a33b479d0a78b74e19e3ff057a5023c1693ef7beaa4d0eac15
+2026-11-18T01:59:29Z pulled
+2026-11-18T01:59:29Z base identity
+2026-11-18T01:59:37Z base identity ok
+2026-11-18T01:59:37Z model download
+2026-11-18T02:00:03Z model downloaded
+2026-11-18T02:00:03Z engine ap-1-base: start
+2026-11-18T02:03:21Z engine ap-1-base: ready=yes after 197 s
+2026-11-18T02:03:28Z engine ap-1-base: identity=yes
+2026-11-18T02:05:16Z engine ap-1-base: done, 5 of 5 scored runs
+2026-11-18T02:05:16Z engine ap-2-adaptive: start
+2026-11-18T02:06:50Z engine ap-2-adaptive: ready=yes after 94 s
+2026-11-18T02:06:56Z engine ap-2-adaptive: identity=yes
+2026-11-18T02:09:14Z engine ap-2-adaptive: done, 0 of 5 scored runs
+2026-11-18T02:09:14Z engine ap-3-t512: start
+2026-11-18T02:10:36Z engine ap-3-t512: ready=yes after 82 s
+2026-11-18T02:10:42Z engine ap-3-t512: identity=yes
+2026-11-18T02:12:31Z engine ap-3-t512: done, 5 of 5 scored runs
+2026-11-18T02:12:31Z engine ap-4-t512: start
+2026-11-18T02:13:26Z engine ap-4-t512: ready=yes after 55 s
+2026-11-18T02:13:33Z engine ap-4-t512: identity=yes
+2026-11-18T02:15:22Z engine ap-4-t512: done, 5 of 5 scored runs
+2026-11-18T02:15:22Z engine ap-5-adaptive: start
+2026-11-18T02:16:19Z engine ap-5-adaptive: ready=yes after 57 s
+2026-11-18T02:16:25Z engine ap-5-adaptive: identity=yes
+2026-11-18T02:18:42Z engine ap-5-adaptive: done, 0 of 5 scored runs
+2026-11-18T02:18:42Z engine ap-6-base: start
+2026-11-18T02:19:38Z engine ap-6-base: ready=yes after 55 s
+2026-11-18T02:19:44Z engine ap-6-base: identity=yes
+2026-11-18T02:21:32Z engine ap-6-base: done, 5 of 5 scored runs
+2026-11-18T02:21:32Z all engines done
++ echo harness_rc=0
++ echo 'the runner exited 0'
+the runner exited 0
++ cp /var/log/ap.log /src/ap-run/instance.log
+++ date +%s
++ left=10853
++ '[' 10853 -gt 5 ']'
++ tar --warning=no-file-changed -czf /tmp/evidence.tgz -C /src ap-run
++ '[' 0 -le 1 ']'
++ timeout 10853 aws s3 cp --only-show-errors /tmp/evidence.tgz s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/evidence.tgz
++ upload /var/log/ap.log log.txt
++ aws s3 cp --only-show-errors /var/log/ap.log s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/log.txt
++ echo fed74a00
++ upload /tmp/DONE DONE
++ aws s3 cp --only-show-errors /tmp/DONE s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/DONE
++ upload /var/log/ap.log log.txt
++ aws s3 cp --only-show-errors /var/log/ap.log s3://ap67811-gpu-007635145730/vllm-67811-20261118T014341Z-fed74a00/log.txt

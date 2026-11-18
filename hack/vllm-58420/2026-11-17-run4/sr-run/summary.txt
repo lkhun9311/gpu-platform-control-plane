@@ -1,0 +1,24 @@
+error: import the overlaid scheduler: docker run --rm --name=srpf-probe-overlay-e0bac3e1e0051f22 --gpus=all --workdir=/ --env=PYTHONPYCACHEPREFIX=/tmp/srpf-pycache --volume=/opt/sr/scheduler.py:/usr/local/lib/python3.12/dist-packages/vllm/v1/core/sched/scheduler.py:ro --entrypoint=python3 public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:bfb59377bd23ee1ac0a31ae8aa4836baaf7d840e6c1004906afbec1ffbf35467 -c import hashlib, importlib.util, json, os
+src = os.path.join(os.path.dirname(importlib.util.find_spec("vllm").origin), "v1", "core", "sched", "scheduler.py")
+pyc = importlib.util.cache_from_source(src)
+head = open(pyc, "rb").read(16) if os.path.exists(pyc) else b""
+procs = []
+for pid in os.listdir("/proc"):
+    if not pid.isdigit() or int(pid) == os.getpid():
+        continue
+    try:
+        cmd = open("/proc/%s/cmdline" % pid, "rb").read().replace(b"\0", b" ").decode(errors="replace").strip()
+        env = dict(kv.split("=", 1) for kv in open("/proc/%s/environ" % pid, "rb").read().decode(errors="replace").split("\0") if "=" in kv)
+        ppid = int(open("/proc/%s/stat" % pid).read().rsplit(")", 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        continue
+    procs.append({"pid": int(pid), "ppid": ppid, "cmd": cmd[:160], "envCount": len(env), "env": env.get("VLLM_ENABLE_SRPF"), "pycachePrefix": env.get("PYTHONPYCACHEPREFIX"), "syncCheck": env.get("VLLM_GPU_SYNC_CHECK")})
+import vllm.v1.core.sched.scheduler as s
+data = open(s.__file__, "rb").read()
+print(json.dumps({"file": s.__file__, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
+  "srpfKey": hasattr(s.Scheduler, "_get_srpf_key_for_req"), "env": os.environ.get("VLLM_ENABLE_SRPF"),
+  "pycachePrefix": os.environ.get("PYTHONPYCACHEPREFIX"), "pyc": pyc,
+  "pycFlags": int.from_bytes(head[4:8], "little") if len(head) == 16 else None,
+  "pycSourceSize": int.from_bytes(head[12:16], "little") if len(head) == 16 else None, "procs": procs})): signal: killed: W1117 00:18:58.870000 1 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1117 00:18:58.871000 1 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1117 00:18:58.871000 1 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead

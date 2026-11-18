@@ -1,0 +1,17 @@
+commit=a653eeae7086af2db86d3afab7519623716ecee2
+study=vllm-58420-srpf-2026-11-16
+ami_id=ami-097edab977037f65f
+ami_name=Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+instance_type=g5.xlarge
+max_spot_price=0.90
+all_in_rate=0.9324
+harness_sha256=366b35065be2279d1fc82d7aa26105ef283145c6f9ea22f84a9cc69139ec8d75
+pr_commit=aae949c81dfe216e18ac56887ca2cdf7d4969e48
+scheduler_url=https://raw.githubusercontent.com/vllm-project/vllm/aae949c81dfe216e18ac56887ca2cdf7d4969e48/vllm/v1/core/sched/scheduler.py
+scheduler_sha256=19502766a57a37432cda1ac0a581979d22845cc0fe2d5f08be8647ca113d2fa9
+trace_sha256=4360cb83f7c2259040c8ccda45b881a8b817a5087f968334630f26aa12d68167
+archived_manifest_sha256=3a6ff64c2a45dcd0edc7b7e754f9431382bd0f4854bb5308c734560fe6ea67a0
+harness_end_from_launch_s=10740
+stop_from_launch_s=10920
+termination_from_launch_s=11220
+run_id=vllm-58420-20261116T133421Z-02da4f40

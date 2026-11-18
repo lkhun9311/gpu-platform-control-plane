@@ -1,0 +1,13 @@
+commit=672fac4800efab39159736b83fe2a84e82c8bfbc
+study=vllm-67811-adaptive-trace-2026-11-18
+ami_id=ami-097edab977037f65f
+ami_name=Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+instance_type=g5.xlarge
+max_spot_price=0.70
+all_in_rate=0.7792
+inputs_sha256=656e3583b63db09243a506345065ad1070d49e185f339ea42e5636bb8f040197
+pr_commit=4053e4e4c2f83b7f431c40ac38ad769e928b1595
+harness_end_from_launch_s=3860
+stop_from_launch_s=4040
+termination_from_launch_s=4340
+run_id=vllm-67811-20261118T031025Z-218aaea8

@@ -1,0 +1,67 @@
+== the vLLM #58420 SRPF sweep for vllm-58420-srpf-2026-11-16, from c8a795eb6e0ee8b7c0cadfdf4375da1b1236f7df, into hack/vllm-58420-20261116T124335Z
+== hard stop 10920 s after LaunchTime; worst case 11220 s at $0.9324/h
+== the PR head's scheduler.py: 19502766a57a37432cda1ac0a581979d22845cc0fe2d5f08be8647ca113d2fa9
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $0.90/h in: ap-northeast-2a ap-northeast-2c ap-northeast-2d (ap-northeast-2a	0.607900 ap-northeast-2d	0.607100 ap-northeast-2c	0.620300)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 299 minutes
+== building the harness from c8a795eb6e0ee8b7c0cadfdf4375da1b1236f7df
+== before the purchase: credentials expire in 299 minutes
+== launching g5.xlarge Spot (max $0.90/h compute, $0.9324/h all in), study-deadline 2026-11-16T15:44:56Z -- the instance bills from here
+== launched i-082c0a2531576c2d8 in ap-northeast-2c
+== LaunchTime 2026-11-16T12:44:04+00:00; the sweeper's deadline moved to 2026-11-16T15:45:34Z
+== the wait ended with status 0 ()
+== waiting up to 8695s for EC2 to report the instance terminated
+== terminating i-082c0a2531576c2d8
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is shutting-down
+== i-082c0a2531576c2d8 is terminated
+== evidence returned (summary at hack/vllm-58420-20261116T124335Z/sr-run/sweep/summary.json); termination confirmed

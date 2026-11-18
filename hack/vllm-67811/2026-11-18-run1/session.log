@@ -1,0 +1,72 @@
+== the vLLM #67811 adaptive-prefill measurement for vllm-67811-adaptive-prefill-2026-11-18, from 2e3197646aac354ce1c1f545305e9d8a3637e1d5, into hack/vllm-67811-20261118T014341Z
+== hard stop 13140 s after LaunchTime; worst case 13440 s at $0.7792/h
+== the PR head's seven files, serve.py and compare.py match their pinned hashes
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $0.70/h in: ap-northeast-2c ap-northeast-2d ap-northeast-2a (ap-northeast-2d	0.611500 ap-northeast-2a	0.614100 ap-northeast-2c	0.627400)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 698 minutes
+== creating results bucket ap67811-gpu-007635145730
+== creating instance role ap67811-gpu
+== waiting for the instance profile to propagate
+== before the purchase: credentials expire in 697 minutes
+== launching g5.xlarge Spot (max $0.70/h compute, $0.7792/h all in), study-deadline 2026-11-18T05:22:19Z -- the instance bills from here
+== launched i-0747351a3c688900f in ap-northeast-2d
+== LaunchTime 2026-11-18T01:44:25+00:00; the sweeper's deadline moved to 2026-11-18T05:22:55Z
+== the wait ended with status 0 ()
+== waiting up to 11198s for EC2 to report the instance terminated
+== terminating i-0747351a3c688900f
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is shutting-down
+== i-0747351a3c688900f is terminated
+== evidence returned (summary at hack/vllm-67811-20261118T014341Z/ap-run/sweep/summary.tsv); engines fully measured: 4 of 6; termination confirmed
