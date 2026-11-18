@@ -65,7 +65,7 @@ simulator         $SIM_IMAGE (llm-d-inference-sim $SIM_COMMIT, built by hack/llm
 serving image     $SHIM_IMAGE (simulator + hack/aibrix-lane2/simshim)
 base              $BASE_IMAGE
 kind node         $KIND_NODE_IMAGE
-cluster           $CLUSTER, kubeconfig $KCFG
+cluster           $CLUSTER, kubeconfig ${KCFG#"$REPO"/}
 EOF
 }
 

@@ -180,11 +180,6 @@ It adds observed timelines for both cooldown settings and the confirmation that 
 Those bear directly on the maintainer's capacity-cost question.
 Extra test coverage, such as an end-to-end case of a failing source followed by a recovery scale-up, is offered to the fix author for the PR once the issue is accepted, rather than sent separately.
 
-The draft is under `storage/open-source/contributions/aibrix/lane2/`, and it is not posted.
-AIBrix's AI policy is recorded there.
-CONTRIBUTING asks the contributor to review every AI-assisted change and submit only what they can explain and verify, and it states that agent output is not maintainer approval.
-It asks for no disclosure line or trailer.
-
 ## Limits
 
 - The serving pods are a simulator with fixed fake metrics.

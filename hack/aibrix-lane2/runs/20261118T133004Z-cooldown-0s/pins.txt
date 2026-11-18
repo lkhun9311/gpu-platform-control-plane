@@ -3,5 +3,5 @@ simulator         gpuaas-llmd-kv-lab/sim:6ab9d4b2367a (llm-d-inference-sim 6ab9d
 serving image     gpuaas-aibrix-lane2/simshim:6ab9d4b2367a (simulator + hack/aibrix-lane2/simshim)
 base              gcr.io/distroless/static:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
 kind node         kindest/node:v1.31.12@sha256:0f5cc49c5e73c0c2bb6e2df56e7df189240d83cf94edfa30946482eb08ec57d2
-cluster           aibrix-lane2, kubeconfig /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/lane2-654/tmp/aibrix-lane2/kubeconfig
+cluster           aibrix-lane2, kubeconfig tmp/aibrix-lane2/kubeconfig
 gpuaas c2a61c973cd52fcf840b4f7c41a7e8671241b272 (with uncommitted changes)
