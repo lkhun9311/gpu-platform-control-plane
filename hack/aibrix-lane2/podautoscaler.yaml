@@ -1,0 +1,34 @@
+# The #3439 shape: a per-pod KV-cache metric and an external queue-length metric, both with a target, on one KPA.
+#
+# kv_cache_usage_perc is AIBrix's name for vLLM's vllm:kv_cache_usage_perc, the renamed gpu_cache_usage_perc of the report.
+# The simulator reports it as a fraction, so the report's 25 against a target of 50 is 0.25 against 0.5 here.
+# At 4 ready pods the pod metric asks for 2 and a queue of 200 against 50 asks for 4, so the queue is what holds 4.
+# SCALE_DOWN_COOLDOWN is 0s in the arm the report describes, as in samples/autoscaling/optimizer-kpa.yaml upstream.
+apiVersion: autoscaling.aibrix.ai/v1alpha1
+kind: PodAutoscaler
+metadata:
+  name: chat
+  namespace: lane2
+  annotations:
+    autoscaling.aibrix.ai/scale-down-cooldown-window: SCALE_DOWN_COOLDOWN
+spec:
+  scalingStrategy: KPA
+  minReplicas: 1
+  maxReplicas: 8
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chat
+  metricsSources:
+  - metricSourceType: pod
+    protocolType: http
+    port: "8080"
+    path: metrics
+    targetMetric: kv_cache_usage_perc
+    targetValue: "0.5"
+  - metricSourceType: external
+    protocolType: http
+    endpoint: queue-metrics.lane2.svc.cluster.local:8000
+    path: metrics
+    targetMetric: vllm:num_requests_waiting
+    targetValue: "50"

@@ -192,7 +192,7 @@ spec:
                 description: |-
                   replicasOwner names the one writer of the rendered Deployment's spec.replicas: Controller or External.
                   Absent is Controller, which writes spec.replicas on every reconcile and so undoes any autoscaler.
-                  External leaves spec.replicas to an autoscaler acting on the Deployment's scale subresource, such as an AIBrix PodAutoscaler or an HPA.
+                  External leaves spec.replicas to an autoscaler, which may patch the Deployment as an AIBrix PodAutoscaler does or use its scale subresource as an HPA does.
                   Turning External back to Controller sets the Deployment to spec.replicas on the next reconcile, whatever the autoscaler had chosen.
                   External refuses HoldCap and PrefixAffinity, which are correct only on one engine and so cannot let a writer outside this spec add a second.
                 enum:
