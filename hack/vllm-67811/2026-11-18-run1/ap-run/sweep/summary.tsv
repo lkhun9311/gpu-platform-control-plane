@@ -1,0 +1,7 @@
+slot	arm	ready	identity	warmup	scored_ok	scored_runs	probe_timed_steps
+1	base	yes	yes	yes	5	5	n/a
+2	adaptive	yes	yes	no	0	5	197
+3	t512	yes	yes	yes	5	5	n/a
+4	t512	yes	yes	yes	5	5	n/a
+5	adaptive	yes	yes	no	0	5	198
+6	base	yes	yes	yes	5	5	n/a

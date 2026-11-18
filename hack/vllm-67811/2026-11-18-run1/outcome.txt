@@ -1,0 +1,3 @@
+evidence=returned
+measured=4 of 6
+termination=confirmed

@@ -1,0 +1,12 @@
+{
+  "evidence": "live_streaming_endpoint",
+  "label": "3-t512-r4",
+  "elapsed_s": 11.916470520999837,
+  "failures": 0,
+  "decode_token_gap_p99_ms": 287.10221200003616,
+  "decode_stream_event_gap_p99_ms": 287.10221200003616,
+  "short_ttft_p95_ms": 838.1292309998116,
+  "long_ttft_p95_ms": 9580.858916999887,
+  "output_tokens_per_s": 346.41129625801693,
+  "all_long_requests_completed": true
+}

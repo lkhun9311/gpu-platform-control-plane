@@ -1,0 +1,12 @@
+{
+  "evidence": "live_streaming_endpoint",
+  "label": "4-t512-warmup",
+  "elapsed_s": 11.915415302999918,
+  "failures": 0,
+  "decode_token_gap_p99_ms": 286.1115849998441,
+  "decode_stream_event_gap_p99_ms": 286.1115849998441,
+  "short_ttft_p95_ms": 838.0745990000378,
+  "long_ttft_p95_ms": 9580.912431000115,
+  "output_tokens_per_s": 346.44197411740254,
+  "all_long_requests_completed": true
+}
