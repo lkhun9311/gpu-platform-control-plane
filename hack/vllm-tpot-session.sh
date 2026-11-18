@@ -154,6 +154,10 @@ P1=$(( L + BRINGUP_S_PLACEHOLDER )); HE=$(( L + HARNESS_END_S_PLACEHOLDER )); EV
 nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv > /tmp/nvidia-smi.csv || exit 1
 upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
 [ "$(tail -n +2 /tmp/nvidia-smi.csv | wc -l)" = 1 ] && tail -n +2 /tmp/nvidia-smi.csv | grep -q A10G || { echo "PREFLIGHT FAILED: not one A10G"; exit 1; }
+# The pinned image is CUDA 13.2 with vLLM's compatibility mode off, which needs a 580 or newer driver; an older one would
+# only show after the 11 GB pull.
+drv=$(tail -n +2 /tmp/nvidia-smi.csv | awk -F', ' '{print $4}' | cut -d. -f1)
+[[ "$drv" =~ ^[0-9]+$ ]] && [ "$drv" -ge 580 ] || { echo "PREFLIGHT FAILED: driver ${drv:-unread} is older than 580"; exit 1; }
 HEAD
     echo "cat > /tmp/bringup.sh <<'BRINGUP'"
     sed -n "${from},${to}p" hack/m5c-gpu-session.sh
@@ -393,7 +397,10 @@ cleanup() {
     spot_reconcile_token "$REGION" "$LAUNCH_UNCERTAIN" "$LAUNCH_UNCERTAIN_SUBNET" 6 ||
       { echo "TERMINATION UNCONFIRMED for the launch under token $LAUNCH_UNCERTAIN" | tee "$OUT/termination.txt" >&2; exit 1; }
   fi
-  [ -z "$TERMINATION" ] || return 0
+  # Only a confirmed termination ends the cleanup; an unconfirmed one is tried once more on the way out.
+  [ "$TERMINATION" = confirmed ] && return 0
+  # The retry gets a minute of its own, since the main wait may have used up the schedule's.
+  if [ "$TERMINATION" = unconfirmed ]; then SPOT_TERMINATE_WAIT=60; SPOT_TERMINATE_TRIES=13; fi
   if [ -z "$IID" ]; then
     echo "no instance was launched by this session" >"$OUT/termination.txt"
   elif spot_terminate "$REGION" "$IID"; then

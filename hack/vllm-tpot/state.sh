@@ -89,6 +89,7 @@ runpy() {
   step "pytest $name exited $rc: $(tail -n 1 "$O/$name-lines.txt")"
 }
 runpy tpot "$TPOT_S" -x tests/entrypoints/serve/instrumentator/test_metrics.py -k "tpot_skips and text"
-[ "$S" = after ] && runpy file "$FILE_S" tests/entrypoints/serve/instrumentator/test_metrics.py -k text
+# The whole file is run only once the fix has passed its own test, since it cannot change a failed answer.
+[ "$S" = after ] && grep -qx 'tpot_rc=0' "$O/state.txt" && runpy file "$FILE_S" tests/entrypoints/serve/instrumentator/test_metrics.py -k text
 kv ended "$(date +%s)"
 exit 0

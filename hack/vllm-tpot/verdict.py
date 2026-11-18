@@ -13,6 +13,8 @@ import sys
 import xml.etree.ElementTree as ET
 
 LOGGERS = "/usr/local/lib/python3.12/dist-packages/vllm/v1/metrics/loggers.py"
+IMAGE_DIGEST = "sha256:9f77cb6501aa29d5bfa70d0819c153ecebd604d41fc77a9e8cc097cb0e4145bb"
+VLLM_COMMIT = "3a1c6c43df5eb5344a3f853c34fac93c274a372f"
 TPOT_CASE = re.compile(r"^test_tpot_skips_single_token_requests\[.*text.*\]$")
 # pytest renders `assert _tpot_count(server) - before == 2` as `assert (5.0 - 0.0) == 2`.
 DELTA = re.compile(r"assert \((-?[0-9.]+) - (-?[0-9.]+)\) == 2")
@@ -38,7 +40,8 @@ def cases(path):
     out = []
     for tc in root.iter("testcase"):
         outcome, message = "passed", ""
-        for tag in ("failure", "error", "skipped"):
+        # An error outranks a failure: a teardown error beside the expected assertion is not the clean expected failure.
+        for tag in ("error", "failure", "skipped"):
             el = tc.find(tag)
             if el is not None:
                 outcome, message = tag, (el.get("message") or "") + "\n" + (el.text or "")
@@ -86,7 +89,8 @@ def after_result(st, tc):
     rc = st.get("tpot_rc")
     if any(not TPOT_CASE.match(n) for n, _, _ in tc):
         return "unexpected-cases"
-    if rc == "0" and len(tc) == EXPECTED_AFTER_CASES and all(o == "passed" for _, o, _ in tc):
+    # Three distinct cases, one per server, so a repeated name cannot stand in for a server that never ran.
+    if rc == "0" and len({n for n, _, _ in tc}) == len(tc) == EXPECTED_AFTER_CASES and all(o == "passed" for _, o, _ in tc):
         return "passed"
     if rc == "1" and any(o == "failure" for _, o, _ in tc) and not any(o == "error" for _, o, _ in tc):
         return "failed"
@@ -108,17 +112,31 @@ def main(sweep, serving_sha, fix_sha):
     lines = []
 
     # The import check comes first: a BEFORE that passes is most likely one that imported a fixed loggers.py.
-    if b is None or a is None:
-        imp = "missing"
-    elif b.get("loggers_file") != LOGGERS or a.get("loggers_file") != LOGGERS:
-        imp = f"wrong-file(before={b.get('loggers_file')},after={a.get('loggers_file')})"
+    # BEFORE is judged first and on its own, because the runner does not start AFTER when BEFORE did not fail.
+    if b is None:
+        imp = "before-missing"
+    elif b.get("loggers_file") != LOGGERS:
+        imp = f"wrong-file-before({b.get('loggers_file')})"
     elif b.get("grep_rc") != "1":
         imp = f"fix-present-or-unread-before(grep_rc={b.get('grep_rc')})"
+    elif a is None:
+        imp = "after-missing"
+    elif a.get("loggers_file") != LOGGERS:
+        imp = f"wrong-file-after({a.get('loggers_file')})"
     elif a.get("grep_rc") != "0":
         imp = f"fix-absent-or-unread-after(grep_rc={a.get('grep_rc')})"
     else:
         imp = "ok"
     lines.append(f"import_check={imp}")
+
+    # The image is the pinned one only if the runner's own record says so, and the wheel's hash came out of it.
+    try:
+        ident = open(f"{sweep}/image-identity.txt").read()
+        wheel = open(f"{sweep}/wheel-sha256.txt").read().strip()
+        image = "ok" if IMAGE_DIGEST in ident and ident.rstrip().endswith(" " + VLLM_COMMIT) and wheel else "mismatch"
+    except OSError:
+        image = "missing"
+    lines.append(f"image={image}")
 
     bid, aid = identity(b, serving_sha), identity(a, fix_sha)
     lines += [f"before_identity={bid}", f"after_identity={aid}"]
@@ -135,7 +153,7 @@ def main(sweep, serving_sha, fix_sha):
     lines += [f"before={before}", f"before_delta={'n/a' if delta is None else f'{delta:g}'}", f"after={after}"]
     lines.append(f"after_file={file_result(a, cases(f'{sweep}/after/file.xml'))}")
 
-    if imp == bid == aid == order == "ok" and before == "failed-as-expected" and after == "passed":
+    if imp == image == bid == aid == order == "ok" and before == "failed-as-expected" and after == "passed":
         verdict = "confirmed"
     elif before == "passed":
         verdict = "before-passed"
