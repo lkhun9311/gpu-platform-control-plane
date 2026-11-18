@@ -6,6 +6,91 @@ Kubernetes-native control plane that manages GPUs as a platform resource.
 
 Most GPU setups stop at running a single workload. This project treats the GPU as a shared platform resource, covering node readiness, multi-tenant quota, serving, and training through one Kubernetes-native control plane.
 
+## Upstream open-source validation
+
+The benchmark harness and the paid GPU session tooling in this repository are also used to measure changes proposed to upstream open-source projects.
+Each result below was posted on the upstream thread, and its raw rows are committed here.
+
+### vLLM #58420: SRPF scheduling and its starvation threshold
+
+[vllm-project/vllm#58420](https://github.com/vllm-project/vllm/pull/58420) proposes a Shortest Remaining Prefill First scheduling policy.
+Its author asked for a measurement on real hardware, and later asked for a sweep of the new `VLLM_SRPF_STARVATION_THRESHOLD` setting.
+
+![Short-request TTFT p99 by scheduling arm](hack/vllm-58420/2026-11-19-threshold-run1/ttft-p99.svg)
+
+| Arm | Short TTFT p99 (ms) | vs fcfs | Long completion p95 (ms) | vs fcfs |
+|---|---:|---:|---:|---:|
+| fcfs | 5,983.5 | | 6,868.0 | |
+| priority | 1,476.4 | −75.3% | 7,936.8 | +15.6% |
+| srpf, threshold 2 | 1,717.6 | −71.3% | 7,901.8 | +15.1% |
+| srpf, threshold 3 | 1,799.2 | −69.9% | 7,814.1 | +13.8% |
+| srpf, threshold 5 | 1,942.3 | −67.5% | 7,791.6 | +13.4% |
+| srpf, threshold 8 | 2,176.3 | −63.6% | 7,683.8 | +11.9% |
+| srpf, threshold 10 | 2,359.4 | −60.6% | 7,685.5 | +11.9% |
+
+- **Workload:** a frozen open-loop trace of 4,102 requests: 3,917 short (68 input / 64 output tokens) and 185 long (7,695 input / 16 output tokens).
+  The replay sends each request at its scheduled time, and TTFT is measured from that time.
+- **Setup:** Qwen2.5-3B-Instruct on one A10G (g5.xlarge Spot, ap-northeast-2).
+  The engine is vLLM's CI image for the PR's merge base, pinned by digest, with the PR head's `scheduler.py` overlaid and pinned by sha256.
+- **Arms:** seven arms ran on one instance in a seeded order.
+  Every request completed in every arm, with no preemptions.
+- **Proof that the threshold took effect:** each engine core recorded the `srpf_starvation_threshold` its scheduler held after `Scheduler.__init__`.
+  An arm counts only if every engine core reports the arm's value.
+- **Outcome upstream:**
+  - The result went against the expectation in the thread: a lower threshold gave a better short-request p99.
+  - The author [made 3 the new default](https://github.com/vllm-project/vllm/pull/58420#issuecomment-6987567919), and the PR description now cites this sweep.
+  - [Results comment](https://github.com/vllm-project/vllm/pull/58420#issuecomment-6987224085).
+- **Cost:** about 83 minutes of one g5.xlarge Spot instance, about $0.98, with termination confirmed.
+
+What this does not show:
+
+- It is one run per arm, on one GPU model and one model size.
+  The differences in long completion p95 between thresholds are small enough that one run cannot rank them.
+- The vLLM PR is open and not merged.
+  The harness here is this repository's own tooling, not a tool adopted by the vLLM project.
+
+| Piece | Where |
+|---|---|
+| Trace (frozen, with SHA256SUMS) | [`hack/eks-serve/holdcap-study/diagnostic/`](hack/eks-serve/holdcap-study/diagnostic/) |
+| Open-loop replay | [`internal/bench/replay.go`](internal/bench/replay.go) |
+| Arms, pins and engine-core checks | [`internal/bench/srpf_sweep.go`](internal/bench/srpf_sweep.go), [`cmd/benchharness/srpfsweep.go`](cmd/benchharness/srpfsweep.go) |
+| Paid session (launch, deadlines, teardown) | [`hack/vllm-58420-session.sh`](hack/vllm-58420-session.sh) |
+| Raw rows, per-arm summary, arm table | [`hack/vllm-58420/2026-11-19-threshold-run1/`](hack/vllm-58420/2026-11-19-threshold-run1/) |
+| Earlier runs 1–8 | [`hack/vllm-58420/`](hack/vllm-58420/) |
+
+To check the session offline, with fakes for AWS and the engine, run `bash hack/vllm-58420-session-test.sh`.
+To recompute the table from the raw rows, run the following.
+It uses only the Python standard library.
+It matches the table to within 0.1 ms, a rounding difference from the harness's own summary.
+
+```bash
+python3 - <<'EOF'
+import gzip, json, math
+d = "hack/vllm-58420/2026-11-19-threshold-run1/sr-run/sweep"
+pct = lambda v, p: sorted(v)[max(0, math.ceil(p / 100 * len(v)) - 1)]
+for arm in ["fcfs", "priority", "srpf-s2", "srpf-s3", "srpf-s5", "srpf-s8", "srpf-s10"]:
+    short, long_ = [], []
+    for line in gzip.open(f"{d}/raw-{arm}.jsonl.gz", "rt"):
+        r = json.loads(line)
+        scheduled = r["replayOriginUnixNanos"] + r["scheduledOffsetMs"] * 1e6
+        if r["isNoisy"]:
+            long_.append((r["endUnixNanos"] - scheduled) / 1e6)
+        else:
+            short.append((r["firstTokenUnixNanos"] - scheduled) / 1e6)
+    print(f"{arm:9} short TTFT p99 {pct(short, 99):8.1f} ms  long completion p95 {pct(long_, 95):8.1f} ms")
+EOF
+```
+
+Repeating the paid run needs an AWS account that allows g5 instances, and the session asks for confirmation before it launches anything.
+
+### Other upstream threads measured with this repository
+
+| Upstream thread | What was measured here | Evidence |
+|---|---|---|
+| [vllm-project/vllm#67811](https://github.com/vllm-project/vllm/pull/67811) (adaptive prefill time budget, open) | The PR's `serve.py` baseline against its opt-in mode on one A10G, then a traced re-run that located a stall. [1](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967453629), [2](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967700360), [3](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6968495394) | [`hack/vllm-67811/`](hack/vllm-67811/) |
+| [vllm-project/aibrix#3439](https://github.com/vllm-project/aibrix/issues/3439) (a failed metric source lets the rest scale down, open) | Replayed on a kind lab with an autoscaled InferenceDeployment | [`docs/15_AIBRIX_AUTOSCALING_LAB.md`](docs/15_AIBRIX_AUTOSCALING_LAB.md), [`hack/aibrix-lane2/`](hack/aibrix-lane2/) |
+| vLLM single-token TPOT metric fix (upstream PR not yet opened) | vLLM's own metrics pytest before and after the fix, in the CI image on one A10G: before failed as expected, after passed 3 of 3 | [`hack/vllm-tpot/runs/2026-11-18-run1/`](hack/vllm-tpot/runs/2026-11-18-run1/) |
+
 ## Latest results (2026-10-27 to 2026-11-08)
 
 Operations work: recovering training from faults, diagnosing nodes, isolating tenants, and running Slurm next to Kubernetes.
