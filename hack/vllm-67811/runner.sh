@@ -40,7 +40,7 @@ mkdir -p "$D"
 step() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" | tee -a "$D/steps.log"; }
 left() { local l=$(( HE - $(date +%s) )); [ "$l" -gt "$1" ] && echo "$1" || echo $(( l > 1 ? l : 1 )); }
 summary() { echo "$1" >> "$D/summary.tsv"; }
-echo -e "slot\tarm\tready\tidentity\twarmup\tscored_ok\tscored_runs" > "$D/summary.tsv"
+echo -e "slot\tarm\tready\tidentity\twarmup\tscored_ok\tscored_runs\tprobe_timed_steps" > "$D/summary.tsv"
 
 step "pull $IMG"
 if ! timeout --kill-after=15 "$(left $PULL_S)" docker pull "$IMG" > "$D/pull.log" 2>&1; then
@@ -105,7 +105,7 @@ for sa in $SLOTS; do
 import hashlib, importlib.util, sys
 for mod in sys.argv[1:]:
     path = importlib.util.find_spec(mod).origin
-    print(hashlib.sha256(open(path, "rb").read()).hexdigest(), path)
+    print(hashlib.sha256(open(path, "rb").read()).hexdigest(), path, sep="  ")
 ' vllm.config.scheduler vllm.engine.arg_utils vllm.v1.core.sched.adaptive_prefill vllm.v1.core.sched.scheduler \
       vllm.v1.outputs vllm.v1.worker.gpu.async_utils vllm.v1.worker.gpu.model_runner > "$D/$name.identity.txt" 2>&1
     docker logs "$name" 2>&1 | grep -m1 "non-default args" > "$D/$name.args.txt"
@@ -129,22 +129,38 @@ for mod in sys.argv[1:]:
     ( nvidia-smi --query-gpu=timestamp,clocks.sm,clocks.mem,temperature.gpu,power.draw,utilization.gpu,memory.used \
         --format=csv -lms 1000 > "$D/$name.gpu.csv" 2>&1 & echo $! > /tmp/ap-smi.pid
       while :; do echo "$(date +%s) $(cat /proc/loadavg)" >> "$D/$name.loadavg"; sleep 1; done & echo $! > /tmp/ap-load.pid )
+    # A host-side timeout kills only the docker client, so the bound is enforced inside the container too, and
+    # serve.py's per-request timeout sits under it. Any failed invocation ends the engine, so an orphaned workload
+    # can never overlap a later scored run.
+    bench() { local b; b=$(left "$1"); timeout --kill-after=10 $(( b + 15 )) docker exec "$name" \
+      timeout --kill-after=5 "$b" python3 /bench/serve.py --model "$MODEL" --timeout $(( b - 20 )) "${@:2}"; }
     # The warm-up is the same mixed workload under a seed no scored run uses, and it is never scored.
-    timeout --kill-after=10 "$(left $WARMUP_S)" docker exec "$name" python3 /bench/serve.py --model "$MODEL" \
-      --label "$slot-$arm-warmup" --output "/out/$name.warmup.json" --seed 1 > "$D/$name.warmup.log" 2>&1 && warmup=yes
+    bench "$WARMUP_S" --label "$slot-$arm-warmup" --output "/out/$name.warmup.json" --seed 1 > "$D/$name.warmup.log" 2>&1 && warmup=yes
     i=0
-    for seed in $SEEDS; do
-      timeout --kill-after=10 "$(left $RUN_S)" docker exec "$name" python3 /bench/serve.py --model "$MODEL" \
-        --label "$slot-$arm-r$i" --output "/out/$name.r$i.json" --seed "$seed" > "$D/$name.r$i.log" 2>&1 && ok=$(( ok + 1 ))
-      i=$(( i + 1 ))
-    done
+    if [ "$warmup" = yes ]; then
+      for seed in $SEEDS; do
+        bench "$RUN_S" --label "$slot-$arm-r$i" --output "/out/$name.r$i.json" --seed "$seed" > "$D/$name.r$i.log" 2>&1 || break
+        ok=$(( ok + 1 )); i=$(( i + 1 ))
+      done
+    fi
     kill "$(cat /tmp/ap-smi.pid)" "$(cat /tmp/ap-load.pid)" 2>/dev/null
     timeout "$(left $METRICS_S)" curl -fsS http://127.0.0.1:8000/metrics > "$D/$name.metrics-after.prom" 2>&1
   fi
+  probe=n/a
+  if [ "$arm" = adaptive ]; then
+    probe=$(python3 -c '
+import glob, json, math, sys
+n = 0
+for f in glob.glob(sys.argv[1]):
+    for line in open(f):
+        v = json.loads(line).get("device_ms")
+        n += isinstance(v, (int, float)) and math.isfinite(v) and v > 0
+print(n)' "$D/probe-$slot-$arm-*.jsonl" 2>/dev/null || echo 0)
+  fi
   docker logs "$name" > "$D/$name.engine.log" 2>&1
   timeout "$(left $STOP_S)" docker rm -f "$name" > /dev/null 2>&1
-  docker inspect "$name" > /dev/null 2>&1 && { step "engine $name was not removed; stopping the run"; summary "$slot	$arm	$ready	$identity	$warmup	$ok	$RUNS"; exit 2; }
-  summary "$slot	$arm	$ready	$identity	$warmup	$ok	$RUNS"
+  docker inspect "$name" > /dev/null 2>&1 && { step "engine $name was not removed; stopping the run"; summary "$slot	$arm	$ready	$identity	$warmup	$ok	$RUNS	${probe:-n/a}"; exit 2; }
+  summary "$slot	$arm	$ready	$identity	$warmup	$ok	$RUNS	${probe:-n/a}"
   step "engine $name: done, $ok of $RUNS scored runs"
 done
 step "all engines done"

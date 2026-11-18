@@ -488,7 +488,8 @@ if [ "$unpacked" != yes ] || ! grep -q "all engines done" "$OUT/ap-run/sweep/ste
   { aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/partial.tgz" "$OUT/partial.tgz" &&
     tar -xzf "$OUT/partial.tgz" -C "$OUT/ap-run-partial"; } 2>>"$OUT/download-errors.txt" ||
     echo "the partial evidence did not download or unpack" >>"$OUT/download-errors.txt"
-  if compgen -G "$OUT/ap-run-partial/sweep/*.r[0-4].json" >/dev/null; then
+  # Completed scored runs in either archive make the evidence partial rather than missing.
+  if compgen -G "$OUT/ap-run-partial/sweep/*.r[0-4].json" >/dev/null || compgen -G "$OUT/ap-run/sweep/*.r[0-4].json" >/dev/null; then
     EVIDENCE=partial
   else
     EVIDENCE=missing
@@ -497,7 +498,9 @@ fi
 # Returned evidence is not a measurement, so the count of engines that ran every scored run is read from the summary.
 MEASURED=none
 if [ "$EVIDENCE" = returned ]; then
-  MEASURED=$(awk -F'\t' 'NR > 1 { n++; if ($3 == "yes" && $4 == "yes" && $6 == $7) m++ } END { printf "%d of %d", m, n }' \
+  # An engine counts only if it warmed up and ran every scored run, and an adaptive one only if its controller was
+  # fed finite, positive GPU timings.
+  MEASURED=$(awk -F'\t' 'NR > 1 { n++; if ($3 == "yes" && $4 == "yes" && $5 == "yes" && $6 == $7 && ($2 != "adaptive" || $8 > 0)) m++ } END { printf "%d of %d", m, n }' \
     "$OUT/ap-run/sweep/summary.tsv" 2>>"$OUT/download-errors.txt") || MEASURED=unread
 fi
 {

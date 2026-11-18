@@ -84,13 +84,16 @@ case "$1" in
     name=$2; shift 2
     if printf '%s\n' "$@" | grep -qx /bench/serve.py; then
       out=$(printf '%s\n' "$@" | grep -A1 -x -- --output | tail -1)
+      case $out in *warmup*) [ -n "${FAKE_FAIL_WARMUP:-}" ] && exit 1
+        case $name in *adaptive) [ -z "${FAKE_NO_PROBE:-}" ] && echo '{"n": 1, "device_ms": 5.0}' > "$FAKE_OUT/probe-${name#ap-}-1.jsonl" ;; esac ;;
+      esac
       echo '{"ok": true}' > "$FAKE_OUT/$(basename "$out")"; exit 0
     fi
     for m in "$@"; do case $m in vllm.*)
       rel="$(echo "$m" | tr . /).py"
       h=$(grep "^$rel " "$FAKE_OVERLAYS" | awk '{print $2}')
       [ "$rel" = "${FAKE_WRONG_HEAD:-}" ] && h=1111
-      echo "$h $site/$rel" | sed 's/ /  /' ;;
+      printf '%s  %s\n' "$h" "$site/$rel" ;;
     esac; done ;;
   logs)
     a="$st/$2.args"; [ -f "$a" ] || exit 0
@@ -132,6 +135,34 @@ check "an engine importing a file that is not the PR head's is not measured" \
 runfake dropflag env FAKE_DROP_FLAG=ap-2-adaptive
 check "an adaptive engine whose args do not show the flag is not measured" \
   "awk -F'\t' 'NR>1 && \$1==2 && \$4==\"no\"' '$WORK/out-dropflag/summary.tsv' | grep -q . && awk -F'\t' 'NR>1 && \$1==5 && \$4==\"yes\"' '$WORK/out-dropflag/summary.tsv' | grep -q ."
+
+# The identity line the runner validates must be the one its own Python prints, not one a fake produces for it.
+mkdir -p "$WORK/idpkg/vllm"
+code=$(sed -n "/docker exec \"\$name\" python3 -c '/,/^' vllm.config.scheduler/p" "$R" | sed '1d;$d')
+for m in a b; do echo "print('$m')" > "$WORK/idpkg/vllm/$m.py"; done
+: > "$WORK/idpkg/vllm/__init__.py"
+PYTHONPATH="$WORK/idpkg" python3 -c "$code" vllm.a vllm.b > "$WORK/idlines" 2>&1
+idok=1
+for m in a b; do
+  h=$(sha256sum "$WORK/idpkg/vllm/$m.py" | cut -d' ' -f1)
+  grep -q "^$h  $WORK/idpkg/vllm/$m.py\$" "$WORK/idlines" || idok=0
+done
+check "the runner's identity check matches the lines its own Python prints" "[ -n \"\$code\" ] && [ $idok = 1 ]"
+
+runfake nowarm env FAKE_FAIL_WARMUP=1
+check "an engine whose warm-up fails runs no scored run" \
+  "! grep -q 'serve.py.*--seed 6257' '$WORK/state/calls' && [ \"\$(awk -F'\t' 'NR>1 && \$5==\"no\" && \$6==0' '$WORK/out-nowarm/summary.tsv' | wc -l)\" = 6 ]"
+check "each benchmark is bounded inside the container, not only by the docker client" \
+  "grep -q 'exec ap-1-base timeout --kill-after=5 ' '$WORK/state/calls'"
+
+# The session's own classification: a row counts only with a warm-up, every scored run, and, if adaptive, timed steps.
+meas() { printf 'slot\tarm\tready\tidentity\twarmup\tscored_ok\tscored_runs\tprobe_timed_steps\n%b' "$1" > "$WORK/sum.tsv"
+  awk -F'\t' "$(sed -n "s/^  MEASURED=\$(awk -F'\\\\t' '\(.*\)' \\\\\$/\\1/p" "$S")" "$WORK/sum.tsv"; }
+cls=$(grep -A1 '^  MEASURED=$(awk' "$S" | head -1 | sed "s/^  MEASURED=\$(awk -F'\\\\t' '//; s/' \\\\\$//")
+classify() { printf 'slot\tarm\tready\tidentity\twarmup\tscored_ok\tscored_runs\tprobe_timed_steps\n%b' "$1" | awk -F'\t' "$cls"; }
+check "the session counts a fully measured adaptive engine" "[ \"\$(classify '2\tadaptive\tyes\tyes\tyes\t5\t5\t40\n')\" = '1 of 1' ]"
+check "the session does not count an adaptive engine with no timed steps" "[ \"\$(classify '2\tadaptive\tyes\tyes\tyes\t5\t5\t0\n')\" = '0 of 1' ]"
+check "the session does not count an engine whose warm-up failed" "[ \"\$(classify '1\tbase\tyes\tyes\tno\t5\t5\tn/a\n')\" = '0 of 1' ]"
 
 if [[ $failures -ne 0 ]]; then
   echo "$failures check(s) failed" >&2

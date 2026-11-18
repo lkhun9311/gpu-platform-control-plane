@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import sys
+import time
 
 _TARGET = "vllm.v1.core.sched.adaptive_prefill"
 _OUT = os.environ.get("AP_PROBE_DIR", "/out")
@@ -24,11 +25,12 @@ def _patch(module):
         result = original(self, step_id, device_ms)
         seen["n"] += 1
         n = seen["n"]
-        # The first steps show whether timing arrives at all; later ones are sampled so the file stays small.
-        if n <= 200 or n % 100 == 0:
+        # Only the first steps are written, which the unscored warm-up covers; after them the wrapper only counts,
+        # so the adaptive arm's scored runs carry no extra I/O that the other arms lack.
+        if n <= 200:
             try:
                 with open(path, "a") as f:
-                    f.write(json.dumps({"n": n, "device_ms": device_ms, "token_ms": self.token_ms,
+                    f.write(json.dumps({"n": n, "t": time.time(), "device_ms": device_ms, "token_ms": self.token_ms,
                                         "decode_ms": self.decode_ms, "scale": getattr(self, "scale", None)}) + "\n")
             except OSError:
                 pass
