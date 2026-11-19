@@ -1,0 +1,8 @@
+2026-11-19T07:24:56Z stride-after: fused_recurrent.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py; 'i_t * stride_indices_tok' occurs 2 time(s)
+2026-11-19T07:24:56Z stride-after: fused_sigmoid_gating.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py; 'i_t * stride_indices_tok' occurs 2 time(s)
+2026-11-19T07:24:56Z stride-after: kda.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/kda.py, launching the kernel in /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+2026-11-19T07:25:12Z stride-after: the collection loaded 591 vllm and tests file(s); of those that differ from the diff base: vllm/v1/core/kv_cache_planning.py,vllm/v1/engine/detokenizer.py
+2026-11-19T07:25:12Z stride-after: pytest test: tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py -k stride
+2026-11-19T07:25:30Z stride-after: pytest test exited 0: ================= 3 passed, 18 deselected, 3 warnings in 4.27s =================
+2026-11-19T07:25:30Z stride-after: pytest file: tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py
+2026-11-19T07:25:58Z stride-after: pytest file exited 0: ======================= 21 passed, 3 warnings in 14.66s ========================

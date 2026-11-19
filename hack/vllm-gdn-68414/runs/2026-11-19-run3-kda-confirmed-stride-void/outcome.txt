@@ -1,0 +1,27 @@
+evidence=returned
+termination=confirmed
+purchase=spot
+verdicts=stride=void-import-check kda=confirmed
+stride_records=complete
+stride_import_check=loaded-differs-before(vllm/v1/core/kv_cache_planning.py,vllm/v1/engine/detokenizer.py)
+stride_image=ok
+stride_before_identity=ok
+stride_after_identity=ok
+stride_order=ok
+stride_evidence=ok
+stride_before_test=bug-shown
+stride_after_test=passed
+stride_after_file=passed
+stride_verdict=void-import-check
+kda_records=complete
+kda_import_check=ok
+kda_image=ok
+kda_before_identity=ok
+kda_after_identity=ok
+kda_order=ok
+kda_evidence=ok
+kda_before_args=tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[k64-v32] tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[k64-v64] tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[k64-v32-hv2] tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[v-bf16] -k not k32-v64
+kda_before_junit_k32-v64=absent
+kda_before_test=bug-shown
+kda_after_test=passed
+kda_verdict=confirmed

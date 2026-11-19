@@ -1,0 +1,11 @@
+kda_import_check=ok
+kda_image=ok
+kda_before_identity=ok
+kda_after_identity=ok
+kda_order=ok
+kda_evidence=ok
+kda_before_args=tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[k64-v32] tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[k64-v64] tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[k64-v32-hv2] tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[v-bf16] -k not k32-v64
+kda_before_junit_k32-v64=absent
+kda_before_test=bug-shown
+kda_after_test=passed
+kda_verdict=confirmed

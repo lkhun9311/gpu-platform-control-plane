@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="4" time="3.569" timestamp="2026-11-19T07:26:37.710869+00:00" hostname="80712a4f831a"><testcase classname="tests.kernels.fla.test_fused_recurrent_kda" name="test_fused_recurrent_kda_output_has_value_shape[k64-v32]" time="1.641"><failure message="assert torch.Size([1, 4, 1, 64]) == torch.Size([1, 4, 1, 32])&#10;  &#10;  At index 3 diff: 64 != 32&#10;  Use -v to get more diff">tests/kernels/fla/test_fused_recurrent_kda.py:63: in test_fused_recurrent_kda_output_has_value_shape
+    assert out.shape == v.shape
+E   assert torch.Size([1, 4, 1, 64]) == torch.Size([1, 4, 1, 32])
+E     
+E     At index 3 diff: 64 != 32
+E     Use -v to get more diff</failure></testcase><testcase classname="tests.kernels.fla.test_fused_recurrent_kda" name="test_fused_recurrent_kda_output_has_value_shape[k64-v64]" time="0.592" /><testcase classname="tests.kernels.fla.test_fused_recurrent_kda" name="test_fused_recurrent_kda_output_has_value_shape[k64-v32-hv2]" time="0.602"><failure message="assert torch.Size([1, 4, 1, 64]) == torch.Size([1, 4, 2, 32])&#10;  &#10;  At index 2 diff: 1 != 2&#10;  Use -v to get more diff">tests/kernels/fla/test_fused_recurrent_kda.py:63: in test_fused_recurrent_kda_output_has_value_shape
+    assert out.shape == v.shape
+E   assert torch.Size([1, 4, 1, 64]) == torch.Size([1, 4, 2, 32])
+E     
+E     At index 2 diff: 1 != 2
+E     Use -v to get more diff</failure></testcase><testcase classname="tests.kernels.fla.test_fused_recurrent_kda" name="test_fused_recurrent_kda_output_has_value_shape[v-bf16]" time="0.577" /></testsuite></testsuites>

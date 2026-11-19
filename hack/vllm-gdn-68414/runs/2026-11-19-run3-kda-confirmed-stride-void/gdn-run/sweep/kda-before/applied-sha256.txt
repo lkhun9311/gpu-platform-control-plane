@@ -1,0 +1,8 @@
+a4f8b2c052635cb519a80099e8a85411d1d5d6880b38f466788259bbe66b154d  /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py
+absent  /vllm-workspace/tests/kernels/fla/test_chunk_indices.py
+64079bb4f2225db34868c55f1bb506f8beb2a48be0654bda2c884faeead9bdff  /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/kda.py
+bed1f4e36bb7e2fa55e6de31bc8104c615fb5e661e52345eca6f9c4b6829e800  /vllm-workspace/tests/kernels/fla/test_fused_recurrent_kda.py
+9915fb0fe69f3b1205eff1532cb51c4cb640badd4e1bdf8dddced89de6e2ed69  /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+000ab8996af9788fdb8843a6a3b91833e7a14c8acc0e1ea073a536330f64cb6f  /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+4461df478aa949b3af4fa2a8eadbbcb672a251d12b7876aabffdc84d2ac228be  /vllm-workspace/tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py
+affc12ee8ed100f60f74d93d777176ee6d9161fdfbc252c64c369b168030c003  /usr/local/lib/python3.12/dist-packages/vllm/utils/torch_utils.py

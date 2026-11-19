@@ -1,0 +1,4 @@
+PASSED tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[k64-v64]
+PASSED tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[v-bf16]
+FAILED tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[k64-v32]
+FAILED tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[k64-v32-hv2]
