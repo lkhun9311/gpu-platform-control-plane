@@ -5,6 +5,13 @@
 // and the same seed gives the same schedule, prompts and max_tokens in every run.
 // Each request carries a client id in x-request-id; the simulator echoes the id the EPP routed under, and
 // x-inference-pod names the pod that served it.
+//
+// TTFT is measured to the first stream event that carries generated text.
+// A stream counts as complete only when it ends with "data: [DONE]" and no error event; the analyzer checks this.
+//
+// Changing -burst-size changes how many draws each burst takes from the seeded source, so the burst gaps after the
+// first burst differ too.
+// A control run with a smaller burst size is therefore a different schedule, not the burst schedule thinned out.
 package main
 
 import (
@@ -42,6 +49,18 @@ type record struct {
 	Chunks      int     `json:"chunks,omitempty"`
 	Body        string  `json:"body,omitempty"`
 	Err         string  `json:"err,omitempty"`
+	// The fields below were added after the 36 runs of 2026-11-19 and are absent from their records.
+	// ContentChunks counts stream events whose delta carries non-empty generated text.
+	ContentChunks int `json:"content_chunks,omitempty"`
+	// UsageCompletionTokens is the server's own count of generated tokens, from the include_usage event.
+	UsageCompletionTokens *int `json:"usage_completion_tokens,omitempty"`
+	// FinishReason is the last non-empty finish_reason seen on any choice.
+	FinishReason string `json:"finish_reason,omitempty"`
+	// Done is true when the stream ended with the "data: [DONE]" terminator.
+	// It is always written, so its presence tells the analyzer a record has the completion fields.
+	Done        bool   `json:"done"`
+	StreamError string `json:"stream_error,omitempty"`
+	BadEvents   int    `json:"bad_events,omitempty"`
 }
 
 type arrival struct {
@@ -194,15 +213,55 @@ func send(client *http.Client, url, model, id, text string, a arrival, timeout t
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-		if rec.Chunks == 0 {
-			rec.TTFTMs = float64(time.Since(start)) / float64(time.Millisecond)
-		}
 		rec.Chunks++
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			rec.Done = true
+			continue
+		}
+		var ev streamEvent
+		if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+			rec.BadEvents++
+			continue
+		}
+		if ev.Error != nil {
+			rec.StreamError = string(*ev.Error)
+		}
+		if ev.Usage != nil {
+			n := ev.Usage.CompletionTokens
+			rec.UsageCompletionTokens = &n
+		}
+		for _, ch := range ev.Choices {
+			if ch.Delta.Content != "" {
+				// TTFT is the first event that carries generated text, not the role-only or empty first event.
+				if rec.ContentChunks == 0 {
+					rec.TTFTMs = float64(time.Since(start)) / float64(time.Millisecond)
+				}
+				rec.ContentChunks++
+			}
+			if ch.FinishReason != nil && *ch.FinishReason != "" {
+				rec.FinishReason = *ch.FinishReason
+			}
+		}
 	}
 	if err := sc.Err(); err != nil {
 		rec.Err = err.Error()
 	}
 	return rec
+}
+
+// streamEvent is the part of an OpenAI chat-completion stream chunk this tool reads.
+type streamEvent struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage *struct {
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
+	Error *json.RawMessage `json:"error"`
 }
 
 // tokenCounts renders every planned prompt through the same /v1/chat/completions/render endpoint the EPP's

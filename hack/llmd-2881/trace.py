@@ -32,23 +32,32 @@ def main():
     for l in analyze.opn(run / "tokens.jsonl"):
         t = json.loads(l)
         tokens[t["id"]] = t["prompt_tokens"] + t["max_tokens"]
-    r, c = epp[case["id"]], client[case["id"]]
+    # The rejected attempt is the one the case names; the 2026-11-19 runs have one attempt per request.
+    req, c = epp[case["id"]], client[case["id"]]
+    r = req["attempts"][case["attempt"]]
+    eliminated = analyze.conc_rejection(r)
     rows = [(c["sent_unix_ns"] / 1e9, f"client sends {case['id']} (incoming tokens {case['incoming_tokens']})"),
-            (r["recv"], "EPP receives it"),
+            (req["recv"][0], "EPP receives it"),
             (r["release"], f"flow control releases it: outcome={r['outcome']}; rebuilt load per pod (requests, tokens) "
                            f"{case['load_at_release']}; pool token ratio {case['pool_tok_ratio_at_release']:.3f}, "
                            f"pool request ratio {case['pool_req_ratio_at_release']:.3f}; pods that fit it {case['fit_pods_at_release']}"),
-            (r["eliminated"], f"filter {r['eliminated_by']} eliminates all endpoints; rebuilt load {case['load_at_reject']}; "
+            (eliminated, f"filter conc/concurrency-detector eliminates all endpoints; rebuilt load {case['load_at_reject']}; "
                               f"pods that fit it {case['fit_pods_at_reject']}; engine slot free on {case['slot_free_pods']}"),
-            (r["fail"], f"EPP fails it: {r['error']}"),
             (c["done_unix_ns"] / 1e9, f"client receives {c['status']} {c.get('dropped_reason', '')}")]
-    for rid, o in epp.items():
+    # A re-queued attempt has no failure line, and None cannot be sorted against timestamps.
+    if r["fail"] is not None:
+        rows.append((r["fail"], f"EPP fails it: {r['error']}"))
+    if r["requeued"] is not None:
+        rows.append((r["requeued"], "EPP re-queues it"))
+    for rid, other in epp.items():
         if rid == case["id"]:
             continue
-        for key, what in (("release", "released"), ("prereq", "PreRequest counted on"), ("eos", "endOfStream on")):
-            t = o.get(key)
-            if t is not None and r["release"] - 0.05 <= t <= r["eliminated"]:
-                pod = o.get("pod", "")
+        for o in other["attempts"]:
+            for key, what in (("release", "released"), ("prereq", "PreRequest counted on"), ("eos", "endOfStream on")):
+                t = o.get(key)
+                if t is None or not r["release"] - 0.05 <= t <= eliminated:
+                    continue
+                pod = o.get("pod") or ""
                 extra = f" {pod} (+1 request, +{tokens.get(rid)} tokens)" if key == "prereq" else (f" {pod}" if key == "eos" else "")
                 rows.append((t, f"  other request {rid} {what}{extra}"))
     rows.sort()

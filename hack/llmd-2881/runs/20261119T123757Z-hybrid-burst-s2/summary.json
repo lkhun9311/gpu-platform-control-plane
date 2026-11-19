@@ -10,6 +10,11 @@
   "rejected-no-endpoints": 392
  },
  "release_then_reject": 392,
+ "release_then_reject_attempts": 392,
+ "attempts_per_request": {
+  "1": 960
+ },
+ "requeued_attempts": 0,
  "release_then_reject_with_client_503": 392,
  "client_ids_missing_from_epp_log": 0,
  "client_200_without_route_lines": 0,
@@ -17,12 +22,23 @@
  "metric_fc_dispatched": 960.0,
  "metric_scheduler_failure": 392.0,
  "metric_filter_eliminated_conc": 1884.0,
- "goodput_rps": 9.350009197477956,
- "goodput_output_tok_s": 377.0786279694147,
- "ttft_ms_p50": 116.071516,
- "ttft_ms_p99": 1481.066177,
+ "success_rule": "status 200 and no client error (records predate stream-completion fields)",
+ "successful_completions": 568,
+ "successful_completion_rps": 9.350009197477956,
+ "generated_tok_s": null,
+ "requested_max_tokens_of_successes_per_s": 377.0786279694147,
+ "chunks_minus_max_tokens_on_successes": {
+  "4": 568
+ },
+ "ttft_definition": "first SSE data: line, whatever it carried (records predate content_chunks)",
+ "successes_without_text": 0,
+ "ttft_ms_p50": 116.018376,
+ "ttft_ms_p99": 1524.575172,
+ "e2e_ms_all_requests_p50": 504.956511,
+ "e2e_ms_all_requests_p99": 1896.501599,
  "fc_queue_ms_p50": 3.0,
- "fc_queue_ms_p99": 1376.0,
+ "fc_queue_ms_p99": 1420.0,
+ "percentile_method": "nearest-rank",
  "rebuild_violations_tokens_mode": null,
  "fail_open": false,
  "routed": 568,
@@ -40,5 +56,5 @@
  "rtr_with_some_pod_under_token_limit": 392,
  "rtr_all_pods_at_token_limit": 0,
  "rtr_pool_tok_ratio_at_release_max": 0.9778645833333334,
- "rtr_release_to_reject_ms_p50": 1.1949539184570312
+ "rtr_release_to_reject_ms_p50": 1.194000244140625
 }
