@@ -1,16 +1,1 @@
-csrc/rocm/skinny_gemms_wvsplitk.cu
-docs/features/quantization/online.md
-docs/models/pooling_models/embed.md
-docs/models/pooling_models/scoring.md
 recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml
-tests/detokenizer/test_decode_stream_seed.py
-tests/kernels/moe/test_muse_spark_rocm_bf16_moe.py
-tests/kernels/quantization/test_rocm_skinny_gemms.py
-tests/lora/test_gte_lora.py
-tests/models/test_muse_spark_rocm_loading.py
-tests/v1/core/test_kv_cache_planning.py
-vllm/model_executor/models/bert_with_rope.py
-vllm/models/muse_spark/amd/model.py
-vllm/models/muse_spark/amd/muse_moe_runner.py
-vllm/v1/core/kv_cache_planning.py
-vllm/v1/engine/detokenizer.py

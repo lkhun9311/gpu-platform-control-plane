@@ -1,6 +1,6 @@
 #!/bin/bash
-# Shared by kda-state.sh and stride-state.sh, which source it inside a fresh container of the pinned vLLM CI image.
-# state.sh, #68414's, sources it too, but run 3 does not ship it, and its seven-file pins.txt would be refused here.
+# Shared by the state scripts, which source it inside a fresh container of the pinned vLLM CI image.
+# Run 4 ships only stride-state.sh; state.sh (#68414, run 2) and kda-state.sh (#68415, run 3) stay as they ran and are not shipped.
 # It records and does not judge: kda-verdict.py and stride-verdict.py read what it leaves.
 # The image installs the wheel at SITE, copies the checkout's vllm/v1 over it, and moves the checkout's vllm/ away.
 # So Python imports the package from SITE, and pytest runs the checkout's tests from W.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The #68416 verdict of hack/vllm-gdn-68414-session.sh run 3, read from the records hack/vllm-gdn-68414/stride-state.sh leaves.
+"""The #68416 verdict of hack/vllm-gdn-68414-session.sh run 4, read from the records hack/vllm-gdn-68414/stride-state.sh leaves.
 
     stride-verdict.py <sweep dir> <stride-test.diff sha256> <stride-fix.diff sha256>
 
@@ -21,8 +21,8 @@ import xml.etree.ElementTree as ET
 
 OPS = "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops"
 TEST_FILE = "/vllm-workspace/tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py"
-IMAGE_DIGEST = "sha256:9071b00dc36251a304e9099ed40b42a8260f8feb23432c8f312689e34c4d3f5f"
-VLLM_COMMIT = "428c371b32c18a788def35abea1cb9f579278381"
+IMAGE_DIGEST = "sha256:639209c4b3c1f16f309837668608ac889e92db0d4dd4facf5a6987c6d54ef8ac"
+VLLM_COMMIT = "3e469e9ffbef4c54595327df14d209ba9c2481f7"
 TEST = "tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py"
 CASE = "test_state_index_table_stride_does_not_change_results"
 CASES = {f"{CASE}[recurrent]", f"{CASE}[sigmoid_gating]", f"{CASE}[kda]"}

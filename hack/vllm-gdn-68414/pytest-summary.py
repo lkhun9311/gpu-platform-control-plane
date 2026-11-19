@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
-"""Every pytest call of hack/vllm-gdn-68414-session.sh run 3 in one human-readable page, for the PRs to quote.
+"""Every pytest call of hack/vllm-gdn-68414-session.sh run 4 in one human-readable page, for the PRs to quote.
 
-    pytest-summary.py <sweep dir> <kda-test.diff sha256> <kda-fix.diff sha256> <stride-test.diff sha256> <stride-fix.diff sha256>
+    pytest-summary.py <sweep dir> <stride-test.diff sha256> <stride-fix.diff sha256>
 
 It opens with the image: its digest and revision as docker reported them, and the wheel hash it carries.
 For each call it prints the exact command, the GPU, the python executable and version, the diff with its sha256 and whether that is the pinned one, each git apply command with the paths it changed, the exit status, pytest's own summary line, and each case's outcome from the junit file.
 Under each failed case it prints that case's failing source line and E lines, as --tb=short wrote them into the junit.
 A call that left no record says so, and so does a failed case whose junit holds no E line, so the page never reads as complete when the run was not.
-It judges nothing: the two verdict scripts do.
+It judges nothing: stride-verdict.py does.
+#68415's calls ran in run 3, whose summary is in its run directory, so this page lists #68416's alone.
 """
 import sys
 import xml.etree.ElementTree as ET
 
 # (record directory, pytest key, title, diff file, index of its pinned sha256 among the arguments)
 CALLS = (
-    ("stride-before", "test", "#68416 BEFORE, test only, -k stride", "stride-test.diff", 2),
-    ("stride-after", "test", "#68416 AFTER, full diff, -k stride", "stride-fix.diff", 3),
-    ("stride-after", "file", "#68416 AFTER, full diff, the whole test file", "stride-fix.diff", 3),
-    ("kda-before", "test", "#68415 BEFORE, test only, every case but k32-v64", "kda-test.diff", 0),
-    ("kda-after", "test", "#68415 AFTER, full diff, all five cases", "kda-fix.diff", 1),
+    ("stride-before", "test", "#68416 BEFORE, test only, -k stride", "stride-test.diff", 0),
+    ("stride-after", "test", "#68416 AFTER, full diff, -k stride", "stride-fix.diff", 1),
+    ("stride-after", "file", "#68416 AFTER, full diff, the whole test file", "stride-fix.diff", 1),
 )
 
 
@@ -108,6 +107,6 @@ def main(sweep, *shas):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 6:
+    if len(sys.argv) != 4:
         sys.exit(__doc__)
     sys.exit(main(*sys.argv[1:]))

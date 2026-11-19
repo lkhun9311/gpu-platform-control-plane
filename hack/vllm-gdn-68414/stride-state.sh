@@ -1,5 +1,5 @@
 #!/bin/bash
-# One #68416 state of hack/vllm-gdn-68414-session.sh run 3, run inside a fresh container of the pinned vLLM CI image.
+# One #68416 state of hack/vllm-gdn-68414-session.sh run 4, run inside a fresh container of the pinned vLLM CI image.
 #
 #   stride-state.sh before <pytest seconds> <probe seconds>
 #   stride-state.sh after <pytest seconds> <probe seconds> <whole-file seconds>

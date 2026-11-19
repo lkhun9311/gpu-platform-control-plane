@@ -1,78 +1,72 @@
 #!/usr/bin/env bash
 #
-# vLLM run 3 of the FLA fixes: one g5.xlarge, one attempt, stopped by itself 2,940 s after launch.
-# It runs two items: #68416 (state-index token stride) BEFORE and AFTER, and #68415 (KDA output shape) BEFORE and AFTER.
+# vLLM run 4 of the FLA fixes: one g5.xlarge, one attempt, stopped by itself 2,520 s after launch.
+# It runs one item: #68416 (state-index token stride) BEFORE and AFTER.
 #
 #   PURCHASE=spot SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh
 #   PURCHASE=on-demand SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh
 #
 # PURCHASE has no default: Spot is cheaper, and run 1 lost its last records to a Spot reclaim 16 minutes in, so the owner picks one each time.
 #
-# WHY RUN 3.
-# An upstream adversarial review rejected run 2's evidence for #68415 and #68416: a bare "1 failed" or "2 failed" does not show why a case failed.
-# Both tests changed since, so run 3 runs the new ones and records, for every failed case, its assertion lines, beside the exact command, the image digest, each git apply and its targets, the python and the GPU.
-# #68414 is not part of run 3.
-# Its state.sh, verdict.py, pins.txt, fix.diff, kernel_repro.py and run_repro.py stay as run 2 ran them, and none of them is shipped or judged.
+# WHY RUN 4.
+# Run 3 (hack/vllm-gdn-68414/runs/2026-11-19-run3-kda-confirmed-stride-void) confirmed #68415 and voided #68416 on its import check.
+# #68416's collection loaded vllm/v1/core/kv_cache_planning.py and vllm/v1/engine/detokenizer.py, which differ between run 3's image, 428c371b32, and #68416's diff base, 545ef08189.
+# Its tests themselves gave the expected results there, but a run whose test process loaded files other than the diff base's cannot stand as the diff's evidence.
+# Run 3's static import closure had missed both files, since the collection reaches them through imports the closure does not follow; the probe on the instance caught them.
+# So run 4 runs #68416 alone on an image whose tree differs from 545ef08189 only in one recipe yaml.
+# #68414 and #68415 are not part of run 4: state.sh, verdict.py, kda-state.sh, kda-verdict.py and their pins and diffs stay as runs 2 and 3 ran them, and none is shipped or judged.
 #
-# THE ITEMS.
-# The diffs are the runtime session's, in storage/open-source/contributions/vllm (its commit 4a38c4fb), byte for byte and pinned below by sha256.
-# #68415: kda-fix.diff is commit 841cd50ff0 on 428c371b32, and kda-test.diff is its test file alone.
-# Its test has five cases: k64-v32, k64-v64, k32-v64, k64-v32-hv2 and v-bf16.
-# BEFORE runs every case but k32-v64, named by node id and excluded by -k, because with V above K the unfixed kernel writes past its output.
-# k64-v32 and k64-v32-hv2 must fail on the shape assert, k64-v64 and v-bf16 must pass, and AFTER must pass all five.
-# #68416: stride-fix.diff is commit 541d8b9771 on 545ef08189, and stride-test.diff is its test-file part alone.
+# THE ITEM.
+# The diffs are the runtime session's, in storage/open-source/contributions/vllm (its commit f11148fc), byte for byte and pinned below by sha256.
+# stride-fix.diff is commit 541d8b9771 on 545ef08189, and stride-test.diff is its test-file part alone.
 # The test is test_state_index_table_stride_does_not_change_results in tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py, with cases recurrent, sigmoid_gating and kda.
 # BEFORE runs `-k stride` and all three must fail; AFTER runs `-k stride`, all three must pass, and then the whole file, all 21 of whose cases must pass.
 #
 # THE IMAGE.
 # vLLM CI publishes a test image per main commit, tagged by the commit, in public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo.
-# Runs 1 and 2 used 8700cc9ba0's, and run 3 cannot: vllm/utils/torch_utils.py differs between 8700cc9ba0 and both diff bases, and both tests import it.
-# Run 3 uses 428c371b32's, pinned by digest in the runner: it is #68415's diff base, and CI published no image for 545ef08189.
-# Between 428c371b32 and 545ef08189 sixteen files differ, which stride-differs.txt lists, and none is in either test's import-time closure, conftest files included.
-# Each state checks that on the instance: a pytest collection with the run's own selection lists every vllm and tests file it loaded, and a run that loaded one of them is void.
+# Run 4 uses 3e469e9ffb's, pinned by digest in the runner, since CI published no image for 545ef08189, the commit after it.
+# `git diff --name-only 3e469e9ffb 545ef08189` lists only recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml, which stride-differs.txt holds.
+# The offline test checks that list against run 3's recorded collection and against the static closure, and each state checks it on the instance: a pytest collection with the run's own selection lists every vllm and tests file it loaded, and a run that loaded one of them is void.
 # The collection shows what pytest imports before any test runs; a module a test imports only while it runs is not in it.
 # It compares paths, not contents, since the image is CI's build of its commit, whose label and wheel hash the runner checks, and the eight files that matter are hashed against git by the pins.
-# The image's labels name the commit, and it carries the wheel's sha256, both recorded on the instance.
 # The image installs the wheel, copies the checkout's vllm/v1 over the installed package, and moves the checkout's vllm/ aside.
 # So hack/vllm-gdn-68414/lib.sh applies each diff in two parts, vllm/* to the installed package and the rest to the checkout, and records each command and its targets.
 #
 # ISOLATION.
-# Every state runs in its own fresh container, and every pins file names the same eight files: the three items' sources and tests, and torch_utils.py.
-# So each state proves that no other item's fix or test reached it, and each item has its own verdict script, which reads only its own records.
-# The exit status is 0 only when both verdicts are confirmed, and outcome.txt names each one.
+# Each state runs in its own fresh container, and the pins name the same eight files as run 3's: the three items' sources and tests, and torch_utils.py.
+# So each state proves that neither #68414's nor #68415's fix or test reached it.
+# The exit status is 0 only when the verdict is confirmed, and outcome.txt names it.
 #
 # It shares its EC2 lifecycle with the other paid sessions (hack/lib/spot-run.sh).
 #
 # THE CLOCK.
 # Every deadline counts from EC2's LaunchTime, read right after the launch and written to the run's S3 prefix for the instance to read.
-# Run 2 measured: bring-up 116 s, pull 672 s, image identity 19 s, each state 26 to 30 s with 7 to 11 s of setup and 17 to 19 s of pytest, and the evidence upload 2 to 4 s.
+# Run 3 measured: bring-up 111 s, pull 1,051 s, image identity 7 s, and for #68416 setup 37 s cold and 11 s warm, collection 45 s cold and 16 s warm, pytest 20 and 18 s, the whole file 28 s.
 # The bounds are those with room, and the deadlines are their sum:
-#   bring-up (run 1 121 s, run 2 116 s)                                        300 s
-#   image pull (run 1 592 s, run 2 672 s, the TPOT run 745 s, the 67811 run 2 1,094 s)   1,200 s
-#   image identity (run 1 25 s, run 2 19 s)                                     60 s
-#   #68416 BEFORE: setup 60 + collection 60 + pytest 90 + stop 30              240 s
-#   #68416 AFTER: setup 60 + collection 60 + pytest 90 + whole file 300 + stop 30   540 s
-#   #68415 BEFORE and AFTER: 2 x (setup 60 + collection 60 + pytest 90 + stop 30)  480 s
-#   so the runner ends by 300 + 1,200 + 60 + 240 + 540 + 480                = 2,820 s
-#   evidence upload (run 2 2 to 4 s)                                            60 s -> 2,880
-# Setup now also reads the python, pytest and GPU and imports five modules in one process, so it keeps several times run 2's 11 s.
-# The collection is a pytest call without the tests, so it gets run 2's pytest time with room; the whole file has never run here, so it gets 300 s.
-# The launch carries the termination sweeper's study-deadline tag at the request plus 2,880 s, rewritten to LaunchTime plus 2,910 s once LaunchTime is known.
-# The instance shuts itself down at 2,940 s, and the termination is to be confirmed by 3,240 s, the sweeper's five-minute period after its tag plus 30 s.
+#   bring-up (runs 1 to 3: 121, 116, 111 s)                                     240 s
+#   image pull (592, 672, 745, 1,051 and 1,094 s so far)                       1,500 s
+#   image identity (25, 19, 7 s)                                                 60 s
+#   #68416 BEFORE: setup 60 + collection 90 + pytest 60 + stop 30              240 s
+#   #68416 AFTER: setup 60 + collection 90 + pytest 60 + whole file 120 + stop 30   360 s
+#   so the runner ends by 240 + 1,500 + 60 + 240 + 360                     = 2,400 s
+#   evidence upload (run 2 2 to 4 s)                                            60 s -> 2,460
+# The pull bound grows from 1,200 s, because run 3's 1,051 s came within 150 s of it; every other bound shrinks to about twice its slowest measurement.
+# The launch carries the termination sweeper's study-deadline tag at the request plus 2,460 s, rewritten to LaunchTime plus 2,490 s once LaunchTime is known.
+# The instance shuts itself down at 2,520 s, and the termination is to be confirmed by 2,820 s, the sweeper's five-minute period after its tag plus 30 s.
 # Both purchase options use the same clock, tags and sweeper, which terminates by the tag alone, whatever the instance's market.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 3,240 s.
+# The worst case bills to the termination deadline: 2,820 s.
 # It assumes EC2 confirms the termination by then; one that is not confirmed is reported as such, and billing past it is not bounded here.
 # Both options add $0.0324/h for 200 GB gp3 and a public IPv4, and $0.0468/h for 500 MiB/s and 6,000 IOPS, as the TPOT session measured.
-# spot: the $0.70/h Spot cap, so $0.7792/h all in, and $0.7013.
+# spot: the $0.70/h Spot cap, so $0.7792/h all in, and $0.6104.
 # on-demand: g5.xlarge in ap-northeast-2 is read from the AWS Price List API before anything is bought, and the pinned $1.237/h is used only when that read fails.
-# At $1.237/h it is $1.3162/h all in, and $1.1846; any compute rate above $1.5874/h puts the worst case at $1.50 or more, and the session refuses it.
+# At $1.237/h it is $1.3162/h all in, and $1.0310; any compute rate above $1.8356/h puts the worst case at $1.50 or more, and the session refuses it.
 # The script refuses to run if the constants below stop giving a worst case under $1.50 for either option.
 #
 # REFUSED DIFFS.
 # An adversarial pass on 2026-11-19 found #68416's first run-3 diffs, 6bf23529 and abbfbaf3 from commit efdbec4e2d, unfit for a paid run, and the session still refuses them by hash.
-# Their kda case gives q and k one head and v two, and both stride states keep the unfixed kda.py, so the output holds 1 x 6 x 1 x 64 = 384 elements while the kernel writes 6 x 2 x 64 = 768.
+# Their kda case gives q and k one head and v two, and the unfixed kda.py both states keep allocates 1 x 6 x 1 x 64 = 384 output elements while the kernel writes 6 x 2 x 64 = 768.
 # The same case draws gk inside the layout loop, so the two layouts get different gates, and AFTER cannot pass the exact comparison whatever the stride fix does.
 # Commit 541d8b9771 replaced them: its kda case gives q2 and k2 two heads as v has, so H x K = HV x V = 128 and the unfixed allocation is the size the kernel writes.
 # It also draws gk once, before the layout loop, so both layouts get the same inputs.
@@ -97,22 +91,14 @@ ON_DEMAND_RATE_SOURCE_PINNED="pinned: AWS Price List API APN2-BoxUsage:g5.xlarge
 EBS_THROUGHPUT_MIBPS=500
 EBS_IOPS=6000
 COST_CAP_USD=1.50
-STUDY_ID=vllm-fla-68415-68416-run3-2026-11-19
+STUDY_ID=vllm-fla-68416-run4-2026-11-19
 STACK=gdn-gpu
-PURPOSE=vllm-fla-two-items-run3
+PURPOSE=vllm-fla-68416-run4
 RUNNER=hack/vllm-gdn-68414/runner.sh
 LIB=hack/vllm-gdn-68414/lib.sh
 PLUGIN=hack/vllm-gdn-68414/fla_loaded_modules.py
 PYTEST_SUMMARY=hack/vllm-gdn-68414/pytest-summary.py
 # Each fix diff is the storage copy byte for byte, and each test diff is the storage test-only.diff, which is its fix diff's first part.
-KDA_STATE=hack/vllm-gdn-68414/kda-state.sh
-KDA_PINS=hack/vllm-gdn-68414/kda-pins.txt
-KDA_DIFFERS=hack/vllm-gdn-68414/kda-differs.txt
-KDA_VERDICT=hack/vllm-gdn-68414/kda-verdict.py
-KDA_FIX_DIFF=hack/vllm-gdn-68414/kda-fix.diff
-KDA_FIX_DIFF_SHA256=5f98c5d6b71f8c299d1087697cd696ceca4b64ca2c38db469a86b474e86d1f84
-KDA_TEST_DIFF=hack/vllm-gdn-68414/kda-test.diff
-KDA_TEST_DIFF_SHA256=b56b698ca429b680cbd1526166ba40b60ff525506658238a64428e013724868a
 STRIDE_STATE=hack/vllm-gdn-68414/stride-state.sh
 STRIDE_PINS=hack/vllm-gdn-68414/stride-pins.txt
 STRIDE_DIFFERS=hack/vllm-gdn-68414/stride-differs.txt
@@ -122,16 +108,16 @@ STRIDE_FIX_DIFF_SHA256=0eaef549b2b6919272666660626e70734fb3b07b25ec13d29f52e1d3c
 STRIDE_TEST_DIFF=hack/vllm-gdn-68414/stride-test.diff
 STRIDE_TEST_DIFF_SHA256=21d8bbecee8dae26df7b75630d3f059513dda2cf022787f8edea28cc04bc5e94
 # The step bounds, each the runner's own; hack/vllm-gdn-68414-session-test.sh holds the two equal.
-BRINGUP_S=300
-PULL_BOUND_S=1200
+BRINGUP_S=240
+PULL_BOUND_S=1500
 IMAGE_ID_S=60
 SETUP_S=60
-PROBE_S=60
-PYTEST_S=90
-FILE_S=300
+PROBE_S=90
+PYTEST_S=60
+FILE_S=120
 STOP_S=30
 EVIDENCE_UPLOAD_S=60
-STATES_S=$(( 3 * (SETUP_S + PROBE_S + PYTEST_S + STOP_S) + (SETUP_S + PROBE_S + PYTEST_S + FILE_S + STOP_S) ))
+STATES_S=$(( (SETUP_S + PROBE_S + PYTEST_S + STOP_S) + (SETUP_S + PROBE_S + PYTEST_S + FILE_S + STOP_S) ))
 HARNESS_END_S=$(( BRINGUP_S + PULL_BOUND_S + IMAGE_ID_S + STATES_S ))
 EVIDENCE_S=$(( HARNESS_END_S + EVIDENCE_UPLOAD_S ))
 TAG_AT_LAUNCH_S=$EVIDENCE_S
@@ -344,21 +330,19 @@ TAIL
   [ "$(wc -c <"$ud")" -lt 16384 ] || fail "the user-data is $(wc -c <"$ud") bytes, over EC2's 16 KB limit"
 }
 
-# judge SWEEP: the two verdicts and the pytest summary into OUT, and VERDICTS naming both.
-# Each verdict reads only its own item's records, whatever came back, so a stopped run still says how far each item got and why it is not confirmed.
-# A verdict that crashed or printed nothing names its item empty, which is not "confirmed", so it fails the exit status like any other.
+# judge SWEEP: #68416's verdict and the pytest summary into OUT, and VERDICTS naming it.
+# The verdict reads the item's records, whatever came back, so a stopped run still says how far it got and why it is not confirmed.
+# A verdict that crashed or printed nothing names the item empty, which is not "confirmed", so it fails the exit status like any other.
 # It is a function, and --judge runs it alone, so the offline test drives the same aggregation and exit status the purchase ends with.
 judge() {
   local sweep=$1
   python3 "$STRIDE_VERDICT" "$sweep" "$STRIDE_TEST_DIFF_SHA256" "$STRIDE_FIX_DIFF_SHA256" >"$OUT/stride-verdict.txt" 2>>"$OUT/download-errors.txt"
-  python3 "$KDA_VERDICT" "$sweep" "$KDA_TEST_DIFF_SHA256" "$KDA_FIX_DIFF_SHA256" >"$OUT/kda-verdict.txt" 2>>"$OUT/download-errors.txt"
   # What the PRs quote, from the same records.
-  python3 "$PYTEST_SUMMARY" "$sweep" "$KDA_TEST_DIFF_SHA256" "$KDA_FIX_DIFF_SHA256" \
-    "$STRIDE_TEST_DIFF_SHA256" "$STRIDE_FIX_DIFF_SHA256" >"$OUT/pytest-summary.txt" 2>>"$OUT/download-errors.txt"
-  VERDICTS="stride=$(verdict_of stride) kda=$(verdict_of kda)"
+  python3 "$PYTEST_SUMMARY" "$sweep" "$STRIDE_TEST_DIFF_SHA256" "$STRIDE_FIX_DIFF_SHA256" >"$OUT/pytest-summary.txt" 2>>"$OUT/download-errors.txt"
+  VERDICTS="stride=$(verdict_of stride)"
 }
 verdict_of() { grep -m1 "^$1_verdict=" "$OUT/$1-verdict.txt" 2>/dev/null | cut -d= -f2; }
-all_confirmed() { [ "$VERDICTS" = "stride=confirmed kda=confirmed" ]; }
+all_confirmed() { [ "$VERDICTS" = "stride=confirmed" ]; }
 
 # ---------------------------------------------------------------- refusals, before anything is built or bought
 # The purchase option comes first, because every cost figure below depends on it.
@@ -416,7 +400,7 @@ fi
   fail "VLLMGDN_AMI_ID is ${VLLMGDN_AMI_ID:-unset}; the session pins the AMI by ID rather than resolving it from latest"
 # A diff known unfit for a run is refused before any AWS call, since running it would buy a result that cannot be used, and the header says why.
 for unfit in 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4; do
-  case " $STRIDE_FIX_DIFF_SHA256 $STRIDE_TEST_DIFF_SHA256 $KDA_FIX_DIFF_SHA256 $KDA_TEST_DIFF_SHA256 " in
+  case " $STRIDE_FIX_DIFF_SHA256 $STRIDE_TEST_DIFF_SHA256 " in
     *" $unfit "*) fail "the pinned diff $unfit is not fit for a paid run: #68416's kda case writes 768 output elements into 384 and draws a new gk per layout (see REFUSED DIFFS); replace the diff and its pins first" ;;
   esac
 done
@@ -427,23 +411,21 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>&1) || fai
 [ "$ACCOUNT" = "$ACCOUNT_WANT" ] || fail "the credentials are for account $ACCOUNT; paid sessions run only in gpu-lab ($ACCOUNT_WANT)"
 [ ! -e "$OUT" ] || fail "$OUT already exists; each session writes a new directory"
 mkdir -p "$OUT" || fail "cannot create $OUT"
-say "vLLM #68416 and #68415 before and after for $STUDY_ID, from $COMMIT, into $OUT, bought $PURCHASE"
+say "vLLM #68416 before and after for $STUDY_ID, from $COMMIT, into $OUT, bought $PURCHASE"
 purchase_rate
 say "$PURCHASE: \$$COMPUTE_RATE/h compute from $RATE_SOURCE, \$$ALL_IN_RATE/h all in"
 say "hard stop $STOP_FROM_LAUNCH_S s after LaunchTime; worst case $TERMINATION_S s at \$$ALL_IN_RATE/h, \$$(worst_usd "$ALL_IN_RATE") under \$$COST_CAP_USD"
 
 # The diffs are the storage copies, byte for byte, so a changed copy costs nothing.
-for pair in "$KDA_FIX_DIFF:$KDA_FIX_DIFF_SHA256" "$KDA_TEST_DIFF:$KDA_TEST_DIFF_SHA256" \
-  "$STRIDE_FIX_DIFF:$STRIDE_FIX_DIFF_SHA256" "$STRIDE_TEST_DIFF:$STRIDE_TEST_DIFF_SHA256"; do
+for pair in "$STRIDE_FIX_DIFF:$STRIDE_FIX_DIFF_SHA256" "$STRIDE_TEST_DIFF:$STRIDE_TEST_DIFF_SHA256"; do
   [ "$(sha256sum "${pair%%:*}" | cut -d' ' -f1)" = "${pair#*:}" ] || fail "${pair%%:*} is not the pinned ${pair#*:}"
 done
 mkdir -p "$OUT/in" || fail "cannot create $OUT/in"
-# #68414's files are not shipped, so no state of it can run on the instance.
+# #68414's and #68415's files are not shipped, so no state of either can run on the instance.
 cp "$RUNNER" "$LIB" "$PLUGIN" "$OUT/in/" || fail "copy the shared inputs"
-cp "$KDA_STATE" "$KDA_PINS" "$KDA_DIFFERS" "$KDA_FIX_DIFF" "$KDA_TEST_DIFF" "$OUT/in/" || fail "copy the #68415 inputs"
 cp "$STRIDE_STATE" "$STRIDE_PINS" "$STRIDE_DIFFERS" "$STRIDE_FIX_DIFF" "$STRIDE_TEST_DIFF" "$OUT/in/" || fail "copy the #68416 inputs"
 tar -czf "$OUT/inputs.tgz" -C "$OUT/in" . || fail "pack the inputs"
-say "the four diffs match their pins"
+say "the two diffs match their pins"
 
 # shellcheck source=hack/lib/spot-run.sh
 . hack/lib/spot-run.sh
@@ -531,8 +513,6 @@ BUCKET="$STACK-$ACCOUNT"
   echo "all_in_rate=$ALL_IN_RATE"
   echo "worst_case_usd=$(worst_usd "$ALL_IN_RATE")"
   echo "inputs_sha256=$INPUTS_SHA"
-  echo "kda_fix_diff_sha256=$KDA_FIX_DIFF_SHA256"
-  echo "kda_test_diff_sha256=$KDA_TEST_DIFF_SHA256"
   echo "stride_fix_diff_sha256=$STRIDE_FIX_DIFF_SHA256"
   echo "stride_test_diff_sha256=$STRIDE_TEST_DIFF_SHA256"
   echo "image=$(grep -m1 '^IMG=' "$RUNNER" | cut -d'"' -f2)"
@@ -679,8 +659,6 @@ records() { grep -q "$1 states done" "$SWEEP/steps.log" 2>/dev/null && echo comp
   echo "verdicts=$VERDICTS"
   echo "stride_records=$(records stride)"
   cat "$OUT/stride-verdict.txt"
-  echo "kda_records=$(records kda)"
-  cat "$OUT/kda-verdict.txt"
 } >"$OUT/outcome.txt"
 [ ! -s "$OUT/gdn-run/summary.txt" ] || cat "$OUT/gdn-run/summary.txt"
 cat "$OUT/outcome.txt"

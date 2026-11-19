@@ -1,5 +1,6 @@
 #!/bin/bash
 # One #68415 state of hack/vllm-gdn-68414-session.sh run 3, run inside a fresh container of the pinned vLLM CI image.
+# Run 3 confirmed #68415 with it, and run 4 neither ships nor runs it, so it stays as run 3 ran it.
 #
 #   kda-state.sh before <pytest seconds> <probe seconds>
 #   kda-state.sh after <pytest seconds> <probe seconds>
