@@ -1,0 +1,7 @@
+phase	exit	seconds	bound
+cluster	0	165	840
+build	0	288	720
+s4	0	151	1020
+s1	2	1	960
+s2	2	3	900
+s3	2	3	360

@@ -1,0 +1,34 @@
+kind v0.31.0 go1.24.2 linux/amd64
+NAME:
+Client Version: v1.34.3
+Kustomize Version: v5.7.1
+version.BuildInfo{Version:"v3.22.1", GitCommit:"d6c1a0e4027caa6abc7892e7ea9f0cda7447baa3", GitTreeState:"clean", GoVersion:"go1.26.9"}
+Client: Docker Engine - Community
+ Version:           29.9.3
+ API version:       1.56
+ Go version:        go1.26.10
+ Git commit:        5457199
+ Built:             Tue Nov  3 21:42:17 2026
+ OS/Arch:           linux/amd64
+ Context:           default
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.9.3
+  API version:      1.56 (minimum version 1.40)
+  Go version:       go1.26.10
+  Git commit:       70efc0e
+  Built:            Tue Nov  3 21:42:17 2026
+  OS/Arch:          linux/amd64
+  Experimental:     false
+ containerd:
+  Version:          v2.4.2
+  GitCommit:        b7a25261e029d68978bbf290df0a62fc819b3c51
+ nvidia:
+  Version:          1.5.3
+  GitCommit:        v1.5.3-0-g46365c62
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+NVIDIA Container Toolkit CLI version 1.20.1
+commit: dffc40b4f820ce5c512633bac9e0418d0e05a2ee

@@ -1,0 +1,71 @@
+== dra-driver-nvidia-gpu S4, S1, S2, S3 for dra-nvidia-gpu-single-2026-11-18, from 81b89805ad41b6309e0625e9f8ee7458bd8ec165, into hack/dra-nvidia-gpu-20261119T080918Z
+== hard stop 5400 s after LaunchTime; worst case 5700 s at $1.2575/h = $1.9910
+== upstream e775fdb63e593a121b40fc1cc4c9a9c89955e635 has the 10 files the phases use
+== AMI ami-035e3088f6b7821fb: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261113	available
+== Spot candidates, in order: g5.xlarge:ap-northeast-2c g5.xlarge:ap-northeast-2d g5.xlarge:ap-northeast-2a
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 341 minutes
+== before the purchase: credentials expire in 341 minutes
+== launching one of g5.xlarge:ap-northeast-2c g5.xlarge:ap-northeast-2d g5.xlarge:ap-northeast-2a ($1.2575/h all in at worst), study-deadline 2026-11-19T09:38:30Z -- the instance bills from here
+== launched i-06774f661ccb829c7, g5.xlarge in ap-northeast-2c
+== LaunchTime 2026-11-19T08:09:32+00:00; the sweeper's deadline moved to 2026-11-19T09:39:02Z
+== the wait ended with status 0 ()
+== waiting up to 5008s for EC2 to report the instance terminated
+== terminating i-06774f661ccb829c7
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is shutting-down
+== i-06774f661ccb829c7 is terminated
+== evidence returned in hack/dra-nvidia-gpu-20261119T080918Z/dra-run/run; termination confirmed; phases: cluster=0 build=0 s4=0 s1=2 s2=2 s3=2

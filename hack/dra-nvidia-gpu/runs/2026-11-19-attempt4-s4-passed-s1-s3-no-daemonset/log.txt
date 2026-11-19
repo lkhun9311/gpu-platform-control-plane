@@ -1,0 +1,77 @@
+++ date +%s
++ SR_START=1795075824
++ BUCKET=dra-gpu-007635145730
++ PREFIX=dra-nvidia-gpu-20261119T080918Z-518c4554
++ trap 'upload /var/log/dra.log log.txt; shutdown -h now' EXIT
++ mkdir -p /opt/dra/in /src/dra-run
++ aws s3 cp --only-show-errors s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T080918Z-518c4554/inputs.tgz /opt/dra/inputs.tgz
+++ sha256sum /opt/dra/inputs.tgz
+++ cut '-d ' -f1
++ '[' c050b31cfc9fd6382e68c1f392f10073cb46bb7092f2904307018272e44ba806 = c050b31cfc9fd6382e68c1f392f10073cb46bb7092f2904307018272e44ba806 ']'
++ tar -xzf /opt/dra/inputs.tgz -C /opt/dra/in
++ L=
+++ date +%s
++ '[' 1 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T080918Z-518c4554/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-11-19T08:09:32+00:00 +%s
++ L=1795075772
++ break
+++ date +%s
++ NOW=1795075826
++ [[ 1795075772 =~ ^[0-9]+$ ]]
++ '[' 1795075772 -gt 1795075826 ']'
++ '[' 54 -gt 900 ']'
++ BOOT_END=1795076192
++ HE=1795080992
++ EV=1795081112
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version,compute_mode --format=csv
++ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
++ timeout 60 aws s3 cp --only-show-errors /tmp/nvidia-smi.csv s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T080918Z-518c4554/preflight-nvidia-smi.csv
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ wc -l
++ '[' 1 = 1 ']'
++ grep -qE 'NVIDIA (L4|A10G),'
++ tail -n +2 /tmp/nvidia-smi.csv
++ cp /tmp/nvidia-smi.csv /src/dra-run/nvidia-smi.csv
++ echo launch_time_epoch=1795075772
++ sha256sum /opt/dra/inputs.tgz
+++ date +%s
++ '[' 1795075827 -lt 1795076192 ']'
+++ date +%s
+++ date +%s
++ UPLOAD_PREFIX=s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T080918Z-518c4554
++ timeout --kill-after=15 5165 bash /opt/dra/in/runner.sh /opt/dra/in /src/dra-run/run 1795080992
++ echo harness_rc=0
++ cat /src/dra-run/summary.txt
+2026-11-19T08:10:28Z phase cluster: start, bound 840 s
+2026-11-19T08:13:13Z phase cluster: exit 0 after 165 s
+2026-11-19T08:13:14Z worker node dra-session-worker
+2026-11-19T08:13:14Z phase build: start, bound 720 s
+2026-11-19T08:18:02Z phase build: exit 0 after 288 s
+2026-11-19T08:18:03Z phase s4: start, bound 1020 s
+2026-11-19T08:20:34Z phase s4: exit 0 after 151 s
+2026-11-19T08:20:35Z phase s1: start, bound 960 s
+2026-11-19T08:20:36Z phase s1: exit 2 after 1 s
+2026-11-19T08:20:37Z s1 exited 2; the next scenario still runs
+2026-11-19T08:20:37Z phase s2: start, bound 900 s
+2026-11-19T08:20:40Z phase s2: exit 2 after 3 s
+2026-11-19T08:20:41Z s2 exited 2; the next scenario still runs
+2026-11-19T08:20:41Z phase s3: start, bound 360 s
+2026-11-19T08:20:44Z phase s3: exit 2 after 3 s
+2026-11-19T08:20:45Z s3 exited 2; the next scenario still runs
+2026-11-19T08:20:45Z all scenarios done
++ cp /var/log/dra.log /src/dra-run/instance.log
+++ date +%s
++ left=4667
++ '[' 4667 -gt 5 ']'
++ tar --warning=no-file-changed -czf /tmp/evidence.tgz -C /src dra-run
++ '[' 0 -le 1 ']'
++ timeout 4667 aws s3 cp --only-show-errors /tmp/evidence.tgz s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T080918Z-518c4554/evidence.tgz
++ upload /var/log/dra.log log.txt
++ timeout 60 aws s3 cp --only-show-errors /var/log/dra.log s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T080918Z-518c4554/log.txt
++ echo 518c4554
++ upload /tmp/DONE DONE
++ timeout 60 aws s3 cp --only-show-errors /tmp/DONE s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T080918Z-518c4554/DONE
++ upload /var/log/dra.log log.txt
++ timeout 60 aws s3 cp --only-show-errors /var/log/dra.log s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T080918Z-518c4554/log.txt

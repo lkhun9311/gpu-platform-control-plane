@@ -1,0 +1,12 @@
+NAMESPACE            NAME                                                    READY   STATUS    RESTARTS   AGE     IP           NODE                        NOMINATED NODE   READINESS GATES
+kube-system          pod/coredns-66bc5c9577-pqq4b                            1/1     Running   0          5m6s    10.244.0.2   dra-session-control-plane   <none>           <none>
+kube-system          pod/coredns-66bc5c9577-tv577                            1/1     Running   0          5m6s    10.244.0.4   dra-session-control-plane   <none>           <none>
+kube-system          pod/etcd-dra-session-control-plane                      1/1     Running   0          5m14s   172.18.0.2   dra-session-control-plane   <none>           <none>
+kube-system          pod/kindnet-glrbk                                       1/1     Running   0          5m6s    172.18.0.2   dra-session-control-plane   <none>           <none>
+kube-system          pod/kindnet-sc24f                                       1/1     Running   0          5m4s    172.18.0.3   dra-session-worker          <none>           <none>
+kube-system          pod/kube-apiserver-dra-session-control-plane            1/1     Running   0          5m12s   172.18.0.2   dra-session-control-plane   <none>           <none>
+kube-system          pod/kube-controller-manager-dra-session-control-plane   1/1     Running   0          5m12s   172.18.0.2   dra-session-control-plane   <none>           <none>
+kube-system          pod/kube-proxy-7nmc6                                    1/1     Running   0          5m4s    172.18.0.3   dra-session-worker          <none>           <none>
+kube-system          pod/kube-proxy-szw8x                                    1/1     Running   0          5m6s    172.18.0.2   dra-session-control-plane   <none>           <none>
+kube-system          pod/kube-scheduler-dra-session-control-plane            1/1     Running   0          5m14s   172.18.0.2   dra-session-control-plane   <none>           <none>
+local-path-storage   pod/local-path-provisioner-5c4cdb564f-w6wfb             1/1     Running   0          5m6s    10.244.0.3   dra-session-control-plane   <none>           <none>

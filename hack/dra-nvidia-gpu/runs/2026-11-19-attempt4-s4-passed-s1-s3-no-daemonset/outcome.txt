@@ -1,0 +1,8 @@
+evidence=returned
+termination=confirmed
+cluster=0
+build=0
+s4=0
+s1=2
+s2=2
+s3=2

@@ -1,0 +1,16 @@
+Release "dra-gpu-session" has been upgraded. Happy Helming!
+NAME: dra-gpu-session
+LAST DEPLOYED: Thu Nov 19 08:20:38 2026
+NAMESPACE: dra-driver-nvidia-gpu
+STATUS: deployed
+REVISION: 2
+TEST SUITE: None
+error: error executing jsonpath "{.items[0].metadata.name}": Error executing template: array index out of bounds: index 0, length 0. Printing more information for debugging the template:
+	template was:
+		{.items[0].metadata.name}
+	object given to jsonpath engine was:
+		map[string]interface {}{"apiVersion":"v1", "items":[]interface {}{}, "kind":"List", "metadata":map[string]interface {}{"resourceVersion":""}}
+
+
+2026-11-19T08:20:40Z no kubelet-plugin DaemonSet
+2026-11-19T08:20:40Z the chart did not install

@@ -1,0 +1,217 @@
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.187475       1 utils.go:44] Commit: e775fdb63e593a121b40fc1cc4c9a9c89955e635
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] 
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] Feature gates: map[string]bool{"AllAlpha":false, "AllBeta":false, "ComputeDomainCliques":true, "ConsumableShares":false, "ContextualLogging":true, "CrashOnNVLinkFabricErrors":true, "DRAListTypeAttributes":false, "DeviceMetadata":false, "DynamicMIG":false, "FabricManagerPartitioning":false, "HostManagedIMEXDaemon":false, "IMEXDaemonsWithDNSNames":true, "LoggingAlphaOptions":false, "LoggingBetaOptions":true, "MPSSupport":true, "NVMLDeviceHealthCheck":false, "PassthroughSupport":false, "TimeSlicingSettings":true}
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] Flags: (*main.Flags)({
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   kubeClientConfig: (flags.KubeClientConfig) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     KubeConfig: (string) "",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     KubeAPIQPS: (float64) 5,
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     KubeAPIBurst: (int) 10
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   },
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   nodeName: (string) (len=18) "dra-session-worker",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   namespace: (string) (len=21) "dra-driver-nvidia-gpu",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   httpEndpoint: (string) (len=5) ":8080",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   metricsPath: (string) (len=8) "/metrics",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   cdiRoot: (string) (len=12) "/var/run/cdi",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   containerDriverRoot: (string) (len=12) "/driver-root",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   hostDriverRoot: (string) (len=1) "/",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   hostRoot: (string) (len=10) "/host-root",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   nvidiaCDIHookPath: (string) "",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   imageName: (string) (len=66) "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   imagePullSecrets: (string) "",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   imagePullPolicy: (string) (len=12) "IfNotPresent",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   serviceAccountName: (string) (len=61) "dra-driver-nvidia-gpu-batssuite-service-account-kubeletplugin",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   kubeletRegistrarDirectoryPath: (string) (len=33) "/var/lib/kubelet/plugins_registry",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   kubeletPluginsDirectoryPath: (string) (len=24) "/var/lib/kubelet/plugins",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   healthcheckPort: (int) 51516,
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   klogVerbosity: (int) 6,
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   additionalXidsToIgnore: (string) "",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   consumableShares: (string) (len=8) "disabled"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] })
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.187586       1 utils.go:59] Logging config: (*flags.LoggingConfig)({
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   Config: (*v1.LoggingConfiguration)({
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     Format: (string) (len=4) "text",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     FlushFrequency: (v1.TimeOrMetaDuration) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]       Duration: (v1.Duration) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]         Duration: (time.Duration) 5000000000
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]       },
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]       SerializeAsString: (bool) true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     },
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     Verbosity: (v1.VerbosityLevel) 6,
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     VModule: (v1.VModuleConfiguration) <nil>,
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     Options: (v1.FormatOptions) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]       Text: (v1.TextOptions) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]         OutputRoutingOptions: (v1.OutputRoutingOptions) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]           SplitStream: (bool) false,
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]           InfoBufferSize: (resource.QuantityValue) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]             Quantity: (resource.Quantity) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               i: (resource.int64Amount) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]                 value: (int64) 0,
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]                 scale: (resource.Scale) 0
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               },
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               d: (resource.infDecAmount) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]                 Dec: (*inf.Dec)(<nil>)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               },
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               s: (string) (len=1) "0",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               Format: (resource.Format) (len=9) "DecimalSI"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]             }
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]           }
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]         }
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]       },
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]       JSON: (v1.JSONOptions) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]         OutputRoutingOptions: (v1.OutputRoutingOptions) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]           SplitStream: (bool) false,
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]           InfoBufferSize: (resource.QuantityValue) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]             Quantity: (resource.Quantity) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               i: (resource.int64Amount) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]                 value: (int64) 0,
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]                 scale: (resource.Scale) 0
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               },
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               d: (resource.infDecAmount) {
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]                 Dec: (*inf.Dec)(<nil>)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               },
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               s: (string) (len=1) "0",
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]               Format: (resource.Format) (len=9) "DecimalSI"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]             }
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]           }
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]         }
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]       }
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]     }
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus]   })
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] })
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188479       1 envvar.go:195] "Feature gate default state" feature="WatchListClient" enabled=true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188501       1 envvar.go:195] "Feature gate default state" feature="ClientsAllowCBOR" enabled=false
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188506       1 envvar.go:195] "Feature gate default state" feature="InformerResourceVersion" enabled=true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188511       1 envvar.go:195] "Feature gate default state" feature="ClientsAllowCARotation" enabled=true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188515       1 envvar.go:195] "Feature gate default state" feature="ClientsPreferCBOR" enabled=false
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188523       1 envvar.go:195] "Feature gate default state" feature="UnlockWhileProcessingFIFO" enabled=true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188529       1 envvar.go:195] "Feature gate default state" feature="ClientsAllowTLSCacheGC" enabled=true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188535       1 envvar.go:195] "Feature gate default state" feature="InOrderInformersBatchProcess" enabled=true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188541       1 envvar.go:195] "Feature gate default state" feature="InOrderInformers" enabled=true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.188546       1 envvar.go:195] "Feature gate default state" feature="AtomicFIFO" enabled=true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.189132       1 util.go:68] Started debug signal handler(s)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.210456       1 device_state.go:130] Using devRoot=/driver-root
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.210518       1 root.go:92] Skipping candidate "/driver-root/libnvidia-ml.so.1": error resolving link "/driver-root/libnvidia-ml.so.1": lstat /driver-root/libnvidia-ml.so.1: no such file or directory
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.210544       1 root.go:92] Skipping candidate "/driver-root/usr/lib64/libnvidia-ml.so.1": error resolving link "/driver-root/usr/lib64/libnvidia-ml.so.1": lstat /driver-root/usr/lib64/libnvidia-ml.so.1: no such file or directory
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.210556       1 prometheus_httpserver.go:78] "Starting metrics HTTP server" endpoint=":8080" path="/metrics"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.210597       1 root.go:92] Skipping candidate "/driver-root/nvidia-smi": error resolving link "/driver-root/nvidia-smi": lstat /driver-root/nvidia-smi: no such file or directory
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.210632       1 root.go:92] Skipping candidate "/driver-root/opt/bin/nvidia-smi": error resolving link "/driver-root/opt/bin/nvidia-smi": lstat /driver-root/opt/bin: no such file or directory
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.210671       1 nvlib.go:230] Traverse GPU devices
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.210677       1 nvlib.go:190] Initializing NVML
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.222265       1 nvlib.go:201] t_nvml_init 0.012 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.229612       1 numa.go:42] NUMA node unavailable for PCI bus ID 0000:00:1e.0, continuing without attribute: PCI device 0000:00:1e.0 has no NUMA affinity (numa_node=-1); do not publish the numaNode attribute for it
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.233144       1 nvlib.go:336] Adding device gpu-0 to allocatable devices
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.233161       1 allocatable.go:270] Adding allocatables for PCI bus ID: 0000:00:1e.0
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.233166       1 nvlib.go:171] Call NVML shutdown
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.234709       1 device_state.go:148] Muting CDI logger (verbosity is smaller 7: 6)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.244294       1 device_state.go:183] Warming up CDI device spec cache for GPUs [GPU-d29ddd29-1091-e95c-bef8-f4d3fb645b71]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.280868       1 cdi.go:167] GetDeviceSpecsByID() called for GPU-d29ddd29-1091-e95c-bef8-f4d3fb645b71, t_cdi_get_device_specs_by_id 0.037 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281199       1 draplugin.go:988] "Starting"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281319       1 draplugin.go:1066] "registering v1.DRAPlugin gRPC service"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281339       1 draplugin.go:1071] "registering v1beta1.DRAPlugin gRPC service"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281354       1 nonblockinggrpcserver.go:90] "GRPC server started" logger="dra" endpoint="/var/lib/kubelet/plugins/gpu.nvidia.com/dra.sock"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281537       1 nonblockinggrpcserver.go:90] "GRPC server started" logger="registrar" endpoint="/var/lib/kubelet/plugins_registry/gpu.nvidia.com-reg.sock"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281623       1 health.go:69] connecting to registration socket path=unix:///var/lib/kubelet/plugins_registry/gpu.nvidia.com-reg.sock
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281741       1 health.go:82] connecting to DRA socket path=unix:///var/lib/kubelet/plugins/gpu.nvidia.com/dra.sock
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281786       1 cleanup.go:80] CheckpointCleanupManager started
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281796       1 health.go:103] starting healthcheck service at [::]:51516
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281812       1 driver.go:519] About to announce device gpu-0
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281883       1 resourceslicecontroller.go:675] "Starting ResourceSlice informer and waiting for it to sync" logger="ResourceSlice controller"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.281983       1 reflector.go:425] "Starting reflector" logger="ResourceSlice controller" type="*v1.ResourceSlice" resyncPeriod="0s" reflector="k8s.io/dynamic-resource-allocation/resourceslice/resourceslicecontroller.go:681"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.282001       1 reflector.go:472] "Listing and watching" logger="ResourceSlice controller" type="*v1.ResourceSlice" reflector="k8s.io/dynamic-resource-allocation/resourceslice/resourceslicecontroller.go:681"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.282021       1 cleanup.go:125] Checkpointed RC cleanup: claims in PrepareStarted state: 0 (of 0)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.287732       1 round_trippers.go:632] "Response" logger="ResourceSlice controller" verb="GET" url="https://10.96.0.1:443/apis/resource.k8s.io/v1/resourceslices?allowWatchBookmarks=true&fieldSelector=spec.driver%3Dgpu.nvidia.com%2Cspec.nodeName%3Ddra-session-worker&resourceVersionMatch=NotOlderThan&sendInitialEvents=true&timeout=9m37s&timeoutSeconds=577&watch=true" status="200 OK" milliseconds=5
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.287854       1 resourceslicecontroller.go:606] "Started watching ResourceSlices" logger="ResourceSlice controller" resourceAPI="V1" err=null
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.288051       1 reflector.go:1080] "Exiting watch because received the bookmark that marks the end of initial events stream" logger="ResourceSlice controller" reflector="k8s.io/dynamic-resource-allocation/resourceslice/resourceslicecontroller.go:681" totalItems=2 duration="6.033076ms"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.288132       1 reflector.go:507] "Caches populated" logger="ResourceSlice controller" type="*v1.ResourceSlice" reflector="k8s.io/dynamic-resource-allocation/resourceslice/resourceslicecontroller.go:681"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.288255       1 resourceslicecontroller.go:630] "ResourceSlice add" logger="ResourceSlice controller" slice="00000-gpu.nvidia.com-dra-session-worker-9qvwr"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.288297       1 resourceslicecontroller.go:633] "Scheduled sync" logger="ResourceSlice controller" poolName="dra-session-worker" at="2026-11-19 08:20:46.288293712 +0000 UTC m=+30.116051686"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.452453       1 nonblockinggrpcserver.go:150] "handling request" logger="registrar" requestID=1 method="/pluginregistration.Registration/GetInfo" request=""
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.452538       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="registrar" requestID=1 method="/pluginregistration.Registration/GetInfo" response="type:\"DRAPlugin\" name:\"gpu.nvidia.com\" endpoint:\"/var/lib/kubelet/plugins/gpu.nvidia.com/dra.sock\" supported_versions:\"v1.DRAPlugin\" supported_versions:\"v1beta1.DRAPlugin\""
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.453148       1 nonblockinggrpcserver.go:150] "handling request" logger="registrar" requestID=2 method="/pluginregistration.Registration/NotifyRegistrationStatus" request="plugin_registered:true"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:16.453205       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="registrar" requestID=2 method="/pluginregistration.Registration/NotifyRegistrationStatus" response=""
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.282083       1 resourceslicecontroller.go:690] "ResourceSlice informer has synced" logger="ResourceSlice controller"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.282178       1 resourceslicecontroller.go:233] "Starting" logger="ResourceSlice controller"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.282206       1 driver.go:210] Current kubelet plugin registration status: plugin_registered:true
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.284292       1 round_trippers.go:632] "Response" logger="ResourceSlice controller" poolName="dra-session-worker" verb="GET" url="https://10.96.0.1:443/api/v1/nodes/dra-session-worker" status="200 OK" milliseconds=1
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.284523       1 resourceslicecontroller.go:811] "Matched existing slice by index" logger="ResourceSlice controller" poolName="dra-session-worker" slice="00000-gpu.nvidia.com-dra-session-worker-9qvwr" matchIndex=0
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.284607       1 resourceslicecontroller.go:846] "Completed comparison" logger="ResourceSlice controller" poolName="dra-session-worker" numObsolete=0 numMatchedSlices=1 numChangedMatchedSlices=0 numNewSlices=0
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.284628       1 resourceslicecontroller.go:862] "Kept generation because at most one update API call is necessary" logger="ResourceSlice controller" poolName="dra-session-worker" generation=1
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.701249       1 nonblockinggrpcserver.go:150] "handling request" logger="registrar" requestID=3 method="/pluginregistration.Registration/GetInfo" request=""
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.701307       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="registrar" requestID=3 method="/pluginregistration.Registration/GetInfo" response="type:\"DRAPlugin\" name:\"gpu.nvidia.com\" endpoint:\"/var/lib/kubelet/plugins/gpu.nvidia.com/dra.sock\" supported_versions:\"v1.DRAPlugin\" supported_versions:\"v1beta1.DRAPlugin\""
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.702029       1 nonblockinggrpcserver.go:150] "handling request" logger="dra" requestID=4 method="/k8s.io.kubelet.pkg.apis.dra.v1beta1.DRAPlugin/NodePrepareResources" request=""
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:17.702121       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="dra" requestID=4 method="/k8s.io.kubelet.pkg.apis.dra.v1beta1.DRAPlugin/NodePrepareResources" response=""
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.144196       1 nonblockinggrpcserver.go:150] "handling request" logger="dra" requestID=5 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" request="claims:{namespace:\"default\" uid:\"f86579e2-e8e9-40ab-b5a5-30deb2875979\" name:\"pod-timeslicing-gpu-wskdl\"}"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.145799       1 round_trippers.go:632] "Response" logger="dra" requestID=5 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/apis/resource.k8s.io/v1/namespaces/default/resourceclaims/pod-timeslicing-gpu-wskdl" status="200 OK" milliseconds=1
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.145926       1 driver.go:379] Prepare called for: [default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.145984       1 driver.go:429] t_prep_lock_acq 0.000 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.145995       1 device_state.go:295] t_prep_state_lock_acq 0.000 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.174207       1 device_state.go:904] t_checkpoint_update_total 0.003 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.174239       1 device_state.go:360] t_prep_update_checkpoint 0.003 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.174246       1 device_state.go:361] checkpoint updated for claim f86579e2-e8e9-40ab-b5a5-30deb2875979
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.174253       1 device_state.go:975] Preparing devices for claim default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.174393       1 device_state.go:1387] SetTimeSlice() for full GPUs with UUIDs: [GPU-d29ddd29-1091-e95c-bef8-f4d3fb645b71]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.219073       1 device_state.go:1123] Prepared device for claim 'default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979': gpu-0
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.219126       1 device_state.go:365] t_prep_core 0.045 s (claim default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.220050       1 cdi.go:400] Writing CDI spec 'k8s.gpu.nvidia.com-claim_f86579e2-e8e9-40ab-b5a5-30deb2875979' for claim 'f86579e2-e8e9-40ab-b5a5-30deb2875979'
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.227690       1 device_state.go:904] t_checkpoint_update_total 0.006 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.227748       1 device_state.go:401] checkpoint updated for claim f86579e2-e8e9-40ab-b5a5-30deb2875979
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.227764       1 driver.go:434] t_prep 0.082 s (claim default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.227783       1 driver.go:453] Returning newly prepared devices for claim 'default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979': [{[gpu] dra-session-worker gpu-0 [k8s.gpu.nvidia.com/claim=f86579e2-e8e9-40ab-b5a5-30deb2875979-gpu-0] <nil> <nil>}]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:20.227838       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="dra" requestID=5 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" response="claims:{key:\"f86579e2-e8e9-40ab-b5a5-30deb2875979\" value:{devices:{request_names:\"gpu\" pool_name:\"dra-session-worker\" device_name:\"gpu-0\" cdi_device_ids:\"k8s.gpu.nvidia.com/claim=f86579e2-e8e9-40ab-b5a5-30deb2875979-gpu-0\"}}}"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.184937       1 nonblockinggrpcserver.go:150] "handling request" logger="dra" requestID=6 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodeUnprepareResources" request="claims:{namespace:\"default\" uid:\"f86579e2-e8e9-40ab-b5a5-30deb2875979\" name:\"pod-timeslicing-gpu-wskdl\"}"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.185035       1 driver.go:392] Unprepare called for: [default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.185082       1 driver.go:469] t_unprep_lock_acq 0.000 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.185128       1 device_state.go:502] Unprepare() for claim 'default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979'
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.185653       1 device_state.go:1139] Unpreparing claim 'f86579e2-e8e9-40ab-b5a5-30deb2875979', previously prepared devices from checkpoint: [gpu-0]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.185677       1 device_state.go:1154] Unprepare: regular GPU: noop (GPU gpu-0-GPU-d29ddd29-1091-e95c-bef8-f4d3fb645b71)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.229204       1 cdi.go:422] Delete CDI spec file: 'k8s.gpu.nvidia.com-claim_f86579e2-e8e9-40ab-b5a5-30deb2875979', claim 'f86579e2-e8e9-40ab-b5a5-30deb2875979'
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.233247       1 device_state.go:904] t_checkpoint_update_total 0.004 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.233278       1 device_state.go:916] Deleted claim from checkpoint: default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.233285       1 driver.go:474] t_unprep 0.048 s (claim default/pod-timeslicing-gpu-wskdl:f86579e2-e8e9-40ab-b5a5-30deb2875979)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:22.233320       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="dra" requestID=6 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodeUnprepareResources" response="claims:{key:\"f86579e2-e8e9-40ab-b5a5-30deb2875979\" value:{}}"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.912117       1 nonblockinggrpcserver.go:150] "handling request" logger="dra" requestID=7 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" request="claims:{namespace:\"default\" uid:\"c70351a7-978f-42a4-836d-5e19850dc47c\" name:\"pod-mps-gpu-gv44h\"}"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.913931       1 round_trippers.go:632] "Response" logger="dra" requestID=7 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/apis/resource.k8s.io/v1/namespaces/default/resourceclaims/pod-mps-gpu-gv44h" status="200 OK" milliseconds=1
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.914049       1 driver.go:379] Prepare called for: [default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.914127       1 driver.go:429] t_prep_lock_acq 0.000 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.914140       1 device_state.go:295] t_prep_state_lock_acq 0.000 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.917715       1 device_state.go:904] t_checkpoint_update_total 0.003 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.917745       1 device_state.go:360] t_prep_update_checkpoint 0.004 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.917754       1 device_state.go:361] checkpoint updated for claim c70351a7-978f-42a4-836d-5e19850dc47c
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.917761       1 device_state.go:975] Preparing devices for claim default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.919238       1 round_trippers.go:632] "Response" logger="dra" requestID=7 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/apis/apps/v1/namespaces/dra-driver-nvidia-gpu/deployments/mps-control-daemon-c70351a7-978f-42a4-836d-5e19850dc47c-77c85" status="404 Not Found" milliseconds=1
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.919359       1 sharing.go:228] Starting MPS control daemon for 'c70351a7-978f-42a4-836d-5e19850dc47c-77c85', with settings: &{DefaultActiveThreadPercentage:0x2ee600d2fdb8 DefaultPinnedDeviceMemoryLimit:10Gi DefaultPerDevicePinnedMemoryLimit:map[] MultiUser:<nil>}
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.926188       1 mount_linux.go:326] 'umount /tmp/kubelet-detect-safe-umount2403197759' failed with: exit status 1, output: umount: can't unmount /tmp/kubelet-detect-safe-umount2403197759: Invalid argument
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.926219       1 mount_linux.go:328] Detected umount with unsafe 'not mounted' behavior
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.926424       1 mount_linux.go:284] Detected OS without systemd
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.926439       1 mount_linux.go:259] Mounting cmd (mount) with arguments ( -t tmpfs -o rw,nosuid,nodev,noexec,relatime,size=8083476k shm /var/lib/kubelet/plugins/gpu.nvidia.com/mps/c70351a7-978f-42a4-836d-5e19850dc47c-77c85/shm)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.957115       1 round_trippers.go:632] "Response" logger="dra" requestID=7 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="POST" url="https://10.96.0.1:443/apis/apps/v1/namespaces/dra-driver-nvidia-gpu/deployments" status="201 Created" milliseconds=6
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:23.963393       1 round_trippers.go:632] "Response" logger="dra" requestID=7 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/apis/apps/v1/namespaces/dra-driver-nvidia-gpu/deployments/mps-control-daemon-c70351a7-978f-42a4-836d-5e19850dc47c-77c85" status="200 OK" milliseconds=5
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:25.892212       1 round_trippers.go:632] "Response" logger="dra" requestID=7 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/apis/apps/v1/namespaces/dra-driver-nvidia-gpu/deployments/mps-control-daemon-c70351a7-978f-42a4-836d-5e19850dc47c-77c85" status="200 OK" milliseconds=1
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.791487       1 round_trippers.go:632] "Response" logger="dra" requestID=7 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/apis/apps/v1/namespaces/dra-driver-nvidia-gpu/deployments/mps-control-daemon-c70351a7-978f-42a4-836d-5e19850dc47c-77c85" status="200 OK" milliseconds=2
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.794933       1 round_trippers.go:632] "Response" logger="dra" requestID=7 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/api/v1/namespaces/dra-driver-nvidia-gpu/pods?labelSelector=app%3Dmps-control-daemon-c70351a7-978f-42a4-836d-5e19850dc47c-77c85" status="200 OK" milliseconds=2
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.795273       1 device_state.go:1123] Prepared device for claim 'default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c': gpu-0
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.795298       1 device_state.go:365] t_prep_core 5.878 s (claim default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.796046       1 cdi.go:400] Writing CDI spec 'k8s.gpu.nvidia.com-claim_c70351a7-978f-42a4-836d-5e19850dc47c' for claim 'c70351a7-978f-42a4-836d-5e19850dc47c'
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.803008       1 device_state.go:904] t_checkpoint_update_total 0.006 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.803052       1 device_state.go:401] checkpoint updated for claim c70351a7-978f-42a4-836d-5e19850dc47c
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.803061       1 driver.go:434] t_prep 5.889 s (claim default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.803071       1 driver.go:453] Returning newly prepared devices for claim 'default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c': [{[gpu] dra-session-worker gpu-0 [k8s.gpu.nvidia.com/claim=c70351a7-978f-42a4-836d-5e19850dc47c-gpu-0] <nil> <nil>}]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:29.803129       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="dra" requestID=7 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" response="claims:{key:\"c70351a7-978f-42a4-836d-5e19850dc47c\" value:{devices:{request_names:\"gpu\" pool_name:\"dra-session-worker\" device_name:\"gpu-0\" cdi_device_ids:\"k8s.gpu.nvidia.com/claim=c70351a7-978f-42a4-836d-5e19850dc47c-gpu-0\"}}}"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.224437       1 nonblockinggrpcserver.go:150] "handling request" logger="dra" requestID=8 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodeUnprepareResources" request="claims:{namespace:\"default\" uid:\"c70351a7-978f-42a4-836d-5e19850dc47c\" name:\"pod-mps-gpu-gv44h\"}"
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.225298       1 driver.go:392] Unprepare called for: [default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.225352       1 driver.go:469] t_unprep_lock_acq 0.000 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.225363       1 device_state.go:502] Unprepare() for claim 'default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c'
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.226388       1 device_state.go:1139] Unpreparing claim 'c70351a7-978f-42a4-836d-5e19850dc47c', previously prepared devices from checkpoint: [gpu-0]
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.226410       1 device_state.go:1154] Unprepare: regular GPU: noop (GPU gpu-0-GPU-d29ddd29-1091-e95c-bef8-f4d3fb645b71)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.226435       1 sharing.go:434] Stopping MPS control daemon for 'c70351a7-978f-42a4-836d-5e19850dc47c-77c85'
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.232648       1 round_trippers.go:632] "Response" logger="dra" requestID=8 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodeUnprepareResources" verb="DELETE" url="https://10.96.0.1:443/apis/apps/v1/namespaces/dra-driver-nvidia-gpu/deployments/mps-control-daemon-c70351a7-978f-42a4-836d-5e19850dc47c-77c85" status="200 OK" milliseconds=6
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.259039       1 mount_linux.go:326] 'umount /tmp/kubelet-detect-safe-umount1490532778' failed with: exit status 1, output: umount: can't unmount /tmp/kubelet-detect-safe-umount1490532778: Invalid argument
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.259063       1 mount_linux.go:328] Detected umount with unsafe 'not mounted' behavior
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.259212       1 mount_helper_common.go:107] "/var/lib/kubelet/plugins/gpu.nvidia.com/mps/c70351a7-978f-42a4-836d-5e19850dc47c-77c85/shm" is a mountpoint, unmounting
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.259272       1 mount_linux.go:401] Unmounting /var/lib/kubelet/plugins/gpu.nvidia.com/mps/c70351a7-978f-42a4-836d-5e19850dc47c-77c85/shm
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.260135       1 mount_helper_common.go:142] "/var/lib/kubelet/plugins/gpu.nvidia.com/mps/c70351a7-978f-42a4-836d-5e19850dc47c-77c85/shm" is not a mountpoint, deleting
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.312605       1 cdi.go:422] Delete CDI spec file: 'k8s.gpu.nvidia.com-claim_c70351a7-978f-42a4-836d-5e19850dc47c', claim 'c70351a7-978f-42a4-836d-5e19850dc47c'
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.316873       1 device_state.go:904] t_checkpoint_update_total 0.004 s
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.316904       1 device_state.go:916] Deleted claim from checkpoint: default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.316913       1 driver.go:474] t_unprep 0.092 s (claim default/pod-mps-gpu-gv44h:c70351a7-978f-42a4-836d-5e19850dc47c)
+[pod/dra-driver-nvidia-gpu-kubelet-plugin-cqq68/gpus] I1119 08:20:33.316941       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="dra" requestID=8 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodeUnprepareResources" response="claims:{key:\"c70351a7-978f-42a4-836d-5e19850dc47c\" value:{}}"

@@ -1,0 +1,15 @@
+/cwd/tests/bats/test_gpu_basic.bats	test_GPUs-3a_1_pod-28s-29-2c_1_full_GPU 
+/cwd/tests/bats/test_gpu_basic.bats	test_GPUs-3a_2_pod-28s-29-2c_1_full_GPU_-28shared-2c_1_RC-29 
+/cwd/tests/bats/test_gpu_basic.bats	test_GPUs-3a_1_pod-28s-29-2c_2_cntrs-2c_1_full_GPU_-28shared-2c_1_RCT-29 
+/cwd/tests/bats/test_gpu_basic.bats	test_MockNVML-3a_publishes_NUMA_SLIT_list_in_ResourceSlice 
+/cwd/tests/bats/test_gpu_basic.bats	test_MockNVML-3a_publishes_scalar_NUMA_node_in_ResourceSlice 
+/cwd/tests/bats/test_gpu_robustness.bats	test_GPUs-3a_kubelet-2dplugin_exposes_Prometheus_metrics 
+/cwd/tests/bats/test_gpu_robustness.bats	test_GPUs-3a_ResourceClaim_lifecycle_-e2-80-94_allocated_on_pod_create-2c_released_on_pod_delete 
+/cwd/tests/bats/test_gpu_robustness.bats	test_GPUs-3a_GPU_re-2dacquired_after_pod_delete_and_re-2dcreate 
+/cwd/tests/bats/test_gpu_robustness.bats	test_GPUs-3a_CEL_selector_matches_GPU_by_architecture_attribute 
+/cwd/tests/bats/test_gpu_robustness.bats	test_GPUs-3a_CEL_selector_rejects_non-2dmatching_productName 
+/cwd/tests/bats/test_gpu_robustness.bats	test_GPUs-3a_ResourceSlice_device_count_matches_host_GPU_count 
+/cwd/tests/bats/test_gpu_robustness.bats	test_GPUs-3a_rapid_claim_create-2fdelete_does_not_leak_resources 
+/cwd/tests/bats/test_gpu_robustness.bats	test_MockNVML-3a_incomplete_CDI_edits_fail_preparation_and_are_not_cached 
+/cwd/tests/bats/test_gpu_sharing.bats	test_GPUs-3a_TimeSlicing_-e2-80-94_2_containers_share_GPU_with_Short_interval 
+/cwd/tests/bats/test_gpu_sharing.bats	test_GPUs-3a_MPS_-e2-80-94_2_containers_share_GPU_with_MPS_config 

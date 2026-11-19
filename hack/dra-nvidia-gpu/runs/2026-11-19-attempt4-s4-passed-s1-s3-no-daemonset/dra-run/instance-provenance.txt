@@ -1,0 +1,3 @@
+launch_time_epoch=1795075772
+c050b31cfc9fd6382e68c1f392f10073cb46bb7092f2904307018272e44ba806  /opt/dra/inputs.tgz
+harness_rc=0

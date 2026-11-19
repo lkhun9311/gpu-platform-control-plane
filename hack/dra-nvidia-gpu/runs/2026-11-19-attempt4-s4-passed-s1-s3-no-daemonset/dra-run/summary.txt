@@ -1,0 +1,17 @@
+2026-11-19T08:10:28Z phase cluster: start, bound 840 s
+2026-11-19T08:13:13Z phase cluster: exit 0 after 165 s
+2026-11-19T08:13:14Z worker node dra-session-worker
+2026-11-19T08:13:14Z phase build: start, bound 720 s
+2026-11-19T08:18:02Z phase build: exit 0 after 288 s
+2026-11-19T08:18:03Z phase s4: start, bound 1020 s
+2026-11-19T08:20:34Z phase s4: exit 0 after 151 s
+2026-11-19T08:20:35Z phase s1: start, bound 960 s
+2026-11-19T08:20:36Z phase s1: exit 2 after 1 s
+2026-11-19T08:20:37Z s1 exited 2; the next scenario still runs
+2026-11-19T08:20:37Z phase s2: start, bound 900 s
+2026-11-19T08:20:40Z phase s2: exit 2 after 3 s
+2026-11-19T08:20:41Z s2 exited 2; the next scenario still runs
+2026-11-19T08:20:41Z phase s3: start, bound 360 s
+2026-11-19T08:20:44Z phase s3: exit 2 after 3 s
+2026-11-19T08:20:45Z s3 exited 2; the next scenario still runs
+2026-11-19T08:20:45Z all scenarios done

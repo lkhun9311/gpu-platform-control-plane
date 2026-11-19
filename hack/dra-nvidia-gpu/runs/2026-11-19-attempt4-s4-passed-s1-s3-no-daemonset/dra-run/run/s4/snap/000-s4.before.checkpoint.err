@@ -1,0 +1,2 @@
+cat: /var/lib/kubelet/plugins/gpu.nvidia.com/checkpoint.json: No such file or directory
+the checkpoint could not be read

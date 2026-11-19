@@ -1,0 +1,15 @@
+ok 1 GPUs: 1 pod(s), 1 full GPU in 3753ms
+ok 2 GPUs: 2 pod(s), 1 full GPU (shared, 1 RC) in 5072ms
+ok 3 GPUs: 1 pod(s), 2 cntrs, 1 full GPU (shared, 1 RCT) in 3950ms
+ok 4 MockNVML: publishes NUMA SLIT list in ResourceSlice in 310ms # skip mock NVML only
+ok 5 MockNVML: publishes scalar NUMA node in ResourceSlice in 298ms # skip mock NVML only
+ok 6 GPUs: kubelet-plugin exposes Prometheus metrics in 533ms
+ok 7 GPUs: ResourceClaim lifecycle — allocated on pod create, released on pod delete in 3848ms
+ok 8 GPUs: GPU re-acquired after pod delete and re-create in 6954ms
+ok 9 GPUs: CEL selector matches GPU by architecture attribute in 3222ms
+ok 10 GPUs: CEL selector rejects non-matching productName in 5568ms
+ok 11 GPUs: ResourceSlice device count matches host GPU count in 2348ms
+ok 12 GPUs: rapid claim create/delete does not leak resources in 31053ms
+ok 13 MockNVML: incomplete CDI edits fail preparation and are not cached in 302ms # skip mock NVML only
+ok 14 GPUs: TimeSlicing — 2 containers share GPU with Short interval in 3749ms
+ok 15 GPUs: MPS — 2 containers share GPU with MPS config in 11028ms

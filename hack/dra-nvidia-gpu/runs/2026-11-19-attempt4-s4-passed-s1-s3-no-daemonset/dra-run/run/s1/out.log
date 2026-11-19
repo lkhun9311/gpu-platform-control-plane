@@ -1,0 +1,17 @@
+release "dra-driver-nvidia-gpu-batssuite" uninstalled
+Release "dra-gpu-session" does not exist. Installing it now.
+NAME: dra-gpu-session
+LAST DEPLOYED: Thu Nov 19 08:20:36 2026
+NAMESPACE: dra-driver-nvidia-gpu
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+error: error executing jsonpath "{.items[0].metadata.name}": Error executing template: array index out of bounds: index 0, length 0. Printing more information for debugging the template:
+	template was:
+		{.items[0].metadata.name}
+	object given to jsonpath engine was:
+		map[string]interface {}{"apiVersion":"v1", "items":[]interface {}{}, "kind":"List", "metadata":map[string]interface {}{"resourceVersion":""}}
+
+
+2026-11-19T08:20:36Z no kubelet-plugin DaemonSet
+2026-11-19T08:20:36Z the chart did not install
