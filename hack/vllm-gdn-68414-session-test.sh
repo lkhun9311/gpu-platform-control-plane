@@ -130,6 +130,9 @@ else
   echo "skip pins.txt against a vLLM checkout (set VLLM_SRC to rederive them)"
 fi
 
+check "the session's exit status is gated on #68414's records and verdict alone, never on #68415's" \
+  "[ \"\$(sed -n '/^\\[ \"\\\$TERMINATION\" = confirmed \\] || exit 1\$/,\$p' '$S' | paste -sd'|')\" = '[ \"\$TERMINATION\" = confirmed ] || exit 1|[ \"\$EVIDENCE\" = returned ] || exit 1|grep -qx '\\''verdict=confirmed'\\'' \"\$OUT/verdict.txt\" || exit 2' ]"
+
 # ---------------------------------------------------------------- #68415's pins
 KPINS="$DIR/kda-pins.txt"
 KDAP=vllm/third_party/flash_linear_attention/ops/kda.py
@@ -427,8 +430,10 @@ check "#68415's import check records the imported kda.py, with the bug line and 
   "grep -qx 'kda_file=$WORK/site/$KDA' '$WORK/out-good/kda-before/state.txt' && grep -qx 'fix_grep_rc=1' '$WORK/out-good/kda-before/state.txt' && grep -qx 'bug_grep_rc=0' '$WORK/out-good/kda-before/state.txt' && grep -qx 'fix_grep_rc=0' '$WORK/out-good/kda-after/state.txt' && grep -qx 'bug_grep_rc=1' '$WORK/out-good/kda-after/state.txt'"
 check "the fake run confirms #68415 on its own lines, and #68414's verdict is unchanged beside it" \
   "kda_verdict good | grep -qx 'kda_verdict=confirmed' && kda_verdict good | grep -qx 'kda_before_test=bug-shown' && kda_verdict good | grep -qx 'kda_after_test=passed' && fake_verdict good | grep -qx 'verdict=confirmed' && ! fake_verdict good | grep -q '^kda_'"
-check "the real #68415 verdict refuses the fake run, whose kda.py is not the image's path" \
-  "{ python3 '$KV' '$WORK/out-good' x y; true; } | grep -q '^kda_import_check=wrong-file-before' && ! python3 '$KV' '$WORK/out-good' x y > /dev/null"
+# The real diff hashes go in, so the import check is the only thing that can refuse the run.
+kreal() { python3 "$KV" "$WORK/out-good" "$(sha256sum "$WORK/in/kda-test.diff" | cut -d' ' -f1)" "$(sha256sum "$WORK/in/kda-fix.diff" | cut -d' ' -f1)"; }
+check "the real #68415 verdict refuses the fake run on the import check alone, since its kda.py is not the image's path" \
+  "{ kreal; true; } | grep -q '^kda_import_check=wrong-file-before' && { kreal; true; } | grep -qx 'kda_before_identity=ok' && { kreal; true; } | grep -qx 'kda_verdict=void-import-check' && ! kreal > /dev/null"
 runfake kdastale env FAKE_STALE=1
 check "a #68415 container that kept #68414's edits is refused before anything is applied, and #68414 stays confirmed" \
   "grep -qx 'base_identity=bad' '$WORK/out-kdastale/kda-before/state.txt' && ! grep -q '^pytest_args=' '$WORK/out-kdastale/kda-before/state.txt' && [ \"\$(cat '$WORK/rc-kdastale')\" = 3 ] && kda_verdict kdastale | grep -qx 'kda_verdict=void-identity' && fake_verdict kdastale | grep -qx 'verdict=confirmed'"

@@ -529,9 +529,14 @@ python3 "$KDA_VERDICT" "$SWEEP" "$KDA_TEST_DIFF_SHA256" "$KDA_FIX_DIFF_SHA256" >
 # The #68415 records come after #68414's in the run, so a run that stopped between them returns #68414 whole and #68415 not.
 kda_evidence=missing
 [ "$EVIDENCE" = returned ] && grep -q "kda states done" "$SWEEP/steps.log" 2>/dev/null && kda_evidence=returned
+# A reclaim during #68415 returns only the periodic copy, so the evidence is partial and the exit status says so, as it always has.
+# That copy still holds #68414's records whole when it was taken after #68414's last step, and this line says whether it was.
+gdn_records=incomplete
+grep -q "both states done" "$SWEEP/steps.log" 2>/dev/null && gdn_records=complete
 {
   echo "evidence=$EVIDENCE"
   echo "termination=$TERMINATION"
+  echo "gdn_records=$gdn_records"
   cat "$OUT/verdict.txt"
   echo "kda_evidence=$kda_evidence"
   cat "$OUT/kda-verdict.txt"
