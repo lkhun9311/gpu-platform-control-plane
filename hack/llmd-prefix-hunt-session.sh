@@ -307,11 +307,13 @@ judge() {
   VERDICTS="calib=$(verdict_of calib) bias=$(verdict_of bias) dedup=$(verdict_of dedup) salt=$(verdict_of salt) mm=$(verdict_of mm)"
 }
 verdict_of() { grep -m1 "^$1_verdict=" "$OUT/verdict.txt" 2>/dev/null | cut -d= -f2; }
-# The session succeeds when both hypotheses got a verdict the records support.
+# The session succeeds when both hypotheses got a verdict the records support and the harness reproduced the known #3788 on salted prompts.
 # Confirmed and refuted are both results; void, partial, mixed or empty is not.
+# The multimodal control is reported but does not gate, since it also depends on the renderer, which neither hypothesis uses.
 # A calibration that failed needs no check of its own here, because the verdict then calls every hypothesis void.
 judged() {
   [ "$VERDICT_RC" = 0 ] || return 1
+  [ "$(verdict_of salt)" = reproduced ] || return 1
   for h in bias dedup; do
     case "$(verdict_of "$h")" in confirmed | refuted) ;; *) return 1 ;; esac
   done
