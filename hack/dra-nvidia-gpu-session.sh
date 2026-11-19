@@ -8,11 +8,15 @@
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab DRA_GPU_AMI_ID=ami-... bash hack/dra-nvidia-gpu-session.sh
 #
 # The plan is storage/open-source/contributions/k8s-sigs/dra-driver-nvidia-gpu/gpu-plan.md.
-# It answers on real NVML, with no NVLink or IMEX, what the CPU-only and mock-NVML runs could not:
-#   S4  upstream's own single-GPU bats files (basic, robustness, sharing), so S1-S3 mean something; a failure stops the run
-#   S1  #1278: a PrepareCompleted claim whose pod and claim are deleted while the plugin is down, three times
-#   S2  #1639's trigger: SIGKILL while an MPS claim is in PrepareStarted, then what survives, three times
-#   S3  #1572: two 4Gi claims under ConsumableShares memory mode on one GPU
+# It answers on real NVML, with no NVLink or IMEX, what the CPU-only and mock-NVML runs could not.
+# This session runs two scenarios of #1278:
+#   S1  the control: a PrepareCompleted claim whose pod and claim are deleted normally while the plugin is down, three times
+#   S5  the issue's candidate reproducer: a template-generated claim in PrepareCompleted whose pod and claim are
+#       force-deleted and gone from the API while the plugin is down, up to three times
+# Attempt 5 ran S4 (upstream's bats baseline), S1, S2 (#1639) and S3 (#1572); its S1 never had both objects gone from
+# the API while the plugin was down, which is why S5 exists.
+# S2, S3 and S4 stay in hack/dra-nvidia-gpu and in the runner, and are not shipped or run; runner.sh says why S4 is not
+# needed for S5's validity.
 # The instance runs only hack/dra-nvidia-gpu/runner.sh and its phases, against upstream at a pinned commit.
 # It shares its EC2 lifecycle with the vLLM sessions (hack/lib/spot-run.sh) and is modelled on hack/vllm-67811-session.sh.
 #
@@ -22,27 +26,25 @@
 # The work is bounded phase by phase, and the deadlines are their sum:
 #   boot, cloud-init, inputs, LaunchTime, GPU preflight                   420 s -> 420
 #   cluster: upstream checkout, setup-nvkind-node.sh                      840 s
-#   build: driver image, kind load                                        720 s
-#   S4 bats baseline (runner image and three files)                     1,020 s
+#   build: driver image, kind load, the scenarios' images pulled          720 s
 #   S1 three repetitions                                                  960 s
-#   S2 three repetitions                                                  900 s
-#   S3                                                                    360 s
-#   so the runner ends by 420 + 840 + 720 + 1,020 + 960 + 900 + 360     = 5,220 s
-#   evidence upload                                                       120 s -> 5,340
-# The launch carries the termination sweeper's study-deadline tag at the request plus 5,340 s, rewritten to LaunchTime
-# plus 5,370 s once LaunchTime is known; the instance shuts itself down at 5,400 s, the plan's 90-minute backstop; the
-# termination is to be confirmed by 5,700 s, the plan's 95-minute laptop deadline, which is the sweeper's five-minute
-# period after its tag plus 30 s.
+#   S5 up to three repetitions, or one and a cleanup-interval watch     1,500 s
+#   so the runner ends by 420 + 840 + 720 + 960 + 1,500                 = 4,440 s
+#   evidence upload                                                       120 s -> 4,560
+# The launch carries the termination sweeper's study-deadline tag at the request plus 4,560 s, rewritten to LaunchTime
+# plus 4,590 s once LaunchTime is known; the instance shuts itself down at 4,620 s; the termination is to be confirmed
+# by 4,920 s, which is the sweeper's five-minute period after its tag plus 30 s.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 5,700 s = 1.5833 h.
+# The worst case bills to the termination deadline: 4,920 s = 1.3667 h.
 # The Spot cap is each type's Seoul on-demand price (AWS Price List, 2026-11-18): g6.xlarge $0.9896/h, capped at $0.99;
 # g5.xlarge $1.237/h, capped at $1.24.
 # A 100 GB gp3 volume at Seoul's $0.0912 per GB-month over 730 h is $0.0125/h, and a public IPv4 is $0.005/h: $0.0175/h.
-# The all-in rate is the higher cap plus that, $1.2575/h, whichever type launches, and the worst case is $1.9910.
-# The script refuses to run if the constants below stop giving a worst case under $5, or if the all-in rate is under
+# The all-in rate is the higher cap plus that, $1.2575/h, whichever type launches, and the worst case is $1.7186.
+# The script refuses to run if the constants below stop giving a worst case under $2, or if the all-in rate is under
 # either cap plus the volume and the address.
-# Expected, at 2026-11-18's g5.xlarge Spot of about $0.61/h: 1.5 h x ($0.6115 + $0.0175) = about $0.94.
+# Expected, at 2026-11-18's g5.xlarge Spot of about $0.61/h: attempt 5 ran cluster, build and S1 in 1,118 s, so S5's
+# three repetitions put the run near 0.8 h, about 0.8 h x ($0.6115 + $0.0175) = $0.50; a finding adds up to 10 minutes.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instances, the commit, the phases, the bounds and the stop are
 # constants, and a caller who sets one is refused rather than ignored.
@@ -66,7 +68,7 @@ MAX_PRICE_G5=1.24
 EXTRAS_RATE=0.0175
 # The higher cap plus the extras.
 ALL_IN_RATE=1.2575
-COST_CAP_USD=5.00
+COST_CAP_USD=2.00
 VOLUME_GB=100
 STUDY_ID=dra-nvidia-gpu-single-2026-11-18
 STACK=dra-gpu
@@ -74,7 +76,8 @@ PURPOSE=dra-nvidia-gpu-single
 # The upstream commit the runner checks out; hack/dra-nvidia-gpu-session-test.sh holds the two equal.
 DRA_REPO=https://github.com/kubernetes-sigs/dra-driver-nvidia-gpu
 DRA_COMMIT=e775fdb63e593a121b40fc1cc4c9a9c89955e635
-# Every upstream file a phase runs or reads; each is checked to exist at the commit before anything is bought.
+# Every upstream file a phase of the runner runs or reads, the unshipped S2-S4 included; each is checked to exist at
+# the commit before anything is bought.
 UPSTREAM_PATHS="hack/ci/gcp-nvkind/lib/setup-nvkind-node.sh
 hack/ci/gcp-nvkind/lib/nvkind-config.yaml.tmpl
 deployments/container/Makefile
@@ -86,17 +89,16 @@ tests/bats/test_gpu_sharing.bats
 tests/bats/lib/lambda/nvmm
 demo/specs/quickstart/v1/gpu-test-mps.yaml"
 RUNNER_DIR=hack/dra-nvidia-gpu
-PHASES="cluster build s4 s1 s2 s3"
+# The cluster, the build, then the runner's SCENARIOS; the offline test holds the two equal.
+PHASES="cluster build s1 s5"
 # The phase bounds, each the runner's own; the offline test holds the two equal.
 BOOT_S=420
 CLUSTER_S=840
 BUILD_S=720
-S4_S=1020
 S1_S=960
-S2_S=900
-S3_S=360
+S5_S=1500
 EVIDENCE_UPLOAD_S=120
-HARNESS_END_S=$(( BOOT_S + CLUSTER_S + BUILD_S + S4_S + S1_S + S2_S + S3_S ))
+HARNESS_END_S=$(( BOOT_S + CLUSTER_S + BUILD_S + S1_S + S5_S ))
 EVIDENCE_S=$(( HARNESS_END_S + EVIDENCE_UPLOAD_S ))
 TAG_AT_LAUNCH_S=$EVIDENCE_S
 TAG_FROM_LAUNCH_S=$(( EVIDENCE_S + 30 ))
@@ -145,7 +147,7 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>&1) || fai
 [ "$ACCOUNT" = "$ACCOUNT_WANT" ] || fail "the credentials are for account $ACCOUNT; paid sessions run only in gpu-lab ($ACCOUNT_WANT)"
 [ ! -e "$OUT" ] || fail "$OUT already exists; each session writes a new directory"
 mkdir -p "$OUT" || fail "cannot create $OUT"
-say "dra-driver-nvidia-gpu S4, S1, S2, S3 for $STUDY_ID, from $COMMIT, into $OUT"
+say "dra-driver-nvidia-gpu phases $PHASES for $STUDY_ID, from $COMMIT, into $OUT"
 say "hard stop $STOP_FROM_LAUNCH_S s after LaunchTime; worst case $TERMINATION_S s at \$$ALL_IN_RATE/h = \$$WORST_USD"
 
 # The upstream commit is fetched here first, so a commit GitHub does not serve, or a file it lacks, costs nothing.
@@ -448,18 +450,21 @@ else
   done
 fi
 phase_rc() { awk -F'\t' -v p="$1" '$1 == p {print $2}' "$RUN/summary.tsv" 2>/dev/null | tail -1; }
-S4_RC=$(phase_rc s4)
 {
   echo "evidence=$EVIDENCE"
   echo "termination=$TERMINATION"
   for ph in $PHASES; do echo "$ph=$(phase_rc "$ph")"; done
 } >"$OUT/outcome.txt"
 [ ! -s "$OUT/dra-run/summary.txt" ] || cat "$OUT/dra-run/summary.txt"
-say "evidence $EVIDENCE in $RUN; termination $TERMINATION; phases: $(grep -E '^(cluster|build|s[1-4])=' "$OUT/outcome.txt" | paste -sd' ')"
+say "evidence $EVIDENCE in $RUN; termination $TERMINATION; phases: $(grep -E '^(cluster|build|s[1-5])=' "$OUT/outcome.txt" | paste -sd' ')"
 [ "$TERMINATION" = confirmed ] || exit 1
 # A paid session whose summary never came back has not delivered what it bought.
 [ "$EVIDENCE" = returned ] || exit 1
-# A rig that failed upstream's own baseline ran nothing else, and says so by its status.
-[ "$S4_RC" = 0 ] || exit 3
-for ph in s1 s2 s3; do [ "$(phase_rc "$ph")" = 0 ] || exit 2; done
+# A rig that failed upstream's own baseline ran nothing else, and says so by its status, when S4 is a phase.
+case " $PHASES " in *" s4 "*) [ "$(phase_rc s4)" = 0 ] || exit 3 ;; esac
+# Every scenario must have exited 0; a missing status, or S5's 4 for an invalid experiment, fails the session.
+for ph in $PHASES; do
+  case $ph in cluster | build) continue ;; esac
+  [ "$(phase_rc "$ph")" = 0 ] || exit 2
+done
 exit 0

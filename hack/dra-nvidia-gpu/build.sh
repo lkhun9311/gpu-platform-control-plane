@@ -21,3 +21,9 @@ kind load docker-image "$IMG" --name "$CLUSTER" >"$D/kind-load.log" 2>&1 || { no
 echo "$IMG" >"$D/image.txt"
 docker image inspect "$IMG" --format '{{.Id}}' >>"$D/image.txt" 2>&1
 note "loaded $IMG"
+
+# S4 used to pull the scenarios' images into the GPU node; without S4 the build does, so no readiness wait is a cold pull.
+# S1 runs ubuntu:22.04, and S5 runs the issue's registry.k8s.io/pause:3.10.
+for img in docker.io/library/ubuntu:22.04 registry.k8s.io/pause:3.10; do
+  timeout "$(left 180)" docker exec "$WORKER" crictl pull "$img" >>"$D/prepull.log" 2>&1 || note "could not pre-pull $img"
+done

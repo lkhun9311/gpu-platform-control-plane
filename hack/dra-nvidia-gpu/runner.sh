@@ -1,17 +1,22 @@
 #!/bin/bash
-# The on-instance part of hack/dra-nvidia-gpu-session.sh: the cluster, the driver build, then S4, S1, S2 and S3.
+# The on-instance part of hack/dra-nvidia-gpu-session.sh: the cluster, the driver build, then the scenarios in SCENARIOS.
 #
 #   runner.sh <dir with the shipped inputs> <out dir> <harness-end epoch>
 #
 # Every phase is its own script with its own bound, and the bounds below are the session script's, which its offline
 # test holds equal.
-# The cluster, the build and S4 each gate everything after them: a rig that fails upstream's own baseline cannot support
-# a claim about S1-S3.
-# S4 also has to come first because it needs a fresh cluster: it runs with SKIP_CLEANUP=true, which skips upstream's
-# cleanup-from-previous-run.sh, and its setup_suite refuses any helm release of the chart.
-# After S1-S3 it could meet stale checkpoint entries and MPS state, the very leftovers they look for and that cleanup
-# exists to remove, so a failure could no longer be told apart from the rig's.
-# S1, S2 and S3 are independent, so one that fails is recorded and the next still runs.
+# The cluster and the build gate everything after them.
+# This session runs S1 as the control and then S5, #1278's force-delete reproducer.
+# S1 comes first because a leak S5 finds holds the node's only GPU, and no claim made after it could prepare.
+# S4, upstream's bats baseline, is not run: S5's validity rests on its own reads (PrepareCompleted, both objects gone
+# from the API while the plugin was down, the plugin back), and S1 in the same run shows kubelet and the plugin
+# completing an unprepare after a plugin outage on this rig, which is closer to S5's question than the bats files.
+# S4 passed on this rig, at this commit, in attempts 4 and 5.
+# S2, S3 and S4 stay runnable: a SCENARIOS that lists S4 must list it first, because it needs a fresh cluster (it runs
+# with SKIP_CLEANUP=true, which skips upstream's cleanup-from-previous-run.sh, and its setup_suite refuses any helm
+# release of the chart), and a failing S4 stops the run, since a rig that fails upstream's own baseline cannot support
+# a claim about the rest.
+# The other scenarios are independent, so one that fails is recorded and the next still runs.
 # They exit 4 when the experiment itself was not valid (a precondition never held), so the session can tell that apart
 # from a valid run, whatever it observed.
 # With UPLOAD_PREFIX set, each phase's evidence leaves the instance as that phase ends, so a Spot reclaim loses at most
@@ -26,6 +31,9 @@ S4_S=1020
 S1_S=960
 S2_S=900
 S3_S=360
+S5_S=1500
+# The scenarios, in the order they run; the session ships exactly these, and its offline test holds the two equal.
+SCENARIOS="s1 s5"
 DRA_REPO=https://github.com/kubernetes-sigs/dra-driver-nvidia-gpu
 # origin/main on 2026-11-18, the commit STATUS.md and #1639's reproduction name.
 DRA_COMMIT=e775fdb63e593a121b40fc1cc4c9a9c89955e635
@@ -85,16 +93,17 @@ say "worker node $WORKER"
 rc=$(phase build "$BUILD_S")
 [ "$rc" = 0 ] || { say "BUILD FAILED; nothing else runs"; exit 2; }
 
-rc=$(phase s4 "$S4_S")
-if [ "$rc" != 0 ]; then
-  say "S4 FAILED (exit $rc): the rig fails upstream's own baseline, so S1, S2 and S3 are not run"
-  { nvidia-smi; nvidia-smi -q; } >"$OUT/nvidia-smi-end.txt" 2>&1
-  exit 3
-fi
-
-for s in s1:"$S1_S" s2:"$S2_S" s3:"$S3_S"; do
-  rc=$(phase "${s%%:*}" "${s#*:}")
-  [ "$rc" = 0 ] || say "${s%%:*} exited $rc; the next scenario still runs"
+case " $SCENARIOS " in *" s4 "*) [ "${SCENARIOS%% *}" = s4 ] || { say "S4 must run first, on a fresh cluster"; exit 2; } ;; esac
+bound_of() { case $1 in s1) echo "$S1_S" ;; s2) echo "$S2_S" ;; s3) echo "$S3_S" ;; s4) echo "$S4_S" ;; s5) echo "$S5_S" ;; *) return 1 ;; esac; }
+for s in $SCENARIOS; do
+  b=$(bound_of "$s") || { say "no bound for scenario $s"; exit 2; }
+  rc=$(phase "$s" "$b")
+  if [ "$s" = s4 ] && [ "$rc" != 0 ]; then
+    say "S4 FAILED (exit $rc): the rig fails upstream's own baseline, so nothing after it is run"
+    { nvidia-smi; nvidia-smi -q; } >"$OUT/nvidia-smi-end.txt" 2>&1
+    exit 3
+  fi
+  [ "$rc" = 0 ] || say "$s exited $rc; the next scenario still runs"
 done
 { nvidia-smi; nvidia-smi -q; } >"$OUT/nvidia-smi-end.txt" 2>&1
 say "all scenarios done"

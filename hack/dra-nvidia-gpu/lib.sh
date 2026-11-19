@@ -56,8 +56,8 @@ step() {
 # cp_state UID echoes the claim's checkpointState in the live checkpoint, "absent" when it has no entry, or "unread".
 cp_state() {
   local j
-  j=$(timeout 20 docker exec "$WORKER" cat "$CP" 2>/dev/null) || { echo unread; return 0; }
-  jq -r --arg u "$1" '.v2.preparedClaims[$u].checkpointState // "absent"' <<<"$j" 2>/dev/null || echo unread
+  j=$(timeout 20 docker exec "$WORKER" cat "$CP" 2>>"$D/checkpoint-read.err") || { echo unread; return 0; }
+  jq -r --arg u "$1" '.v2.preparedClaims[$u].checkpointState // "absent"' <<<"$j" 2>>"$D/checkpoint-read.err" || echo unread
 }
 
 # poll SECONDS INTERVAL CMD... runs CMD until it succeeds or SECONDS (capped by the deadline) pass.
@@ -80,7 +80,8 @@ plugin_ds() {
 }
 plugin_pod() { kubectl get pods -n "$NS" -l "$OWN_PLUGIN_SEL" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}'; }
 # Any release's plugin pod counts, because every release registers the same driver and writes the same checkpoint.
-no_plugin_pod() { [ -z "$(kubectl get pods -n "$NS" -l "$PLUGIN_SEL" -o name 2>/dev/null)" ]; }
+# A failed listing is not an empty one, or an API error would pass for the plugin being down.
+no_plugin_pod() { local o; o=$(kubectl get pods -n "$NS" -l "$PLUGIN_SEL" -o name) && [ -z "$o" ]; }
 slices_published() { [ -n "$(kubectl get resourceslices -o name 2>/dev/null)" ]; }
 # foreign_plugin_gone is true once no plugin pod of any other release is left, terminating or not.
 foreign_plugin_gone() {
