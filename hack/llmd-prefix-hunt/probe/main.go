@@ -136,6 +136,10 @@ type record struct {
 	Error          string  `json:"error,omitempty"`
 	SentUnixNanos  int64   `json:"sent_unix_nanos"`
 	DoneUnixNanos  int64   `json:"done_unix_nanos"`
+	// RenderedTokens and MMFeatures are what the token producer handed the routers for a chat row, so parity can be checked on content and not only on counts.
+	RenderedTokens     []uint32 `json:"rendered_tokens,omitempty"`
+	MMFeatures         any      `json:"mm_features,omitempty"`
+	PredictedUnixNanos int64    `json:"predicted_unix_nanos"`
 	// TapSeq is the last event sequence each pod had published when the prediction was taken.
 	TapSeq map[string]uint64 `json:"tap_seq_at_prediction"`
 	// RouterMetrics are the router's KV-event and index counters when the prediction was taken.
@@ -311,7 +315,7 @@ func pngDataURL(seed uint64, side int) (string, error) {
 	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
-// imageSide gives Qwen2-VL 12x12 patches of 28 pixels, which its 2x2 merge turns into 36 image tokens.
+// imageSide gives Qwen2-VL 24x24 patches of 14 pixels, which its 2x2 merge turns into 144 image tokens, if the processor does not resize it.
 const imageSide = 336
 
 // body builds the request a step sends, the same bytes the router parses and the replica serves.
@@ -524,7 +528,9 @@ func run(ctx context.Context, o options, logw io.Writer) error {
 	// The plan's first request comes only after this wait.
 	time.Sleep(o.subscribeS)
 	meta := map[string]any{"type": "meta", "model": o.model, "seed": o.seed, "reps": o.reps, "flood": o.flood,
-		"block_sizes": o.blockSizes, "pods": o.pods, "render_url": o.renderURL, "started_unix_nanos": time.Now().UnixNano()}
+		"block_sizes": o.blockSizes, "pods": o.pods, "render_url": o.renderURL, "started_unix_nanos": time.Now().UnixNano(),
+		// The counters are process-wide, so the verdict reads end minus start and not the end alone.
+		"router_metrics_start": routerMetrics()}
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		for _, d := range bi.Deps {
 			if d.Path == "github.com/llm-d/llm-d-router" {
@@ -583,7 +589,11 @@ func run(ctx context.Context, o options, logw io.Writer) error {
 		if err := predict(ctx, parser, tokens, routers, o.pods, s, path, raw, o.model, &rec); err != nil {
 			rec.addError("predict", err.Error())
 		}
-		send(ctx, client, target.base()+path, raw, &rec)
+		if s.NoSend {
+			rec.EngineTokens, rec.RealizedCached = -1, -1
+		} else {
+			send(ctx, client, target.base()+path, raw, &rec)
+		}
 		if err := renc.Encode(rec); err != nil {
 			return err
 		}
@@ -642,6 +652,11 @@ func predict(ctx context.Context, parser *openai.OpenAIParser, tokens *tokenizer
 		return errors.New("the token producer left no tokens")
 	}
 	rec.RouterTokens = req.Body.TokenizedRequest.TokenCount()
+	rec.PredictedUnixNanos = time.Now().UnixNano()
+	if s.Kind == "chat" && len(req.Body.TokenizedRequest.Prompts) > 0 {
+		rec.RenderedTokens = req.Body.TokenizedRequest.Prompts[0].TokenIDs
+		rec.MMFeatures = req.Body.TokenizedRequest.Prompts[0].MultiModalFeatures
+	}
 	for _, r := range routers {
 		eps := make([]scheduling.Endpoint, len(pods))
 		for i, p := range pods {

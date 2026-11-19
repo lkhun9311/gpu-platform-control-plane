@@ -37,7 +37,7 @@ func TestPlanShapes(t *testing.T) {
 		}
 	}
 	for _, k := range []string{"calib/shared512/probe", "bias/shared528/probe", "bias/repeat512/probe", "bias/repeat600/probe",
-		"salt/salted512/probe", "mm/image/probe", "dedup/full/pre", "dedup/full/post", "dedup/incremental/post"} {
+		"salt/salted512/probe", "mm/image/probe", "dedup/full/pre", "dedup/full/check", "dedup/incremental/check", "dedup/full/post", "dedup/incremental/post"} {
 		if seen[k] != 1 {
 			t.Errorf("measured row %s appears %d times, want 1", k, seen[k])
 		}
@@ -143,6 +143,22 @@ func check(t *testing.T, got map[string]record, key string, w want) {
 	}
 }
 
+// checkNoSend checks a prediction-only row, which must have sent nothing.
+func checkNoSend(t *testing.T, got map[string]record, key string, w want) {
+	t.Helper()
+	r, ok := got[key]
+	if !ok {
+		t.Errorf("%s: no row", key)
+		return
+	}
+	if r.Status != 0 || r.RealizedCached != -1 || r.EngineTokens != -1 {
+		t.Errorf("%s: a check row was sent (status %d, realized %d)", key, r.Status, r.RealizedCached)
+	}
+	if r.Predictions["r16"]["a"].CachedTokens != w.r16 || r.Predictions["r64"]["a"].CachedTokens != w.r64 {
+		t.Errorf("%s: r16=%d r64=%d, want r16=%d r64=%d", key, r.Predictions["r16"]["a"].CachedTokens, r.Predictions["r64"]["a"].CachedTokens, w.r16, w.r64)
+	}
+}
+
 // TestProbeAgainstFakeVLLM runs the pinned router's producers on the event stream of an engine with vLLM's block and eviction rules.
 // It shows, before anything is bought, what each hypothesis predicts the session will record, through the same code the session runs.
 func TestProbeAgainstFakeVLLM(t *testing.T) {
@@ -150,7 +166,7 @@ func TestProbeAgainstFakeVLLM(t *testing.T) {
 	// Calibration: an aligned shared prefix, where every side agrees.
 	check(t, got, "calib/shared512/probe", want{512, 512, 512})
 	// H1: a prefix ending inside an engine block is credited at the router's 16-token granularity, which the engine cannot serve.
-	check(t, got, "bias/shared528/probe", want{512, 512, 512})
+	check(t, got, "bias/shared528/probe", want{512, 528, 512})
 	check(t, got, "bias/shared544/probe", want{512, 544, 512})
 	check(t, got, "bias/shared560/probe", want{512, 560, 512})
 	// H1: a whole-prompt hit is credited in full, but the engine recomputes the last token and so the whole last block.
@@ -163,6 +179,9 @@ func TestProbeAgainstFakeVLLM(t *testing.T) {
 	check(t, got, "dedup/full/pre", want{1024, 1024, 1024})
 	check(t, got, "dedup/incremental/pre", want{1024, 1024, 1024})
 	// H2: after the engine evicted both, the reused-block reports keep the full-report prefix in the index.
+	// The checks send nothing, so they carry no realized count; the post rows that follow show the engine serves neither.
+	checkNoSend(t, got, "dedup/full/check", want{-1, 1024, 1024})
+	checkNoSend(t, got, "dedup/incremental/check", want{-1, 0, 0})
 	check(t, got, "dedup/full/post", want{0, 1024, 1024})
 	check(t, got, "dedup/incremental/post", want{0, 0, 0})
 	// The fake has no /render, so the chat row records the token producer's failure rather than a prediction.
@@ -174,6 +193,7 @@ func TestProbeAgainstFakeVLLM(t *testing.T) {
 // TestProbeWithoutReports is the control for H2: an engine that sends no reused-block reports leaves nothing stale.
 func TestProbeWithoutReports(t *testing.T) {
 	got := rows(t, false)
+	checkNoSend(t, got, "dedup/full/check", want{-1, 0, 0})
 	check(t, got, "dedup/full/post", want{0, 0, 0})
 	check(t, got, "dedup/incremental/post", want{0, 0, 0})
 }

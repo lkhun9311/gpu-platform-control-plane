@@ -30,6 +30,8 @@ type Step struct {
 	MaxTokens int    `json:"max_tokens"`
 	// Measured marks the rows the verdict reads; the other rows only set up the engine's cache.
 	Measured bool `json:"measured"`
+	// NoSend marks a row that only takes the routers' predictions and sends nothing, so it changes no cache.
+	NoSend bool `json:"no_send,omitempty"`
 }
 
 // Token IDs are drawn from a range of ordinary Qwen2 vocabulary entries.
@@ -75,10 +77,14 @@ func concat(a, b []uint32) []uint32 {
 	return append(append(out, a...), b...)
 }
 
+// warmTail is long enough that the warm prompt fills the engine block holding the prefix's last token.
+// With a shorter tail a 528-token prefix warms only 568 tokens, vLLM caches 512 of them, and the case cannot show what it is for.
+const warmTail = 104
+
 // sharedPair sends prefix+tailA to pod A to warm it, then prefix+tailB to A as the measured row.
 func (p *planner) sharedPair(hyp, cs string, rep, prefixLen int, salt string) {
 	prefix := p.tokens(prefixLen)
-	p.add(Step{Hyp: hyp, Case: cs, Rep: rep, Phase: "warm", Pod: "a", Tokens: concat(prefix, p.tokens(40)), SharedLen: prefixLen + 40, Salt: salt})
+	p.add(Step{Hyp: hyp, Case: cs, Rep: rep, Phase: "warm", Pod: "a", Tokens: concat(prefix, p.tokens(warmTail)), SharedLen: prefixLen + warmTail, Salt: salt})
 	p.add(Step{Hyp: hyp, Case: cs, Rep: rep, Phase: "probe", Pod: "a", Tokens: concat(prefix, p.tokens(40)), SharedLen: prefixLen, Salt: salt, Measured: true})
 }
 
@@ -138,6 +144,15 @@ func BuildPlan(seed uint64, reps, floodPrompts int) []Step {
 		}
 		for i := range floodPrompts {
 			p.add(Step{Hyp: "dedup", Case: fmt.Sprintf("flood%02d", i), Rep: rep, Phase: "flood", Pod: "a", Tokens: p.tokens(floodLen), MaxTokens: 1})
+		}
+		// The checks read both families' predictions before either is sent again, the control first.
+		// The pool processes one pod's events in order, so a control predicted at 0 shows the producer has processed the control's removals and every removal published before them.
+		// The full-report family was evicted before the control, so its check then reads an index that has seen its removals.
+		for _, f := range []struct {
+			cs     string
+			prefix []uint32
+		}{{"incremental", inc}, {"full", full}} {
+			p.add(Step{Hyp: "dedup", Case: f.cs, Rep: rep, Phase: "check", Pod: "a", Tokens: concat(f.prefix, p.tokens(16)), SharedLen: dedupPrefixLen, Measured: true, NoSend: true})
 		}
 		for _, f := range []struct {
 			cs     string
