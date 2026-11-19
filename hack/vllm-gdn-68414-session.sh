@@ -28,7 +28,8 @@
 # `git diff --name-only 3e469e9ffb 545ef08189` lists only recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml, which stride-differs.txt holds.
 # The offline test checks that list against run 3's recorded collection and against the static closure, and each state checks it on the instance: a pytest collection with the run's own selection lists every vllm and tests file it loaded, and a run that loaded one of them is void.
 # The collection shows what pytest imports before any test runs; a module a test imports only while it runs is not in it.
-# It compares paths, not contents, since the image is CI's build of its commit, whose label and wheel hash the runner checks, and the eight files that matter are hashed against git by the pins.
+# It compares paths, not contents: the image is CI's build of its commit, whose label the runner checks and whose wheel hash it records without verifying, and only the eight files that matter are hashed against git by the pins.
+# So what is established is that the image's declared revision has the diff base's tracked code but for the recipe, not that every installed file matches git.
 # The image installs the wheel, copies the checkout's vllm/v1 over the installed package, and moves the checkout's vllm/ aside.
 # So hack/vllm-gdn-68414/lib.sh applies each diff in two parts, vllm/* to the installed package and the rest to the checkout, and records each command and its targets.
 #
@@ -339,10 +340,13 @@ judge() {
   python3 "$STRIDE_VERDICT" "$sweep" "$STRIDE_TEST_DIFF_SHA256" "$STRIDE_FIX_DIFF_SHA256" >"$OUT/stride-verdict.txt" 2>>"$OUT/download-errors.txt"
   # What the PRs quote, from the same records.
   python3 "$PYTEST_SUMMARY" "$sweep" "$STRIDE_TEST_DIFF_SHA256" "$STRIDE_FIX_DIFF_SHA256" >"$OUT/pytest-summary.txt" 2>>"$OUT/download-errors.txt"
+  # The summary is what the PR quotes, so a summary that failed or wrote nothing keeps the session from succeeding.
+  SUMMARY_RC=$?
+  [ -s "$OUT/pytest-summary.txt" ] || SUMMARY_RC=empty
   VERDICTS="stride=$(verdict_of stride)"
 }
 verdict_of() { grep -m1 "^$1_verdict=" "$OUT/$1-verdict.txt" 2>/dev/null | cut -d= -f2; }
-all_confirmed() { [ "$VERDICTS" = "stride=confirmed" ]; }
+all_confirmed() { [ "$VERDICTS" = "stride=confirmed" ] && [ "$SUMMARY_RC" = 0 ]; }
 
 # ---------------------------------------------------------------- refusals, before anything is built or bought
 # The purchase option comes first, because every cost figure below depends on it.
@@ -385,6 +389,7 @@ if [ "${1:-}" = --judge ]; then
   [ -d "${2:-}" ] && [ -d "$OUT" ] || fail "--judge needs a sweep directory and an existing OUT"
   judge "$2"
   echo "verdicts=$VERDICTS"
+  echo "summary_rc=$SUMMARY_RC"
   all_confirmed || exit 2
   exit 0
 fi
@@ -657,6 +662,7 @@ records() { grep -q "$1 states done" "$SWEEP/steps.log" 2>/dev/null && echo comp
   echo "termination=$TERMINATION"
   echo "purchase=$PURCHASE"
   echo "verdicts=$VERDICTS"
+  echo "summary_rc=$SUMMARY_RC"
   echo "stride_records=$(records stride)"
   cat "$OUT/stride-verdict.txt"
 } >"$OUT/outcome.txt"

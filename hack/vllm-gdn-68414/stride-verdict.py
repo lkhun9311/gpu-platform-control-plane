@@ -70,7 +70,7 @@ def cases(path):
 
 
 def evidence(name, st, keys):
-    """None when a state recorded what the PRs quote about it, else what is missing: each call's command, the GPU, the python and the apply command."""
+    """None when a state recorded what the PRs quote about it, else what is missing: each call's command and summary line, the GPU, the python and both apply commands."""
     if st is None:
         return f"{name}-missing"
     for key in keys:
@@ -82,11 +82,19 @@ def evidence(name, st, keys):
         # The command must be the one whose selection the verdict judged, with the flags that put the E lines in the junit.
         if " python3 -m pytest " not in cmd or " -rA --tb=short " not in cmd or not cmd.endswith(f"/{name}/{key}.xml") or not args or args not in cmd.replace("'", ""):
             return f"{name}-{key}-command({cmd or 'unrecorded'})"
+        if not st.get(f"{key}_summary"):
+            return f"{name}-{key}-summary(unrecorded)"
     if "A10G" not in st.get("gpu_name", ""):
         return f"{name}-gpu({st.get('gpu_name', 'unrecorded')})"
     for key in ("python_executable", "python_version", "apply_checkout_cmd"):
         if st.get(key, "unread") in ("", "unread"):
             return f"{name}-{key}(unrecorded)"
+    # The test diff changes nothing under vllm/, and the fix diff changes the two kernels there, which is the apply the PR must quote.
+    site_cmd, site_files = st.get("apply_site_cmd", ""), st.get("apply_site_files", "")
+    if name.endswith("-before") and not site_cmd.startswith("none:"):
+        return f"{name}-apply_site_cmd({site_cmd or 'unrecorded'})"
+    if name.endswith("-after") and (" apply " not in site_cmd or not all(f"/{k}.py" in site_files for k in KERNELS)):
+        return f"{name}-apply_site({site_cmd or 'unrecorded'};{site_files or 'no files'})"
     return None
 
 
@@ -212,8 +220,6 @@ def main(sweep, test_sha, fix_sha):
         verdict = "void-identity"
     elif imp != "ok":
         verdict = "void-import-check"
-    elif ev != "ok":
-        verdict = "void-evidence"
     elif rb.startswith(("wrong-cases", "wrong-args")):
         verdict = "void-before-selection"
     elif rb.startswith("other-failure"):
@@ -224,6 +230,9 @@ def main(sweep, test_sha, fix_sha):
         verdict = "after-not-passed"
     elif rf != "passed":
         verdict = "after-file-not-passed"
+    # Evidence is judged last, since a run whose results already fail is named by them, and only a run that would be confirmed needs every record the PR quotes.
+    elif ev != "ok":
+        verdict = "void-evidence"
     else:
         verdict = "confirmed"
     lines.append(f"stride_verdict={verdict}")
