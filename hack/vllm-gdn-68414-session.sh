@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# vLLM #68414 (GDN prepare_chunk_indices), before and after the fix: one g5.xlarge Spot instance, one attempt, stopped by itself 3,840 s after launch.
+# vLLM #68414 (GDN prepare_chunk_indices), before and after the fix: one g5.xlarge Spot instance, one attempt, stopped by itself 4,200 s after launch.
 #
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh
 #
 # The runtime session's fix (storage/open-source/contributions/vllm/gdn-chunk-indices-68414) numbers each chunk by its sequence, so a zero-length sequence keeps its id and the chunks after it stop reading its bounds.
 # The reporter's kernel_repro.py shows the bug only on a GPU, and this session runs it twice.
-# BEFORE: vLLM main 8700cc9ba0 unpatched, where kernel_repro.py must print 70 unwritten rows and a NaN state error.
+# BEFORE: vLLM main 8700cc9ba0 unpatched, where kernel_repro.py must print 70 unwritten rows; the reporter's state error was NaN, and the verdict records whether it is.
 # AFTER: the same commit with fix.diff, where it must print `unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True`.
 # AFTER then runs the diff's new test and the two existing GDN tests, which hack/vllm-gdn-68414/verdict.py expects to skip on sm_86 for their own stated reasons (SM10x only, ROCm only), and records those reasons.
 # fix.diff and kernel_repro.py are copies of the runtime session's, pinned below by sha256.
@@ -31,17 +31,18 @@
 #   bring-up (boot, cloud-init, downloads, toolkit)                         600 s -> 600
 #   image pull (the TPOT run 1 pull took 745 s, the 67811 run 2 pull 1,094 s) 1,500 s
 #   image identity                                                           300 s
-#   BEFORE: setup 120 + as-is 120 + CUDA default 180 + stop 30                450 s
-#   AFTER: setup, as-is and CUDA default 420 + new test 120 + 2 x 120 + 30  810 s
-#   so the runner ends by 600 + 1,500 + 300 + 450 + 810                    = 3,660 s
-#   evidence upload                                                          120 s -> 3,780
-# The launch carries the termination sweeper's study-deadline tag at the request plus 3,780 s, rewritten to LaunchTime plus 3,810 s once LaunchTime is known; the instance shuts itself down at 3,840 s; the termination is to be confirmed by 4,140 s, the sweeper's five-minute period after its tag plus 30 s.
-# The repro and pytest bounds add up to 960 s, the "about 15 minutes of run time" the request set.
+#   BEFORE: setup 120 + as-is 120 + CUDA default 360 + stop 30                630 s
+#   AFTER: setup, as-is and CUDA default 600 + new test 120 + 2 x 120 + 30  990 s
+#   so the runner ends by 600 + 1,500 + 300 + 630 + 990                    = 4,020 s
+#   evidence upload                                                          120 s -> 4,140
+# The launch carries the termination sweeper's study-deadline tag at the request plus 4,140 s, rewritten to LaunchTime plus 4,170 s once LaunchTime is known; the instance shuts itself down at 4,200 s; the termination is to be confirmed by 4,500 s, the sweeper's five-minute period after its tag plus 30 s.
+# The CUDA-default bound is 360 s because the FLA kernels autotune on first use, compiling about a hundred Triton configs in a fresh container.
+# The repro and pytest bounds therefore add up to 1,320 s, above the "about 15 minutes of run time" the request set, which is the expected time rather than the bound.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 4,140 s = 1.15 h.
+# The worst case bills to the termination deadline: 4,500 s = 1.25 h.
 # The rate is the TPOT session's, from the same instance, volume and provisioning: the $0.70/h Spot cap, $0.0324/h for 200 GB gp3 and a public IPv4, and $0.0468/h for 500 MiB/s and 6,000 IOPS.
-# So it is $0.7792/h all in, and $0.8961, under $1.50.
+# So it is $0.7792/h all in, and $0.9740, under $1.50.
 # The script refuses to run if the constants below stop giving a worst case under $1.50.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the diff, the repro, the bounds and the stop are constants, and a caller who sets one is refused rather than ignored.
@@ -76,7 +77,7 @@ PULL_BOUND_S=1500
 IMAGE_ID_S=300
 SETUP_S=120
 ASIS_S=120
-CUDA_S=180
+CUDA_S=360
 UNIT_S=120
 EXIST_S=120
 STOP_S=30

@@ -5,7 +5,7 @@
 
 Prints key=value lines, the import check first, and exits 0 only when the verdict is "confirmed".
 "confirmed" needs every one of these, on the pinned image and pinned trees:
-  - BEFORE's kernel_repro.py shows the bug, 70 unwritten rows and a NaN final state;
+  - BEFORE's kernel_repro.py shows the bug, 70 unwritten rows and a final-state error that is not 0.0;
   - AFTER's kernel_repro.py prints the reporter's fixed line exactly;
   - AFTER's new test passes its five cases;
   - each existing GDN test passes, or skips for the reason an sm_86 GPU is expected to give;
@@ -21,7 +21,7 @@ INDEX = "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_a
 IMAGE_DIGEST = "sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed"
 VLLM_COMMIT = "8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd"
 LINE = re.compile(r"^unwritten (\d+) o_err (\S+) state_err (\S+) empty_keeps_h0 (True|False)$")
-# The reporter's numbers: sequence 3 holds 70 tokens, all unwritten when it reads the empty sequence's bounds.
+# The reporter's numbers: the third sequence holds 70 tokens, all unwritten when its chunks read the empty sequence's bounds.
 BUG_UNWRITTEN = 70
 FIXED_LINE = "unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True"
 UNIT_CASE = re.compile(r"^test_chunk_indices_keep_ids_of_empty_sequences\[.+\]$")
@@ -93,15 +93,27 @@ def parse(line):
     return int(m.group(1)), float(m.group(2)), float(m.group(3)), m.group(4) == "True"
 
 
+def answer_rc(st):
+    """The exit status of the run whose line is the answer, so a run that printed and then crashed or hung is not one."""
+    return st.get("repro_asis_rc" if st.get("repro_mode") == "asis" else "repro_cuda_rc")
+
+
 def before_repro(st):
     if st is None or "repro_line" not in st:
         return "missing"
     p = parse(st["repro_line"])
     if p is None:
         return f"no-result(mode={st.get('repro_mode')})"
+    if answer_rc(st) != "0":
+        return f"exited-{answer_rc(st)}"
     unwritten, _, state_err, _ = p
+    # The 70 unwritten rows are the bug itself.
+    # The state error is read from scratch buffers the buggy chunks never wrote (torch.empty in cumsum.py and wy_fast.py).
+    # So it is NaN in the reporter's run but may be finite garbage in another, and both show the bug; the name records which.
     if unwritten == BUG_UNWRITTEN and math.isnan(state_err):
         return "bug-shown"
+    if unwritten == BUG_UNWRITTEN and state_err != 0.0:
+        return "bug-shown-finite-state"
     if unwritten == 0 and state_err == 0.0:
         return "no-bug"
     return "other"
@@ -114,6 +126,8 @@ def after_repro(st):
     p = parse(line)
     if p is None:
         return f"no-result(mode={st.get('repro_mode')})"
+    if answer_rc(st) != "0":
+        return f"exited-{answer_rc(st)}"
     if line == FIXED_LINE:
         return "fixed"
     unwritten, o_err, state_err, keeps = p
@@ -145,13 +159,16 @@ def existing_result(name, st, tc):
     if tc is None:
         return f"no-junit(rc={rc})"
     n = {o: sum(1 for _, x, _ in tc if x == o) for o in ("passed", "failure", "error", "skipped")}
-    if rc != "0" or n["failure"] or n["error"] or not tc:
+    all_skipped = bool(tc) and n["skipped"] == len(tc)
+    # A file skipped at module level collects no test, and pytest exits 5 for it while still reporting the skip.
+    rc_ok = rc == "0" or (rc == "5" and all_skipped)
+    if not rc_ok or n["failure"] or n["error"] or not tc:
         return f"not-passed(rc={rc},{n['passed']}p,{n['failure']}f,{n['error']}e,{n['skipped']}s)"
-    if n["skipped"] == len(tc):
-        reasons = {m.strip().splitlines()[0] if m.strip() else "" for _, _, m in tc}
-        why = "|".join(sorted(reasons))
-        if all(EXISTING[name] in r for r in reasons):
-            return f"skipped({why})"
+    if all_skipped:
+        # A module-level skip's junit message is only "collection skipped", and its reason is in the element's text.
+        if all(EXISTING[name] in m for _, _, m in tc):
+            return f"skipped({EXISTING[name]})"
+        why = "|".join(sorted({" ".join(m.split())[:160] for _, _, m in tc}))
         return f"skipped-unexpectedly({why})"
     return f"passed({n['passed']}p,{n['skipped']}s)"
 
@@ -204,7 +221,7 @@ def main(sweep, fix_sha, repro_sha):
         verdict = "void-import-check"
     elif mode_b != mode_a:
         verdict = "repro-mode-differs"
-    elif rb != "bug-shown":
+    elif rb not in ("bug-shown", "bug-shown-finite-state"):
         verdict = "before-did-not-reproduce"
     elif ra == "fixed-inexact":
         verdict = "after-fixed-inexact"

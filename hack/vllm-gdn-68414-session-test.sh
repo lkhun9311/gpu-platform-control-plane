@@ -39,11 +39,11 @@ check "every step bound in the session is the runner's own" "[ $same = 1 ]"
 check "the runner bounds BEFORE by setup + as-is + CUDA + stop, and AFTER by those + the new test + two existing tests" \
   "grep -qF 'state before \$(( SETUP_S + ASIS_S + CUDA_S + STOP_S ))' '$R' && grep -qF 'state after \$(( SETUP_S + ASIS_S + CUDA_S + UNIT_S + 2 * EXIST_S + STOP_S ))' '$R'"
 sched=$(bash "$S" --print-schedule 2>&1)
-check "the schedule is the bounds' sum ($sched)" "[ '$sched' = 'harness_end_s=3660 evidence_s=3780 stop_s=3840 termination_s=4140' ]"
-worst=$(python3 -c 'print(f"{4140 / 3600 * 0.7792:.4f}")')
-check "the worst case, 4,140 s at the all-in rate, is \$$worst and under \$1.50" \
+check "the schedule is the bounds' sum ($sched)" "[ '$sched' = 'harness_end_s=4020 evidence_s=4140 stop_s=4200 termination_s=4500' ]"
+worst=$(python3 -c 'print(f"{4500 / 3600 * 0.7792:.4f}")')
+check "the worst case, 4,500 s at the all-in rate, is \$$worst and under \$1.50" \
   "[ \"\$(grep -m1 '^ALL_IN_RATE=' '$S' | cut -d= -f2)\" = 0.7792 ] && [ \"\$(grep -m1 '^COST_CAP_USD=' '$S' | cut -d= -f2)\" = 1.50 ] && python3 -c 'import sys; sys.exit(0 if $worst < 1.5 else 1)'"
-check "the session's header states the same worst case" "grep -qF '\$0.8961, under \$1.50' '$S'"
+check "the session's header states the same worst case" "grep -qF '\$0.9740, under \$1.50' '$S'"
 check "the instance is a g5.xlarge with the reclaimed zone tried last" \
   "grep -qx 'INSTANCE_TYPE_FIXED=g5.xlarge' '$S' && grep -qx 'RECLAIMED_ZONES=\"ap-northeast-2a\"' '$S'"
 cp "$S" "$WORK/costly.sh"; sed -i 's/^ALL_IN_RATE=.*/ALL_IN_RATE=1.40/' "$WORK/costly.sh"
@@ -74,10 +74,10 @@ check "the user-data parses, is under 16 KB, and has no placeholder left" \
   "[ -s '$WORK/ud.sh' ] && bash -n '$WORK/ud.sh' && [ \$(wc -c < '$WORK/ud.sh') -lt 16384 ] && ! grep -q _PLACEHOLDER '$WORK/ud.sh'"
 check "the instance refuses a driver older than 580 before the pull" \
   "grep -q 'PREFLIGHT FAILED: driver' '$WORK/ud.sh' && [ \"\$(grep -n 'PREFLIGHT FAILED: driver' '$WORK/ud.sh' | cut -d: -f1)\" -lt \"\$(grep -n 'runner.sh' '$WORK/ud.sh' | head -1 | cut -d: -f1)\" ]"
-check "the instance arms its 3,840 s backstop before anything else can fail ($first_cmd)" \
-  "[ '${first_cmd#*:}' = '( sleep 3840; shutdown -h now ) &' ] && [ '${first_cmd%%:*}' -lt '$first_aws' ]"
-check "the precise backstop counts from LaunchTime, and the runner ends at LaunchTime + 3,660 s" \
-  "grep -q '( sleep \$(( L + 3840 - ' '$WORK/ud.sh' && grep -q 'HE=\$(( L + 3660 ))' '$WORK/ud.sh' && grep -q 'EV=\$(( L + 3780 ))' '$WORK/ud.sh'"
+check "the instance arms its 4,200 s backstop before anything else can fail ($first_cmd)" \
+  "[ '${first_cmd#*:}' = '( sleep 4200; shutdown -h now ) &' ] && [ '${first_cmd%%:*}' -lt '$first_aws' ]"
+check "the precise backstop counts from LaunchTime, and the runner ends at LaunchTime + 4,020 s" \
+  "grep -q '( sleep \$(( L + 4200 - ' '$WORK/ud.sh' && grep -q 'HE=\$(( L + 4020 ))' '$WORK/ud.sh' && grep -q 'EV=\$(( L + 4140 ))' '$WORK/ud.sh'"
 check "the instance runs this session's runner and returns this session's records" \
   "grep -q 'bash /opt/gdn/in/runner.sh /opt/gdn/in /src/gdn-run/sweep' '$WORK/ud.sh' && ! grep -qE 'tp-run|/opt/tp/' '$WORK/ud.sh'"
 
@@ -244,8 +244,9 @@ if [ "\$1 \$2" = "-m pytest" ]; then
     *test_gdn_forward_core_split.py*)
       msg="GDN _forward_core split test uses the CuteDSL prefill backend (requires CUDA SM10x)."
       [ -z "\${FAKE_CORE_IMPORT_SKIP:-}" ] || msg="could not import 'cutlass': No module named 'cutlass'"
-      echo "<testsuites><testsuite><testcase classname=\"\" name=\"tests.kernels.mamba.test_gdn_forward_core_split\"><skipped type=\"pytest.skip\" message=\"\$msg\">x</skipped></testcase></testsuite></testsuites>" > "\$x"
-      echo "==== 1 skipped in 1.00s ===="; exit 0 ;;
+      # pytest 9.2 measured: a module-level skip of a file run alone exits 5, and junit keeps the reason in the text.
+      echo "<testsuites><testsuite><testcase classname=\"\" name=\"test_gdn_forward_core_split\"><skipped message=\"collection skipped\">('/w/$CORE', 45, 'Skipped: \$msg')</skipped></testcase></testsuite></testsuites>" > "\$x"
+      echo "==== 1 skipped in 1.00s ===="; exit 5 ;;
     *test_gdn_rocm_layout_dispatch.py*)
       if [ -n "\${FAKE_ROCM_FAIL:-}" ]; then
         echo '<testsuites><testsuite><testcase classname="t" name="test_pure_decode_takes_the_fast_path[True]"><failure message="boom">E</failure></testcase></testsuite></testsuites>' > "\$x"
@@ -292,7 +293,7 @@ check "BEFORE runs no pytest, and AFTER runs the new test then the two existing 
 check "the import check records the imported index.py, with the bug line and no fix BEFORE and the reverse AFTER" \
   "grep -qx 'index_file=$WORK/site/$IDX' '$WORK/out-good/before/state.txt' && grep -qx 'fix_grep_rc=1' '$WORK/out-good/before/state.txt' && grep -qx 'bug_grep_rc=0' '$WORK/out-good/before/state.txt' && grep -qx 'fix_grep_rc=0' '$WORK/out-good/after/state.txt' && grep -qx 'bug_grep_rc=1' '$WORK/out-good/after/state.txt' && grep -qx 'repro_index_file=$WORK/site/$IDX' '$WORK/out-good/after/state.txt'"
 check "the fake run, with the bug BEFORE and the fixed line and tests AFTER, is confirmed with the skip reasons recorded" \
-  "fake_verdict good | grep -qx 'verdict=confirmed' && fake_verdict good | grep -qx 'after_core_split=skipped(GDN _forward_core split test uses the CuteDSL prefill backend (requires CUDA SM10x).)' && fake_verdict good | grep -qx 'after_rocm_layout=skipped(ROCm-specific tests)' && fake_verdict good | grep -qx 'repro_mode=cuda-default,cuda-default'"
+  "fake_verdict good | grep -qx 'verdict=confirmed' && fake_verdict good | grep -qx 'core_split_rc=5' '$WORK/out-good/after/state.txt' && fake_verdict good | grep -qx 'after_core_split=skipped(requires CUDA SM10x)' && fake_verdict good | grep -qx 'after_rocm_layout=skipped(ROCm-specific tests)' && fake_verdict good | grep -qx 'repro_mode=cuda-default,cuda-default'"
 check "the real verdict refuses the fake run, whose index.py is not the image's path" \
   "grep -q '^import_check=wrong-file-before' '$WORK/verdict-good.txt' && [ \"\$(cat '$WORK/vrc-good')\" = 2 ]"
 
@@ -319,7 +320,7 @@ check "an existing test that ran and failed is named" \
   "fake_verdict rocmfail | grep -q '^after_rocm_layout=not-passed' && fake_verdict rocmfail | grep -qx 'verdict=after-existing-tests-not-passed'"
 runfake coreimport env FAKE_CORE_IMPORT_SKIP=1
 check "an existing test skipped for a reason other than its own is named, not passed" \
-  "fake_verdict coreimport | grep -q '^after_core_split=skipped-unexpectedly(could not import' && fake_verdict coreimport | grep -qx 'verdict=after-existing-tests-not-passed'"
+  "fake_verdict coreimport | grep -q '^after_core_split=skipped-unexpectedly(.*could not import' && fake_verdict coreimport | grep -qx 'verdict=after-existing-tests-not-passed'"
 runfake timeout env FAKE_PYTEST_TIMEOUT=1
 check "a pytest that timed out is recorded with its 124 and not confirmed" \
   "grep -qx 'unit_rc=124' '$WORK/out-timeout/after/state.txt' && ! fake_verdict timeout | grep -qx 'verdict=confirmed'"
@@ -347,13 +348,14 @@ pass_unit() { local i; echo '<testsuites><testsuite>'
   for i in 0 1 2 3 4; do echo "<testcase classname=\"t\" name=\"test_chunk_indices_keep_ids_of_empty_sequences[seq_lens$i]\"/>"; done
   echo '</testsuite></testsuites>'; }
 fail_unit() { echo '<testsuites><testsuite><testcase classname="t" name="test_chunk_indices_keep_ids_of_empty_sequences[seq_lens0]"><failure message="x">E</failure></testcase></testsuite></testsuites>'; }
+module_skip_xml() { echo "<testsuites><testsuite><testcase classname=\"\" name=\"test_gdn_forward_core_split\"><skipped message=\"collection skipped\">('t.py', 45, 'Skipped: $1')</skipped></testcase></testsuite></testsuites>"; }
 skip_xml() { echo "<testsuites><testsuite><testcase classname=\"t\" name=\"$1\"><skipped type=\"pytest.skip\" message=\"$2\">x</skipped></testcase></testsuite></testsuites>"; }
 case_dir() { # case_dir NAME: writes a confirmed run that each case mutates
   local d="$WORK/vc/$1"; rm -rf "$d"; mkdir -p "$d/before" "$d/after"
   printf 'started=100\ndiff_sha256=none\nrepro_sha256=REPRO\nbase_identity=ok\napply=none\napplied_identity=ok\nindex_file=%s\nfix_grep_rc=1\nbug_grep_rc=0\nrepro_asis_rc=1\nrepro_cuda_rc=0\nrepro_mode=cuda-default\nrepro_index_file=%s\nrepro_line=%s\nended=200\n' "$IX" "$IX" "$BUGGY" > "$d/before/state.txt"
-  printf 'started=300\ndiff_sha256=FIX\nrepro_sha256=REPRO\nbase_identity=ok\napply=ok\napplied_identity=ok\nindex_file=%s\nfix_grep_rc=0\nbug_grep_rc=1\nrepro_asis_rc=1\nrepro_cuda_rc=0\nrepro_mode=cuda-default\nrepro_index_file=%s\nrepro_line=%s\nunit_rc=0\ncore_split_rc=0\nrocm_layout_rc=0\nended=900\n' "$IX" "$IX" "$FIXED" > "$d/after/state.txt"
+  printf 'started=300\ndiff_sha256=FIX\nrepro_sha256=REPRO\nbase_identity=ok\napply=ok\napplied_identity=ok\nindex_file=%s\nfix_grep_rc=0\nbug_grep_rc=1\nrepro_asis_rc=1\nrepro_cuda_rc=0\nrepro_mode=cuda-default\nrepro_index_file=%s\nrepro_line=%s\nunit_rc=0\ncore_split_rc=5\nrocm_layout_rc=0\nended=900\n' "$IX" "$IX" "$FIXED" > "$d/after/state.txt"
   pass_unit > "$d/after/unit.xml"
-  skip_xml tests.kernels.mamba.test_gdn_forward_core_split "GDN _forward_core split test uses the CuteDSL prefill backend (requires CUDA SM10x)." > "$d/after/core_split.xml"
+  module_skip_xml "GDN _forward_core split test uses the CuteDSL prefill backend (requires CUDA SM10x)." > "$d/after/core_split.xml"
   skip_xml "test_pure_decode_takes_the_fast_path[True]" "ROCm-specific tests" > "$d/after/rocm_layout.xml"
   echo '["public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed"] 8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd' > "$d/image-identity.txt"
   echo "abc123  vllm.whl" > "$d/wheel-sha256.txt"
@@ -371,7 +373,12 @@ named() { # named VERDICT DESCRIPTION EDIT: a confirmed run with EDIT applied ge
 }
 named before-did-not-reproduce "BEFORE printed the fixed line" "sed -i 's/^repro_line=.*/repro_line=$FIXED/' before/state.txt"
 named before-did-not-reproduce "BEFORE left 69 rows unwritten" "sed -i 's/^repro_line=unwritten 70/repro_line=unwritten 69/' before/state.txt"
-named before-did-not-reproduce "BEFORE's state error was finite" "sed -i 's/state_err nan/state_err 0.5/' before/state.txt"
+named before-did-not-reproduce "BEFORE left 70 rows unwritten with a zero state error" "sed -i 's/state_err nan/state_err 0.0/' before/state.txt"
+named before-did-not-reproduce "BEFORE's wrapper printed the bug and then timed out" "sed -i 's/^repro_cuda_rc=0/repro_cuda_rc=124/' before/state.txt"
+named before-did-not-reproduce "BEFORE answered as-is and that run then crashed" "sed -i 's/^repro_mode=.*/repro_mode=asis/' before/state.txt after/state.txt"
+named after-not-fixed "AFTER's wrapper printed the fixed line and then exited 1" "sed -i 's/^repro_cuda_rc=0/repro_cuda_rc=1/' after/state.txt"
+named after-existing-tests-not-passed "the core split test exited 5 with nothing collected" "echo '<testsuites><testsuite/></testsuites>' > after/core_split.xml"
+named after-existing-tests-not-passed "the ROCm test exited 5, which only a module-level skip may" "sed -i 's/^rocm_layout_rc=0/rocm_layout_rc=5/' after/state.txt; echo '<testsuites><testsuite><testcase classname=\"t\" name=\"a\"/></testsuite></testsuites>' > after/rocm_layout.xml"
 named before-did-not-reproduce "BEFORE printed no result" "sed -i 's/^repro_line=.*/repro_line=/' before/state.txt"
 named after-not-fixed "AFTER still left rows unwritten" "sed -i 's/^repro_line=.*/repro_line=$BUGGY/' after/state.txt"
 named after-not-fixed "AFTER printed no result" "sed -i 's/^repro_line=.*/repro_line=/' after/state.txt"
@@ -402,6 +409,9 @@ named void-identity "AFTER started before BEFORE ended" "sed -i 's/^started=300/
 named void-identity "the image identity record is missing" "rm image-identity.txt"
 named void-identity "the image was built from another commit" "sed -i 's/ 8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd\$/ 0000000000000000000000000000000000000000/' image-identity.txt"
 named void-identity "the wheel's hash is empty" ": > wheel-sha256.txt"
+d=$(case_dir finite); (cd "$d" && sed -i 's/state_err nan/state_err 0.5/' before/state.txt)
+check "70 unwritten rows with a finite state error still show the bug, and the record says it was not NaN" \
+  "vd '$d' | grep -qx 'before_repro=bug-shown-finite-state' && vd '$d' | grep -qx 'verdict=confirmed'"
 d=$(case_dir ran); (cd "$d" && echo '<testsuites><testsuite><testcase classname="t" name="test_a"/></testsuite></testsuites>' > after/rocm_layout.xml)
 check "an existing test that ran and passed counts as passed" "vd '$d' | grep -qx 'after_rocm_layout=passed(1p,0s)' && vd '$d' | grep -qx 'verdict=confirmed'"
 
