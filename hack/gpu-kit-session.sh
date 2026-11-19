@@ -22,6 +22,8 @@
 #
 # THE COST.
 # The worst case bills to the termination deadline, 4,020 s.
+# It assumes EC2 confirms the termination by then; one that is not confirmed is reported as such, and billing past it is not bounded here.
+# Ten minutes past it would still cost $0.9860, under $1.00.
 # The $0.70/h Spot cap, plus $0.0683/h for 120 GB gp3 with 500 MiB/s and 6,000 IOPS and a public IPv4, is $0.7683/h all in, and $0.8579.
 # The script refuses to run if the constants below stop giving a worst case under $1.00.
 #
@@ -126,7 +128,7 @@ free_gb=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
 cat > /tmp/python.sh <<'PY'
 set -euo pipefail
 # What the AMI has, recorded before anything is installed.
-{ command -v python3.12 || echo "no python3.12 on PATH"; command -v python || echo "no python on PATH"; python3 --version; command -v huggingface-cli hf || true; } > /opt/kit/run/ami-python.txt 2>&1
+{ command -v python3.12 || echo "no python3.12 on PATH"; command -v python || echo "no python on PATH"; python3 --version || true; command -v huggingface-cli hf || true; } > /opt/kit/run/ami-python.txt 2>&1
 cd /opt/kit
 curl -fsSL -o uv.tgz "https://github.com/astral-sh/uv/releases/download/UV_VERSION_PLACEHOLDER/uv-x86_64-unknown-linux-gnu.tar.gz"
 echo "UV_SHA256_PLACEHOLDER  uv.tgz" | sha256sum -c -
@@ -147,7 +149,8 @@ fi
 echo "bring-up exited $bringup_rc"
 { echo "commit=COMMIT_PLACEHOLDER"; echo "launch_time_epoch=$L"; echo "bringup_rc=$bringup_rc"; sha256sum /opt/kit/inputs.tgz; } > "$R/instance-provenance.txt"
 if [ "$bringup_rc" = 0 ]; then
-  # A Spot reclaim gives two minutes, so the records leave the instance within PARTIAL_SYNC_S of being written.
+  # A Spot reclaim gives two minutes, so the records are copied out every cycle.
+  # A cycle is the archive, an upload of up to 60 s and PARTIAL_SYNC_S of sleep, so a reclaim can lose up to one cycle's records.
   ( while :; do
       nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run >>/var/log/gpukit-sync.log 2>&1
       [ $? -le 1 ] && timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz "s3://$BUCKET/$PREFIX/partial.tgz" >>/var/log/gpukit-sync.log 2>&1
@@ -170,11 +173,20 @@ else
   echo "the bring-up did not finish inside its phase (exit $bringup_rc); the kit did not run" | tee "$R/VOID"
 fi
 cp /var/log/gpukit.log "$R/instance.log"
+# The archive and its upload share the evidence phase, and each step gets only the time still left in it.
 left=$(( EV - $(date +%s) )); [ "$left" -gt 5 ] || left=5
-tar --warning=no-file-changed -czf /tmp/evidence.tgz -C /opt/kit run
-[ $? -le 1 ] && timeout "$left" aws s3 cp --only-show-errors /tmp/evidence.tgz "s3://$BUCKET/$PREFIX/evidence.tgz"
+timeout "$left" tar --warning=no-file-changed -czf /tmp/evidence.tgz -C /opt/kit run
+tar_rc=$?
+evidence=failed
+# A failed upload is retried until the phase ends, since DONE ends the instance and its disk with it.
+while [ "$tar_rc" -le 1 ]; do
+  left=$(( EV - $(date +%s) )); [ "$left" -gt 0 ] || break
+  timeout "$left" aws s3 cp --only-show-errors /tmp/evidence.tgz "s3://$BUCKET/$PREFIX/evidence.tgz" && { evidence=uploaded; break; }
+  sleep 5
+done
+echo "evidence_upload=$evidence tar_rc=$tar_rc"
 upload /var/log/gpukit.log log.txt
-echo "RUN_NONCE_PLACEHOLDER" > /tmp/DONE
+echo "RUN_NONCE_PLACEHOLDER evidence=$evidence" > /tmp/DONE
 upload /tmp/DONE DONE
 UD
   sed -e "s|BUCKET_PLACEHOLDER|$2|" -e "s|RUN_ID_PLACEHOLDER|$3|" -e "s|INPUTS_SHA_PLACEHOLDER|$4|" \
@@ -353,8 +365,11 @@ cleanup() {
   [ "$cleanup_ran" = 1 ] && return 0
   cleanup_ran=1
   if [ -n "$LAUNCH_UNCERTAIN" ]; then
-    spot_reconcile_token "$REGION" "$LAUNCH_UNCERTAIN" "$LAUNCH_UNCERTAIN_SUBNET" 6 ||
-      { echo "TERMINATION UNCONFIRMED for the launch under token $LAUNCH_UNCERTAIN" | tee "$OUT/termination.txt" >&2; exit 1; }
+    spot_reconcile_token "$REGION" "$LAUNCH_UNCERTAIN" "$LAUNCH_UNCERTAIN_SUBNET" 6 2>>"$OUT/termination.txt" ||
+      { echo "TERMINATION UNCONFIRMED for the launch under token $LAUNCH_UNCERTAIN" | tee -a "$OUT/termination.txt" >&2; exit 1; }
+    # The lost launch's own instance, if any, was found by its token and terminated, which is not "nothing was launched".
+    echo "the launch under token $LAUNCH_UNCERTAIN lost its answer; every instance under that token was terminated and confirmed" >>"$OUT/termination.txt"
+    return 0
   fi
   [ "$TERMINATION" = confirmed ] && return 0
   if [ "$TERMINATION" = unconfirmed ]; then SPOT_TERMINATE_WAIT=60; SPOT_TERMINATE_TRIES=13; fi
@@ -362,6 +377,8 @@ cleanup() {
     echo "no instance was launched by this session" >"$OUT/termination.txt"
   else
     end_instance
+    # The outcome was written before this retry, so it is brought up to date with the retry's answer.
+    [ ! -f "$OUT/outcome.txt" ] || sed -i "s/^termination=.*/termination=$TERMINATION (after the cleanup retry)/" "$OUT/outcome.txt"
     [ "$TERMINATION" = confirmed ] || exit 1
   fi
 }
@@ -440,5 +457,6 @@ cat "$OUT/outcome.txt"
 say "evidence $EVIDENCE; termination $TERMINATION; run.sh exit ${KIT_RC:-none}"
 [ "$TERMINATION" = confirmed ] || exit 1
 [ "$EVIDENCE" = returned ] || exit 1
+# Exit 0 says run.sh exited 0, not that the kit's experiment succeeded; a kit that swallows its own failures is read from its results.
 [ "${KIT_RC:-}" = 0 ] || exit 2
 exit 0
