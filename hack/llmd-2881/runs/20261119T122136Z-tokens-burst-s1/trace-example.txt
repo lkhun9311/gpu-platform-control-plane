@@ -1,0 +1,35 @@
+12:22:31.103658    other request tokens-burst-s1-00001 released
+12:22:31.103689    other request tokens-burst-s1-00000 released
+12:22:31.105737    other request tokens-burst-s1-00001 PreRequest counted on vllm-d-57646d9d-854p5 (+1 request, +101 tokens)
+12:22:31.105982    other request tokens-burst-s1-00002 released
+12:22:31.106319    other request tokens-burst-s1-00000 PreRequest counted on vllm-d-57646d9d-ftmhn (+1 request, +158 tokens)
+12:22:31.107325    other request tokens-burst-s1-00003 released
+12:22:31.108050    other request tokens-burst-s1-00004 released
+12:22:31.108558    other request tokens-burst-s1-00002 PreRequest counted on vllm-d-57646d9d-mhs9s (+1 request, +90 tokens)
+12:22:31.110114    other request tokens-burst-s1-00003 PreRequest counted on vllm-d-57646d9d-854p5 (+1 request, +223 tokens)
+12:22:31.110712    other request tokens-burst-s1-00004 PreRequest counted on vllm-d-57646d9d-mhs9s (+1 request, +226 tokens)
+12:22:31.111307    other request tokens-burst-s1-00005 released
+12:22:31.111354    other request tokens-burst-s1-00006 released
+12:22:31.113061    other request tokens-burst-s1-00005 PreRequest counted on vllm-d-57646d9d-ftmhn (+1 request, +302 tokens)
+12:22:31.113317    other request tokens-burst-s1-00006 PreRequest counted on vllm-d-57646d9d-854p5 (+1 request, +234 tokens)
+12:22:31.113800    other request tokens-burst-s1-00008 released
+12:22:31.113808    other request tokens-burst-s1-00007 released
+12:22:31.113879    other request tokens-burst-s1-00009 released
+12:22:31.114292  client sends tokens-burst-s1-00010 (incoming tokens 376)
+12:22:31.114686  EPP receives it
+12:22:31.114748  flow control releases it: outcome=Dispatched; rebuilt load per pod (requests, tokens) {'vllm-d-57646d9d-854p5': [3, 558], 'vllm-d-57646d9d-ftmhn': [2, 460], 'vllm-d-57646d9d-mhs9s': [2, 316]}; pool token ratio 0.434, pool request ratio 0.023; pods that fit it ['vllm-d-57646d9d-854p5', 'vllm-d-57646d9d-ftmhn', 'vllm-d-57646d9d-mhs9s']
+12:22:31.114775    other request tokens-burst-s1-00011 released
+12:22:31.116003    other request tokens-burst-s1-00012 released
+12:22:31.116079    other request tokens-burst-s1-00013 released
+12:22:31.117389    other request tokens-burst-s1-00014 released
+12:22:31.117459    other request tokens-burst-s1-00008 PreRequest counted on vllm-d-57646d9d-ftmhn (+1 request, +194 tokens)
+12:22:31.118094    other request tokens-burst-s1-00007 PreRequest counted on vllm-d-57646d9d-mhs9s (+1 request, +432 tokens)
+12:22:31.118429    other request tokens-burst-s1-00015 released
+12:22:31.118447    other request tokens-burst-s1-00016 released
+12:22:31.118448    other request tokens-burst-s1-00017 released
+12:22:31.118606    other request tokens-burst-s1-00009 PreRequest counted on vllm-d-57646d9d-854p5 (+1 request, +416 tokens)
+12:22:31.119550    other request tokens-burst-s1-00018 released
+12:22:31.121447  filter conc/concurrency-detector eliminates all endpoints; rebuilt load {'vllm-d-57646d9d-854p5': [4, 974], 'vllm-d-57646d9d-ftmhn': [3, 654], 'vllm-d-57646d9d-mhs9s': [3, 748]}; pods that fit it []; engine slot free on ['vllm-d-57646d9d-ftmhn', 'vllm-d-57646d9d-mhs9s']
+12:22:31.121481  EPP fails it: inference error: ServiceUnavailable - no endpoints available for the given request
+12:22:31.121943  client receives 503 rejected-no-endpoints
+simulator scrape seen by the filter: [{"pod": "vllm-d-57646d9d-mhs9s", "running": 0, "waiting": 0, "scraped": "2026-11-19T12:22:31.08186203Z"}, {"pod": "vllm-d-57646d9d-ftmhn", "running": 0, "waiting": 0, "scraped": "2026-11-19T12:22:31.094098508Z"}, {"pod": "vllm-d-57646d9d-854p5", "running": 0, "waiting": 0, "scraped": "2026-11-19T12:22:31.066351212Z"}]

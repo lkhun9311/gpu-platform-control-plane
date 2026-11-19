@@ -1,0 +1,1 @@
+-bursts 40 -burst-size 24 -mean-gap 1.5s -window 20ms

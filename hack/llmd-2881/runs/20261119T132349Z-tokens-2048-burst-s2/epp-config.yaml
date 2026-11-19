@@ -1,0 +1,40 @@
+# Sensitivity arm for epp-tokens.yaml: the same config with twice the token budget per endpoint.
+# It asks whether release-then-reject in tokens mode depends on the tight 1024-token budget of the main arm.
+# The loads average about 256 tokens a request, so 1024 tokens and 4 requests are about the same budget per endpoint.
+# The detector is listed as a filter explicitly; the loader would inject it anyway (pkg/epp/config/loader/defaults.go).
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+featureGates:
+- flowControl
+plugins:
+- type: token-producer
+  parameters:
+    modelName: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+    vllm:
+      url: http://vllm-render:8082
+- type: inflight-load-producer
+  parameters:
+    addEstimatedOutputTokens: true
+- name: conc
+  type: concurrency-detector
+  parameters:
+    concurrencyMode: tokens
+    maxTokenConcurrency: 2048
+    headroom: 0
+    failOpen: false
+- type: decode-filter
+- type: active-request-scorer
+- type: max-score-picker
+- type: single-profile-handler
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: conc
+  - pluginRef: active-request-scorer
+  - pluginRef: max-score-picker
+flowControl:
+  maxRequests: "1k"
+  defaultRequestTTL: "60s"
+  saturationDetector:
+    pluginRef: conc

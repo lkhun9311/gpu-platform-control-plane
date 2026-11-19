@@ -1,0 +1,42 @@
+# The #2883 alternative in hybrid mode: the same config as epp-hybrid.yaml except failOpen: true, so when no endpoint fits
+# the filter returns them all and the scorers pick one, over-admitting instead of answering 503.
+# The tokenizer and addEstimatedOutputTokens give each request a token cost: prompt tokens plus its max_tokens.
+# The loads average about 256 tokens a request, so 1024 tokens and 4 requests are about the same budget per endpoint.
+# The detector is listed as a filter explicitly; the loader would inject it anyway (pkg/epp/config/loader/defaults.go).
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+featureGates:
+- flowControl
+plugins:
+- type: token-producer
+  parameters:
+    modelName: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+    vllm:
+      url: http://vllm-render:8082
+- type: inflight-load-producer
+  parameters:
+    addEstimatedOutputTokens: true
+- name: conc
+  type: concurrency-detector
+  parameters:
+    concurrencyMode: hybrid
+    maxConcurrency: 4
+    maxTokenConcurrency: 1024
+    headroom: 0
+    failOpen: true
+- type: decode-filter
+- type: active-request-scorer
+- type: max-score-picker
+- type: single-profile-handler
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: conc
+  - pluginRef: active-request-scorer
+  - pluginRef: max-score-picker
+flowControl:
+  maxRequests: "1k"
+  defaultRequestTTL: "60s"
+  saturationDetector:
+    pluginRef: conc

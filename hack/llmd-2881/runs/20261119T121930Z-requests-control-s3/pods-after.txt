@@ -1,0 +1,7 @@
+NAME                                                        READY   STATUS    RESTARTS   AGE    IP            NODE                             NOMINATED NODE   READINESS GATES
+inference-gateway-istio-7f7d76449b-qqhvj                    1/1     Running   0          22m    10.244.0.11   gpuaas-llmd-2881-control-plane   <none>           <none>
+tinyllama-1-1b-chat-v1-0-endpoint-picker-77457f4df8-xb8l4   1/1     Running   0          2m5s   10.244.0.44   gpuaas-llmd-2881-control-plane   <none>           <none>
+vllm-d-6fd8ccc6b8-cbrns                                     1/1     Running   0          119s   10.244.0.45   gpuaas-llmd-2881-control-plane   <none>           <none>
+vllm-d-6fd8ccc6b8-hc957                                     1/1     Running   0          108s   10.244.0.46   gpuaas-llmd-2881-control-plane   <none>           <none>
+vllm-d-6fd8ccc6b8-m78xm                                     1/1     Running   0          97s    10.244.0.47   gpuaas-llmd-2881-control-plane   <none>           <none>
+vllm-render-66795fcfb6-77dk6                                1/1     Running   0          22m    10.244.0.7    gpuaas-llmd-2881-control-plane   <none>           <none>

@@ -1,0 +1,6 @@
+router commit   e922a7ae2538328d7ad9c87a6f391b7d0fbf313e (https://github.com/llm-d/llm-d-router.git), checkout /home/lkhun9311/.cache/llmd-2881/router at e922a7ae2538328d7ad9c87a6f391b7d0fbf313e
+EPP image       gpuaas-llmd-2881/epp:e922a7ae2538 (LAB_EPP_COMMIT=unset) revision=e922a7ae2538328d7ad9c87a6f391b7d0fbf313e id=sha256:f42ac5de452bb0a6ba37fa6e0ff44f33a96e4596a404d0d0711e5aeecb9ad8b5
+simulator       gpuaas-llmd-kv-lab/sim:6ab9d4b2367a revision=6ab9d4b2367abe9338665368f61b3ff7e5547e4a
+render          vllm/vllm-openai-cpu:v0.31.0 vllm/vllm-openai-cpu@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9
+kind CLI        kind v0.33.0 go1.25.7 linux/amd64
+cluster         gpuaas-llmd-2881, 3 simulator pods, args: --max-num-seqs=4 --time-to-first-token=100ms --inter-token-latency=10ms --enable-request-id-headers
