@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 #
-# Run one GPU kit directory, unmodified, on one g5.xlarge Spot instance (A10G 24 GB), and bring back what it wrote.
+# Run one GPU kit directory, unmodified, on one g5 Spot instance (A10G 24 GB), and bring back what it wrote.
 # A kit is a directory committed in some git repository with a run.sh at its top, which writes its results to $OUT.
 #
-#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab OUT=hack/gpu-kit-runs/<name> bash hack/gpu-kit-session.sh <kit-dir>
+#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab OUT=hack/gpu-kit-runs/<name> [INSTANCE_TYPE=g5.2xlarge] bash hack/gpu-kit-session.sh <kit-dir>
+#
+# INSTANCE_TYPE is g5.xlarge (16 GiB RAM) unless set, and only the types in type_rates below are accepted.
+# g5.2xlarge has the same A10G with 32 GiB RAM, for a kit whose single checkpoint file cannot be mapped in 16 GiB.
 #
 # WHAT RUNS WHERE.
 # The kit is shipped as the kit repository's committed tree at HEAD, and the session refuses a kit with uncommitted or untracked files.
@@ -24,28 +27,37 @@
 # The worst case bills to the termination deadline, 4,020 s.
 # It assumes EC2 confirms the termination by then; one that is not confirmed is reported as such, and billing past it is not bounded here.
 # Ten minutes past it would still cost $0.9860, under $1.00.
-# The $0.70/h Spot cap, plus $0.0683/h for 120 GB gp3 with 500 MiB/s and 6,000 IOPS and a public IPv4, is $0.7683/h all in, and $0.8579.
-# The script refuses to run if the constants below stop giving a worst case under $1.00.
+# Each type has its own Spot cap, and every type adds $0.0683/h for 120 GB gp3 with 500 MiB/s and 6,000 IOPS and a public IPv4.
+#   g5.xlarge:  the $0.70/h cap is $0.7683/h all in, and $0.8579.
+#   g5.2xlarge: the $0.80/h cap is $0.8683/h all in, and $0.9696.
+# Any cap of $0.8272/h or more would put the worst case at $1.00 or more.
+# The script refuses to run if any listed type's constants stop giving a worst case under $1.00.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: a caller who sets one of the constants' names is refused rather than ignored.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 REGION=ap-northeast-2
-INSTANCE_TYPE_FIXED=g5.xlarge
+INSTANCE_TYPE_FIXED=${INSTANCE_TYPE:-g5.xlarge}
+# type_rates TYPE: the type's Spot cap, its all-in rate (the cap plus EBS_IP_RATE) and its vCPUs, or nothing for a type not listed.
+# g5.xlarge Spot was $0.61-0.63/h in ap-northeast-2 on 2026-11-19, and g5.2xlarge $0.68-0.71/h the same evening.
+# A zone above the cap is not used.
+type_rates() {
+  case "$1" in
+    g5.xlarge) echo "0.70 0.7683 4" ;;
+    g5.2xlarge) echo "0.80 0.8683 8" ;;
+  esac
+}
+TYPES_LISTED="g5.xlarge g5.2xlarge"
 # The Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016 that the earlier A10G sessions used.
 AMI_ID_FIXED=ami-097edab977037f65f
 AMI_NAME_FIXED="Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016"
-# g5.xlarge Spot was $0.61-0.63/h in ap-northeast-2 on 2026-11-19, and a zone above the cap is not used.
-MAX_PRICE_FIXED=0.70
 # The AMI's root snapshot is 75 GB, and the kit adds a vLLM clone, a venv, uv's cache and 15.8 GiB of weights.
 VOLUME_GB=120
 EBS_THROUGHPUT_MIBPS=500
 EBS_IOPS=6000
 # 120 GB gp3 and a public IPv4 ($0.0214/h, at the per-GB rate the llm-d session used), plus the provisioned throughput and IOPS ($0.0468/h).
 EBS_IP_RATE=0.0683
-# The Spot cap plus EBS_IP_RATE.
-SPOT_ALL_IN_RATE=0.7683
 COST_CAP_USD=1.00
 # uv and the Python it installs, pinned; the tarball's sha256 is the one its release publishes.
 UV_VERSION=0.12.22
@@ -157,6 +169,17 @@ if [ "$bringup_rc" = 0 ]; then
       sleep PARTIAL_SYNC_S_PLACEHOLDER
     done ) &
   sync_pid=$!
+  # Memory and the kernel's overcommit policy, since a load that maps one large checkpoint file depends on both.
+  mem() { date -u +%Y-%m-%dT%H:%M:%SZ; free -m; swapon --show; echo "overcommit_memory=$(cat /proc/sys/vm/overcommit_memory) overcommit_ratio=$(cat /proc/sys/vm/overcommit_ratio)"; grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo; }
+  mem > "$R/memory-before-kit.txt" 2>&1
+  # run.sh cannot be touched, so the snapshot before its loads is taken when its status shows the last test step done.
+  # The watcher polls every 2 s, and also samples memory every 30 s into memory.log.
+  ( n=0; while :; do
+      if [ ! -e "$R/memory-before-loads.txt" ] && grep -q '^test-files-fix ' "$R/results/status.txt" 2>/dev/null; then mem > "$R/memory-before-loads.txt" 2>&1; fi
+      [ $(( n % 15 )) = 0 ] && { mem; echo; } >> "$R/memory.log" 2>&1
+      n=$(( n + 1 )); sleep 2
+    done ) &
+  mem_pid=$!
   date -u +%Y-%m-%dT%H:%M:%SZ > "$R/kit-start.txt"
   cd /opt/kit/work
   # The kit runs unmodified; the timeout only stops one that overran its phase from eating the upload.
@@ -166,7 +189,7 @@ if [ "$bringup_rc" = 0 ]; then
   date -u +%Y-%m-%dT%H:%M:%SZ > "$R/kit-end.txt"
   echo "kit_rc=$kit_rc" >> "$R/instance-provenance.txt"
   df -BG / > "$R/df-after.txt"
-  kill "$sync_pid"
+  kill "$sync_pid" "$mem_pid"
   cp /var/log/gpukit-sync.log "$R/sync.log"
   echo "run.sh exited $kit_rc"
 else
@@ -219,15 +242,25 @@ end_instance() {
 }
 
 # ---------------------------------------------------------------- refusals, before anything is checked or bought
-for v in INSTANCE_TYPE MAX_SPOT_PRICE HARD_STOP_SECONDS AMI_ID VOLUME KIT_SECONDS PURCHASE; do
+for v in MAX_SPOT_PRICE HARD_STOP_SECONDS AMI_ID VOLUME KIT_SECONDS PURCHASE; do
   [ -z "${!v:-}" ] || fail "$v is set, and this session's value for it is a constant; unset it"
 done
-under_cap "$SPOT_ALL_IN_RATE" ||
-  fail "the worst case, $TERMINATION_S s at \$$SPOT_ALL_IN_RATE/h, is \$$(worst_usd "$SPOT_ALL_IN_RATE"), not under \$$COST_CAP_USD"
-[ "$(python3 -c 'import sys; print(round(float(sys.argv[1]) + float(sys.argv[2]), 6))' "$MAX_PRICE_FIXED" "$EBS_IP_RATE")" = "$SPOT_ALL_IN_RATE" ] ||
-  fail "SPOT_ALL_IN_RATE $SPOT_ALL_IN_RATE is not the Spot cap $MAX_PRICE_FIXED plus EBS_IP_RATE $EBS_IP_RATE"
+# Every listed type is held under the cap, whichever one this run buys, so no type sits in the table unchecked.
+for t in $TYPES_LISTED; do
+  read -r cap all_in _ <<<"$(type_rates "$t")"
+  [ -n "${all_in:-}" ] || fail "the listed type $t has no rates"
+  under_cap "$all_in" || fail "the $t worst case, $TERMINATION_S s at \$$all_in/h, is \$$(worst_usd "$all_in"), not under \$$COST_CAP_USD"
+  [ "$(python3 -c 'import sys; print(round(float(sys.argv[1]) + float(sys.argv[2]), 6))' "$cap" "$EBS_IP_RATE")" = "$all_in" ] ||
+    fail "the $t all-in rate $all_in is not its Spot cap $cap plus EBS_IP_RATE $EBS_IP_RATE"
+done
+case " $TYPES_LISTED " in
+  *" $INSTANCE_TYPE_FIXED "*) ;;
+  *) fail "INSTANCE_TYPE '$INSTANCE_TYPE_FIXED' is not one of the listed types ($TYPES_LISTED)" ;;
+esac
+read -r MAX_PRICE_FIXED SPOT_ALL_IN_RATE TYPE_VCPUS <<<"$(type_rates "$INSTANCE_TYPE_FIXED")"
+[ -n "${TYPE_VCPUS:-}" ] || fail "INSTANCE_TYPE '$INSTANCE_TYPE_FIXED' has no rates"
 if [ "${1:-}" = --print-schedule ]; then
-  echo "harness_end_s=$HARNESS_END_S evidence_s=$EVIDENCE_S stop_s=$STOP_FROM_LAUNCH_S termination_s=$TERMINATION_S worst_case_usd=$(worst_usd "$SPOT_ALL_IN_RATE")"
+  echo "instance_type=$INSTANCE_TYPE_FIXED harness_end_s=$HARNESS_END_S evidence_s=$EVIDENCE_S stop_s=$STOP_FROM_LAUNCH_S termination_s=$TERMINATION_S worst_case_usd=$(worst_usd "$SPOT_ALL_IN_RATE")"
   exit 0
 fi
 if [ "${1:-}" = --print-user-data ]; then
@@ -284,7 +317,8 @@ ZONES=$(awk -v cap="$MAX_PRICE_FIXED" 'NF == 2 && $2 + 0 > 0 && $2 + 0 <= cap + 
 say "Spot $INSTANCE_TYPE_FIXED under \$$MAX_PRICE_FIXED/h, cheapest first: $ZONES ($(paste -sd' ' <<<"$prices"))"
 quota=$(aws service-quotas get-service-quota --region "$REGION" --service-code ec2 --quota-code L-3819A6DF \
   --query 'Quota.Value' --output text 2>&1) || fail "could not read the G and VT Spot quota: $quota"
-python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= 4 else 1)' "$quota" || fail "the G and VT Spot quota is $quota vCPU and one $INSTANCE_TYPE_FIXED needs 4"
+python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)' "$quota" "$TYPE_VCPUS" ||
+  fail "the G and VT Spot quota is $quota vCPU and one $INSTANCE_TYPE_FIXED needs $TYPE_VCPUS"
 sw_state=$(aws lambda get-function --region "$REGION" --function-name gpu-platform-study-sweeper \
   --query 'Configuration.State' --output text 2>&1) || fail "the termination sweeper could not be read: $sw_state"
 [ "$sw_state" = Active ] || fail "the termination sweeper is $sw_state, not Active"
