@@ -11,7 +11,7 @@ S="$ROOT/hack/llmd-prefix-hunt-session.sh"
 DIR="$ROOT/hack/llmd-prefix-hunt"
 R="$DIR/runner.sh"
 V="$DIR/verdict.py"
-# Scratch space lives on disk, since /tmp is RAM-backed on the owner's machine.
+# Scratch space lives on disk, since /tmp is RAM-backed on the development machine.
 SCRATCH="${SCRATCH:-$HOME/.cache/llmd-prefix-hunt}"
 mkdir -p "$SCRATCH"
 WORK=$(mktemp -d -p "$SCRATCH")

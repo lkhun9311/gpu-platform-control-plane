@@ -1,8 +1,7 @@
 # llm-d-router precise prefix-cache hunt: hypotheses and design
 
-The goal is a defect in llm-d-router's precise prefix-cache routing that we find and measure ourselves against a real
-vLLM, so the owner can file it and open a PR with a design record behind it. This week's defects in this area (#4328,
-#4342) already have PRs.
+The goal is to find and measure disagreements between llm-d-router's precise prefix-cache index and what a real vLLM
+actually serves from cache. This week's defects in this area (#4328, #4342) already have PRs.
 
 Sources read:
 
@@ -29,7 +28,7 @@ Two facts about v0.34.0 set up everything below:
 
 ## Hypotheses
 
-Rank is likelihood times hiring value. Every duplicate search ran on 2026-11-19 with `gh search issues --repo
+Rank is how likely the hypothesis looked from the code before the run. Every duplicate search ran on 2026-11-19 with `gh search issues --repo
 llm-d/llm-d-router`, spaced 3 s apart.
 
 | # | Hypothesis | Predicted observable | Trigger workload | Duplicate check | Rank |

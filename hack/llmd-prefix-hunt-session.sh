@@ -7,7 +7,7 @@
 #   PURCHASE=spot SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab LLMDHUNT_AMI_ID=ami-... bash hack/llmd-prefix-hunt-session.sh
 #   PURCHASE=on-demand SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab LLMDHUNT_AMI_ID=ami-... bash hack/llmd-prefix-hunt-session.sh
 #
-# PURCHASE has no default: Spot is cheaper and can be reclaimed, so the owner picks one each time.
+# PURCHASE has no default: Spot is cheaper and can be reclaimed, so it is chosen explicitly each time.
 #
 # WHAT IT MEASURES.
 # hack/llmd-prefix-hunt/HYPOTHESES.md holds the hypotheses, their duplicate checks and why each workload is what it is.
@@ -371,7 +371,7 @@ if [ "${1:-}" = --print-user-data ]; then
   cat "$ud"; rm -f "$ud"
   exit 0
 fi
-[ "${SESSION_CONFIRM:-}" = yes ] || fail "SESSION_CONFIRM=yes is required: this buys a GPU instance, and only the owner's approval starts one"
+[ "${SESSION_CONFIRM:-}" = yes ] || fail "SESSION_CONFIRM=yes is required: this buys a GPU instance, and it needs an explicit approval"
 [[ "${LLMDHUNT_AMI_ID:-}" =~ ^ami-[0-9a-f]{8,17}$ ]] ||
   fail "LLMDHUNT_AMI_ID is ${LLMDHUNT_AMI_ID:-unset}; the session pins the AMI by ID rather than resolving it from latest"
 for tool in aws python3 git tar sha256sum go; do command -v "$tool" >/dev/null || fail "$tool is not installed"; done
