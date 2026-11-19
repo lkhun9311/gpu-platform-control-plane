@@ -1,0 +1,13 @@
+== vLLM #68414 before and after for vllm-gdn-chunk-indices-68414-2026-11-19, from 9df14616973b9f83d226dbf8c29671425f76b9a6, into hack/vllm-gdn-68414-20261119T021238Z
+== hard stop 4200 s after LaunchTime; worst case 4500 s at $0.7792/h
+== fix.diff c75343ff6066abb233398110147cb3410de75e39d034633bf409ea1233f6756c and kernel_repro.py 766ccd795b2e1f71ba9c48dc99e22deec8f17047467b70866acf7378310af3af match their pins
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $0.70/h in: ap-northeast-2c ap-northeast-2d ap-northeast-2a (ap-northeast-2c	0.631100 ap-northeast-2a	0.617800 ap-northeast-2d	0.613200)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 698 minutes
+== creating results bucket gdn-gpu-007635145730
+== creating instance role gdn-gpu
+== waiting for the instance profile to propagate
+== before the purchase: credentials expire in 697 minutes
+== launching g5.xlarge Spot (max $0.70/h compute, $0.7792/h all in), study-deadline 2026-11-19T03:22:11Z -- the instance bills from here
+SESSION REFUSED: no zone had g5.xlarge Spot capacity; nothing was launched
