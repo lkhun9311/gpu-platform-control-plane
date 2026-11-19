@@ -1,0 +1,11 @@
+2026-11-19T09:29:34Z step apply-0: kubectl apply -f /src/dra-run/run/s3/claim-0.yaml
+2026-11-19T09:29:34Z step apply-0: exit 0
+2026-11-19T09:29:34Z step pod-0-ready: ready pod-0 150
+2026-11-19T09:29:36Z step pod-0-ready: exit 0
+2026-11-19T09:29:36Z step apply-1: kubectl apply -f /src/dra-run/run/s3/claim-1.yaml
+2026-11-19T09:29:36Z step apply-1: exit 0
+2026-11-19T09:29:36Z step pod-1-ready: ready pod-1 90
+2026-11-19T09:29:38Z step pod-1-ready: exit 0
+2026-11-19T09:29:38Z valid=yes (requestPolicy yes); pod-0 ready=yes, pod-1 ready=yes; mem-0 consumed {"memory":"4Gi"}
+2026-11-19T09:29:38Z step delete: kubectl delete ns s3-shares --wait=true --timeout=60s
+2026-11-19T09:29:49Z step delete: exit 0

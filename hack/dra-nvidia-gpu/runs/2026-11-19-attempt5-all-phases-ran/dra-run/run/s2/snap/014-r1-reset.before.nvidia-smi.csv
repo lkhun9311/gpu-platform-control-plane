@@ -1,0 +1,2 @@
+index, name, compute_mode, memory.used [MiB]
+0, NVIDIA A10G, Exclusive_Process, 1 MiB

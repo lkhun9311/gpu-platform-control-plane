@@ -1,0 +1,16 @@
+NAMESPACE            NAME                                                    READY   STATUS        RESTARTS   AGE   IP            NODE                        NOMINATED NODE   READINESS GATES
+kube-system          pod/coredns-66bc5c9577-bbqgr                            1/1     Running       0          11m   10.244.0.4    dra-session-control-plane   <none>           <none>
+kube-system          pod/coredns-66bc5c9577-gck6m                            1/1     Running       0          11m   10.244.0.2    dra-session-control-plane   <none>           <none>
+kube-system          pod/etcd-dra-session-control-plane                      1/1     Running       0          12m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system          pod/kindnet-26lcc                                       1/1     Running       0          11m   172.18.0.3    dra-session-worker          <none>           <none>
+kube-system          pod/kindnet-9fgzm                                       1/1     Running       0          11m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system          pod/kube-apiserver-dra-session-control-plane            1/1     Running       0          12m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system          pod/kube-controller-manager-dra-session-control-plane   1/1     Running       0          12m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system          pod/kube-proxy-2pbpd                                    1/1     Running       0          11m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system          pod/kube-proxy-fbwvj                                    1/1     Running       0          11m   172.18.0.3    dra-session-worker          <none>           <none>
+kube-system          pod/kube-scheduler-dra-session-control-plane            1/1     Running       0          12m   172.18.0.2    dra-session-control-plane   <none>           <none>
+local-path-storage   pod/local-path-provisioner-5c4cdb564f-6pgj8             1/1     Running       0          11m   10.244.0.3    dra-session-control-plane   <none>           <none>
+s1-r2                pod/pod                                                 0/1     Terminating   0          83s   10.244.1.29   dra-session-worker          <none>           <none>
+
+NAMESPACE   NAME                                STATE                        AGE
+s1-r2       resourceclaim.resource.k8s.io/gpu   deleted,allocated,reserved   83s

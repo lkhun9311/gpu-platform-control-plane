@@ -1,0 +1,159 @@
+I1119 09:24:49.517418       1 utils.go:44] Commit: e775fdb63e593a121b40fc1cc4c9a9c89955e635
+
+Feature gates: map[string]bool{"AllAlpha":false, "AllBeta":false, "ComputeDomainCliques":true, "ConsumableShares":false, "ContextualLogging":true, "CrashOnNVLinkFabricErrors":true, "DRAListTypeAttributes":false, "DeviceMetadata":false, "DynamicMIG":false, "FabricManagerPartitioning":false, "HostManagedIMEXDaemon":false, "IMEXDaemonsWithDNSNames":true, "LoggingAlphaOptions":false, "LoggingBetaOptions":true, "MPSSupport":true, "NVMLDeviceHealthCheck":false, "PassthroughSupport":false, "TimeSlicingSettings":false}
+Flags: (*main.Flags)({
+  kubeClientConfig: (flags.KubeClientConfig) {
+    KubeConfig: (string) "",
+    KubeAPIQPS: (float64) 5,
+    KubeAPIBurst: (int) 10
+  },
+  nodeName: (string) (len=18) "dra-session-worker",
+  namespace: (string) (len=21) "dra-driver-nvidia-gpu",
+  httpEndpoint: (string) (len=5) ":8080",
+  metricsPath: (string) (len=8) "/metrics",
+  cdiRoot: (string) (len=12) "/var/run/cdi",
+  containerDriverRoot: (string) (len=12) "/driver-root",
+  hostDriverRoot: (string) (len=1) "/",
+  hostRoot: (string) (len=10) "/host-root",
+  nvidiaCDIHookPath: (string) "",
+  imageName: (string) (len=66) "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev",
+  imagePullSecrets: (string) "",
+  imagePullPolicy: (string) (len=12) "IfNotPresent",
+  serviceAccountName: (string) (len=67) "dra-gpu-session-dra-driver-nvidia-gpu-service-account-kubeletplugin",
+  kubeletRegistrarDirectoryPath: (string) (len=33) "/var/lib/kubelet/plugins_registry",
+  kubeletPluginsDirectoryPath: (string) (len=24) "/var/lib/kubelet/plugins",
+  healthcheckPort: (int) 51516,
+  klogVerbosity: (int) 6,
+  additionalXidsToIgnore: (string) "",
+  consumableShares: (string) (len=8) "disabled"
+})
+I1119 09:24:49.517526       1 utils.go:59] Logging config: (*flags.LoggingConfig)({
+  Config: (*v1.LoggingConfiguration)({
+    Format: (string) (len=4) "text",
+    FlushFrequency: (v1.TimeOrMetaDuration) {
+      Duration: (v1.Duration) {
+        Duration: (time.Duration) 5000000000
+      },
+      SerializeAsString: (bool) true
+    },
+    Verbosity: (v1.VerbosityLevel) 6,
+    VModule: (v1.VModuleConfiguration) <nil>,
+    Options: (v1.FormatOptions) {
+      Text: (v1.TextOptions) {
+        OutputRoutingOptions: (v1.OutputRoutingOptions) {
+          SplitStream: (bool) false,
+          InfoBufferSize: (resource.QuantityValue) {
+            Quantity: (resource.Quantity) {
+              i: (resource.int64Amount) {
+                value: (int64) 0,
+                scale: (resource.Scale) 0
+              },
+              d: (resource.infDecAmount) {
+                Dec: (*inf.Dec)(<nil>)
+              },
+              s: (string) (len=1) "0",
+              Format: (resource.Format) (len=9) "DecimalSI"
+            }
+          }
+        }
+      },
+      JSON: (v1.JSONOptions) {
+        OutputRoutingOptions: (v1.OutputRoutingOptions) {
+          SplitStream: (bool) false,
+          InfoBufferSize: (resource.QuantityValue) {
+            Quantity: (resource.Quantity) {
+              i: (resource.int64Amount) {
+                value: (int64) 0,
+                scale: (resource.Scale) 0
+              },
+              d: (resource.infDecAmount) {
+                Dec: (*inf.Dec)(<nil>)
+              },
+              s: (string) (len=1) "0",
+              Format: (resource.Format) (len=9) "DecimalSI"
+            }
+          }
+        }
+      }
+    }
+  })
+})
+I1119 09:24:49.518106       1 envvar.go:195] "Feature gate default state" feature="ClientsAllowCBOR" enabled=false
+I1119 09:24:49.518129       1 envvar.go:195] "Feature gate default state" feature="InOrderInformers" enabled=true
+I1119 09:24:49.518134       1 envvar.go:195] "Feature gate default state" feature="ClientsAllowTLSCacheGC" enabled=true
+I1119 09:24:49.518138       1 envvar.go:195] "Feature gate default state" feature="ClientsPreferCBOR" enabled=false
+I1119 09:24:49.518142       1 envvar.go:195] "Feature gate default state" feature="WatchListClient" enabled=true
+I1119 09:24:49.518146       1 envvar.go:195] "Feature gate default state" feature="UnlockWhileProcessingFIFO" enabled=true
+I1119 09:24:49.518158       1 envvar.go:195] "Feature gate default state" feature="AtomicFIFO" enabled=true
+I1119 09:24:49.518164       1 envvar.go:195] "Feature gate default state" feature="InOrderInformersBatchProcess" enabled=true
+I1119 09:24:49.518169       1 envvar.go:195] "Feature gate default state" feature="InformerResourceVersion" enabled=true
+I1119 09:24:49.518174       1 envvar.go:195] "Feature gate default state" feature="ClientsAllowCARotation" enabled=true
+I1119 09:24:49.518615       1 util.go:68] Started debug signal handler(s)
+I1119 09:24:49.539310       1 device_state.go:130] Using devRoot=/driver-root
+I1119 09:24:49.539359       1 root.go:92] Skipping candidate "/driver-root/libnvidia-ml.so.1": error resolving link "/driver-root/libnvidia-ml.so.1": lstat /driver-root/libnvidia-ml.so.1: no such file or directory
+I1119 09:24:49.539386       1 root.go:92] Skipping candidate "/driver-root/usr/lib64/libnvidia-ml.so.1": error resolving link "/driver-root/usr/lib64/libnvidia-ml.so.1": lstat /driver-root/usr/lib64/libnvidia-ml.so.1: no such file or directory
+I1119 09:24:49.539443       1 root.go:92] Skipping candidate "/driver-root/nvidia-smi": error resolving link "/driver-root/nvidia-smi": lstat /driver-root/nvidia-smi: no such file or directory
+I1119 09:24:49.539466       1 root.go:92] Skipping candidate "/driver-root/opt/bin/nvidia-smi": error resolving link "/driver-root/opt/bin/nvidia-smi": lstat /driver-root/opt/bin: no such file or directory
+I1119 09:24:49.539477       1 prometheus_httpserver.go:78] "Starting metrics HTTP server" endpoint=":8080" path="/metrics"
+I1119 09:24:49.539506       1 nvlib.go:230] Traverse GPU devices
+I1119 09:24:49.539542       1 nvlib.go:190] Initializing NVML
+I1119 09:24:49.551175       1 nvlib.go:201] t_nvml_init 0.012 s
+I1119 09:24:49.558418       1 numa.go:42] NUMA node unavailable for PCI bus ID 0000:00:1e.0, continuing without attribute: PCI device 0000:00:1e.0 has no NUMA affinity (numa_node=-1); do not publish the numaNode attribute for it
+I1119 09:24:49.561892       1 nvlib.go:336] Adding device gpu-0 to allocatable devices
+I1119 09:24:49.561907       1 allocatable.go:270] Adding allocatables for PCI bus ID: 0000:00:1e.0
+I1119 09:24:49.561912       1 nvlib.go:171] Call NVML shutdown
+I1119 09:24:49.563504       1 device_state.go:148] Muting CDI logger (verbosity is smaller 7: 6)
+I1119 09:24:49.573158       1 device_state.go:183] Warming up CDI device spec cache for GPUs [GPU-48ed75e7-02e7-2979-0913-e06d819a13e6]
+I1119 09:24:49.609870       1 cdi.go:167] GetDeviceSpecsByID() called for GPU-48ed75e7-02e7-2979-0913-e06d819a13e6, t_cdi_get_device_specs_by_id 0.037 s
+I1119 09:24:49.610170       1 draplugin.go:988] "Starting"
+I1119 09:24:49.610316       1 draplugin.go:1066] "registering v1.DRAPlugin gRPC service"
+I1119 09:24:49.610339       1 draplugin.go:1071] "registering v1beta1.DRAPlugin gRPC service"
+I1119 09:24:49.610361       1 nonblockinggrpcserver.go:90] "GRPC server started" logger="dra" endpoint="/var/lib/kubelet/plugins/gpu.nvidia.com/dra.sock"
+I1119 09:24:49.610449       1 nonblockinggrpcserver.go:90] "GRPC server started" logger="registrar" endpoint="/var/lib/kubelet/plugins_registry/gpu.nvidia.com-reg.sock"
+I1119 09:24:49.610510       1 health.go:69] connecting to registration socket path=unix:///var/lib/kubelet/plugins_registry/gpu.nvidia.com-reg.sock
+I1119 09:24:49.610578       1 health.go:82] connecting to DRA socket path=unix:///var/lib/kubelet/plugins/gpu.nvidia.com/dra.sock
+I1119 09:24:49.610633       1 cleanup.go:80] CheckpointCleanupManager started
+I1119 09:24:49.610658       1 driver.go:519] About to announce device gpu-0
+I1119 09:24:49.610671       1 health.go:103] starting healthcheck service at [::]:51516
+I1119 09:24:49.610726       1 resourceslicecontroller.go:675] "Starting ResourceSlice informer and waiting for it to sync" logger="ResourceSlice controller"
+I1119 09:24:49.610827       1 cleanup.go:125] Checkpointed RC cleanup: claims in PrepareStarted state: 0 (of 0)
+I1119 09:24:49.610856       1 reflector.go:425] "Starting reflector" logger="ResourceSlice controller" type="*v1.ResourceSlice" resyncPeriod="0s" reflector="k8s.io/dynamic-resource-allocation/resourceslice/resourceslicecontroller.go:681"
+I1119 09:24:49.610912       1 reflector.go:472] "Listing and watching" logger="ResourceSlice controller" type="*v1.ResourceSlice" reflector="k8s.io/dynamic-resource-allocation/resourceslice/resourceslicecontroller.go:681"
+I1119 09:24:49.617043       1 round_trippers.go:632] "Response" logger="ResourceSlice controller" verb="GET" url="https://10.96.0.1:443/apis/resource.k8s.io/v1/resourceslices?allowWatchBookmarks=true&fieldSelector=spec.driver%3Dgpu.nvidia.com%2Cspec.nodeName%3Ddra-session-worker&resourceVersionMatch=NotOlderThan&sendInitialEvents=true&timeout=6m55s&timeoutSeconds=415&watch=true" status="200 OK" milliseconds=5
+I1119 09:24:49.617279       1 resourceslicecontroller.go:606] "Started watching ResourceSlices" logger="ResourceSlice controller" resourceAPI="V1" err=null
+I1119 09:24:49.617571       1 reflector.go:1080] "Exiting watch because received the bookmark that marks the end of initial events stream" logger="ResourceSlice controller" reflector="k8s.io/dynamic-resource-allocation/resourceslice/resourceslicecontroller.go:681" totalItems=2 duration="6.613182ms"
+I1119 09:24:49.617637       1 reflector.go:507] "Caches populated" logger="ResourceSlice controller" type="*v1.ResourceSlice" reflector="k8s.io/dynamic-resource-allocation/resourceslice/resourceslicecontroller.go:681"
+I1119 09:24:49.617726       1 resourceslicecontroller.go:630] "ResourceSlice add" logger="ResourceSlice controller" slice="00000-gpu.nvidia.com-dra-session-worker-9fmp8"
+I1119 09:24:49.617788       1 resourceslicecontroller.go:633] "Scheduled sync" logger="ResourceSlice controller" poolName="dra-session-worker" at="2026-11-19 09:25:19.61778409 +0000 UTC m=+30.116843840"
+I1119 09:24:50.007141       1 nonblockinggrpcserver.go:150] "handling request" logger="registrar" requestID=1 method="/pluginregistration.Registration/GetInfo" request=""
+I1119 09:24:50.007237       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="registrar" requestID=1 method="/pluginregistration.Registration/GetInfo" response="type:\"DRAPlugin\" name:\"gpu.nvidia.com\" endpoint:\"/var/lib/kubelet/plugins/gpu.nvidia.com/dra.sock\" supported_versions:\"v1.DRAPlugin\" supported_versions:\"v1beta1.DRAPlugin\""
+I1119 09:24:50.007788       1 nonblockinggrpcserver.go:150] "handling request" logger="registrar" requestID=2 method="/pluginregistration.Registration/NotifyRegistrationStatus" request="plugin_registered:true"
+I1119 09:24:50.007846       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="registrar" requestID=2 method="/pluginregistration.Registration/NotifyRegistrationStatus" response=""
+I1119 09:24:50.611358       1 resourceslicecontroller.go:690] "ResourceSlice informer has synced" logger="ResourceSlice controller"
+I1119 09:24:50.611478       1 resourceslicecontroller.go:233] "Starting" logger="ResourceSlice controller"
+I1119 09:24:50.611522       1 driver.go:210] Current kubelet plugin registration status: plugin_registered:true
+I1119 09:24:50.613440       1 round_trippers.go:632] "Response" logger="ResourceSlice controller" poolName="dra-session-worker" verb="GET" url="https://10.96.0.1:443/api/v1/nodes/dra-session-worker" status="200 OK" milliseconds=1
+I1119 09:24:50.613685       1 resourceslicecontroller.go:811] "Matched existing slice by index" logger="ResourceSlice controller" poolName="dra-session-worker" slice="00000-gpu.nvidia.com-dra-session-worker-9fmp8" matchIndex=0
+I1119 09:24:50.613777       1 resourceslicecontroller.go:846] "Completed comparison" logger="ResourceSlice controller" poolName="dra-session-worker" numObsolete=0 numMatchedSlices=1 numChangedMatchedSlices=0 numNewSlices=0
+I1119 09:24:50.613799       1 resourceslicecontroller.go:862] "Kept generation because at most one update API call is necessary" logger="ResourceSlice controller" poolName="dra-session-worker" generation=1
+I1119 09:24:51.068284       1 nonblockinggrpcserver.go:150] "handling request" logger="registrar" requestID=3 method="/pluginregistration.Registration/GetInfo" request=""
+I1119 09:24:51.068343       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="registrar" requestID=3 method="/pluginregistration.Registration/GetInfo" response="type:\"DRAPlugin\" name:\"gpu.nvidia.com\" endpoint:\"/var/lib/kubelet/plugins/gpu.nvidia.com/dra.sock\" supported_versions:\"v1.DRAPlugin\" supported_versions:\"v1beta1.DRAPlugin\""
+I1119 09:24:51.068980       1 nonblockinggrpcserver.go:150] "handling request" logger="dra" requestID=4 method="/k8s.io.kubelet.pkg.apis.dra.v1beta1.DRAPlugin/NodePrepareResources" request=""
+I1119 09:24:51.069025       1 nonblockinggrpcserver.go:161] "handling request succeeded" logger="dra" requestID=4 method="/k8s.io.kubelet.pkg.apis.dra.v1beta1.DRAPlugin/NodePrepareResources" response=""
+I1119 09:24:52.616388       1 nonblockinggrpcserver.go:150] "handling request" logger="dra" requestID=5 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" request="claims:{namespace:\"gpu-test-mps\" uid:\"9120af98-bd66-4e76-8086-6e3381812bcd\" name:\"test-pod-shared-gpu-hbqzx\"}"
+I1119 09:24:52.618509       1 round_trippers.go:632] "Response" logger="dra" requestID=5 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/apis/resource.k8s.io/v1/namespaces/gpu-test-mps/resourceclaims/test-pod-shared-gpu-hbqzx" status="200 OK" milliseconds=1
+I1119 09:24:52.618651       1 driver.go:379] Prepare called for: [gpu-test-mps/test-pod-shared-gpu-hbqzx:9120af98-bd66-4e76-8086-6e3381812bcd]
+I1119 09:24:52.618700       1 driver.go:429] t_prep_lock_acq 0.000 s
+I1119 09:24:52.618711       1 device_state.go:295] t_prep_state_lock_acq 0.000 s
+I1119 09:24:52.652492       1 device_state.go:904] t_checkpoint_update_total 0.005 s
+I1119 09:24:52.652538       1 device_state.go:360] t_prep_update_checkpoint 0.005 s
+I1119 09:24:52.652547       1 device_state.go:361] checkpoint updated for claim 9120af98-bd66-4e76-8086-6e3381812bcd
+I1119 09:24:52.652557       1 device_state.go:975] Preparing devices for claim gpu-test-mps/test-pod-shared-gpu-hbqzx:9120af98-bd66-4e76-8086-6e3381812bcd
+I1119 09:24:52.655253       1 round_trippers.go:632] "Response" logger="dra" requestID=5 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/apis/apps/v1/namespaces/dra-driver-nvidia-gpu/deployments/mps-control-daemon-9120af98-bd66-4e76-8086-6e3381812bcd-ae8d0" status="404 Not Found" milliseconds=2
+I1119 09:24:52.655338       1 sharing.go:228] Starting MPS control daemon for '9120af98-bd66-4e76-8086-6e3381812bcd-ae8d0', with settings: &{DefaultActiveThreadPercentage:0x3711cce17c70 DefaultPinnedDeviceMemoryLimit:10Gi DefaultPerDevicePinnedMemoryLimit:map[] MultiUser:<nil>}
+I1119 09:24:52.665254       1 mount_linux.go:326] 'umount /tmp/kubelet-detect-safe-umount619933486' failed with: exit status 1, output: umount: can't unmount /tmp/kubelet-detect-safe-umount619933486: Invalid argument
+I1119 09:24:52.665289       1 mount_linux.go:328] Detected umount with unsafe 'not mounted' behavior
+I1119 09:24:52.665462       1 mount_linux.go:284] Detected OS without systemd
+I1119 09:24:52.665527       1 mount_linux.go:259] Mounting cmd (mount) with arguments ( -t tmpfs -o rw,nosuid,nodev,noexec,relatime,size=8083476k shm /var/lib/kubelet/plugins/gpu.nvidia.com/mps/9120af98-bd66-4e76-8086-6e3381812bcd-ae8d0/shm)
+I1119 09:24:52.699592       1 round_trippers.go:632] "Response" logger="dra" requestID=5 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="POST" url="https://10.96.0.1:443/apis/apps/v1/namespaces/dra-driver-nvidia-gpu/deployments" status="201 Created" milliseconds=7
+I1119 09:24:52.707517       1 round_trippers.go:632] "Response" logger="dra" requestID=5 method="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources" verb="GET" url="https://10.96.0.1:443/apis/apps/v1/namespaces/dra-driver-nvidia-gpu/deployments/mps-control-daemon-9120af98-bd66-4e76-8086-6e3381812bcd-ae8d0" status="200 OK" milliseconds=6

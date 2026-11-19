@@ -1,0 +1,4 @@
+rep	valid	claim_uid	reached_prepare_started	restarted	released	state_after_restart	deploy_after_restart	node_mount_after_restart	compute_mode_after_restart	state_settled	deploy_settled	node_mount_settled	host_mount_settled	compute_mode_settled
+1	yes	9120af98-bd66-4e76-8086-6e3381812bcd	yes	yes	yes	PrepareStarted	1	1	Exclusive_Process	absent	1	1	0	Exclusive_Process
+2	yes	bc4164b4-6707-43bc-8ea0-99111e6e1e34	yes	yes	yes	PrepareStarted	1	1	Exclusive_Process	absent	1	1	0	Exclusive_Process
+3	yes	4a1d18a4-8cd5-4d5a-83dd-37d9b5d2ba21	yes	yes	yes	PrepareStarted	1	1	Exclusive_Process	absent	1	1	0	Exclusive_Process

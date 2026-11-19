@@ -1,0 +1,57 @@
+Name:             pod-1
+Namespace:        s3-shares
+Priority:         0
+Service Account:  default
+Node:             dra-session-worker/172.18.0.3
+Start Time:       Thu, 19 Nov 2026 09:29:36 +0000
+Labels:           <none>
+Annotations:      <none>
+Status:           Running
+IP:               10.244.1.39
+IPs:
+  IP:  10.244.1.39
+Containers:
+  ctr:
+    Container ID:  containerd://70be72a21bf81133a347f8abeba07a1960ddc1c4f804271d407c2ec10819632a
+    Image:         ubuntu:22.04
+    Image ID:      docker.io/library/ubuntu@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      bash
+      -c
+    Args:
+      nvidia-smi -L; trap 'exit 0' TERM; sleep 9999 & wait
+    State:          Running
+      Started:      Thu, 19 Nov 2026 09:29:37 +0000
+    Ready:          True
+    Restart Count:  0
+    Environment:    <none>
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-2hpp4 (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-2hpp4:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   BestEffort
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+                             nvidia.com/gpu:NoSchedule op=Exists
+Events:
+  Type    Reason     Age   From               Message
+  ----    ------     ----  ----               -------
+  Normal  Scheduled  2s    default-scheduler  Successfully assigned s3-shares/pod-1 to dra-session-worker
+  Normal  Pulled     2s    kubelet            Container image "ubuntu:22.04" already present on machine
+  Normal  Created    2s    kubelet            Created container: ctr
+  Normal  Started    1s    kubelet            Started container ctr

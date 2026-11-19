@@ -1,0 +1,88 @@
+Release "dra-gpu-session" has been upgraded. Happy Helming!
+NAME: dra-gpu-session
+LAST DEPLOYED: Thu Nov 19 09:24:47 2026
+NAMESPACE: dra-driver-nvidia-gpu
+STATUS: deployed
+REVISION: 2
+TEST SUITE: None
+Waiting for daemon set "dra-driver-nvidia-gpu-kubelet-plugin" rollout to finish: 0 of 1 updated pods are available...
+daemon set "dra-driver-nvidia-gpu-kubelet-plugin" successfully rolled out
+2026-11-19T09:24:51Z step r1-quota: block_pods
+resourcequota/s2-block-new-pods created
+2026-11-19T09:24:51Z step r1-quota: exit 0
+2026-11-19T09:24:52Z step r1-apply: kubectl apply -f /opt/dra/src/demo/specs/quickstart/v1/gpu-test-mps.yaml
+namespace/gpu-test-mps created
+resourceclaimtemplate.resource.k8s.io/shared-gpu created
+pod/test-pod created
+2026-11-19T09:24:52Z step r1-apply: exit 0
+2026-11-19T09:24:52Z step r1-wait-prepare-started: poll 120 3 in_state 9120af98-bd66-4e76-8086-6e3381812bcd PrepareStarted
+2026-11-19T09:24:52Z step r1-wait-prepare-started: exit 0
+2026-11-19T09:24:53Z step r1-sigkill: sigkill_plugin
+2026-11-19T09:24:53Z step r1-sigkill: exit 0
+2026-11-19T09:24:53Z step r1-restart: poll 120 3 restarted dra-driver-nvidia-gpu-kubelet-plugin-jjtgw 0
+2026-11-19T09:24:57Z step r1-restart: exit 0
+2026-11-19T09:24:57Z step r1-release: release
+namespace "gpu-test-mps" deleted
+resourcequota "s2-block-new-pods" deleted from dra-driver-nvidia-gpu namespace
+2026-11-19T09:25:08Z step r1-release: exit 0
+2026-11-19T09:25:08Z step r1-settle: sleep 60
+2026-11-19T09:26:08Z step r1-settle: exit 0
+2026-11-19T09:26:08Z rep 1 (valid=yes): 60 s after the release: entry absent, 1 daemon(s), 1 node mount(s), mode Exclusive_Process
+2026-11-19T09:26:08Z step r1-reset: reset_mps
+deployment.apps "mps-control-daemon-9120af98-bd66-4e76-8086-6e3381812bcd-ae8d0" deleted from dra-driver-nvidia-gpu namespace
+Set compute mode to DEFAULT for GPU 00000000:00:1E.0.
+All done.
+2026-11-19T09:26:09Z step r1-reset: exit 0
+2026-11-19T09:26:09Z step r2-quota: block_pods
+resourcequota/s2-block-new-pods created
+2026-11-19T09:26:09Z step r2-quota: exit 0
+2026-11-19T09:26:10Z step r2-apply: kubectl apply -f /opt/dra/src/demo/specs/quickstart/v1/gpu-test-mps.yaml
+namespace/gpu-test-mps created
+resourceclaimtemplate.resource.k8s.io/shared-gpu created
+pod/test-pod created
+2026-11-19T09:26:10Z step r2-apply: exit 0
+2026-11-19T09:26:10Z step r2-wait-prepare-started: poll 120 3 in_state bc4164b4-6707-43bc-8ea0-99111e6e1e34 PrepareStarted
+2026-11-19T09:26:10Z step r2-wait-prepare-started: exit 0
+2026-11-19T09:26:11Z step r2-sigkill: sigkill_plugin
+2026-11-19T09:26:11Z step r2-sigkill: exit 0
+2026-11-19T09:26:11Z step r2-restart: poll 120 3 restarted dra-driver-nvidia-gpu-kubelet-plugin-jjtgw 1
+2026-11-19T09:26:33Z step r2-restart: exit 0
+2026-11-19T09:26:33Z step r2-release: release
+namespace "gpu-test-mps" deleted
+resourcequota "s2-block-new-pods" deleted from dra-driver-nvidia-gpu namespace
+2026-11-19T09:26:44Z step r2-release: exit 0
+2026-11-19T09:26:44Z step r2-settle: sleep 60
+2026-11-19T09:27:44Z step r2-settle: exit 0
+2026-11-19T09:27:45Z rep 2 (valid=yes): 60 s after the release: entry absent, 1 daemon(s), 1 node mount(s), mode Exclusive_Process
+2026-11-19T09:27:45Z step r2-reset: reset_mps
+deployment.apps "mps-control-daemon-bc4164b4-6707-43bc-8ea0-99111e6e1e34-ae8d0" deleted from dra-driver-nvidia-gpu namespace
+Set compute mode to DEFAULT for GPU 00000000:00:1E.0.
+All done.
+2026-11-19T09:27:45Z step r2-reset: exit 0
+2026-11-19T09:27:45Z step r3-quota: block_pods
+resourcequota/s2-block-new-pods created
+2026-11-19T09:27:46Z step r3-quota: exit 0
+2026-11-19T09:27:46Z step r3-apply: kubectl apply -f /opt/dra/src/demo/specs/quickstart/v1/gpu-test-mps.yaml
+namespace/gpu-test-mps created
+resourceclaimtemplate.resource.k8s.io/shared-gpu created
+pod/test-pod created
+2026-11-19T09:27:46Z step r3-apply: exit 0
+2026-11-19T09:27:47Z step r3-wait-prepare-started: poll 120 3 in_state 4a1d18a4-8cd5-4d5a-83dd-37d9b5d2ba21 PrepareStarted
+2026-11-19T09:27:47Z step r3-wait-prepare-started: exit 0
+2026-11-19T09:27:47Z step r3-sigkill: sigkill_plugin
+2026-11-19T09:27:48Z step r3-sigkill: exit 0
+2026-11-19T09:27:48Z step r3-restart: poll 120 3 restarted dra-driver-nvidia-gpu-kubelet-plugin-jjtgw 2
+2026-11-19T09:28:16Z step r3-restart: exit 0
+2026-11-19T09:28:16Z step r3-release: release
+namespace "gpu-test-mps" deleted
+resourcequota "s2-block-new-pods" deleted from dra-driver-nvidia-gpu namespace
+2026-11-19T09:28:26Z step r3-release: exit 0
+2026-11-19T09:28:27Z step r3-settle: sleep 60
+2026-11-19T09:29:27Z step r3-settle: exit 0
+2026-11-19T09:29:27Z rep 3 (valid=yes): 60 s after the release: entry absent, 1 daemon(s), 1 node mount(s), mode Exclusive_Process
+2026-11-19T09:29:27Z step r3-reset: reset_mps
+deployment.apps "mps-control-daemon-4a1d18a4-8cd5-4d5a-83dd-37d9b5d2ba21-ae8d0" deleted from dra-driver-nvidia-gpu namespace
+Set compute mode to DEFAULT for GPU 00000000:00:1E.0.
+All done.
+2026-11-19T09:29:28Z step r3-reset: exit 0
+2026-11-19T09:29:28Z 3 of 3 repetitions valid

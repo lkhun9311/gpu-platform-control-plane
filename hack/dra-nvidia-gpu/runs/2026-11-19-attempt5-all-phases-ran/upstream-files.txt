@@ -1,0 +1,10 @@
+220f22700b76dfa637aaa9a3deb646037a667f31  hack/ci/gcp-nvkind/lib/setup-nvkind-node.sh
+aaa9d39ba084b26aaccc0b18d26bab420175da6e  hack/ci/gcp-nvkind/lib/nvkind-config.yaml.tmpl
+0c1f787106e8c88ef63d0bf4683da194bb1f7e4a  deployments/container/Makefile
+7ff02d27f4510b9b6a2b5ebe9cf33db1b6e123f6  deployments/helm/dra-driver-nvidia-gpu/Chart.yaml
+81bbdbb4b6bdccb2d9b37a7002f6c2ed68ad5c24  tests/bats/Makefile
+776209367ccae729771586124482ae87060203e4  tests/bats/test_gpu_basic.bats
+9e43da7bbd1b260fc1382a402b009b03450618cf  tests/bats/test_gpu_robustness.bats
+d54c009a38a03180dba1d7d4d4ad023afc46acba  tests/bats/test_gpu_sharing.bats
+b5d94559b50c516acaa6e47616e460ddc880b30f  tests/bats/lib/lambda/nvmm
+d5044a3ebb1631470e180d56888c6f60491c6380  demo/specs/quickstart/v1/gpu-test-mps.yaml

@@ -1,0 +1,2 @@
+valid	slice_memory_request_policy	pod_0_ready	pod_1_ready	consumed_0	consumed_1	pod_1_failed_scheduling
+yes	yes	yes	yes	{"memory":"4Gi"}	{"memory":"4Gi"}	none

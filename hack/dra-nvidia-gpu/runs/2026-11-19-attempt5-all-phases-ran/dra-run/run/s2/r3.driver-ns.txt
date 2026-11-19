@@ -1,0 +1,6 @@
+NAME                                                                            READY   UP-TO-DATE   AVAILABLE   AGE    CONTAINERS           IMAGES                                                               SELECTOR
+deployment.apps/mps-control-daemon-4a1d18a4-8cd5-4d5a-83dd-37d9b5d2ba21-ae8d0   1/1     1            1           100s   mps-control-daemon   registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev   app=mps-control-daemon-4a1d18a4-8cd5-4d5a-83dd-37d9b5d2ba21-ae8d0
+
+NAME                                                                  READY   STATUS    RESTARTS       AGE     IP            NODE                 NOMINATED NODE   READINESS GATES
+pod/dra-driver-nvidia-gpu-kubelet-plugin-jjtgw                        1/1     Running   3 (100s ago)   4m40s   10.244.1.33   dra-session-worker   <none>           <none>
+pod/mps-control-daemon-4a1d18a4-8cd5-4d5a-83dd-37d9b5d2ba21-aewh7w8   1/1     Running   0              100s    10.244.1.36   dra-session-worker   <none>           <none>

@@ -1,0 +1,18 @@
+NAMESPACE               NAME                                                                  READY   STATUS              RESTARTS      AGE     IP            NODE                        NOMINATED NODE   READINESS GATES
+dra-driver-nvidia-gpu   pod/dra-driver-nvidia-gpu-kubelet-plugin-jjtgw                        1/1     Running             3 (29s ago)   3m29s   10.244.1.33   dra-session-worker          <none>           <none>
+dra-driver-nvidia-gpu   pod/mps-control-daemon-4a1d18a4-8cd5-4d5a-83dd-37d9b5d2ba21-aewh7w8   1/1     Running             0             29s     10.244.1.36   dra-session-worker          <none>           <none>
+gpu-test-mps            pod/test-pod                                                          0/2     ContainerCreating   0             30s     <none>        dra-session-worker          <none>           <none>
+kube-system             pod/coredns-66bc5c9577-bbqgr                                          1/1     Running             0             22m     10.244.0.4    dra-session-control-plane   <none>           <none>
+kube-system             pod/coredns-66bc5c9577-gck6m                                          1/1     Running             0             22m     10.244.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/etcd-dra-session-control-plane                                    1/1     Running             0             22m     172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kindnet-26lcc                                                     1/1     Running             0             22m     172.18.0.3    dra-session-worker          <none>           <none>
+kube-system             pod/kindnet-9fgzm                                                     1/1     Running             0             22m     172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kube-apiserver-dra-session-control-plane                          1/1     Running             0             22m     172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kube-controller-manager-dra-session-control-plane                 1/1     Running             0             22m     172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kube-proxy-2pbpd                                                  1/1     Running             0             22m     172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kube-proxy-fbwvj                                                  1/1     Running             0             22m     172.18.0.3    dra-session-worker          <none>           <none>
+kube-system             pod/kube-scheduler-dra-session-control-plane                          1/1     Running             0             22m     172.18.0.2    dra-session-control-plane   <none>           <none>
+local-path-storage      pod/local-path-provisioner-5c4cdb564f-6pgj8                           1/1     Running             0             22m     10.244.0.3    dra-session-control-plane   <none>           <none>
+
+NAMESPACE      NAME                                                      STATE                AGE
+gpu-test-mps   resourceclaim.resource.k8s.io/test-pod-shared-gpu-vvqhj   allocated,reserved   30s

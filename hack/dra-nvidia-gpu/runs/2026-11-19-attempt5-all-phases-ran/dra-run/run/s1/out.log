@@ -1,0 +1,74 @@
+release "dra-driver-nvidia-gpu-batssuite" uninstalled
+Release "dra-gpu-session" does not exist. Installing it now.
+NAME: dra-gpu-session
+LAST DEPLOYED: Thu Nov 19 09:12:43 2026
+NAMESPACE: dra-driver-nvidia-gpu
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+Waiting for daemon set "dra-driver-nvidia-gpu-kubelet-plugin" rollout to finish: 0 of 1 updated pods are available...
+daemon set "dra-driver-nvidia-gpu-kubelet-plugin" successfully rolled out
+2026-11-19T09:12:47Z step r1-prepare: prepare /src/dra-run/run/s1/r1.yaml s1-r1
+namespace/s1-r1 created
+resourceclaim.resource.k8s.io/gpu created
+pod/pod created
+pod/pod condition met
+2026-11-19T09:12:49Z step r1-prepare: exit 0
+2026-11-19T09:12:49Z step r1-plugin-down: plugin_down
+daemonset.apps/dra-driver-nvidia-gpu-kubelet-plugin patched
+2026-11-19T09:12:53Z step r1-plugin-down: exit 0
+2026-11-19T09:12:53Z step r1-delete: delete_both s1-r1
+pod "pod" deleted from s1-r1 namespace
+resourceclaim.resource.k8s.io "gpu" deleted from s1-r1 namespace
+2026-11-19T09:14:10Z step r1-delete: exit 0
+2026-11-19T09:14:10Z step r1-plugin-up: plugin_up
+daemonset.apps/dra-driver-nvidia-gpu-kubelet-plugin patched
+Waiting for daemon set "dra-driver-nvidia-gpu-kubelet-plugin" rollout to finish: 0 of 1 updated pods are available...
+daemon set "dra-driver-nvidia-gpu-kubelet-plugin" successfully rolled out
+2026-11-19T09:14:14Z step r1-plugin-up: exit 0
+2026-11-19T09:14:14Z step r1-watch: watch_entry d47e5bb4-d3d5-4869-8aad-f3d27075c79f
+2026-11-19T09:16:46Z step r1-watch: exit 0
+2026-11-19T09:16:46Z rep 1 (valid=yes): claim d47e5bb4-d3d5-4869-8aad-f3d27075c79f PrepareCompleted -> PrepareCompleted at the plugin's return -> absent after the watch
+2026-11-19T09:16:46Z step r2-prepare: prepare /src/dra-run/run/s1/r2.yaml s1-r2
+namespace/s1-r2 created
+resourceclaim.resource.k8s.io/gpu created
+pod/pod created
+pod/pod condition met
+2026-11-19T09:16:48Z step r2-prepare: exit 0
+2026-11-19T09:16:49Z step r2-plugin-down: plugin_down
+daemonset.apps/dra-driver-nvidia-gpu-kubelet-plugin patched
+2026-11-19T09:16:52Z step r2-plugin-down: exit 0
+2026-11-19T09:16:52Z step r2-delete: delete_both s1-r2
+pod "pod" deleted from s1-r2 namespace
+resourceclaim.resource.k8s.io "gpu" deleted from s1-r2 namespace
+2026-11-19T09:18:09Z step r2-delete: exit 0
+2026-11-19T09:18:10Z step r2-plugin-up: plugin_up
+daemonset.apps/dra-driver-nvidia-gpu-kubelet-plugin patched
+Waiting for daemon set "dra-driver-nvidia-gpu-kubelet-plugin" rollout to finish: 0 of 1 updated pods are available...
+daemon set "dra-driver-nvidia-gpu-kubelet-plugin" successfully rolled out
+2026-11-19T09:18:13Z step r2-plugin-up: exit 0
+2026-11-19T09:18:14Z step r2-watch: watch_entry 35eb7039-eed5-4ec5-bd47-58259be65e5f
+2026-11-19T09:20:45Z step r2-watch: exit 0
+2026-11-19T09:20:45Z rep 2 (valid=yes): claim 35eb7039-eed5-4ec5-bd47-58259be65e5f PrepareCompleted -> PrepareCompleted at the plugin's return -> absent after the watch
+2026-11-19T09:20:46Z step r3-prepare: prepare /src/dra-run/run/s1/r3.yaml s1-r3
+namespace/s1-r3 created
+resourceclaim.resource.k8s.io/gpu created
+pod/pod created
+pod/pod condition met
+2026-11-19T09:20:48Z step r3-prepare: exit 0
+2026-11-19T09:20:48Z step r3-plugin-down: plugin_down
+daemonset.apps/dra-driver-nvidia-gpu-kubelet-plugin patched
+2026-11-19T09:20:51Z step r3-plugin-down: exit 0
+2026-11-19T09:20:52Z step r3-delete: delete_both s1-r3
+pod "pod" deleted from s1-r3 namespace
+resourceclaim.resource.k8s.io "gpu" deleted from s1-r3 namespace
+2026-11-19T09:22:09Z step r3-delete: exit 0
+2026-11-19T09:22:09Z step r3-plugin-up: plugin_up
+daemonset.apps/dra-driver-nvidia-gpu-kubelet-plugin patched
+Waiting for daemon set "dra-driver-nvidia-gpu-kubelet-plugin" rollout to finish: 0 of 1 updated pods are available...
+daemon set "dra-driver-nvidia-gpu-kubelet-plugin" successfully rolled out
+2026-11-19T09:22:13Z step r3-plugin-up: exit 0
+2026-11-19T09:22:13Z step r3-watch: watch_entry 81619816-9009-490d-b6eb-582f60510285
+2026-11-19T09:24:45Z step r3-watch: exit 0
+2026-11-19T09:24:45Z rep 3 (valid=yes): claim 81619816-9009-490d-b6eb-582f60510285 PrepareCompleted -> PrepareCompleted at the plugin's return -> absent after the watch
+2026-11-19T09:24:45Z 3 of 3 repetitions valid

@@ -1,0 +1,154 @@
+apiVersion: v1
+items:
+- apiVersion: resource.k8s.io/v1
+  kind: ResourceClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"resource.k8s.io/v1","kind":"ResourceClaim","metadata":{"annotations":{},"name":"mem-0","namespace":"s3-shares"},"spec":{"devices":{"requests":[{"exactly":{"capacity":{"requests":{"memory":"4Gi"}},"deviceClassName":"gpu.nvidia.com"},"name":"gpu"}]}}}
+    creationTimestamp: "2026-11-19T09:29:34Z"
+    finalizers:
+    - resource.kubernetes.io/delete-protection
+    name: mem-0
+    namespace: s3-shares
+    resourceVersion: "3681"
+    uid: 9958a83c-a03e-4ca9-9895-b9f742d98690
+  spec:
+    devices:
+      requests:
+      - exactly:
+          allocationMode: ExactCount
+          capacity:
+            requests:
+              memory: 4Gi
+          count: 1
+          deviceClassName: gpu.nvidia.com
+        name: gpu
+  status:
+    allocation:
+      devices:
+        results:
+        - consumedCapacity:
+            memory: 4Gi
+          device: gpu-0
+          driver: gpu.nvidia.com
+          pool: dra-session-worker
+          request: gpu
+          shareID: 84b15d70-1826-451f-bd4e-0d3e13307d39
+      nodeSelector:
+        nodeSelectorTerms:
+        - matchFields:
+          - key: metadata.name
+            operator: In
+            values:
+            - dra-session-worker
+    reservedFor:
+    - name: pod-0
+      resource: pods
+      uid: b2ee424b-da65-46aa-94bb-61674dc5f1a1
+- apiVersion: resource.k8s.io/v1
+  kind: ResourceClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"resource.k8s.io/v1","kind":"ResourceClaim","metadata":{"annotations":{},"name":"mem-1","namespace":"s3-shares"},"spec":{"devices":{"requests":[{"exactly":{"capacity":{"requests":{"memory":"4Gi"}},"deviceClassName":"gpu.nvidia.com"},"name":"gpu"}]}}}
+    creationTimestamp: "2026-11-19T09:29:36Z"
+    finalizers:
+    - resource.kubernetes.io/delete-protection
+    name: mem-1
+    namespace: s3-shares
+    resourceVersion: "3694"
+    uid: e349e36e-4156-4f49-abd4-6fa62e7acacc
+  spec:
+    devices:
+      requests:
+      - exactly:
+          allocationMode: ExactCount
+          capacity:
+            requests:
+              memory: 4Gi
+          count: 1
+          deviceClassName: gpu.nvidia.com
+        name: gpu
+  status:
+    allocation:
+      devices:
+        results:
+        - consumedCapacity:
+            memory: 4Gi
+          device: gpu-0
+          driver: gpu.nvidia.com
+          pool: dra-session-worker
+          request: gpu
+          shareID: 5d21d2c3-4c5c-4d38-b5d2-75113f835e26
+      nodeSelector:
+        nodeSelectorTerms:
+        - matchFields:
+          - key: metadata.name
+            operator: In
+            values:
+            - dra-session-worker
+    reservedFor:
+    - name: pod-1
+      resource: pods
+      uid: a40a5971-b230-48cc-a30c-c50b80400d7c
+- apiVersion: resource.k8s.io/v1
+  kind: ResourceSlice
+  metadata:
+    creationTimestamp: "2026-11-19T09:22:12Z"
+    generateName: 00000-gpu.nvidia.com-dra-session-worker-
+    generation: 2
+    name: 00000-gpu.nvidia.com-dra-session-worker-9fmp8
+    ownerReferences:
+    - apiVersion: v1
+      controller: true
+      kind: Node
+      name: dra-session-worker
+      uid: b5008a46-b3d6-4ab6-926a-de8e0b2a4416
+    resourceVersion: "3670"
+    uid: c1154425-3741-4b24-9f1f-927a662393fd
+  spec:
+    devices:
+    - allowMultipleAllocations: true
+      attributes:
+        addressingMode:
+          string: HMM
+        architecture:
+          string: Ampere
+        brand:
+          string: Nvidia
+        cudaComputeCapability:
+          version: 8.6.0
+        cudaDriverVersion:
+          version: 13.2.0
+        driverVersion:
+          version: 595.112.7
+        productName:
+          string: NVIDIA A10G
+        resource.kubernetes.io/pciBusID:
+          string: 0000:00:1e.0
+        resource.kubernetes.io/pcieRoot:
+          string: pci0000:00
+        type:
+          string: gpu
+        uuid:
+          string: GPU-48ed75e7-02e7-2979-0913-e06d819a13e6
+      capacity:
+        memory:
+          requestPolicy:
+            default: 23028Mi
+            validRange:
+              max: 23028Mi
+              min: 1Mi
+              step: 1Mi
+          value: 23028Mi
+      name: gpu-0
+    driver: gpu.nvidia.com
+    nodeName: dra-session-worker
+    pool:
+      generation: 1
+      name: dra-session-worker
+      resourceSliceCount: 1
+kind: List
+metadata:
+  resourceVersion: ""

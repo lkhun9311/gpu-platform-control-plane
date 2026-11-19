@@ -1,0 +1,199 @@
+# shellcheck disable=SC2148
+# shellcheck disable=SC2329
+
+setup_file () {
+  load 'helpers.sh'
+  _common_setup
+  local _iargs=("--set" "logVerbosity=6")
+  if [ "${DISABLE_COMPUTE_DOMAINS:-}" = "true" ]; then
+    _iargs+=("--set" "resources.computeDomains.enabled=false")
+  fi
+  iupgrade_wait "${TEST_CHART_REPO}" "${TEST_CHART_VERSION}" _iargs
+}
+
+# Executed before entering each test in this file.
+setup() {
+   load 'helpers.sh'
+  _common_setup
+  log_objects
+}
+
+bats::on_failure() {
+  echo -e "\n\nFAILURE HOOK START"
+  log_objects
+  show_kubelet_plugin_error_logs
+  show_gpu_plugin_log_tails
+  echo -e "FAILURE HOOK END\n\n"
+}
+
+
+# bats test_tags=fastfeedback
+bats_test_function --description GPUs:\ 1\ pod\(s\)\,\ 1\ full\ GPU  --tags "fastfeedback" -- test_GPUs-3a_1_pod-28s-29-2c_1_full_GPU;test_GPUs-3a_1_pod-28s-29-2c_1_full_GPU() { 
+  local _specpath="tests/bats/specs/gpu-simple-full.yaml"
+  local _podname="pod-full-gpu"
+
+  kubectl apply -f "${_specpath}"
+  kubectl wait --for=condition=READY pods "${_podname}" --timeout=8s
+
+  # Confirm the following pattern:
+  # GPU 0: NVIDIA GB200 (UUID: GPU-7277883e-ce1e-3b6e-6cc1-6d52e80cdb86)
+  run kubectl logs "${_podname}"
+  assert_output --partial "UUID: GPU-"
+  echo "${output}" | wc -l | grep 1
+
+  kubectl delete -f  "${_specpath}"
+  kubectl wait --for=delete pods "${_podname}" --timeout=10s
+}
+
+
+# bats test_tags=fastfeedback,multi-gpu
+bats_test_function --description GPUs:\ 2\ pod\(s\)\,\ 1\ full\ GPU\ each  --tags "fastfeedback,multi-gpu" -- test_GPUs-3a_2_pod-28s-29-2c_1_full_GPU_each;test_GPUs-3a_2_pod-28s-29-2c_1_full_GPU_each() { 
+  local _specpath="tests/bats/specs/gpu-2pods-2gpus.yaml"
+
+  kubectl apply -f "${_specpath}"
+  kubectl wait --for=condition=READY pods pod1 --timeout=8s
+  kubectl wait --for=condition=READY pods pod2 --timeout=8s
+
+  run kubectl logs pod1
+  assert_output --partial "UUID: GPU-"
+  echo "${output}" | wc -l | grep 1
+  local uid1="${output}"
+
+  run kubectl logs pod2
+  assert_output --partial "UUID: GPU-"
+  echo "${output}" | wc -l | grep 1
+  local uid2="${output}"
+
+  assert_not_equal "$uid1" "$uid2"
+
+  kubectl delete -f  "${_specpath}"
+  kubectl wait --for=delete pods pod1 --timeout=10s
+  kubectl wait --for=delete pods pod2 --timeout=10s
+}
+
+
+# bats test_tags=fastfeedback
+bats_test_function --description GPUs:\ 2\ pod\(s\)\,\ 1\ full\ GPU\ \(shared\,\ 1\ RC\)  --tags "fastfeedback" -- test_GPUs-3a_2_pod-28s-29-2c_1_full_GPU_-28shared-2c_1_RC-29;test_GPUs-3a_2_pod-28s-29-2c_1_full_GPU_-28shared-2c_1_RC-29() { 
+  local _specpath="tests/bats/specs/gpu-2pods-1gpu.yaml"
+
+  kubectl apply -f "${_specpath}"
+  kubectl wait --for=condition=READY pods pod1 --timeout=8s
+  kubectl wait --for=condition=READY pods pod2 --timeout=8s
+
+  run kubectl logs pod1
+  assert_output --partial "UUID: GPU-"
+  echo "${output}" | wc -l | grep 1
+  local uid1="${output}"
+
+  run kubectl logs pod2
+  assert_output --partial "UUID: GPU-"
+  echo "${output}" | wc -l | grep 1
+  local uid2="${output}"
+
+  assert_equal "$uid1" "$uid2"
+
+  kubectl delete -f  "${_specpath}"
+  kubectl wait --for=delete pods pod1 --timeout=10s
+  kubectl wait --for=delete pods pod2 --timeout=10s
+}
+
+
+# bats test_tags=fastfeedback
+bats_test_function --description GPUs:\ 1\ pod\(s\)\,\ 2\ cntrs\,\ 1\ full\ GPU\ \(shared\,\ 1\ RCT\)  --tags "fastfeedback" -- test_GPUs-3a_1_pod-28s-29-2c_2_cntrs-2c_1_full_GPU_-28shared-2c_1_RCT-29;test_GPUs-3a_1_pod-28s-29-2c_2_cntrs-2c_1_full_GPU_-28shared-2c_1_RCT-29() { 
+  local _specpath="tests/bats/specs/gpu-1pod-2cnt-1gpu.yaml"
+
+  kubectl apply -f "${_specpath}"
+  kubectl wait --for=condition=READY pods pod1 --timeout=8s
+
+  run kubectl logs pod1 -c ctr0
+  assert_output --partial "UUID: GPU-"
+  echo "${output}" | wc -l | grep 1
+  local uid1="${output}"
+
+  run kubectl logs pod1 -c ctr1
+  assert_output --partial "UUID: GPU-"
+  echo "${output}" | wc -l | grep 1
+  local uid2="${output}"
+
+  assert_equal "$uid1" "$uid2"
+
+  kubectl delete -f  "${_specpath}"
+  kubectl wait --for=delete pods pod1 --timeout=10s
+}
+
+
+
+# bats test_tags=fastfeedback,version-specific
+bats_test_function --description GPUs:\ inspect\ device\ attributes\ in\ resource\ slice\ \(gpu\)  --tags "fastfeedback,version-specific" -- test_GPUs-3a_inspect_device_attributes_in_resource_slice_-28gpu-29;test_GPUs-3a_inspect_device_attributes_in_resource_slice_-28gpu-29() { 
+  local reference=(
+    "architecture"
+    "brand"
+    "cudaComputeCapability"
+    "cudaDriverVersion"
+    "driverVersion"
+    "productName"
+    "resource.kubernetes.io/numaNode"
+    "resource.kubernetes.io/pciBusID"
+    "resource.kubernetes.io/pcieRoot"
+    "type"
+    "uuid"
+    "addressingMode"
+  )
+
+  local attrs
+  attrs=$(get_device_attrs_from_any_gpu_slice "gpu")
+  assert_attrs_equal "$attrs" "${reference[@]}"
+}
+
+
+# bats test_tags=fastfeedback
+bats_test_function --description MockNVML:\ publishes\ NUMA\ SLIT\ list\ in\ ResourceSlice  --tags "fastfeedback" -- test_MockNVML-3a_publishes_NUMA_SLIT_list_in_ResourceSlice;test_MockNVML-3a_publishes_NUMA_SLIT_list_in_ResourceSlice() { 
+  if [ "${MOCK_NVML:-}" != "true" ]; then
+    skip "mock NVML only"
+  fi
+  if [ "${TEST_DRA_LIST_TYPE_ATTRIBUTES:-}" != "true" ]; then
+    skip "DRAListTypeAttributes not enabled for this cluster"
+  fi
+
+  local attr
+  attr=$(kubectl get resourceslices.resource.k8s.io -o json | jq -c '
+    [
+      .items[]
+      | select(.spec.driver == "gpu.nvidia.com")
+      | .spec.devices[]?
+      | select(.name == "gpu-0" and .attributes.type.string == "gpu")
+      | .attributes["resource.kubernetes.io/numaNode"]
+    ][0]
+  ')
+
+  assert_not_equal "$attr" "null"
+  assert_equal "$(echo "$attr" | jq -c '.ints')" "[0,1]"
+  assert_equal "$(echo "$attr" | jq -r 'has("int")')" "false"
+}
+
+
+# bats test_tags=fastfeedback
+bats_test_function --description MockNVML:\ publishes\ scalar\ NUMA\ node\ in\ ResourceSlice  --tags "fastfeedback" -- test_MockNVML-3a_publishes_scalar_NUMA_node_in_ResourceSlice;test_MockNVML-3a_publishes_scalar_NUMA_node_in_ResourceSlice() { 
+  if [ "${MOCK_NVML:-}" != "true" ]; then
+    skip "mock NVML only"
+  fi
+  if [ "${TEST_DRA_LIST_TYPE_ATTRIBUTES:-}" = "true" ]; then
+    skip "DRAListTypeAttributes enabled; list form tested separately"
+  fi
+
+  local attr
+  attr=$(kubectl get resourceslices.resource.k8s.io -o json | jq -c '
+    [
+      .items[]
+      | select(.spec.driver == "gpu.nvidia.com")
+      | .spec.devices[]?
+      | select(.name == "gpu-0" and .attributes.type.string == "gpu")
+      | .attributes["resource.kubernetes.io/numaNode"]
+    ][0]
+  ')
+
+  assert_not_equal "$attr" "null"
+  assert_equal "$(echo "$attr" | jq -c '.int')" "0"
+  assert_equal "$(echo "$attr" | jq -r 'has("ints")')" "false"
+}
+
