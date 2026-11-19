@@ -1,29 +1,42 @@
 #!/usr/bin/env python3
-"""The #68415 verdict of hack/vllm-gdn-68414-session.sh run 2, read from the records hack/vllm-gdn-68414/kda-state.sh leaves.
+"""The #68415 verdict of hack/vllm-gdn-68414-session.sh run 3, read from the records hack/vllm-gdn-68414/kda-state.sh leaves.
 
     kda-verdict.py <sweep dir> <kda-test.diff sha256> <kda-fix.diff sha256>
 
 Prints key=value lines prefixed kda_, the import check first, and exits 0 only when kda_verdict is "confirmed".
 It reads only the kda-before and kda-after records and the image identity, so no other item can change it, and it cannot change another item's.
 "confirmed" needs every one of these, on the pinned image and pinned trees:
-  - BEFORE ran the 64-32 case alone, and it failed on `out.shape == v.shape` with [1, 4, 1, 64] against [1, 4, 1, 32];
-  - AFTER ran the three cases 64-32, 64-64 and 32-64, and all three passed;
-  - the imported kda.py holds the bug line and not the fix BEFORE, and the fix and not the bug line AFTER.
+  - BEFORE ran k64-v32, k64-v64, k64-v32-hv2 and v-bf16, and never k32-v64, by its command, its collection and its junit;
+  - BEFORE failed k64-v32 and k64-v32-hv2 each on `assert out.shape == v.shape`, with its own E line, and passed k64-v64 and v-bf16;
+  - AFTER ran all five cases, and all five passed;
+  - each call's command, the GPU, the python and the apply command were recorded as the summary quotes them;
+  - the imported kda.py holds the bug line and not the fix BEFORE, and the fix and not the bug line AFTER;
+  - kda.py's kernel came from the image's fused_recurrent.py without #68416's term, and the new test from the checkout;
+  - the collection loaded no file that differs between the image's commit and the diff base.
 Every other combination is reported by name.
 """
 import sys
 import xml.etree.ElementTree as ET
 
-KDA = "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/kda.py"
-IMAGE_DIGEST = "sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed"
-VLLM_COMMIT = "8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd"
+OPS = "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops"
+KDA = f"{OPS}/kda.py"
+KERNEL = f"{OPS}/fused_recurrent.py"
+TEST_FILE = "/vllm-workspace/tests/kernels/fla/test_fused_recurrent_kda.py"
+IMAGE_DIGEST = "sha256:9071b00dc36251a304e9099ed40b42a8260f8feb23432c8f312689e34c4d3f5f"
+VLLM_COMMIT = "428c371b32c18a788def35abea1cb9f579278381"
+TEST = "tests/kernels/fla/test_fused_recurrent_kda.py"
 CASE = "test_fused_recurrent_kda_output_has_value_shape"
-BEFORE_CASES = {f"{CASE}[64-32]"}
+UNSAFE = "k32-v64"
 # BEFORE's whole selection as kda-state.sh records it, so a widened command line voids the run even when it crashed before writing junit.
-BEFORE_ARGS = f"tests/kernels/fla/test_fused_recurrent_kda.py::{CASE}[64-32] -k 64-32"
-AFTER_CASES = {f"{CASE}[64-32]", f"{CASE}[64-64]", f"{CASE}[32-64]"}
-# The 64-32 case's output is allocated from k, so its shape has K=64 where v has V=32.
-BUG_TEXT = ("out.shape == v.shape", "[1, 4, 1, 64]", "[1, 4, 1, 32]")
+BEFORE_ARGS = " ".join(f"{TEST}::{CASE}[{i}]" for i in ("k64-v32", "k64-v64", "k64-v32-hv2", "v-bf16")) + f" -k not {UNSAFE}"
+# The output is allocated from k, so its shape has K=64 and k's single head where v has V=32 and its own heads.
+BEFORE_FAILS = {
+    "k64-v32": "E   assert torch.Size([1, 4, 1, 64]) == torch.Size([1, 4, 1, 32])",
+    "k64-v32-hv2": "E   assert torch.Size([1, 4, 1, 64]) == torch.Size([1, 4, 2, 32])",
+}
+BEFORE_PASSES = ("k64-v64", "v-bf16")
+SHAPE_LINE = "assert out.shape == v.shape"
+AFTER_IDS = ("k64-v32", "k64-v64", "k32-v64", "k64-v32-hv2", "v-bf16")
 
 
 def kv(path):
@@ -35,21 +48,43 @@ def kv(path):
 
 
 def cases(path):
-    """Each testcase as (name, outcome, message), or None when the file is missing or not junit."""
+    """Each testcase as (id, outcome, text), or None when the file is missing or not junit."""
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
         return None
     out = []
     for tc in root.iter("testcase"):
-        outcome, message = "passed", ""
+        outcome, text = "passed", ""
         for tag in ("error", "failure", "skipped"):
             el = tc.find(tag)
             if el is not None:
-                outcome, message = tag, (el.get("message") or "") + "\n" + (el.text or "")
+                outcome, text = tag, (el.get("message") or "") + "\n" + (el.text or "")
                 break
-        out.append((tc.get("name", ""), outcome, message))
+        name = tc.get("name", "")
+        out.append((name[len(CASE) + 1:-1] if name.startswith(CASE + "[") and name.endswith("]") else name, outcome, text))
     return out
+
+
+def evidence(name, st, keys):
+    """None when a state recorded what the PRs quote about it, else what is missing: each call's command, the GPU, the python and the apply command."""
+    if st is None:
+        return f"{name}-missing"
+    for key in keys:
+        # A call that left neither a command nor an exit status never ran, which the test results name more exactly.
+        if f"{key}_cmd" not in st and f"{key}_rc" not in st:
+            continue
+        cmd = st.get(f"{key}_cmd", "")
+        args = st.get({"test": "pytest_args", "file": "file_args"}[key], "")
+        # The command must be the one whose selection the verdict judged, with the flags that put the E lines in the junit.
+        if " python3 -m pytest " not in cmd or " -rA --tb=short " not in cmd or not cmd.endswith(f"/{name}/{key}.xml") or not args or args not in cmd.replace("'", ""):
+            return f"{name}-{key}-command({cmd or 'unrecorded'})"
+    if "A10G" not in st.get("gpu_name", ""):
+        return f"{name}-gpu({st.get('gpu_name', 'unrecorded')})"
+    for key in ("python_executable", "python_version", "apply_checkout_cmd"):
+        if st.get(key, "unread") in ("", "unread"):
+            return f"{name}-{key}(unrecorded)"
+    return None
 
 
 def identity(st, want_diff):
@@ -64,31 +99,55 @@ def identity(st, want_diff):
 def import_check(name, st, fix_rc, bug_rc):
     if st is None:
         return f"{name}-missing"
-    if st.get("kda_file") != KDA:
-        return f"wrong-file-{name}({st.get('kda_file')})"
+    for key, want in (("kda_file", KDA), ("kernel_file", KERNEL), ("test_file", TEST_FILE)):
+        if st.get(key) != want:
+            return f"wrong-file-{name}({key}={st.get(key)})"
     if st.get("fix_grep_rc") != fix_rc or st.get("bug_grep_rc") != bug_rc:
         return f"lines-{name}(fix_grep_rc={st.get('fix_grep_rc')},bug_grep_rc={st.get('bug_grep_rc')})"
+    # #68416's fix in this item's kernel would be another item's fix leaking in.
+    if st.get("kernel_stride_fix_count") != "0":
+        return f"other-fix-{name}(kernel_stride_fix_count={st.get('kernel_stride_fix_count')})"
+    if st.get("probe_rc") != "0" or not st.get("loaded_count", "0").isdigit() or int(st.get("loaded_count", "0")) == 0:
+        return f"probe-{name}(rc={st.get('probe_rc')},loaded={st.get('loaded_count')})"
+    if st.get("loaded_differs") != "none":
+        return f"loaded-differs-{name}({st.get('loaded_differs')})"
     return "ok"
 
 
 def before_result(st, tc):
-    if st is None or "test_rc" not in st:
+    if st is None:
         return "missing"
-    if st.get("pytest_args") != BEFORE_ARGS:
+    # Any trace of k32-v64 is a breach of the rule this state exists to keep, whatever its outcome.
+    # The guard refuses before pytest runs, so its "no" is read before the missing exit status would hide it.
+    if st.get("before_selection_guard") == "no":
+        return "wrong-args(refused by kda-state.sh's selection guard)"
+    if "test_rc" not in st:
+        return "missing"
+    if st.get("pytest_args") != BEFORE_ARGS or st.get("before_selection_guard") != "yes":
         return f"wrong-args({st.get('pytest_args')})"
     rc = st["test_rc"]
     if tc is None:
         return f"no-junit(rc={rc})"
-    names = [n for n, _, _ in tc]
-    # Any case but 64-32 is a breach of the rule this state exists to keep, whatever its outcome.
-    if set(names) != BEFORE_CASES or len(names) != 1:
-        return f"wrong-cases({','.join(names) or 'none'})"
-    _, outcome, message = tc[0]
-    if rc == "1" and outcome == "failure" and all(t in message for t in BUG_TEXT):
+    ids = [i for i, _, _ in tc]
+    if any(UNSAFE in i for i in ids) or len(ids) != 4 or set(ids) != set(BEFORE_FAILS) | set(BEFORE_PASSES):
+        return f"wrong-cases({','.join(ids) or 'none'})"
+    got = {i: (o, t) for i, o, t in tc}
+    wrong = []
+    for i, eline in BEFORE_FAILS.items():
+        o, t = got[i]
+        lines = [x.rstrip() for x in t.splitlines()]
+        if o != "failure":
+            wrong.append(f"{i}:{o}")
+        elif eline not in lines or SHAPE_LINE not in (x.strip() for x in lines):
+            wrong.append(f"{i}:failure-not-the-shape-assert")
+    for i in BEFORE_PASSES:
+        if got[i][0] != "passed":
+            wrong.append(f"{i}:{got[i][0]}")
+    if rc == "1" and not wrong:
         return "bug-shown"
-    if rc == "0" and outcome == "passed":
-        return "no-bug"
-    return f"other(rc={rc},outcome={outcome})"
+    if all(w.endswith("failure-not-the-shape-assert") for w in wrong) and wrong:
+        return f"other-failure({','.join(wrong)})"
+    return f"other(rc={rc},{','.join(wrong) or 'outcomes as expected'})"
 
 
 def after_result(st, tc):
@@ -97,11 +156,11 @@ def after_result(st, tc):
     rc = st["test_rc"]
     if tc is None:
         return f"no-junit(rc={rc})"
-    names = [n for n, _, _ in tc]
-    # Three distinct names, so a repeated case cannot stand in for one that never ran.
-    if rc == "0" and len(names) == 3 and set(names) == AFTER_CASES and all(o == "passed" for _, o, _ in tc):
+    ids = [i for i, _, _ in tc]
+    # Five distinct names, so a repeated case cannot stand in for one that never ran.
+    if rc == "0" and len(ids) == 5 and set(ids) == set(AFTER_IDS) and all(o == "passed" for _, o, _ in tc):
         return "passed"
-    outcomes = ",".join(f"{n.removeprefix(CASE)}:{o}" for n, o, _ in tc) or "none"
+    outcomes = ",".join(f"{i}:{o}" for i, o, _ in tc) or "none"
     return f"not-passed(rc={rc},cases={len(tc)},{outcomes})"
 
 
@@ -128,17 +187,27 @@ def main(sweep, test_sha, fix_sha):
     except (TypeError, KeyError, ValueError):
         order = "unread"
     lines.append(f"kda_order={order}")
+    ev = evidence("kda-before", b, ("test",)) or evidence("kda-after", a, ("test",)) or "ok"
+    lines.append(f"kda_evidence={ev}")
     lines.append(f"kda_before_args={(b or {}).get('pytest_args', '')}")
-    rb = before_result(b, cases(f"{sweep}/kda-before/test.xml"))
+    tb = cases(f"{sweep}/kda-before/test.xml")
+    # Stated on its own line, since the PR quotes that the unsafe case never ran before the fix.
+    lines.append(f"kda_before_junit_{UNSAFE}={'unread' if tb is None else ('present' if any(UNSAFE in i for i, _, _ in tb) else 'absent')}")
+    rb = before_result(b, tb)
     ra = after_result(a, cases(f"{sweep}/kda-after/test.xml"))
     lines += [f"kda_before_test={rb}", f"kda_after_test={ra}"]
 
-    if image != "ok" or bid != "ok" or aid != "ok" or order != "ok":
+    # A selection that could reach k32-v64 is named before anything else, since it is the one breach that can corrupt the GPU's memory.
+    if rb.startswith(("wrong-cases", "wrong-args")):
+        verdict = "void-before-selection"
+    elif image != "ok" or bid != "ok" or aid != "ok" or order != "ok":
         verdict = "void-identity"
     elif imp != "ok":
         verdict = "void-import-check"
-    elif rb.startswith(("wrong-cases", "wrong-args")):
-        verdict = "void-before-selection"
+    elif ev != "ok":
+        verdict = "void-evidence"
+    elif rb.startswith("other-failure"):
+        verdict = "before-failed-otherwise"
     elif rb != "bug-shown":
         verdict = "before-did-not-reproduce"
     elif ra != "passed":

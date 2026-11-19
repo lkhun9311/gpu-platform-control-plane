@@ -1,8 +1,9 @@
 #!/bin/bash
-# The on-instance part of hack/vllm-gdn-68414-session.sh: pull, image identity, then #68414 AFTER, #68416 BEFORE and AFTER, and #68415 BEFORE and AFTER.
+# The on-instance part of hack/vllm-gdn-68414-session.sh run 3: pull, image identity, then #68416 BEFORE and AFTER and #68415 BEFORE and AFTER.
 #
 #   runner.sh <dir with the fetched inputs> <out dir> <harness-end epoch>
 #
+# #68414 is not part of run 3, so no state of it runs here.
 # Each state runs in its own fresh container of the same pinned image.
 # A fresh container is the run's `git checkout .`: nothing an earlier state did can reach a later one, and each state script proves it by hashing all three items' files before applying anything.
 # One state's failure does not stop the next, because each item is judged on its own records and one item's failure must not cost another its run.
@@ -12,14 +13,15 @@ set -u
 IN=$1
 D=$2
 HE=$3
-IMG="public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed"
-VLLM_COMMIT=8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd
+# vLLM CI's image for 428c371b32, #68415's diff base; 8700cc9ba0's differs from both diff bases in vllm/utils/torch_utils.py, which both tests import.
+IMG="public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:9071b00dc36251a304e9099ed40b42a8260f8feb23432c8f312689e34c4d3f5f"
+VLLM_COMMIT=428c371b32c18a788def35abea1cb9f579278381
 PULL_S=1200
-IMAGE_ID_S=120
-SETUP_S=90
-REPRO_S=300
-UNIT_S=120
-PYTEST_S=150
+IMAGE_ID_S=60
+SETUP_S=60
+PROBE_S=60
+PYTEST_S=90
+FILE_S=300
 STOP_S=30
 
 mkdir -p "$D"
@@ -36,7 +38,7 @@ step "pulled"
 step "image identity"
 docker image inspect "$IMG" --format '{{json .RepoDigests}} {{index .Config.Labels "org.opencontainers.image.revision"}}' \
   > "$D/image-identity.txt" 2>&1
-grep -q "sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed" "$D/image-identity.txt" &&
+grep -q "sha256:9071b00dc36251a304e9099ed40b42a8260f8feb23432c8f312689e34c4d3f5f" "$D/image-identity.txt" &&
   grep -q " $VLLM_COMMIT\$" "$D/image-identity.txt" || { step "IMAGE IDENTITY FAILED: $(cat "$D/image-identity.txt")"; exit 2; }
 timeout --kill-after=15 "$(left $IMAGE_ID_S)" docker run --rm --entrypoint cat "$IMG" /tmp/vllm-wheel.sha256 \
   > "$D/wheel-sha256.txt" 2>&1 || { step "IMAGE IDENTITY FAILED: no wheel hash in the image"; exit 2; }
@@ -63,15 +65,12 @@ contained() {
   step "state $name: exited $rc"
   [ "$rc" = 0 ] || failed=$(( failed + 1 ))
 }
-# #68414 first: one container, and the result run 1 lost to the Spot reclaim.
-contained state.sh gdn-after $(( SETUP_S + REPRO_S + UNIT_S + STOP_S )) "$REPRO_S" "$UNIT_S"
-step "gdn states done"
-# #68416 next, then #68415, whose BEFORE is the only state that runs an unfixed kernel near an out-of-bounds write, guarded to its safe case.
-contained stride-state.sh stride-before $(( SETUP_S + PYTEST_S + STOP_S )) "$PYTEST_S"
-contained stride-state.sh stride-after $(( SETUP_S + PYTEST_S + STOP_S )) "$PYTEST_S"
+# #68416 first, then #68415, whose BEFORE is the only state that runs an unfixed kernel near an out-of-bounds write, guarded to its safe cases.
+contained stride-state.sh stride-before $(( SETUP_S + PROBE_S + PYTEST_S + STOP_S )) "$PYTEST_S" "$PROBE_S"
+contained stride-state.sh stride-after $(( SETUP_S + PROBE_S + PYTEST_S + FILE_S + STOP_S )) "$PYTEST_S" "$PROBE_S" "$FILE_S"
 step "stride states done"
-contained kda-state.sh kda-before $(( SETUP_S + PYTEST_S + STOP_S )) "$PYTEST_S"
-contained kda-state.sh kda-after $(( SETUP_S + PYTEST_S + STOP_S )) "$PYTEST_S"
+contained kda-state.sh kda-before $(( SETUP_S + PROBE_S + PYTEST_S + STOP_S )) "$PYTEST_S" "$PROBE_S"
+contained kda-state.sh kda-after $(( SETUP_S + PROBE_S + PYTEST_S + STOP_S )) "$PYTEST_S" "$PROBE_S"
 step "kda states done"
 step "all items done, $failed state(s) exited non-zero"
 [ "$failed" = 0 ] || exit 3

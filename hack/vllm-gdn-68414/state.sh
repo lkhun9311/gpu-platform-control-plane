@@ -1,5 +1,7 @@
 #!/bin/bash
 # #68414's one state in run 2, run by hack/vllm-gdn-68414/runner.sh inside a fresh container of the pinned vLLM CI image.
+# Run 3 neither ships nor runs it, and it stays as run 2 ran it.
+# lib.sh now pins eight files on run 3's image, so this state would refuse its seven-file pins.txt rather than run on a tree it was not pinned for.
 #
 #   state.sh after <repro seconds> <unit-test seconds>
 #

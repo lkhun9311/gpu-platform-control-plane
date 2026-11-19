@@ -1,30 +1,46 @@
 #!/usr/bin/env python3
-"""The #68416 verdict of hack/vllm-gdn-68414-session.sh run 2, read from the records hack/vllm-gdn-68414/stride-state.sh leaves.
+"""The #68416 verdict of hack/vllm-gdn-68414-session.sh run 3, read from the records hack/vllm-gdn-68414/stride-state.sh leaves.
 
     stride-verdict.py <sweep dir> <stride-test.diff sha256> <stride-fix.diff sha256>
 
 Prints key=value lines prefixed stride_, the import check first, and exits 0 only when stride_verdict is "confirmed".
 It reads only the stride-before and stride-after records and the image identity, so no other item can change it, and it cannot change another item's.
 "confirmed" needs every one of these, on the pinned image and pinned trees:
-  - BEFORE ran the new test's two cases, recurrent and sigmoid_gating, and both failed on assert_close finding the tensors unequal;
-  - AFTER ran the same two cases, and both passed;
-  - fused_recurrent.py and fused_sigmoid_gating.py were imported from the image's dist-packages in both states, with `i_t * stride_indices_tok` in neither BEFORE and in both loads of each AFTER.
+  - BEFORE ran `-k stride`, which selected the three cases recurrent, sigmoid_gating and kda, and all three failed on assert_close finding the tensors unequal;
+  - AFTER ran `-k stride`, and the same three passed;
+  - AFTER ran the whole test file, and all 21 of its cases passed: 6 non_spec, 12 spec and the three new ones;
+  - each call's command, the GPU, the python and the apply command were recorded as the summary quotes them;
+  - fused_recurrent.py, fused_sigmoid_gating.py and kda.py came from the image's dist-packages and the test file from the checkout, in both states;
+  - `i_t * stride_indices_tok` was in neither kernel BEFORE and in both loads of each AFTER, and kda.py launched fused_recurrent.py's kernel;
+  - kda.py held #68415's bug line and not its fix in both states, so that item's fix did not reach this one;
+  - the collection loaded no file that differs between the image's commit and the diff base 545ef08189.
 Every other combination is reported by name.
 """
 import sys
 import xml.etree.ElementTree as ET
 
 OPS = "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops"
-IMAGE_DIGEST = "sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed"
-VLLM_COMMIT = "8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd"
-TEST = "tests/kernels/fla/test_state_index_stride.py"
+TEST_FILE = "/vllm-workspace/tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py"
+IMAGE_DIGEST = "sha256:9071b00dc36251a304e9099ed40b42a8260f8feb23432c8f312689e34c4d3f5f"
+VLLM_COMMIT = "428c371b32c18a788def35abea1cb9f579278381"
+TEST = "tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py"
 CASE = "test_state_index_table_stride_does_not_change_results"
-CASES = {f"{CASE}[recurrent]", f"{CASE}[sigmoid_gating]"}
+CASES = {f"{CASE}[recurrent]", f"{CASE}[sigmoid_gating]", f"{CASE}[kda]"}
+ARGS = f"{TEST} -k stride"
+# 3 x 2 non_spec cases, 3 x 2 x 2 spec cases and the three new ones, counted from the file at efdbec4e2d.
+# Each function's count is held on its own, so 21 unrelated names cannot stand in for the file.
+FILE_SHAPE = {
+    "test_fused_sigmoid_gating_delta_rule_update_non_spec[": 6,
+    "test_fused_sigmoid_gating_delta_rule_update_spec[": 12,
+    f"{CASE}[": 3,
+}
+FILE_CASES = 21
 KERNELS = ("fused_recurrent", "fused_sigmoid_gating")
 # The diff adds the term to the initial-state and the final-state load in each kernel.
 FIX_COUNT_AFTER = "2"
-# torch.testing.assert_close with rtol=atol=0 says "equal", not "close", when the tensors differ.
-BUG_TEXT = "Tensor-likes are not equal!"
+# torch.testing.assert_close with rtol=atol=0 says "equal", not "close", when the tensors differ, and then counts the mismatches.
+BUG_LINE = "E   AssertionError: Tensor-likes are not equal!"
+MISMATCH = "E   Mismatched elements: "
 
 
 def kv(path):
@@ -36,21 +52,42 @@ def kv(path):
 
 
 def cases(path):
-    """Each testcase as (name, outcome, message), or None when the file is missing or not junit."""
+    """Each testcase as (name, outcome, text), or None when the file is missing or not junit."""
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
         return None
     out = []
     for tc in root.iter("testcase"):
-        outcome, message = "passed", ""
+        outcome, text = "passed", ""
         for tag in ("error", "failure", "skipped"):
             el = tc.find(tag)
             if el is not None:
-                outcome, message = tag, (el.get("message") or "") + "\n" + (el.text or "")
+                outcome, text = tag, (el.get("message") or "") + "\n" + (el.text or "")
                 break
-        out.append((tc.get("name", ""), outcome, message))
+        out.append((tc.get("name", ""), outcome, text))
     return out
+
+
+def evidence(name, st, keys):
+    """None when a state recorded what the PRs quote about it, else what is missing: each call's command, the GPU, the python and the apply command."""
+    if st is None:
+        return f"{name}-missing"
+    for key in keys:
+        # A call that left neither a command nor an exit status never ran, which the test results name more exactly.
+        if f"{key}_cmd" not in st and f"{key}_rc" not in st:
+            continue
+        cmd = st.get(f"{key}_cmd", "")
+        args = st.get({"test": "pytest_args", "file": "file_args"}[key], "")
+        # The command must be the one whose selection the verdict judged, with the flags that put the E lines in the junit.
+        if " python3 -m pytest " not in cmd or " -rA --tb=short " not in cmd or not cmd.endswith(f"/{name}/{key}.xml") or not args or args not in cmd.replace("'", ""):
+            return f"{name}-{key}-command({cmd or 'unrecorded'})"
+    if "A10G" not in st.get("gpu_name", ""):
+        return f"{name}-gpu({st.get('gpu_name', 'unrecorded')})"
+    for key in ("python_executable", "python_version", "apply_checkout_cmd"):
+        if st.get(key, "unread") in ("", "unread"):
+            return f"{name}-{key}(unrecorded)"
+    return None
 
 
 def identity(st, want_diff):
@@ -65,49 +102,80 @@ def identity(st, want_diff):
 def import_check(name, st, want_count):
     if st is None:
         return f"{name}-missing"
+    want_files = {f"{k}_file": f"{OPS}/{k}.py" for k in KERNELS}
+    want_files.update(kda_file=f"{OPS}/kda.py", kda_kernel_file=f"{OPS}/fused_recurrent.py", test_file=TEST_FILE)
+    for key, want in want_files.items():
+        if st.get(key) != want:
+            return f"wrong-file-{name}({key}={st.get(key)})"
     for k in KERNELS:
-        if st.get(f"{k}_file") != f"{OPS}/{k}.py":
-            return f"wrong-file-{name}({k}={st.get(f'{k}_file')})"
         if st.get(f"{k}_fix_count") != want_count:
             return f"lines-{name}({k}_fix_count={st.get(f'{k}_fix_count')})"
+    # #68415's fix in kda.py would be another item's fix leaking in.
+    if st.get("kda_fix_grep_rc") != "1" or st.get("kda_bug_grep_rc") != "0":
+        return f"other-fix-{name}(kda_fix_grep_rc={st.get('kda_fix_grep_rc')},kda_bug_grep_rc={st.get('kda_bug_grep_rc')})"
+    if st.get("probe_rc") != "0" or not st.get("loaded_count", "0").isdigit() or int(st.get("loaded_count", "0")) == 0:
+        return f"probe-{name}(rc={st.get('probe_rc')},loaded={st.get('loaded_count')})"
+    if st.get("loaded_differs") != "none":
+        return f"loaded-differs-{name}({st.get('loaded_differs')})"
     return "ok"
 
 
-def ran_both(st, tc):
-    """None when the state ran exactly the two cases, else why not."""
+def ran_three(st, tc):
+    """None when the state ran exactly the three cases, else why not."""
     if st is None or "test_rc" not in st:
         return "missing"
-    if st.get("pytest_args") != TEST:
+    if st.get("pytest_args") != ARGS:
         return f"wrong-args({st.get('pytest_args')})"
     if tc is None:
         return f"no-junit(rc={st['test_rc']})"
     names = [n for n, _, _ in tc]
-    # Two distinct names, so a repeated case cannot stand in for one that never ran.
-    if len(names) != 2 or set(names) != CASES:
+    # Three distinct names, so a repeated case cannot stand in for one that never ran.
+    if len(names) != 3 or set(names) != CASES:
         return f"wrong-cases({','.join(names) or 'none'})"
     return None
 
 
+def short(tc):
+    return ",".join(f"{n.removeprefix(CASE)}:{o}" for n, o, _ in tc)
+
+
 def before_result(st, tc):
-    why = ran_both(st, tc)
+    why = ran_three(st, tc)
     if why:
         return why
-    if st["test_rc"] == "1" and all(o == "failure" and BUG_TEXT in m for _, o, m in tc):
-        return "bug-shown"
+    if all(o == "failure" for _, o, _ in tc):
+        if all(BUG_LINE in t.splitlines() and any(x.startswith(MISMATCH) for x in t.splitlines()) for _, _, t in tc):
+            return "bug-shown" if st["test_rc"] == "1" else f"other(rc={st['test_rc']},{short(tc)})"
+        return f"other-failure({short(tc)})"
     if st["test_rc"] == "0" and all(o == "passed" for _, o, _ in tc):
         return "no-bug"
-    outcomes = ",".join(f"{n.removeprefix(CASE)}:{o}" for n, o, _ in tc)
-    return f"other(rc={st['test_rc']},{outcomes})"
+    return f"other(rc={st['test_rc']},{short(tc)})"
 
 
 def after_result(st, tc):
-    why = ran_both(st, tc)
+    why = ran_three(st, tc)
     if why:
         return why
     if st["test_rc"] == "0" and all(o == "passed" for _, o, _ in tc):
         return "passed"
-    outcomes = ",".join(f"{n.removeprefix(CASE)}:{o}" for n, o, _ in tc)
-    return f"not-passed(rc={st['test_rc']},{outcomes})"
+    return f"not-passed(rc={st['test_rc']},{short(tc)})"
+
+
+def file_result(st, tc):
+    if st is None or "file_rc" not in st:
+        return "missing"
+    if st.get("file_args") != TEST:
+        return f"wrong-args({st.get('file_args')})"
+    rc = st["file_rc"]
+    if tc is None:
+        return f"no-junit(rc={rc})"
+    names = [n for n, _, _ in tc]
+    bad = [n for n, o, _ in tc if o != "passed"]
+    shape = {p: sum(n.startswith(p) for n in set(names)) for p in FILE_SHAPE}
+    if rc == "0" and len(names) == FILE_CASES and len(set(names)) == FILE_CASES and CASES <= set(names) and shape == FILE_SHAPE and not bad:
+        return "passed"
+    counts = ",".join(f"{p.rstrip('[')}:{c}" for p, c in shape.items())
+    return f"not-passed(rc={rc},cases={len(names)},{counts},not-passed={','.join(bad) or 'none'})"
 
 
 def main(sweep, test_sha, fix_sha):
@@ -133,18 +201,29 @@ def main(sweep, test_sha, fix_sha):
     except (TypeError, KeyError, ValueError):
         order = "unread"
     lines.append(f"stride_order={order}")
+    ev = evidence("stride-before", b, ("test",)) or evidence("stride-after", a, ("test", "file")) or "ok"
+    lines.append(f"stride_evidence={ev}")
     rb = before_result(b, cases(f"{sweep}/stride-before/test.xml"))
     ra = after_result(a, cases(f"{sweep}/stride-after/test.xml"))
-    lines += [f"stride_before_test={rb}", f"stride_after_test={ra}"]
+    rf = file_result(a, cases(f"{sweep}/stride-after/file.xml"))
+    lines += [f"stride_before_test={rb}", f"stride_after_test={ra}", f"stride_after_file={rf}"]
 
     if image != "ok" or bid != "ok" or aid != "ok" or order != "ok":
         verdict = "void-identity"
     elif imp != "ok":
         verdict = "void-import-check"
+    elif ev != "ok":
+        verdict = "void-evidence"
+    elif rb.startswith(("wrong-cases", "wrong-args")):
+        verdict = "void-before-selection"
+    elif rb.startswith("other-failure"):
+        verdict = "before-failed-otherwise"
     elif rb != "bug-shown":
         verdict = "before-did-not-reproduce"
     elif ra != "passed":
         verdict = "after-not-passed"
+    elif rf != "passed":
+        verdict = "after-file-not-passed"
     else:
         verdict = "confirmed"
     lines.append(f"stride_verdict={verdict}")
