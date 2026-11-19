@@ -75,7 +75,7 @@ mutate "the summary drops the image" "$D/pytest-summary.py" 's|    out += \[f"  
 mutate "pytest runs without --tb=short" "$D/lib.sh" 's| -rA --tb=short -p no:cacheprovider| -rA -p no:cacheprovider|'
 # A wrong diff hash.
 mutate "a wrong #68415 fix pin" "hack/vllm-gdn-68414-session.sh" 's|^KDA_FIX_DIFF_SHA256=5|KDA_FIX_DIFF_SHA256=6|'
-mutate "a wrong #68416 test pin" "hack/vllm-gdn-68414-session.sh" 's|^STRIDE_TEST_DIFF_SHA256=a|STRIDE_TEST_DIFF_SHA256=b|'
+mutate "a wrong #68416 test pin" "hack/vllm-gdn-68414-session.sh" 's|^STRIDE_TEST_DIFF_SHA256=2|STRIDE_TEST_DIFF_SHA256=3|'
 mutate "a changed #68416 fix diff" "$D/stride-fix.diff" 's|^+            ).to(tl.int64)$|+            ).to(tl.int32)|'
 mutate "a changed #68415 test diff" "$D/kda-test.diff" 's|^+    num_tokens = 4$|+    num_tokens = 5|'
 # An item's fix leaking into the other's BEFORE.
