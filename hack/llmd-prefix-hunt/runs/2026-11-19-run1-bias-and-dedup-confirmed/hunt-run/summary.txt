@@ -1,0 +1,12 @@
+2026-11-19T14:43:10Z pull vllm/vllm-openai@sha256:20fdb089454afbb324efa4110a2c025ff7b27cc1a086e07aa580b18df8ad1ce1
+2026-11-19T14:51:04Z pulled
+2026-11-19T14:51:04Z image identity
+2026-11-19T14:52:09Z image identity ok
+2026-11-19T14:52:09Z replica a: start
+2026-11-19T14:54:41Z replica a: ready
+2026-11-19T14:54:41Z replica b: start
+2026-11-19T14:55:37Z replica b: ready
+2026-11-19T14:55:37Z kv capacity 112320 tokens; flood 165 prompts per repetition
+2026-11-19T14:55:37Z probe: start
+2026-11-19T14:56:36Z probe: exited 0
+2026-11-19T14:56:37Z all items done, probe exited 0

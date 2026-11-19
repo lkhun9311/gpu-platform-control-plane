@@ -1,0 +1,122 @@
+docker.io/vllm/vllm-openai@sha256:20fdb089454afbb324efa4110a2c025ff7b27cc1a086e07aa580b18df8ad1ce1: Pulling from vllm/vllm-openai
+70f87b6ed43e: Pulling fs layer
+c567a87f21d2: Pulling fs layer
+4b9fc4331be5: Pulling fs layer
+0b3b5bd92824: Pulling fs layer
+cf57d2112d89: Pulling fs layer
+69811b3f6ebf: Pulling fs layer
+2626ec1d2684: Pulling fs layer
+d121b786a087: Pulling fs layer
+89d5aef3362f: Pulling fs layer
+119e6df9fc6a: Pulling fs layer
+1dbd05959586: Pulling fs layer
+2dcfbc348cde: Pulling fs layer
+168bdf077e38: Pulling fs layer
+31fbb8600117: Pulling fs layer
+9c6151e68671: Pulling fs layer
+bf6b8a95892c: Pulling fs layer
+41eaa41e205a: Pulling fs layer
+0c17c37cb133: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+68c7c8dcdcbd: Pulling fs layer
+f007a2d20660: Pulling fs layer
+eb24958619d0: Pulling fs layer
+8edf1342a332: Pulling fs layer
+b14564de6d7c: Pulling fs layer
+e41e886af3cd: Pulling fs layer
+fa1765b09db3: Pulling fs layer
+d10ed876b90b: Pulling fs layer
+41eaa41e205a: Pulling fs layer
+cfc02c41139a: Pulling fs layer
+648f7856342e: Pulling fs layer
+297a3e32e3eb: Pulling fs layer
+e46565c51c48: Pulling fs layer
+b1dceeafcd5e: Pulling fs layer
+5b7b6b349d38: Pulling fs layer
+33f5f07e9320: Pulling fs layer
+754032b1d08d: Pulling fs layer
+13eb87ac616f: Pulling fs layer
+2b27998691cb: Pulling fs layer
+0215040ad1a4: Pulling fs layer
+526d5438c009: Pulling fs layer
+2626ec1d2684: Download complete
+4b9fc4331be5: Download complete
+69811b3f6ebf: Download complete
+cf57d2112d89: Download complete
+9c6151e68671: Download complete
+d121b786a087: Download complete
+89d5aef3362f: Download complete
+119e6df9fc6a: Download complete
+1dbd05959586: Download complete
+0b3b5bd92824: Download complete
+33f5f07e9320: Download complete
+bf6b8a95892c: Download complete
+168bdf077e38: Download complete
+0c17c37cb133: Download complete
+41eaa41e205a: Download complete
+526d5438c009: Download complete
+cf57d2112d89: Pull complete
+4f4fb700ef54: Download complete
+68c7c8dcdcbd: Download complete
+13eb87ac616f: Download complete
+2dcfbc348cde: Download complete
+2b27998691cb: Download complete
+f007a2d20660: Download complete
+31fbb8600117: Download complete
+eb24958619d0: Download complete
+0215040ad1a4: Download complete
+8edf1342a332: Download complete
+cfc02c41139a: Download complete
+b14564de6d7c: Download complete
+297a3e32e3eb: Download complete
+e41e886af3cd: Download complete
+fa1765b09db3: Download complete
+e46565c51c48: Download complete
+b1dceeafcd5e: Download complete
+d10ed876b90b: Download complete
+70f87b6ed43e: Download complete
+c567a87f21d2: Download complete
+c567a87f21d2: Pull complete
+5b7b6b349d38: Download complete
+0b3b5bd92824: Pull complete
+70f87b6ed43e: Pull complete
+526d5438c009: Pull complete
+297a3e32e3eb: Pull complete
+e46565c51c48: Pull complete
+754032b1d08d: Download complete
+b1dceeafcd5e: Pull complete
+648f7856342e: Download complete
+5b7b6b349d38: Pull complete
+4b9fc4331be5: Pull complete
+69811b3f6ebf: Pull complete
+eb24958619d0: Pull complete
+2626ec1d2684: Pull complete
+119e6df9fc6a: Pull complete
+168bdf077e38: Pull complete
+41eaa41e205a: Pull complete
+d10ed876b90b: Pull complete
+fa1765b09db3: Pull complete
+648f7856342e: Pull complete
+13eb87ac616f: Pull complete
+2b27998691cb: Pull complete
+754032b1d08d: Pull complete
+1dbd05959586: Pull complete
+33f5f07e9320: Pull complete
+0215040ad1a4: Pull complete
+bf6b8a95892c: Pull complete
+4f4fb700ef54: Pull complete
+31fbb8600117: Pull complete
+cfc02c41139a: Pull complete
+8edf1342a332: Pull complete
+e41e886af3cd: Pull complete
+d121b786a087: Pull complete
+89d5aef3362f: Pull complete
+2dcfbc348cde: Pull complete
+9c6151e68671: Pull complete
+0c17c37cb133: Pull complete
+68c7c8dcdcbd: Pull complete
+b14564de6d7c: Pull complete
+f007a2d20660: Pull complete
+Digest: sha256:20fdb089454afbb324efa4110a2c025ff7b27cc1a086e07aa580b18df8ad1ce1
+Status: Downloaded newer image for vllm/vllm-openai@sha256:20fdb089454afbb324efa4110a2c025ff7b27cc1a086e07aa580b18df8ad1ce1
+docker.io/vllm/vllm-openai@sha256:20fdb089454afbb324efa4110a2c025ff7b27cc1a086e07aa580b18df8ad1ce1

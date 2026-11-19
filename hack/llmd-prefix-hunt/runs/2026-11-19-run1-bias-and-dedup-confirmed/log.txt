@@ -1,0 +1,235 @@
+++ date +%s
++ SR_START=1795099374
++ BUCKET=llmd-hunt-007635145730
++ PREFIX=20261119T144026Z-76175127
++ COMMIT=a528156237bd58a578e055ef54582c190e9c8006
++ trap 'upload /var/log/hunt.log log.txt; shutdown -h now' EXIT
++ sleep 3840
++ mkdir -p /src/hunt-run /opt/hunt
++ aws s3 cp --only-show-errors s3://llmd-hunt-007635145730/20261119T144026Z-76175127/inputs.tgz /opt/hunt/inputs.tgz
+++ sha256sum /opt/hunt/inputs.tgz
+++ cut '-d ' -f1
++ '[' c0e374ec9a63b7e60668cf60ac3340dc57bb6b507c573e3268719aad9b2d42dd = c0e374ec9a63b7e60668cf60ac3340dc57bb6b507c573e3268719aad9b2d42dd ']'
++ mkdir -p /opt/hunt/in
++ tar -xzf /opt/hunt/inputs.tgz -C /opt/hunt/in
++ L=
+++ date +%s
++ '[' 2 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://llmd-hunt-007635145730/20261119T144026Z-76175127/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-11-19T14:41:40+00:00 +%s
++ L=1795099300
++ break
+++ date +%s
++ NOW=1795099377
++ [[ 1795099300 =~ ^[0-9]+$ ]]
++ '[' 1795099300 -gt 1795099377 ']'
++ '[' 77 -gt 900 ']'
++ P1=1795099540
++ HE=1795103020
++ EV=1795103080
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+++ date +%s
+++ date +%s
++ sleep 3763
++ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
++ aws s3 cp --only-show-errors /tmp/nvidia-smi.csv s3://llmd-hunt-007635145730/20261119T144026Z-76175127/preflight-nvidia-smi.csv
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ wc -l
++ '[' 1 = 1 ']'
++ tail -n +2 /tmp/nvidia-smi.csv
++ grep -q A10G
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ awk '-F, ' '{print $4}'
+++ cut -d. -f1
++ drv=595
++ [[ 595 =~ ^[0-9]+$ ]]
++ '[' 595 -ge 580 ']'
++ cat
+++ date +%s
++ bringup_left=162
++ bringup_rc=124
++ '[' 162 -gt 0 ']'
++ timeout --kill-after=15 162 bash /tmp/bringup.sh
+time="2026-11-19T14:42:58Z" level=info msg="Loading config from /etc/docker/daemon.json"
+time="2026-11-19T14:42:58Z" level=info msg="Wrote updated config to /etc/docker/daemon.json"
+time="2026-11-19T14:42:58Z" level=info msg="It is recommended that docker daemon be restarted."
++ bringup_rc=0
++ echo 'bring-up exited 0'
+bring-up exited 0
++ echo commit=a528156237bd58a578e055ef54582c190e9c8006
++ echo launch_time_epoch=1795099300
++ echo bringup_rc=0
++ sha256sum /opt/hunt/inputs.tgz
++ cp /tmp/nvidia-smi.csv /src/hunt-run/nvidia-smi.csv
++ '[' 0 = 0 ']'
++ mkdir -p /src/hunt-run/sweep
++ sync_pid=1778
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
+++ date +%s
+++ date +%s
++ timeout --kill-after=15 3630 bash /opt/hunt/in/runner.sh /opt/hunt/in /src/hunt-run/sweep 1795103020
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ '[' 1 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/hunt-run sweep
++ harness_rc=0
++ kill 1778
++ cp /var/log/hunt-sync.log /src/hunt-run/sync.log
++ cat /src/hunt-run/summary.txt
+2026-11-19T14:43:10Z pull vllm/vllm-openai@sha256:20fdb089454afbb324efa4110a2c025ff7b27cc1a086e07aa580b18df8ad1ce1
+2026-11-19T14:51:04Z pulled
+2026-11-19T14:51:04Z image identity
+2026-11-19T14:52:09Z image identity ok
+2026-11-19T14:52:09Z replica a: start
+2026-11-19T14:54:41Z replica a: ready
+2026-11-19T14:54:41Z replica b: start
+2026-11-19T14:55:37Z replica b: ready
+2026-11-19T14:55:37Z kv capacity 112320 tokens; flood 165 prompts per repetition
+2026-11-19T14:55:37Z probe: start
+2026-11-19T14:56:36Z probe: exited 0
+2026-11-19T14:56:37Z all items done, probe exited 0
++ echo harness_rc=0
++ echo 'the runner exited 0'
+the runner exited 0
++ cp /var/log/hunt.log /src/hunt-run/instance.log
+++ date +%s
++ left=2883
++ '[' 2883 -gt 5 ']'
++ tar --warning=no-file-changed -czf /tmp/evidence.tgz -C /src hunt-run
++ '[' 0 -le 1 ']'
++ timeout 2883 aws s3 cp --only-show-errors /tmp/evidence.tgz s3://llmd-hunt-007635145730/20261119T144026Z-76175127/evidence.tgz
++ upload /var/log/hunt.log log.txt
++ aws s3 cp --only-show-errors /var/log/hunt.log s3://llmd-hunt-007635145730/20261119T144026Z-76175127/log.txt
++ echo 76175127
++ upload /tmp/DONE DONE
++ aws s3 cp --only-show-errors /tmp/DONE s3://llmd-hunt-007635145730/20261119T144026Z-76175127/DONE
++ upload /var/log/hunt.log log.txt
++ aws s3 cp --only-show-errors /var/log/hunt.log s3://llmd-hunt-007635145730/20261119T144026Z-76175127/log.txt

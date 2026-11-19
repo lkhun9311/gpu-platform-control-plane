@@ -1,0 +1,26 @@
+evidence=returned
+termination=confirmed
+purchase=spot
+verdicts=calib=pass bias=confirmed dedup=confirmed salt=reproduced mm=void
+verdict_rc=0
+probe_records=complete
+engine_block_sizes={"64": 370}
+rows=394 measured=30 event_batches=370 reps=2
+stream_whole=yes
+stream_why=370 batches, consecutive, and both routers received each
+calib_why=2 rows agree
+calib_verdict=pass
+bias_verdict=confirmed
+bias_why=12 rows match the engine's block rule and the index model; (a) router 16 over-credited a prefix ending inside an engine block in 6 rows; (b) a whole-prompt hit was over-credited even at router block 64 in 4 rows
+dedup_verdict=confirmed
+dedup_why=in all 2 repetitions the reported prefix stayed predicted in full after every block's one removal, and the control did not
+dedup_detail=rep0 full: 16 engine blocks, 4 store(s) and 1 removal per block before the check; check predicted r16=1024 r64=1024; post-flood realized=0
+dedup_detail=rep0 incremental: 16 engine blocks, 1 store(s) and 1 removal per block before the check; check predicted r16=0 r64=0; post-flood realized=0
+dedup_detail=rep1 full: 16 engine blocks, 4 store(s) and 1 removal per block before the check; check predicted r16=1024 r64=1024; post-flood realized=0
+dedup_detail=rep1 incremental: 16 engine blocks, 1 store(s) and 1 removal per block before the check; check predicted r16=0 r64=0; post-flood realized=0
+salt_verdict=reproduced
+salt_why=2 rows: router 16 under-predicted and router 64 matched
+mm_verdict=void
+mm_why=017-mm-image-r0-probe-a: failed: predict: tokenize: tokenization failed: vLLM render returned status 403
+ttft_ms_hit_median=46.6 n=4
+ttft_ms_miss_median=70.7 n=4

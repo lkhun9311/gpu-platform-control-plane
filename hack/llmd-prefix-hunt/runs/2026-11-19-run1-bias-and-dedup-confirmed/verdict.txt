@@ -1,0 +1,51 @@
+engine_block_sizes={"64": 370}
+rows=394 measured=30 event_batches=370 reps=2
+stream_whole=yes
+stream_why=370 batches, consecutive, and both routers received each
+calib_why=2 rows agree
+calib_verdict=pass
+bias_verdict=confirmed
+bias_why=12 rows match the engine's block rule and the index model; (a) router 16 over-credited a prefix ending inside an engine block in 6 rows; (b) a whole-prompt hit was over-credited even at router block 64 in 4 rows
+dedup_verdict=confirmed
+dedup_why=in all 2 repetitions the reported prefix stayed predicted in full after every block's one removal, and the control did not
+dedup_detail=rep0 full: 16 engine blocks, 4 store(s) and 1 removal per block before the check; check predicted r16=1024 r64=1024; post-flood realized=0
+dedup_detail=rep0 incremental: 16 engine blocks, 1 store(s) and 1 removal per block before the check; check predicted r16=0 r64=0; post-flood realized=0
+dedup_detail=rep1 full: 16 engine blocks, 4 store(s) and 1 removal per block before the check; check predicted r16=1024 r64=1024; post-flood realized=0
+dedup_detail=rep1 incremental: 16 engine blocks, 1 store(s) and 1 removal per block before the check; check predicted r16=0 r64=0; post-flood realized=0
+salt_verdict=reproduced
+salt_why=2 rows: router 16 under-predicted and router 64 matched
+mm_verdict=void
+mm_why=017-mm-image-r0-probe-a: failed: predict: tokenize: tokenization failed: vLLM render returned status 403
+ttft_ms_hit_median=46.6 n=4
+ttft_ms_miss_median=70.7 n=4
+# id | pod | prompt router/engine | realized | r16 a/b | r64 a/b | ttft_ms | error
+# 001-calib-shared512-r0-probe-a | a | 552/552 | 512 | 512/0 | 512/0 | 400.694 | 
+# 003-bias-shared528-r0-probe-a | a | 568/568 | 512 | 528/0 | 512/0 | 46.735 | 
+# 005-bias-shared544-r0-probe-a | a | 584/584 | 512 | 544/0 | 512/0 | 49.235 | 
+# 007-bias-shared560-r0-probe-a | a | 600/600 | 512 | 560/0 | 512/0 | 47.645 | 
+# 009-bias-repeat512-r0-probe-a | a | 512/512 | 448 | 512/0 | 512/0 | 47.663 | 
+# 011-bias-repeat576-r0-probe-a | a | 576/576 | 512 | 576/0 | 576/0 | 47.323 | 
+# 013-bias-repeat600-r0-probe-a | a | 600/600 | 576 | 576/0 | 576/0 | 47.331 | 
+# 015-salt-salted512-r0-probe-a | a | 552/552 | 512 | 16/0 | 512/0 | 47.602 | 
+# 017-mm-image-r0-probe-a | a | 0/563 | 512 | -1/-1 | -1/-1 | 52.072 | predict: tokenize: tokenization failed: vLLM render returned status 403
+# 022-dedup-full-r0-pre-a | a | 1040/1040 | 1024 | 1024/0 | 1024/0 | 46.274 | 
+# 027-dedup-incremental-r0-pre-a | a | 1040/1040 | 1024 | 1024/0 | 1024/0 | 46.947 | 
+# 193-dedup-incremental-r0-check-a | a | 1040/-1 | -1 | 0/0 | 0/0 | 0 | 
+# 194-dedup-full-r0-check-a | a | 1040/-1 | -1 | 1024/0 | 1024/0 | 0 | 
+# 195-dedup-full-r0-post-a | a | 1040/1040 | 0 | 1024/0 | 1024/0 | 70.907 | 
+# 196-dedup-incremental-r0-post-a | a | 1040/1040 | 0 | 0/0 | 0/0 | 70.569 | 
+# 198-calib-shared512-r1-probe-a | a | 552/552 | 512 | 512/0 | 512/0 | 46.355 | 
+# 200-bias-shared528-r1-probe-a | a | 568/568 | 512 | 528/0 | 512/0 | 47.167 | 
+# 202-bias-shared544-r1-probe-a | a | 584/584 | 512 | 544/0 | 512/0 | 47.08 | 
+# 204-bias-shared560-r1-probe-a | a | 600/600 | 512 | 560/0 | 512/0 | 46.659 | 
+# 206-bias-repeat512-r1-probe-a | a | 512/512 | 448 | 512/0 | 512/0 | 49.734 | 
+# 208-bias-repeat576-r1-probe-a | a | 576/576 | 512 | 576/0 | 576/0 | 47.594 | 
+# 210-bias-repeat600-r1-probe-a | a | 600/600 | 576 | 576/0 | 576/0 | 45.829 | 
+# 212-salt-salted512-r1-probe-a | a | 552/552 | 512 | 16/0 | 512/0 | 46.784 | 
+# 214-mm-image-r1-probe-a | a | 0/568 | 512 | -1/-1 | -1/-1 | 51.695 | predict: tokenize: tokenization failed: vLLM render returned status 403
+# 219-dedup-full-r1-pre-a | a | 1040/1040 | 1024 | 1024/0 | 1024/0 | 47.071 | 
+# 224-dedup-incremental-r1-pre-a | a | 1040/1040 | 1024 | 1024/0 | 1024/0 | 46.253 | 
+# 390-dedup-incremental-r1-check-a | a | 1040/-1 | -1 | 0/0 | 0/0 | 0 | 
+# 391-dedup-full-r1-check-a | a | 1040/-1 | -1 | 1024/0 | 1024/0 | 0 | 
+# 392-dedup-full-r1-post-a | a | 1040/1040 | 0 | 1024/0 | 1024/0 | 70.712 | 
+# 393-dedup-incremental-r1-post-a | a | 1040/1040 | 0 | 0/0 | 0/0 | 70.746 | 

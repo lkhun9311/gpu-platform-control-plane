@@ -1,0 +1,74 @@
+== llm-d-router precise prefix hunt llmd-precise-prefix-hunt-2026-11-19, from a528156237bd58a578e055ef54582c190e9c8006, into hack/llmd-prefix-hunt/runs/20261119T144026Z, bought spot
+== spot: $0.70/h compute from the Spot cap MAX_PRICE_FIXED, $0.7792/h all in
+== hard stop 3840 s after LaunchTime; worst case 4140 s at $0.7792/h, $0.8961 under $3.00
+== the probe passed its offline tests and was built, sha256 99b5aa46ca986436af372df531380336b5c81274759a521f980861db02928916
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $0.70/h in: ap-northeast-2c ap-northeast-2d ap-northeast-2a (ap-northeast-2c	0.631800 ap-northeast-2d	0.612500 ap-northeast-2a	0.619500)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 676 minutes
+== creating results bucket llmd-hunt-007635145730
+== creating instance role llmd-hunt
+== waiting for the instance profile to propagate
+== before the purchase: credentials expire in 676 minutes
+== launching g5.xlarge spot ($0.70/h compute, $0.7792/h all in), study-deadline 2026-11-19T15:44:38Z -- the instance bills from here
+== launched i-0a4426a02025cda84 in ap-northeast-2c
+== LaunchTime 2026-11-19T14:41:40+00:00; the sweeper's deadline moved to 2026-11-19T15:45:10Z
+== the wait ended with status 0 ()
+== waiting up to 3235s for EC2 to report the instance terminated
+== terminating i-0a4426a02025cda84
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is shutting-down
+== i-0a4426a02025cda84 is terminated
+== evidence returned; termination confirmed; calib=pass bias=confirmed dedup=confirmed salt=reproduced mm=void
