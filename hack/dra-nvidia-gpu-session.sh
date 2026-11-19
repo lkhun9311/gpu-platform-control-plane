@@ -18,7 +18,10 @@
 # S2, S3 and S4 stay in hack/dra-nvidia-gpu and in the runner, and are not shipped or run; runner.sh says why S4 is not
 # needed for S5's validity.
 # The instance runs only hack/dra-nvidia-gpu/runner.sh and its phases, against upstream at a pinned commit.
-# It shares its EC2 lifecycle with the vLLM sessions (hack/lib/spot-run.sh) and is modelled on hack/vllm-67811-session.sh.
+# The build reads upstream's Dockerfile with one RUN inserted by hack/dra-nvidia-gpu/dockerfile-mirror.sed.
+# That RUN points the build stage's apt at EC2's Seoul mirror of archive.ubuntu.com, with retries.
+# Attempt 6 ran its build out of its bound on archive.ubuntu.com at 0.3-0.5 MB/s, and attempt 3 failed there on a mirror sync.
+# The session shares its EC2 lifecycle with the vLLM sessions (hack/lib/spot-run.sh) and is modelled on hack/vllm-67811-session.sh.
 #
 # THE CLOCK.
 # Every deadline counts from EC2's LaunchTime, read right after the launch and written to the run's S3 prefix for the
@@ -81,6 +84,7 @@ DRA_COMMIT=e775fdb63e593a121b40fc1cc4c9a9c89955e635
 UPSTREAM_PATHS="hack/ci/gcp-nvkind/lib/setup-nvkind-node.sh
 hack/ci/gcp-nvkind/lib/nvkind-config.yaml.tmpl
 deployments/container/Makefile
+deployments/container/Dockerfile
 deployments/helm/dra-driver-nvidia-gpu/Chart.yaml
 tests/bats/Makefile
 tests/bats/test_gpu_basic.bats
@@ -138,11 +142,14 @@ fi
 for tool in aws python3 git tar sha256sum jq; do command -v "$tool" >/dev/null || fail "$tool is not installed"; done
 [ -z "$(git status --porcelain)" ] || fail "the working tree is dirty; the run's provenance is a commit, and the runner is shipped from this tree"
 COMMIT=$(git rev-parse HEAD)
-for p in runner.sh lib.sh s4.mk $(for ph in $PHASES; do echo "$ph.sh"; done); do
+for p in runner.sh lib.sh s4.mk dockerfile-mirror.sed $(for ph in $PHASES; do echo "$ph.sh"; done); do
   [ -f "$RUNNER_DIR/$p" ] || fail "$RUNNER_DIR/$p is missing"
   case $p in *.sh) bash -n "$RUNNER_DIR/$p" 2>/dev/null || fail "$RUNNER_DIR/$p does not parse" ;; esac
 done
 [ "$(sed -n 's/^DRA_COMMIT=//p' "$RUNNER_DIR/runner.sh")" = "$DRA_COMMIT" ] || fail "the runner does not check out $DRA_COMMIT"
+DOCKERFILE_SHA256=$(sed -n 's/^DOCKERFILE_SHA256=//p' "$RUNNER_DIR/build.sh")
+DOCKERFILE_MIRROR_SHA256=$(sed -n 's/^DOCKERFILE_MIRROR_SHA256=//p' "$RUNNER_DIR/build.sh")
+[ -n "$DOCKERFILE_SHA256" ] && [ -n "$DOCKERFILE_MIRROR_SHA256" ] || fail "build.sh does not fix the Dockerfile's hashes before and after its rewrite"
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>&1) || fail "could not read the caller's account: $ACCOUNT"
 [ "$ACCOUNT" = "$ACCOUNT_WANT" ] || fail "the credentials are for account $ACCOUNT; paid sessions run only in gpu-lab ($ACCOUNT_WANT)"
 [ ! -e "$OUT" ] || fail "$OUT already exists; each session writes a new directory"
@@ -159,11 +166,17 @@ while read -r p; do
   blob=$(git -C "$UP" rev-parse -q --verify "$DRA_COMMIT:$p") || fail "$p is not in $DRA_COMMIT"
   echo "$blob  $p"
 done <<<"$UPSTREAM_PATHS" >"$OUT/upstream-files.txt"
+# The build rewrites upstream's Dockerfile to fetch from EC2's mirror, and refuses any other shape before or after.
+# The same rewrite runs here on the fetched file, so a mismatch is found before the instance is bought.
+df_before=$(git -C "$UP" show "$DRA_COMMIT:deployments/container/Dockerfile" | sha256sum | cut -d' ' -f1)
+df_after=$(git -C "$UP" show "$DRA_COMMIT:deployments/container/Dockerfile" | sed -f "$RUNNER_DIR/dockerfile-mirror.sed" | sha256sum | cut -d' ' -f1)
+[ "$df_before" = "$DOCKERFILE_SHA256" ] || fail "upstream's Dockerfile at $DRA_COMMIT is $df_before, not the $DOCKERFILE_SHA256 build.sh rewrites"
+[ "$df_after" = "$DOCKERFILE_MIRROR_SHA256" ] || fail "the rewritten Dockerfile is $df_after, not the $DOCKERFILE_MIRROR_SHA256 build.sh requires"
 rm -rf "$UP"
 say "upstream $DRA_COMMIT has the $(wc -l <"$OUT/upstream-files.txt") files the phases use"
 
 mkdir -p "$OUT/in" || fail "cannot create $OUT/in"
-cp "$RUNNER_DIR"/runner.sh "$RUNNER_DIR"/lib.sh "$RUNNER_DIR"/s4.mk "$OUT/in/" || fail "copy the runner"
+cp "$RUNNER_DIR"/runner.sh "$RUNNER_DIR"/lib.sh "$RUNNER_DIR"/s4.mk "$RUNNER_DIR"/dockerfile-mirror.sed "$OUT/in/" || fail "copy the runner"
 for ph in $PHASES; do cp "$RUNNER_DIR/$ph.sh" "$OUT/in/" || fail "copy $ph.sh"; done
 tar -czf "$OUT/inputs.tgz" -C "$OUT/in" . || fail "pack the inputs"
 
@@ -264,6 +277,7 @@ BUCKET="$STACK-$ACCOUNT"
   echo "worst_case_usd=$WORST_USD"
   echo "inputs_sha256=$INPUTS_SHA"
   echo "dra_commit=$DRA_COMMIT"
+  echo "dockerfile_sha256=$DOCKERFILE_SHA256 dockerfile_mirror_sha256=$DOCKERFILE_MIRROR_SHA256"
   echo "harness_end_from_launch_s=$HARNESS_END_S"
   echo "stop_from_launch_s=$STOP_FROM_LAUNCH_S"
   echo "termination_from_launch_s=$TERMINATION_S"

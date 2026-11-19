@@ -13,6 +13,8 @@
 #   - the runner's command sequence against a fake cluster: each phase runs the plan's commands in the plan's order,
 #     the checkpoint is captured before and after every step, a failing S4 stops the run, and an experiment whose
 #     precondition never held exits 4;
+#   - the build's Dockerfile rewrite: only the mirror RUN is inserted, the build reads the copy, both hashes are held
+#     on the laptop and on the instance, and the provenance line records it;
 #   - the shipped scenario list (S1, then S5) on its own, and S5's guards: both objects force-deleted and read gone
 #     while the plugin is down, or the repetition is invalid.
 # The S2, S3 and S4 checks run the runner with every scenario listed, since the shipped list leaves them out.
@@ -85,10 +87,28 @@ printf 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: gpu-test-mps\n' >"$U
 { printf 'kind: Cluster\nfeatureGates:\n  DynamicResourceAllocation: true\nnodes:\n'
   for i in 1 2 3 4 5; do printf '        feature-gates: "DynamicResourceAllocation=true"\n'; done; } \
   >"$UPS/hack/ci/gcp-nvkind/lib/nvkind-config.yaml.tmpl"
+# The Dockerfile's shape where the rewrite acts: the build stage's apt step, with a line before and after it.
+# DF_WANT is that file as the rewrite must leave it: one RUN inserted before the apt step, written out here rather than
+# derived from dockerfile-mirror.sed, so a rewrite that reaches further cannot also move what it is checked against.
+# The inserted RUN changes only the host archive.ubuntu.com, fails if any source still names it, and adds apt's retries.
+cat >"$WORK/df-insert" <<'EOF'
+RUN sed -i 's|//archive[.]ubuntu[.]com/|//ap-northeast-2.ec2.archive.ubuntu.com/|' /etc/apt/sources.list && ! grep -rq '//archive[.]ubuntu[.]com/' /etc/apt/sources.list /etc/apt/sources.list.d && grep -q '^deb http://ap-northeast-2.ec2.archive.ubuntu.com/ubuntu/ jammy main' /etc/apt/sources.list && echo 'Acquire::Retries "5"; Acquire::http::Timeout "30";' >/etc/apt/apt.conf.d/80-session-retries
+EOF
+DF_HEAD='FROM --platform=$BUILDPLATFORM nvcr.io/nvidia/base/ubuntu:jammy-20260930 AS build\nARG TARGETARCH\n'
+DF_TAIL='RUN apt-get update && apt-get install -y \\\n        curl time make \\\n        gcc && \\\n        rm -rf /var/lib/apt/lists/* /var/cache/apt/archives\nENV GOPATH=/go\n'
+printf "$DF_HEAD$DF_TAIL" >"$UPS/deployments/container/Dockerfile"
+DF_WANT="$WORK/Dockerfile.want"
+{ printf "$DF_HEAD"; cat "$WORK/df-insert"; printf "$DF_TAIL"; } >"$DF_WANT"
+DF_UP_SHA=$(sha256sum <"$UPS/deployments/container/Dockerfile" | cut -d' ' -f1)
+DF_WANT_SHA=$(sha256sum <"$DF_WANT" | cut -d' ' -f1)
 git -C "$UPS" add -A && git -C "$UPS" -c user.name=t -c user.email=t@invalid -c commit.gpgsign=false commit -qm upstream
 git -C "$UPS" config uploadpack.allowAnySHA1InWant true
 UPC=$(git -C "$UPS" rev-parse HEAD)
-pin() { sed -i -e "s|^DRA_REPO=.*|DRA_REPO=file://$UPS|" -e "s|^DRA_COMMIT=.*|DRA_COMMIT=$UPC|" "$@"; }
+# pin points the copies at the stand-in, and build.sh's two Dockerfile hashes at the stand-in's and DF_WANT's.
+# The hashes match only as 64 hex digits, so the session's lines that read them from build.sh are left alone.
+pin() { sed -i -e "s|^DRA_REPO=.*|DRA_REPO=file://$UPS|" -e "s|^DRA_COMMIT=.*|DRA_COMMIT=$UPC|" \
+  -e "s|^DOCKERFILE_SHA256=[0-9a-f]\{64\}\$|DOCKERFILE_SHA256=$DF_UP_SHA|" \
+  -e "s|^DOCKERFILE_MIRROR_SHA256=[0-9a-f]\{64\}\$|DOCKERFILE_MIRROR_SHA256=$DF_WANT_SHA|" "$@"; }
 
 # ---------------------------------------------------------------- the session, offline
 fixture() {
@@ -97,8 +117,9 @@ fixture() {
   mkdir -p "$repo/hack/lib" "$repo/hack/dra-nvidia-gpu"
   cp "$S" "$repo/hack/"
   cp "$ROOT/hack/lib/spot-run.sh" "$repo/hack/lib/"
-  cp "$RD"/*.sh "$RD"/s4.mk "$repo/hack/dra-nvidia-gpu/"
-  pin "$repo/hack/dra-nvidia-gpu-session.sh" "$repo/hack/dra-nvidia-gpu/runner.sh"
+  cp "$RD"/*.sh "$RD"/s4.mk "$RD"/dockerfile-mirror.sed "$repo/hack/dra-nvidia-gpu/"
+  pin "$repo/hack/dra-nvidia-gpu-session.sh" "$repo/hack/dra-nvidia-gpu/runner.sh" "$repo/hack/dra-nvidia-gpu/build.sh"
+  [ -z "${FIXTURE_EDIT:-}" ] || sed -i "$FIXTURE_EDIT" "$repo/hack/dra-nvidia-gpu/build.sh"
   git -C "$repo" init -q && git -C "$repo" add -A &&
     git -C "$repo" -c user.name=t -c user.email=t@invalid -c commit.gpgsign=false commit -qm fixture || return 1
   echo "$repo"
@@ -155,7 +176,22 @@ check "the sweeper's tag is moved to LaunchTime + 4,590 s, and LaunchTime is han
   "[ -n '$lt' ] && grep -q 'create-tags .*Key=study-deadline,Value=$want_tag' '$C' && [ \"\$(cat '$WORK/st-ok/bucket/'*/launch-time.txt)\" = '$lt' ]"
 check "terminate is called after the wait, and the evidence is downloaded and unpacked" \
   "grep -q '^aws ec2 terminate-instances .*i-0fake' '$C' && [ -s '$O/dra-run/run/summary.tsv' ] && grep -qx 'evidence=returned' '$O/outcome.txt'"
-check "the upstream files the phases use were checked at the pinned commit" "[ \"\$(wc -l <'$O/upstream-files.txt')\" = 10 ]"
+check "the upstream files the phases use were checked at the pinned commit" "[ \"\$(wc -l <'$O/upstream-files.txt')\" = 11 ]"
+check "the session ships the Dockerfile rewrite and records both hashes it holds the fetched commit to" \
+  "tar -tzf '$WORK/st-ok/bucket/'*/inputs.tgz | grep -qx './dockerfile-mirror.sed' &&
+   grep -qx 'dockerfile_sha256=$DF_UP_SHA dockerfile_mirror_sha256=$DF_WANT_SHA' '$O/session-provenance.txt'"
+# A build.sh whose rewritten hash the fetched Dockerfile does not give is refused on the laptop, before any purchase.
+DFBAD=$(FIXTURE_EDIT='s/^DOCKERFILE_MIRROR_SHA256=.*/DOCKERFILE_MIRROR_SHA256=0000/' fixture)
+session dfbad "$DFBAD" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI
+check "a Dockerfile rewrite that does not give build.sh's hash is refused before any launch" \
+  "[ \"\$(cat '$WORK/dfbad.rc')\" != 0 ] && grep -q 'the rewritten Dockerfile is .*, not the 0000 build.sh requires' '$WORK/dfbad.log' &&
+   ! grep -q '^aws ec2 run-instances' '$WORK/st-dfbad/calls'"
+# So is an upstream Dockerfile other than the one build.sh's rewrite was made for.
+DFUP=$(FIXTURE_EDIT='s/^DOCKERFILE_SHA256=.*/DOCKERFILE_SHA256=0000/' fixture)
+session dfup "$DFUP" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI
+check "an upstream Dockerfile that is not the one build.sh rewrites is refused before any launch" \
+  "[ \"\$(cat '$WORK/dfup.rc')\" != 0 ] && grep -q \"upstream's Dockerfile at .* is $DF_UP_SHA, not the 0000 build.sh rewrites\" '$WORK/dfup.log' &&
+   ! grep -q '^aws ec2 run-instances' '$WORK/st-dfup/calls'"
 
 session s5invalid "$REPO" SESSION_CONFIRM=yes DRA_GPU_AMI_ID=$AMI FAKE_PHASE_RCS="cluster=0 build=0 s1=0 s5=4"
 check "a session whose S5 was not a valid experiment exits 2, not 0" \
@@ -175,8 +211,8 @@ check "a termination EC2 never reports done is reported unconfirmed and fails th
 # are wall-clock time by design (S1's watch and S2's settle), shortened so the run takes seconds.
 # IN runs the shipped scenario list; INALL lists every scenario, S4 first, so S2, S3 and S4 are still checked.
 IN="$WORK/in"
-mkdir -p "$IN" && cp "$RD"/*.sh "$RD"/s4.mk "$IN/"
-pin "$IN/runner.sh"
+mkdir -p "$IN" && cp "$RD"/*.sh "$RD"/s4.mk "$RD"/dockerfile-mirror.sed "$IN/"
+pin "$IN/runner.sh" "$IN/build.sh"
 sed -i "s|^SRC=.*|SRC=$WORK/src|" "$IN/runner.sh"
 sed -i 's/^WATCH_S=150$/WATCH_S=2/' "$IN/s1.sh"
 sed -i -e 's/^WATCH_S=150$/WATCH_S=2/' -e 's/^CLEANUP_WATCH_S=630$/CLEANUP_WATCH_S=4/' -e 's/poll 30 3 gone/poll 1 3 gone/g' \
@@ -222,6 +258,29 @@ check "S4 pre-pulls the bats files' image into the GPU node before bats runs" \
    b=\$(grep -n 'tests-session-s4' '$RC' | cut -d: -f1) && [ -n \"\$p\" ] && [ \"\$p\" -lt \"\$b\" ]"
 check "the driver is built from the checkout and loaded into the cluster" \
   "grep -q '^make -f deployments/container/Makefile build DOCKER_BUILD_OPTIONS=--load CI=true' '$RC' && grep -q '^kind load docker-image registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev --name dra-session' '$RC'"
+check "the build reads the rewritten copy of upstream's Dockerfile, and the checkout stays as fetched" \
+  "grep -q '^make -f deployments/container/Makefile build .* DOCKERFILE=$R/build/Dockerfile ' '$RC' && [ -z \"\$(git -C '$WORK/src' status --porcelain)\" ]"
+check "the rewrite inserts only the mirror RUN before the apt step, and changes no upstream line" \
+  "cmp -s '$DF_WANT' '$R/build/Dockerfile' && [ \"\$(diff '$UPS/deployments/container/Dockerfile' '$R/build/Dockerfile' | grep -c '^[<>]')\" = 1 ]"
+dfsed=$(sha256sum <"$RD/dockerfile-mirror.sed" | cut -d' ' -f1)
+printf '%s\n' "dockerfile_rewrite sed=\"sed -f dockerfile-mirror.sed deployments/container/Dockerfile\" sed_sha256=$dfsed before_sha256=$DF_UP_SHA after_sha256=$DF_WANT_SHA note=\"one RUN inserted before the build stage's apt step; it changes only the apt source host archive.ubuntu.com to ap-northeast-2.ec2.archive.ubuntu.com and adds apt retries; every upstream line is unchanged\"" >"$WORK/df-prov.want"
+check "the build records the rewrite: the exact sed, the script's hash, the Dockerfile's hash before and after, and what changed" \
+  "cmp -s '$WORK/df-prov.want' '$R/build/provenance.txt' && grep -qF -f '$WORK/df-prov.want' '$R/build/steps.log' &&
+   cmp -s '$RD/dockerfile-mirror.sed' '$R/build/dockerfile-mirror.sed'"
+# A local upstream checkout, when at hand, lets two checks run against upstream's real files.
+UPSTREAM_CLONE="${DRA_UPSTREAM_CLONE:-$HOME/workspace/oss/dra-driver-nvidia-gpu}"
+# The real file, when a checkout that has the pinned commit is at hand: build.sh's hashes are the rewrite's on it.
+if git -C "$UPSTREAM_CLONE" cat-file -e "$(sed -n 's/^DRA_COMMIT=//p' "$S"):deployments/container/Dockerfile" 2>"$WORK/clone-probe.err"; then
+  git -C "$UPSTREAM_CLONE" show "$(sed -n 's/^DRA_COMMIT=//p' "$S"):deployments/container/Dockerfile" >"$WORK/Dockerfile.real"
+  sed -f "$RD/dockerfile-mirror.sed" "$WORK/Dockerfile.real" >"$WORK/Dockerfile.real.mirror"
+  check "on upstream's real Dockerfile at the pin, build.sh's hashes hold and the only change is the mirror RUN before the apt step" \
+    "[ \"\$(sha256sum <'$WORK/Dockerfile.real' | cut -d' ' -f1)\" = \"\$(sed -n 's/^DOCKERFILE_SHA256=//p' '$RD/build.sh')\" ] &&
+     [ \"\$(sha256sum <'$WORK/Dockerfile.real.mirror' | cut -d' ' -f1)\" = \"\$(sed -n 's/^DOCKERFILE_MIRROR_SHA256=//p' '$RD/build.sh')\" ] &&
+     [ \"\$(diff '$WORK/Dockerfile.real' '$WORK/Dockerfile.real.mirror')\" = \"\$(printf '48a49\\n> '; cat '$WORK/df-insert')\" ] &&
+     [ \"\$(sed -n 50p '$WORK/Dockerfile.real.mirror')\" = 'RUN apt-get update && apt-get install -y \\' ]"
+else
+  echo "skip the real Dockerfile's hashes: no checkout with the pinned commit at $UPSTREAM_CLONE"
+fi
 s4call=$(grep 'tests-session-s4' "$RC")
 check "S4 is upstream's bats Makefile with the session's target, on the kind network, single-GPU filters, no compute domains" \
   "[[ '$s4call' == 'make -f tests/bats/Makefile -f $INALL/s4.mk tests-session-s4 '* ]] && [[ '$s4call' == *'DOCKER_NETWORK=kind'* ]] &&
@@ -230,7 +289,6 @@ check "S4 is upstream's bats Makefile with the session's target, on the kind net
 check "S4's target runs exactly the plan's three bats files" \
   "[ \"\$(grep -o 'tests/bats/test_[a-z_]*\.bats' '$RD/s4.mk' | paste -sd' ')\" = 'tests/bats/test_gpu_basic.bats tests/bats/test_gpu_robustness.bats tests/bats/test_gpu_sharing.bats' ]"
 # Against upstream's real Makefile, when a checkout is at hand: make -n shows the target expands to a bats run of the three.
-UPSTREAM_CLONE="${DRA_UPSTREAM_CLONE:-$HOME/workspace/oss/dra-driver-nvidia-gpu}"
 if [ -f "$UPSTREAM_CLONE/tests/bats/Makefile" ]; then
   check "with upstream's own Makefile the target expands to bats over the three files" \
     "(cd '$UPSTREAM_CLONE' && CI=true USER=root KUBECONFIG=/k make -n -f tests/bats/Makefile -f '$RD/s4.mk' tests-session-s4 GIT_COMMIT_SHORT=e775fdb6 TMPDIR=/tmp 2>&1) |
@@ -493,6 +551,22 @@ check "a failed cluster stops the run before the build" \
 runner twoworkers FAKE_WORKERS=$'w1\nw2'
 check "a cluster with other than one worker node is refused before the build" \
   "[ \"\$(cat '$WORK/rout-twoworkers.rc')\" = 2 ] && ! grep -q '^make ' '$WORK/rst-twoworkers/calls'"
+# An upstream Dockerfile other than the one the rewrite was made for stops the build before make runs.
+INDF="$WORK/indf"
+mkdir -p "$INDF" && cp "$IN"/* "$INDF/"
+sed -i 's/^DOCKERFILE_SHA256=.*/DOCKERFILE_SHA256=0000/' "$INDF/build.sh"
+RIN="$INDF" runner dfshape
+check "an upstream Dockerfile of another shape stops the build before make, and nothing after it runs" \
+  "[ \"\$(cat '$WORK/rout-dfshape.rc')\" = 2 ] && grep -q \"upstream's Dockerfile is $DF_UP_SHA, not the 0000\" '$WORK/rout-dfshape/build/steps.log' &&
+   ! grep -q '^make -f deployments/container/Makefile build' '$WORK/rst-dfshape/calls' && [ ! -d '$WORK/rout-dfshape/s1' ]"
+# So does a rewrite whose result is not the one build.sh fixes.
+INDFR="$WORK/indfr"
+mkdir -p "$INDFR" && cp "$IN"/* "$INDFR/"
+sed -i 's/^DOCKERFILE_MIRROR_SHA256=.*/DOCKERFILE_MIRROR_SHA256=0000/' "$INDFR/build.sh"
+RIN="$INDFR" runner dfresult
+check "a rewritten Dockerfile other than the one build.sh fixes stops the build before make, and nothing after it runs" \
+  "[ \"\$(cat '$WORK/rout-dfresult.rc')\" = 2 ] && grep -q 'the rewritten Dockerfile is $DF_WANT_SHA, not 0000' '$WORK/rout-dfresult/build/steps.log' &&
+   ! grep -q '^make -f deployments/container/Makefile build' '$WORK/rst-dfresult/calls' && [ ! -d '$WORK/rout-dfresult/s1' ]"
 
 if [[ $failures -ne 0 ]]; then
   echo "$failures check(s) failed" >&2
