@@ -11,12 +11,13 @@ WORK=$(mktemp -d)
 [ -n "${KEEP_WORK:-}" ] || trap 'rm -rf "$WORK"' EXIT
 D=hack/vllm-gdn-68414
 
-# copy DIR: the files the session and its test read, without the run records.
+# copy DIR: the files the session and its test read, with only the run record the test reads, run 3's.
 copy() {
-  mkdir -p "$1/hack/lib" "$1/$D"
+  mkdir -p "$1/hack/lib" "$1/$D/runs"
   cp "$ROOT/hack/vllm-gdn-68414-session.sh" "$ROOT/hack/vllm-gdn-68414-session-test.sh" "$ROOT/hack/m5c-gpu-session.sh" "$1/hack/"
   cp "$ROOT/hack/lib/spot-run.sh" "$1/hack/lib/"
   find "$ROOT/$D" -maxdepth 1 -type f -exec cp {} "$1/$D/" \;
+  cp -r "$ROOT/$D/runs/2026-11-19-run3-kda-confirmed-stride-void" "$1/$D/runs/"
 }
 
 copy "$WORK/base"
@@ -91,6 +92,9 @@ mutate "derive-pins.sh derives #68415 on run 4's image" "$D/derive-pins.sh" 's|^
 mutate "the session buys with #68416's unfit fix diff" "hack/vllm-gdn-68414-session.sh" 's|^for unfit in 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 |for unfit in |'
 mutate "the session buys with #68416's unfit test diff" "hack/vllm-gdn-68414-session.sh" 's| abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4; do$|; do|'
 mutate "the stride verdict ignores the recorded provenance" "$D/stride-verdict.py" 's|    elif ev != "ok":|    elif False:|'
+mutate "the stride verdict ignores AFTER's dist-packages apply" "$D/stride-verdict.py" 's|    if name.endswith("-after") and (" apply " not in site_cmd|    if False and (" apply " not in site_cmd|'
+mutate "the stride verdict ignores a missing summary line" "$D/stride-verdict.py" 's|        if not st.get(f"{key}_summary"):|        if False:|'
+mutate "the session succeeds without the summary" "hack/vllm-gdn-68414-session.sh" 's|^all_confirmed() { \[ "$VERDICTS" = "stride=confirmed" \] \&\& \[ "$SUMMARY_RC" = 0 \]; }|all_confirmed() { [ "$VERDICTS" = "stride=confirmed" ]; }|'
 mutate "the stride verdict ignores the recorded GPU" "$D/stride-verdict.py" 's|    if "A10G" not in st.get("gpu_name", ""):|    if False:|'
 
 echo "$n mutant(s), $survived not killed"

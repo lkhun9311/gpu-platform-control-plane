@@ -247,7 +247,7 @@ check "the session checks both diffs against their pins before packing them" \
   "grep -qxF 'for pair in \"\$STRIDE_FIX_DIFF:\$STRIDE_FIX_DIFF_SHA256\" \"\$STRIDE_TEST_DIFF:\$STRIDE_TEST_DIFF_SHA256\"; do' '$S'"
 # #68414 and #68415 stay out of run 4: nothing of them is shipped, run or judged, and their pins cannot be re-derived on run 4's image.
 check "#68414 and #68415 are not shipped, run or judged, and derive-pins.sh refuses both" \
-  "! grep -qE '^(STATE|PINS|VERDICT|FIX_DIFF|REPRO|RUN_REPRO|KDA_[A-Z_]*)=' '$S' && ! grep -q ' state.sh \\|gdn-after\\|/in/state.sh\\|kda-state\\|kda-' '$R' && grep -qxF 'all_confirmed() { [ \"\$VERDICTS\" = \"stride=confirmed\" ]; }' '$S' && ! bash '$DIR/derive-pins.sh' gdn /nonexistent 2>/dev/null && ! bash '$DIR/derive-pins.sh' kda /nonexistent 2>/dev/null && ! bash '$DIR/derive-pins.sh' kda-differs /nonexistent 2>/dev/null"
+  "! grep -qE '^(STATE|PINS|VERDICT|FIX_DIFF|REPRO|RUN_REPRO|KDA_[A-Z_]*)=' '$S' && ! grep -q ' state.sh \\|gdn-after\\|/in/state.sh\\|kda-state\\|kda-' '$R' && grep -qxF 'all_confirmed() { [ \"\$VERDICTS\" = \"stride=confirmed\" ] && [ \"\$SUMMARY_RC\" = 0 ]; }' '$S' && [[ \"\$(bash '$DIR/derive-pins.sh' gdn /nonexistent 2>&1)\" == '#68414 is not part of run 4; '* ]] && [[ \"\$(bash '$DIR/derive-pins.sh' kda /nonexistent 2>&1)\" == '#68415 is not part of run 4; '* ]] && [[ \"\$(bash '$DIR/derive-pins.sh' kda-differs /nonexistent 2>&1)\" == '#68415 is not part of run 4; '* ]]"
 
 pinf() { echo "$DIR/$1-pins.txt"; }
 # pin ITEM STATE PATH: the pinned value.
@@ -693,9 +693,12 @@ case_dir() { # case_dir NAME: a sweep where #68416 is confirmed, which each case
   echo "abc123  vllm.whl" > "$d/wheel-sha256.txt"
   # Each pytest call's command and the provenance the summary quotes, as lib.sh records them.
   for x in stride-before stride-after; do
-    printf 'test_cmd=cd /vllm-workspace && timeout --kill-after=10 60 python3 -m pytest %s -k stride -rA --tb=short -p no:cacheprovider --junitxml=/out/%s/test.xml\ngpu_name=NVIDIA A10G\npython_executable=/usr/bin/python3\npython_version=3.12.3\napply_checkout_cmd=cd /vllm-workspace && git apply x\n' "$SGT" "$x" >> "$d/$x/state.txt"
+    printf 'test_cmd=cd /vllm-workspace && timeout --kill-after=10 60 python3 -m pytest %s -k stride -rA --tb=short -p no:cacheprovider --junitxml=/out/%s/test.xml\ntest_summary====== 3 x in 5.00s =====\ngpu_name=NVIDIA A10G\npython_executable=/usr/bin/python3\npython_version=3.12.3\napply_checkout_cmd=cd /vllm-workspace && git apply x\n' "$SGT" "$x" >> "$d/$x/state.txt"
   done
+  echo "apply_site_cmd=none: the diff changes nothing under vllm/" >> "$d/stride-before/state.txt"
+  printf "apply_site_cmd=cd /usr/local/lib/python3.12/dist-packages && git -c 'safe.directory=*' apply '--include=vllm/*' /in/stride-fix.diff\napply_site_files=%s/fused_recurrent.py,%s/fused_sigmoid_gating.py\n" "$OX" "$OX" >> "$d/stride-after/state.txt"
   echo "file_cmd=cd /vllm-workspace && timeout --kill-after=10 120 python3 -m pytest $SGT -rA --tb=short -p no:cacheprovider --junitxml=/out/stride-after/file.xml" >> "$d/stride-after/state.txt"
+  echo "file_summary====== 21 passed in 15.00s =====" >> "$d/stride-after/state.txt"
   echo "$d"
 }
 v1() { echo "stride=$(python3 "$SV" "$1" STEST SFIX | sed -n 's/^stride_verdict=//p')"; }
@@ -744,6 +747,11 @@ named void-evidence "BEFORE's apply command was not recorded" "sed -i '/^apply_c
 named void-evidence "the whole-file command was not recorded" "sed -i '/^file_cmd=/d' stride-after/state.txt"
 named void-evidence "BEFORE's command ran without --tb=short" "sed -i 's/ -rA --tb=short / -rA /' stride-before/state.txt"
 named void-evidence "BEFORE's command selected something other than its recorded selection" "sed -i 's/ -k stride / -k recurrent /' stride-before/state.txt"
+named void-evidence "AFTER's dist-packages apply was not recorded" "sed -i '/^apply_site_/d' stride-after/state.txt"
+named void-evidence "AFTER's dist-packages apply changed one kernel only" "sed -i 's|^apply_site_files=.*|apply_site_files=$OX/fused_recurrent.py|' stride-after/state.txt"
+named void-evidence "BEFORE claims a dist-packages apply" "sed -i 's|^apply_site_cmd=.*|apply_site_cmd=cd x \&\& git apply y|' stride-before/state.txt"
+named void-evidence "the whole file's summary line was not recorded" "sed -i '/^file_summary=/d' stride-after/state.txt"
+named void-evidence "BEFORE's summary line was not recorded" "sed -i '/^test_summary=/d' stride-before/state.txt"
 named void-evidence "BEFORE's junit path was another state's" "sed -i 's|--junitxml=/out/stride-before/test.xml|--junitxml=/out/stride-after/test.xml|' stride-before/state.txt"
 # The image is the item's, so it alone voids it, run 3's image included.
 for edit in "rm image-identity.txt" "sed -i 's/ $IMAGE_COMMIT\$/ $RUN3_COMMIT/' image-identity.txt" "sed -i 's/639209c4b3c1/9071b00dc362/' image-identity.txt" ": > wheel-sha256.txt"; do
@@ -772,6 +780,13 @@ check "the session's judge exits 2 when #68416 is not confirmed, and names why" 
   "judged onefail \"sed -i 's/^test_rc=0/test_rc=1/' stride-after/state.txt\" | grep -qx 'verdicts=stride=after-not-passed' && [ \"\$(cat '$WORK/judge-rc')\" = 2 ]"
 check "the session's judge exits 2 when the records are missing" \
   "judged missing 'rm -r stride-before stride-after' | grep -qx 'verdicts=stride=void-identity' && [ \"\$(cat '$WORK/judge-rc')\" = 2 ]"
+# A session whose summary script cannot run: the verdict stands, but the session cannot succeed without what the PR quotes.
+sed 's|^PYTEST_SUMMARY=.*|PYTEST_SUMMARY=hack/vllm-gdn-68414/no-such-summary.py|' "$S" > "$ROOT/hack/.vllm-gdn-68414-nosummary.sh"
+d=$(real_case_dir jnosummary); rm -rf "$WORK/judge-out-nosummary"; mkdir -p "$WORK/judge-out-nosummary"
+env -u SESSION_CONFIRM PURCHASE=spot OUT="$WORK/judge-out-nosummary" bash "$ROOT/hack/.vllm-gdn-68414-nosummary.sh" --judge "$d" > "$WORK/judge-out-nosummary/stdout" 2>&1; nsrc=$?
+rm -f "$ROOT/hack/.vllm-gdn-68414-nosummary.sh"
+check "the session's judge exits 2 when the summary the PR quotes could not be written, though the verdict is confirmed" \
+  "[ $nsrc = 2 ] && grep -qx 'verdicts=$ALL_OK' '$WORK/judge-out-nosummary/stdout' && grep -qx 'summary_rc=empty' '$WORK/judge-out-nosummary/stdout'"
 check "the session's judge exits 2 when the verdict script crashes" \
   "judged crash \"printf 'started=\\\\377\\\\n' > stride-after/state.txt\" | grep -qx 'verdicts=stride=' && [ \"\$(cat '$WORK/judge-rc')\" = 2 ] && grep -q 'UnicodeDecodeError' '$WORK/judge-out-crash/download-errors.txt'"
 
