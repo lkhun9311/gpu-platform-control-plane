@@ -26,6 +26,11 @@ ADDR_A=172.30.0.10
 ADDR_B=172.30.0.11
 # Each replica gets a fixed 3 GiB of KV cache, which also turns off v0.34's extensible KV cache, so the two replicas cannot race for the free memory.
 KV_BYTES=3221225472
+# A fixed KV cache leaves the utilization at its 0.92 default, and request_memory refuses a start with less free memory than that share of the GPU.
+# So B would never start beside A; 0.45 each is what two replicas can both have.
+GPU_UTIL=0.45
+# The profile run sizes its dummy inputs from these limits: one image of the workload's size and no video, instead of the model's largest image and 999 videos.
+MM_LIMITS='{"image":{"count":1,"width":336,"height":336},"video":0}'
 PULL_S=1500
 IMAGE_ID_S=60
 START_A_S=600
@@ -64,8 +69,8 @@ replica() {
   docker run -d --name "hunt-$1" --gpus all --ipc host --network "$NET" --ip "$2" \
     -v /opt/hf:/root/.cache/huggingface -e HF_HUB_DISABLE_TELEMETRY=1 "$IMG" \
     --model "$MODEL" --revision "$MODEL_REV" --served-model-name "$SERVED" \
-    --kv-cache-memory-bytes "$KV_BYTES" --max-model-len 4096 --enforce-eager \
-    --enable-prompt-tokens-details --limit-mm-per-prompt '{"image":1}' \
+    --kv-cache-memory-bytes "$KV_BYTES" --gpu-memory-utilization "$GPU_UTIL" --max-model-len 4096 --enforce-eager \
+    --enable-prompt-tokens-details --limit-mm-per-prompt "$MM_LIMITS" \
     --kv-events-config '{"enable_kv_cache_events":true,"publisher":"zmq","endpoint":"tcp://*:5557","topic":"kv@'"$SERVED"'"}' \
     --port 8000 > "$D/replica-$1.id" 2>&1
 }
@@ -127,5 +132,9 @@ if [ -s "$D/probe/requests.jsonl" ]; then
   timeout "$(left $COLLECT_S)" python3 "$IN/verdict.py" "$D/probe" > "$D/verdict-on-instance.txt" 2>&1
 fi
 stop_all
-step "all items done, probe exited $probe_rc"
-[ "$probe_rc" = 0 ] || exit 3
+# "all items done" is what the session reads as a whole record, so a probe that failed or was cut by its bound does not write it.
+if [ "$probe_rc" != 0 ]; then
+  step "PROBE FAILED, exit $probe_rc; the records are partial"
+  exit 3
+fi
+step "all items done, probe exited 0"
