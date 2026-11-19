@@ -1,0 +1,99 @@
+apiVersion: autoscaling.aibrix.ai/v1alpha1
+kind: PodAutoscaler
+metadata:
+  annotations:
+    autoscaling.aibrix.ai/hold-scale-down-on-metric-failure: "true"
+    autoscaling.aibrix.ai/scale-down-cooldown-window: 0s
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"autoscaling.aibrix.ai/v1alpha1","kind":"PodAutoscaler","metadata":{"annotations":{"autoscaling.aibrix.ai/hold-scale-down-on-metric-failure":"true","autoscaling.aibrix.ai/scale-down-cooldown-window":"0s"},"name":"chat","namespace":"pr3509"},"spec":{"maxReplicas":6,"metricsSources":[{"metricSourceType":"pod","path":"metrics","port":"8080","protocolType":"http","targetMetric":"kv_cache_usage_perc","targetValue":"0.5"},{"endpoint":"queue-metrics.pr3509.svc.cluster.local:8000","metricSourceType":"external","path":"metrics","protocolType":"http","targetMetric":"vllm:num_requests_waiting","targetValue":"50"}],"minReplicas":1,"scaleTargetRef":{"apiVersion":"apps/v1","kind":"Deployment","name":"chat"},"scalingStrategy":"KPA"}}
+  creationTimestamp: "2026-11-19T08:02:35Z"
+  generation: 6
+  name: chat
+  namespace: pr3509
+  resourceVersion: "1519"
+  uid: e68a65fa-ced9-4140-99bb-65977458310d
+spec:
+  maxReplicas: 5
+  metricsSources:
+  - metricSourceType: pod
+    path: metrics
+    port: "8080"
+    protocolType: http
+    targetMetric: kv_cache_usage_perc
+    targetValue: "0.5"
+  - endpoint: queue-metrics.pr3509.svc.cluster.local:8000
+    metricSourceType: external
+    path: metrics
+    protocolType: http
+    targetMetric: vllm:num_requests_waiting
+    targetValue: "50"
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chat
+  scalingStrategy: KPA
+status:
+  actualScale: 3
+  conditions:
+  - lastTransitionTime: "2026-11-19T08:02:51Z"
+    message: ""
+    observedGeneration: 6
+    reason: AsExpected
+    status: "True"
+    type: ValidSpec
+  - lastTransitionTime: "2026-11-19T08:07:32Z"
+    message: desired=3, actual=3; reason=stable
+    reason: Stable
+    status: "False"
+    type: ScalingActive
+  - lastTransitionTime: "2026-11-19T08:02:51Z"
+    message: successfully retrieved target scale
+    reason: SucceededGetScale
+    status: "True"
+    type: AbleToScale
+  - lastTransitionTime: "2026-11-19T08:07:53Z"
+    message: ""
+    reason: AsExpected
+    status: "True"
+    type: Ready
+  desiredScale: 3
+  lastScaleTime: "2026-11-19T08:07:46Z"
+  scalingHistory:
+  - error: 'failed to compute metric-based replicas: scale-down held while a metric
+      source fails: PodAutoscaler pr3509/chat stays at 6 replicas instead of 3, because
+      metric sources vllm:num_requests_waiting could not be read'
+    newScale: 6
+    previousScale: 6
+    reason: FailedComputeScale
+    success: false
+    timestamp: "2026-11-19T08:06:18Z"
+  - newScale: 7
+    previousScale: 6
+    reason: kpa above target
+    success: true
+    timestamp: "2026-11-19T08:06:32Z"
+  - newScale: 5
+    previousScale: 7
+    reason: current replicas above maximum
+    success: true
+    timestamp: "2026-11-19T08:07:15Z"
+  - error: 'failed to compute metric-based replicas: scale-down held while a metric
+      source fails: PodAutoscaler pr3509/chat stays at 5 replicas instead of 3, because
+      metric sources vllm:num_requests_waiting could not be read'
+    newScale: 5
+    previousScale: 5
+    reason: FailedComputeScale
+    success: false
+    timestamp: "2026-11-19T08:07:32Z"
+  - error: 'failed to compute metric-based replicas: scale-down held while a metric
+      source fails: PodAutoscaler pr3509/chat stays at 5 replicas instead of 3, because
+      metric sources vllm:num_requests_waiting could not be read'
+    newScale: 5
+    previousScale: 5
+    reason: FailedComputeScale
+    success: false
+    timestamp: "2026-11-19T08:07:46Z"
+  scheduledBounds:
+    effectiveMaxReplicas: 5
+    effectiveMinReplicas: 1

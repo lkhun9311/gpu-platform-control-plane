@@ -18,6 +18,7 @@ The lab records what the autoscaler decided and when it decided it.
 - [The two writers, live](#the-two-writers-live)
 - [Verdict and upstream contribution](#verdict-and-upstream-contribution)
 - [Limits](#limits)
+- [Verifying #3509](#verifying-3509)
 
 ## Who writes the replicas
 
@@ -192,3 +193,117 @@ Extra test coverage, such as an end-to-end case of a failing source followed by 
 - The gpuaas reconciler ran on the host and not in the manager, so the admission webhooks were not in the path.
   None of them touches replicas.
 - The CRD rules that refuse `External` with HoldCap or PrefixAffinity are checked by their refusal messages and were not mutation-tested on their own.
+
+## Verifying #3509
+
+vllm-project/aibrix#3509 is the fix the maintainer asked for on #3439.
+It adds the opt-in annotation `autoscaling.aibrix.ai/hold-scale-down-on-metric-failure`.
+With it, a failing source blocks a metric-driven scale-down, a healthy source can still scale up, and the replica bounds still apply.
+Whether or not it is set, a Warning event names the failed source and a scale-down on partial data gets its own reason.
+
+`hack/aibrix-pr3509.sh` replays the same two sources against the PR's base, main afdb4791527e, and its head cb1a2f3f05d6.
+It reuses this lab's simulator images and upstream's overlay.
+The target is a plain Deployment, so no gpuaas reconciler runs and only AIBrix writes the replicas.
+The cooldown is 0s and `maxReplicas` is 6.
+The queue source stays down from phase 2 to phase 8.
+While it is down, the pod metric's target is moved so that the healthy source asks for more or fewer replicas, and the bounds are moved across the current count.
+
+| Phase | Change | Healthy source asks |
+|---|---|---|
+| 1 | both sources readable | 2, queue asks 4 |
+| 2 | queue endpoint removed | 2 |
+| 3 | kv target 0.5 → 0.2 | 5 from 4 pods |
+| 4 | kv target 0.15 | 9 from 5 pods, above max 6 |
+| 5 | kv target 0.5 | 3 from 6 pods |
+| 6 | minReplicas 7, maxReplicas 8 | below min |
+| 7 | minReplicas 1, maxReplicas 5 | current above max |
+| 8 | queue back at 100 | 2 or 3, queue asks 2 |
+
+Runs are under `hack/aibrix-pr3509/runs`.
+Each has `timeline.tsv`, `events.txt`, `aibrix-decisions.log`, the full controller log gzipped, and the final PodAutoscaler.
+
+### Results
+
+| Case | main, KPA and APA | PR, annotation off | PR, annotation "true" |
+|---|---|---|---|
+| Outage, healthy source asks 2 | 4 → 2 on the first reconcile, 13 s (KPA) and 10 s (APA) after the first outage sample; APA then goes to 1 | same as main; APA's 15 rescales match main's one for one | held at 4 for the whole phase (KPA 19, APA 17 held passes) |
+| Healthy source above target, queue still down | scales up | scales up | 4 → 5 (KPA and APA) |
+| Scale-up past maxReplicas 6 | | | 5 → 6, stops at 6 |
+| Healthy source below target again | | | held at 6 |
+| minReplicas 7 | | | 6 → 7 |
+| maxReplicas 5 | | | 7 → 5, reason "current replicas above maximum" |
+| Queue source back | | | KPA 5 → 3, APA 5 → 3 → 2 → 3; hold released |
+| Warning event naming the source | none | `FailedGetMetrics` | `FailedComputeScale` while held, `FailedGetMetrics` on a scale-up |
+| Scale-down reason | "All metrics below target" | "Available metrics below target (vllm:num_requests_waiting could not be read)" | (held) |
+
+The main and annotation-off KPA runs went into KPA panic mode after the scale-up from 2.
+Panic keeps the peak, so their phases 5 to 7 do not compare with the held run and are left out of the table.
+
+### What is wrong or missing
+
+**The per-reconcile Warning uses up the PodAutoscaler's event budget.**
+client-go v0.31.8, which AIBrix uses, passes 25 events per involved object and then one every 5 minutes (`defaultSpamBurst`, `defaultSpamQPS` in `tools/record/events_cache.go`).
+The key is the object, not the reason.
+The PR raises `FailedGetMetrics` or `FailedComputeScale` on every pass while a source fails, about every 7 s here.
+
+| Run | PodAutoscaler events emitted (controller log) | reached the API server |
+|---|---|---|
+| main KPA | 12 | 12 |
+| PR KPA, annotation off | 54 | 27 |
+| PR KPA, annotation on | 47 | 25 |
+| main APA | 34 | 27 |
+| PR APA, annotation off | 68 | 25 |
+| PR APA, annotation on | 52 | 25 |
+
+In the annotation-off KPA run, the last event to arrive is at 08:18:51.
+The scale-downs at 08:19:12 (6 → 3), 08:19:19 and 08:20:30 have no `SuccessfulRescale` event, although each carries the new "Available metrics below target" reason.
+In the annotation-on KPA run, the scale to 7 for minReplicas and to 5 for maxReplicas have no event, and the hold warnings after 08:05:50 are dropped too.
+In both, the controller log shows every one of them.
+main APA also loses events, from its own 1 ↔ 2 oscillation, but the PR doubles the count.
+
+**A scale forced by the bounds during a hold names no failed source.**
+The hold returns an error, and `computeScaleDecision` turns that error into a bounds decision without `FailedMetrics`.
+The scale to 5 at 08:07:15 (KPA, annotation on) has reason "current replicas above maximum", and no warning in that pass names the queue source.
+The next pass, back at the hold, does.
+
+**A hold is recorded as a failed scaling decision.**
+`setStatus` is called with `success=false`, so every pass past the 5 s guard appends a `FailedComputeScale` entry to `scalingHistory` and moves `lastScaleTime`.
+In the KPA annotation-on run, `lastScaleTime` is 08:07:46, a held pass that changed nothing, and three of the five history entries are holds.
+`lastScaleTime` is documented as the last time the replicas changed.
+
+**A hold leaves the outage out of the scale-up cooldown.**
+A held pass returns before `stabilizeRecommendation`, so its recommendation is never recorded.
+`hack/aibrix-pr3509.sh upwindow` sets `scale-up-cooldown-window: 60s` and `scale-down-cooldown-window: 300s`, holds the queue down for 80 s, and then asks for 7 (capped at 6).
+
+| Run | kv target patched | scaled 4 → 6 |
+|---|---|---|
+| annotation off | 08:44:44 | 08:45:57, 73 s later |
+| annotation on | 08:48:36 | 08:48:44, 8 s later |
+
+With the annotation off, the outage's recommendations of 2 sit in the 60 s window and hold the scale-up back.
+With it on, they were never recorded.
+The default scale-up window is 0, so this only shows when a user sets one.
+It is a difference in behaviour, not clearly a defect, and the design does not say which is wanted.
+
+**The regression test depends on the clock.**
+`TestComputeDesiredReplicasHoldsScaleDownWhileAMetricFails` calls `ComputeDesiredReplicas` twice with `time.Now()`.
+The metric window keeps one value per second, so when the two calls fall in the same second the second value replaces the first.
+A copy of the test with the two timestamps pinned 2 ns apart across a second boundary gets 5 replicas instead of 8, for KPA and APA.
+The window then averages 25 and 100.
+The same copy with both timestamps equal passes.
+
+### Checked and not a problem
+
+- The PR's unit tests pass: `go test -race ./pkg/controller/podautoscaler/...` at cb1a2f3f.
+- The stabilized recommendation never goes below the current count when the raw one is at or above it, so checking the hold before stabilization does not miss a scale-down.
+- A held reconcile returns no error, and the periodic resync evaluates it again; the runs show a pass every 7 s throughout each hold.
+
+### Limits of this verification
+
+- One run per case on one kind node, with simulator metrics that never move on their own.
+- The healthy source's demand was changed by patching its target value, not by changing the metric.
+- The outage is a Service with no endpoint, which fails fast.
+- codex (gpt-6-astra, high, read-only) reviewed the diff independently.
+  The bounds-warning, history, cooldown and test-clock findings were its points.
+  Each was then checked here, by the runs above or by the pinned-timestamp test.
+  The event budget finding came from these runs.

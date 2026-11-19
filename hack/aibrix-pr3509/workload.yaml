@@ -1,0 +1,80 @@
+# The scale target and the external metric of the #3509 verification.
+#
+# chat runs the lane 2 simshim image, which reports vllm:kv_cache_usage_perc 0.25 on port 8080.
+# queue-metrics stands in for a gateway queue endpoint and reports vllm:num_requests_waiting 200.
+# Scaling queue-metrics to zero is the outage, because its Service then has no endpoint.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pr3509
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat
+  namespace: pr3509
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: chat
+  template:
+    metadata:
+      labels:
+        app: chat
+    spec:
+      containers:
+      - name: sim
+        image: SHIM_IMAGE
+        imagePullPolicy: IfNotPresent
+        args: ["--model", "chat"]
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: queue-metrics
+  namespace: pr3509
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: queue-metrics
+  template:
+    metadata:
+      labels:
+        app: queue-metrics
+    spec:
+      containers:
+      - name: sim
+        image: SIM_IMAGE
+        imagePullPolicy: IfNotPresent
+        args: ["--model", "queue", "--port", "8000", "--fake-metrics", '{"waiting-requests":200}']
+        ports:
+        - name: http
+          containerPort: 8000
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: queue-metrics
+  namespace: pr3509
+spec:
+  selector:
+    app: queue-metrics
+  ports:
+  - name: http
+    port: 8000
+    targetPort: http

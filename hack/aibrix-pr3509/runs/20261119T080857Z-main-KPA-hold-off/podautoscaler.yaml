@@ -1,0 +1,89 @@
+apiVersion: autoscaling.aibrix.ai/v1alpha1
+kind: PodAutoscaler
+metadata:
+  annotations:
+    autoscaling.aibrix.ai/scale-down-cooldown-window: 0s
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"autoscaling.aibrix.ai/v1alpha1","kind":"PodAutoscaler","metadata":{"annotations":{"autoscaling.aibrix.ai/scale-down-cooldown-window":"0s"},"name":"chat","namespace":"pr3509"},"spec":{"maxReplicas":6,"metricsSources":[{"metricSourceType":"pod","path":"metrics","port":"8080","protocolType":"http","targetMetric":"kv_cache_usage_perc","targetValue":"0.5"},{"endpoint":"queue-metrics.pr3509.svc.cluster.local:8000","metricSourceType":"external","path":"metrics","protocolType":"http","targetMetric":"vllm:num_requests_waiting","targetValue":"50"}],"minReplicas":1,"scaleTargetRef":{"apiVersion":"apps/v1","kind":"Deployment","name":"chat"},"scalingStrategy":"KPA"}}
+  creationTimestamp: "2026-11-19T08:09:19Z"
+  generation: 6
+  name: chat
+  namespace: pr3509
+  resourceVersion: "2712"
+  uid: 93a2e44e-5baf-4a74-b6bd-9319014e0508
+spec:
+  maxReplicas: 5
+  metricsSources:
+  - metricSourceType: pod
+    path: metrics
+    port: "8080"
+    protocolType: http
+    targetMetric: kv_cache_usage_perc
+    targetValue: "0.5"
+  - endpoint: queue-metrics.pr3509.svc.cluster.local:8000
+    metricSourceType: external
+    path: metrics
+    protocolType: http
+    targetMetric: vllm:num_requests_waiting
+    targetValue: "50"
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chat
+  scalingStrategy: KPA
+status:
+  actualScale: 3
+  conditions:
+  - lastTransitionTime: "2026-11-19T08:09:27Z"
+    message: ""
+    observedGeneration: 6
+    reason: AsExpected
+    status: "True"
+    type: ValidSpec
+  - lastTransitionTime: "2026-11-19T08:14:31Z"
+    message: desired=3, actual=3; reason=stable
+    reason: Stable
+    status: "False"
+    type: ScalingActive
+  - lastTransitionTime: "2026-11-19T08:09:27Z"
+    message: successfully retrieved target scale
+    reason: SucceededGetScale
+    status: "True"
+    type: AbleToScale
+  - lastTransitionTime: "2026-11-19T08:14:31Z"
+    message: ""
+    reason: AsExpected
+    status: "True"
+    type: Ready
+  desiredScale: 3
+  lastScaleTime: "2026-11-19T08:14:17Z"
+  scalingHistory:
+  - newScale: 4
+    previousScale: 2
+    reason: kpa above target
+    success: true
+    timestamp: "2026-11-19T08:11:11Z"
+  - newScale: 6
+    previousScale: 4
+    reason: kpa above target
+    success: true
+    timestamp: "2026-11-19T08:11:53Z"
+  - newScale: 8
+    previousScale: 6
+    reason: kpa above target
+    success: true
+    timestamp: "2026-11-19T08:13:21Z"
+  - newScale: 5
+    previousScale: 8
+    reason: All metrics below target
+    success: true
+    timestamp: "2026-11-19T08:14:03Z"
+  - newScale: 3
+    previousScale: 5
+    reason: All metrics below target
+    success: true
+    timestamp: "2026-11-19T08:14:17Z"
+  scheduledBounds:
+    effectiveMaxReplicas: 5
+    effectiveMinReplicas: 1

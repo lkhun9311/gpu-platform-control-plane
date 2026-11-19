@@ -1,0 +1,103 @@
+apiVersion: autoscaling.aibrix.ai/v1alpha1
+kind: PodAutoscaler
+metadata:
+  annotations:
+    autoscaling.aibrix.ai/hold-scale-down-on-metric-failure: "true"
+    autoscaling.aibrix.ai/scale-down-cooldown-window: 300s
+    autoscaling.aibrix.ai/scale-up-cooldown-window: 60s
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"autoscaling.aibrix.ai/v1alpha1","kind":"PodAutoscaler","metadata":{"annotations":{"autoscaling.aibrix.ai/hold-scale-down-on-metric-failure":"true","autoscaling.aibrix.ai/scale-down-cooldown-window":"300s","autoscaling.aibrix.ai/scale-up-cooldown-window":"60s"},"name":"chat","namespace":"pr3509"},"spec":{"maxReplicas":6,"metricsSources":[{"metricSourceType":"pod","path":"metrics","port":"8080","protocolType":"http","targetMetric":"kv_cache_usage_perc","targetValue":"0.5"},{"endpoint":"queue-metrics.pr3509.svc.cluster.local:8000","metricSourceType":"external","path":"metrics","protocolType":"http","targetMetric":"vllm:num_requests_waiting","targetValue":"50"}],"minReplicas":1,"scaleTargetRef":{"apiVersion":"apps/v1","kind":"Deployment","name":"chat"},"scalingStrategy":"KPA"}}
+  creationTimestamp: "2026-11-19T08:46:30Z"
+  generation: 2
+  name: chat
+  namespace: pr3509
+  resourceVersion: "9783"
+  uid: 372bf1de-4c86-4181-9268-f2ca09a5b936
+spec:
+  maxReplicas: 6
+  metricsSources:
+  - metricSourceType: pod
+    path: metrics
+    port: "8080"
+    protocolType: http
+    targetMetric: kv_cache_usage_perc
+    targetValue: "0.15"
+  - endpoint: queue-metrics.pr3509.svc.cluster.local:8000
+    metricSourceType: external
+    path: metrics
+    protocolType: http
+    targetMetric: vllm:num_requests_waiting
+    targetValue: "50"
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chat
+  scalingStrategy: KPA
+status:
+  actualScale: 6
+  conditions:
+  - lastTransitionTime: "2026-11-19T08:46:32Z"
+    message: ""
+    observedGeneration: 2
+    reason: AsExpected
+    status: "True"
+    type: ValidSpec
+  - lastTransitionTime: "2026-11-19T08:48:51Z"
+    message: desired=6, actual=6; reason=stable
+    reason: Stable
+    status: "False"
+    type: ScalingActive
+  - lastTransitionTime: "2026-11-19T08:46:32Z"
+    message: successfully retrieved target scale
+    reason: SucceededGetScale
+    status: "True"
+    type: AbleToScale
+  - lastTransitionTime: "2026-11-19T08:48:51Z"
+    message: ""
+    reason: AsExpected
+    status: "True"
+    type: Ready
+  desiredScale: 6
+  lastScaleTime: "2026-11-19T08:48:44Z"
+  scalingHistory:
+  - error: 'failed to compute metric-based replicas: scale-down held while a metric
+      source fails: PodAutoscaler pr3509/chat stays at 4 replicas instead of 2, because
+      metric sources vllm:num_requests_waiting could not be read'
+    newScale: 4
+    previousScale: 4
+    reason: FailedComputeScale
+    success: false
+    timestamp: "2026-11-19T08:47:47Z"
+  - error: 'failed to compute metric-based replicas: scale-down held while a metric
+      source fails: PodAutoscaler pr3509/chat stays at 4 replicas instead of 2, because
+      metric sources vllm:num_requests_waiting could not be read'
+    newScale: 4
+    previousScale: 4
+    reason: FailedComputeScale
+    success: false
+    timestamp: "2026-11-19T08:48:02Z"
+  - error: 'failed to compute metric-based replicas: scale-down held while a metric
+      source fails: PodAutoscaler pr3509/chat stays at 4 replicas instead of 2, because
+      metric sources vllm:num_requests_waiting could not be read'
+    newScale: 4
+    previousScale: 4
+    reason: FailedComputeScale
+    success: false
+    timestamp: "2026-11-19T08:48:16Z"
+  - error: 'failed to compute metric-based replicas: scale-down held while a metric
+      source fails: PodAutoscaler pr3509/chat stays at 4 replicas instead of 2, because
+      metric sources vllm:num_requests_waiting could not be read'
+    newScale: 4
+    previousScale: 4
+    reason: FailedComputeScale
+    success: false
+    timestamp: "2026-11-19T08:48:30Z"
+  - newScale: 6
+    previousScale: 4
+    reason: kpa above target
+    success: true
+    timestamp: "2026-11-19T08:48:44Z"
+  scheduledBounds:
+    effectiveMaxReplicas: 6
+    effectiveMinReplicas: 1

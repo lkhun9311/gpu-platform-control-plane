@@ -1,0 +1,41 @@
+utc	t_s	phase	deploy_spec_replicas	deploy_ready	pa_desired	queue_endpoints	kv_target	min	max	scaling_active
+08:42:39	0	1-baseline	4	4		1	0.5	1	6	
+08:42:44	5	1-baseline	4	4		1	0.5	1	6	
+08:42:50	10	1-baseline	4	4		1	0.5	1	6	
+08:42:55	16	1-baseline	4	4	4	1	0.5	1	6	False/Stable
+08:43:00	21	1-baseline	4	4	4	1	0.5	1	6	False/Stable
+08:43:05	26	1-baseline	4	4	4	1	0.5	1	6	False/Stable
+08:43:11	31	1-baseline	4	4	4	1	0.5	1	6	False/Stable
+08:43:16	37	1-baseline	4	4	4	1	0.5	1	6	False/Stable
+08:43:21	42	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:43:26	47	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:43:31	52	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:43:37	57	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:43:42	63	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:43:47	68	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:43:52	73	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:43:57	78	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:44:03	83	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:44:08	89	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:44:13	94	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:44:18	99	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:44:24	104	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:44:29	110	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:44:34	115	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:44:39	120	2-outage	4	4	4	0	0.5	1	6	False/Stable
+08:44:44	125	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:44:50	130	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:44:55	136	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:00	141	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:05	146	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:10	151	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:16	156	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:21	162	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:26	167	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:31	172	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:36	177	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:42	182	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:47	188	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:52	193	3-scaleup	4	4	4	0	0.15	1	6	False/Stable
+08:45:57	198	3-scaleup	6	4	6	0	0.15	1	6	True/ReconcilingScaleDiff
+08:46:02	203	3-scaleup	6	6	6	0	0.15	1	6	True/ReconcilingScaleDiff

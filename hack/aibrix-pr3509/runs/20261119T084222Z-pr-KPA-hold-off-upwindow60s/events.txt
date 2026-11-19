@@ -1,0 +1,46 @@
+FIRST                  LAST                   COUNT   TYPE      REASON              KIND            MESSAGE
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    Scheduled           Pod             Successfully assigned pr3509/chat-697644fc5f-mjhpl to aibrix-pr3509-control-plane
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    ScalingReplicaSet   Deployment      Scaled up replica set queue-metrics-7d76d95459 to 1
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    SuccessfulCreate    ReplicaSet      Created pod: queue-metrics-7d76d95459-z6mzx
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    Scheduled           Pod             Successfully assigned pr3509/queue-metrics-7d76d95459-z6mzx to aibrix-pr3509-control-plane
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    Scheduled           Pod             Successfully assigned pr3509/chat-697644fc5f-9g7wz to aibrix-pr3509-control-plane
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    ScalingReplicaSet   Deployment      Scaled up replica set chat-697644fc5f to 4
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    SuccessfulCreate    ReplicaSet      Created pod: chat-697644fc5f-8f7lm
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    SuccessfulCreate    ReplicaSet      Created pod: chat-697644fc5f-fv4vf
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    Scheduled           Pod             Successfully assigned pr3509/chat-697644fc5f-fv4vf to aibrix-pr3509-control-plane
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    SuccessfulCreate    ReplicaSet      Created pod: chat-697644fc5f-mjhpl
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    SuccessfulCreate    ReplicaSet      Created pod: chat-697644fc5f-9g7wz
+2026-11-19T08:42:38Z   2026-11-19T08:42:38Z   1       Normal    Scheduled           Pod             Successfully assigned pr3509/chat-697644fc5f-8f7lm to aibrix-pr3509-control-plane
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Created             Pod             Created container: sim
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Pulled              Pod             Container image "gpuaas-llmd-kv-lab/sim:6ab9d4b2367a" already present on machine
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Pulled              Pod             Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Created             Pod             Created container: sim
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Started             Pod             Started container sim
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Created             Pod             Created container: sim
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Started             Pod             Started container sim
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Pulled              Pod             Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Created             Pod             Created container: sim
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Pulled              Pod             Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Started             Pod             Started container sim
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Started             Pod             Started container sim
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Created             Pod             Created container: sim
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Pulled              Pod             Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-19T08:42:39Z   2026-11-19T08:42:39Z   1       Normal    Started             Pod             Started container sim
+2026-11-19T08:43:21Z   2026-11-19T08:43:21Z   1       Normal    ScalingReplicaSet   Deployment      Scaled down replica set queue-metrics-7d76d95459 to 0 from 1
+2026-11-19T08:43:21Z   2026-11-19T08:43:21Z   1       Normal    SuccessfulDelete    ReplicaSet      Deleted pod: queue-metrics-7d76d95459-z6mzx
+2026-11-19T08:43:21Z   2026-11-19T08:43:21Z   1       Normal    Killing             Pod             Stopping container sim
+2026-11-19T08:43:37Z   2026-11-19T08:45:47Z   15      Warning   FailedGetMetrics    PodAutoscaler   metric sources vllm:num_requests_waiting could not be read; 4 replicas recommended from the remaining sources
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    ScalingReplicaSet   Deployment      Scaled up replica set chat-697644fc5f to 6 from 4
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    Pulled              Pod             Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    AlgorithmRun        PodAutoscaler   KPA algorithm completed. currentReplicas: 4, desiredReplicas: 6, shouldScale: true
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    SuccessfulRescale   PodAutoscaler   New size: 6; reason: kpa above target
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    Scheduled           Pod             Successfully assigned pr3509/chat-697644fc5f-gczgv to aibrix-pr3509-control-plane
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    Created             Pod             Created container: sim
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    Pulled              Pod             Container image "gpuaas-aibrix-lane2/simshim:6ab9d4b2367a" already present on machine
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    SuccessfulCreate    ReplicaSet      Created pod: chat-697644fc5f-gczgv
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    Scheduled           Pod             Successfully assigned pr3509/chat-697644fc5f-jkvzn to aibrix-pr3509-control-plane
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    Started             Pod             Started container sim
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    Started             Pod             Started container sim
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    SuccessfulCreate    ReplicaSet      Created pod: chat-697644fc5f-jkvzn
+2026-11-19T08:45:57Z   2026-11-19T08:45:57Z   1       Normal    Created             Pod             Created container: sim
+2026-11-19T08:45:57Z   2026-11-19T08:46:04Z   2       Warning   FailedGetMetrics    PodAutoscaler   metric sources vllm:num_requests_waiting could not be read; 6 replicas recommended from the remaining sources
