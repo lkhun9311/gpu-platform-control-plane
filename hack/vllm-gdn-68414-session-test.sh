@@ -30,7 +30,7 @@ check "the session, the runner and the state script parse, and the verdict and w
 # ---------------------------------------------------------------- schedule, cost and refusals
 same=1
 for pair in PULL_BOUND_S:PULL_S IMAGE_ID_S:IMAGE_ID_S SETUP_S:SETUP_S ASIS_S:ASIS_S CUDA_S:CUDA_S UNIT_S:UNIT_S \
-  EXIST_S:EXIST_S STOP_S:STOP_S; do
+  EXIST_S:EXIST_S KDA_S:KDA_S STOP_S:STOP_S; do
   a=$(grep -m1 "^${pair%%:*}=" "$S" | cut -d= -f2); b=$(grep -m1 "^${pair#*:}=" "$R" | cut -d= -f2)
   [ -n "$a" ] && [ "$a" = "$b" ] || { echo "  ${pair%%:*}=$a in the session, ${pair#*:}=$b in the runner" >&2; same=0; }
 done
@@ -39,11 +39,13 @@ check "every step bound in the session is the runner's own" "[ $same = 1 ]"
 check "the runner bounds BEFORE by setup + as-is + CUDA + stop, and AFTER by those + the new test + two existing tests" \
   "grep -qF 'state before \$(( SETUP_S + ASIS_S + CUDA_S + STOP_S ))' '$R' && grep -qF 'state after \$(( SETUP_S + ASIS_S + CUDA_S + UNIT_S + 2 * EXIST_S + STOP_S ))' '$R'"
 sched=$(bash "$S" --print-schedule 2>&1)
-check "the schedule is the bounds' sum ($sched)" "[ '$sched' = 'harness_end_s=4020 evidence_s=4140 stop_s=4200 termination_s=4500' ]"
-worst=$(python3 -c 'print(f"{4500 / 3600 * 0.7792:.4f}")')
-check "the worst case, 4,500 s at the all-in rate, is \$$worst and under \$1.50" \
+check "the runner bounds each #68415 state by setup + its pytest + stop" \
+  "[ \"\$(grep -cF '\$(( SETUP_S + KDA_S + STOP_S ))' '$R')\" = 2 ] && grep -qF '+ 2 * (SETUP_S + KDA_S + STOP_S) ))' '$S'"
+check "the schedule is the bounds' sum ($sched)" "[ '$sched' = 'harness_end_s=4560 evidence_s=4680 stop_s=4740 termination_s=5040' ]"
+worst=$(python3 -c 'print(f"{5040 / 3600 * 0.7792:.4f}")')
+check "the worst case, 5,040 s at the all-in rate, is \$$worst and under \$1.50" \
   "[ \"\$(grep -m1 '^ALL_IN_RATE=' '$S' | cut -d= -f2)\" = 0.7792 ] && [ \"\$(grep -m1 '^COST_CAP_USD=' '$S' | cut -d= -f2)\" = 1.50 ] && python3 -c 'import sys; sys.exit(0 if $worst < 1.5 else 1)'"
-check "the session's header states the same worst case" "grep -qF '\$0.9740, under \$1.50' '$S'"
+check "the session's header states the same worst case" "grep -qF '\$1.0909, under \$1.50' '$S'"
 check "the instance is a g5.xlarge with the reclaimed zone tried last" \
   "grep -qx 'INSTANCE_TYPE_FIXED=g5.xlarge' '$S' && grep -qx 'RECLAIMED_ZONES=\"ap-northeast-2a\"' '$S'"
 cp "$S" "$WORK/costly.sh"; sed -i 's/^ALL_IN_RATE=.*/ALL_IN_RATE=1.40/' "$WORK/costly.sh"
@@ -74,10 +76,10 @@ check "the user-data parses, is under 16 KB, and has no placeholder left" \
   "[ -s '$WORK/ud.sh' ] && bash -n '$WORK/ud.sh' && [ \$(wc -c < '$WORK/ud.sh') -lt 16384 ] && ! grep -q _PLACEHOLDER '$WORK/ud.sh'"
 check "the instance refuses a driver older than 580 before the pull" \
   "grep -q 'PREFLIGHT FAILED: driver' '$WORK/ud.sh' && [ \"\$(grep -n 'PREFLIGHT FAILED: driver' '$WORK/ud.sh' | cut -d: -f1)\" -lt \"\$(grep -n 'runner.sh' '$WORK/ud.sh' | head -1 | cut -d: -f1)\" ]"
-check "the instance arms its 4,200 s backstop before anything else can fail ($first_cmd)" \
-  "[ '${first_cmd#*:}' = '( sleep 4200; shutdown -h now ) &' ] && [ '${first_cmd%%:*}' -lt '$first_aws' ]"
-check "the precise backstop counts from LaunchTime, and the runner ends at LaunchTime + 4,020 s" \
-  "grep -q '( sleep \$(( L + 4200 - ' '$WORK/ud.sh' && grep -q 'HE=\$(( L + 4020 ))' '$WORK/ud.sh' && grep -q 'EV=\$(( L + 4140 ))' '$WORK/ud.sh'"
+check "the instance arms its 4,740 s backstop before anything else can fail ($first_cmd)" \
+  "[ '${first_cmd#*:}' = '( sleep 4740; shutdown -h now ) &' ] && [ '${first_cmd%%:*}' -lt '$first_aws' ]"
+check "the precise backstop counts from LaunchTime, and the runner ends at LaunchTime + 4,560 s" \
+  "grep -q '( sleep \$(( L + 4740 - ' '$WORK/ud.sh' && grep -q 'HE=\$(( L + 4560 ))' '$WORK/ud.sh' && grep -q 'EV=\$(( L + 4680 ))' '$WORK/ud.sh'"
 check "the instance runs this session's runner and returns this session's records" \
   "grep -q 'bash /opt/gdn/in/runner.sh /opt/gdn/in /src/gdn-run/sweep' '$WORK/ud.sh' && ! grep -qE 'tp-run|/opt/tp/' '$WORK/ud.sh'"
 
@@ -126,6 +128,48 @@ if [ -n "${VLLM_SRC:-}" ]; then
   check "pins.txt is what fix.diff makes of 8700cc9ba0 in $VLLM_SRC" "diff -q <(sort '$PINS') <(sort '$WORK/rederived') >/dev/null"
 else
   echo "skip pins.txt against a vLLM checkout (set VLLM_SRC to rederive them)"
+fi
+
+# ---------------------------------------------------------------- #68415's pins
+KPINS="$DIR/kda-pins.txt"
+KDAP=vllm/third_party/flash_linear_attention/ops/kda.py
+KDATP=tests/kernels/mamba/test_fla_fused_recurrent_kda.py
+check "the session pins both #68415 diffs at their own sha256 and ships them with kda-state.sh and kda-pins.txt" \
+  "[ \"\$(sha256sum '$DIR/kda-fix.diff' | cut -d' ' -f1)\" = \"\$(grep -m1 '^KDA_FIX_DIFF_SHA256=' '$S' | cut -d= -f2)\" ] && [ \"\$(sha256sum '$DIR/kda-test.diff' | cut -d' ' -f1)\" = \"\$(grep -m1 '^KDA_TEST_DIFF_SHA256=' '$S' | cut -d= -f2)\" ] && grep -qF 'cp \"\$KDA_STATE\" \"\$KDA_PINS\" \"\$KDA_FIX_DIFF\" \"\$KDA_TEST_DIFF\" \"\$OUT/in/\"' '$S'"
+SRC68415=/home/lkhun9311/workspace/storage/open-source/contributions/vllm/kda-output-shape-68415/fix.diff
+if [ -r "$SRC68415" ]; then
+  check "kda-fix.diff is the runtime session's #68415 diff byte for byte" "cmp -s '$SRC68415' '$DIR/kda-fix.diff'"
+else
+  echo "skip kda-fix.diff against the runtime session's copy (not readable here)"
+fi
+check "kda-test.diff is kda-fix.diff's first part, the new test file and nothing under vllm/" \
+  "cmp -s <(head -c \$(wc -c < '$DIR/kda-test.diff') '$DIR/kda-fix.diff') '$DIR/kda-test.diff' && [ \"\$(grep '^diff --git' '$DIR/kda-test.diff')\" = 'diff --git a/$KDATP b/$KDATP' ] && [ \"\$(grep -c '^diff --git' '$DIR/kda-fix.diff')\" = 2 ] && grep -q '^diff --git a/$KDAP ' '$DIR/kda-fix.diff'"
+kpin() { awk -v s="$1" -v p="$2" '$1 == s && $3 == p {print $2}' "$KPINS"; }
+check "kda-pins.txt: kda.py is the commit's BEFORE and changed AFTER, the test is absent only at base, and #68414's files stay the commit's in every state" \
+  "[ \"\$(wc -l < '$KPINS')\" = 12 ] && [ \"\$(kpin before $KDAP)\" = \"\$(kpin base $KDAP)\" ] && [ \"\$(kpin after $KDAP)\" != \"\$(kpin base $KDAP)\" ] && [ \"\$(kpin base $KDATP)\" = absent ] && [ \"\$(kpin before $KDATP)\" = \"\$(kpin after $KDATP)\" ] && [ \"\$(kpin before $KDATP)\" != absent ] && for st in base before after; do [ \"\$(kpin \$st $IDX)\" = \"\$(pin base $IDX)\" ] && [ \"\$(kpin \$st $NEWT)\" = absent ] || exit 1; done"
+kfixl=$(grep -m1 "^FIX_LINE=" "$DIR/kda-state.sh" | cut -d"'" -f2); kbugl=$(grep -m1 "^BUG_LINE=" "$DIR/kda-state.sh" | cut -d"'" -f2)
+check "kda-state.sh's fix line is the line kda-fix.diff adds and its bug line the one it removes" \
+  "grep -qxF -- '+$kfixl' '$DIR/kda-fix.diff' && grep -qxF -- '-$kbugl' '$DIR/kda-fix.diff' && grep -qF 'KDA = \"/usr/local/lib/python3.12/dist-packages/$KDAP\"' '$DIR/kda-verdict.py'"
+if [ -n "${VLLM_SRC:-}" ]; then
+  # kda.py and the test's whole import tree are the fix's base where it matters: the two commits differ in one file only.
+  check "kda.py is blob ff676ce at both 8700cc9ba0 and the fix's base 428c371b32, and the commits differ only in vllm/utils/torch_utils.py" \
+    "[ \"\$(git -C '$VLLM_SRC' rev-parse 8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd:$KDAP)\" = \"\$(git -C '$VLLM_SRC' rev-parse 428c371b32c18a788def35abea1cb9f579278381:$KDAP)\" ] && git -C '$VLLM_SRC' rev-parse 8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd:$KDAP | grep -q '^ff676ce' && [ \"\$(git -C '$VLLM_SRC' diff --name-only 8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd 428c371b32c18a788def35abea1cb9f579278381)\" = vllm/utils/torch_utils.py ]"
+  rm -rf "$WORK/krederive"; mkdir -p "$WORK/krederive/base" "$WORK/krederive/before" "$WORK/krederive/after"
+  for st in base before after; do
+    for p in $KDAP $IDX; do
+      mkdir -p "$WORK/krederive/$st/$(dirname "$p")"; git -C "$VLLM_SRC" show "8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd:$p" > "$WORK/krederive/$st/$p"
+    done
+  done
+  (cd "$WORK/krederive/before" && git apply "$DIR/kda-test.diff") && (cd "$WORK/krederive/after" && git apply "$DIR/kda-fix.diff")
+  for st in base before after; do
+    for p in $KDAP $KDATP $IDX $NEWT; do
+      f="$WORK/krederive/$st/$p"
+      if [ -e "$f" ]; then echo "$st $(sha256sum "$f" | cut -d' ' -f1) $p"; else echo "$st absent $p"; fi
+    done
+  done > "$WORK/krederived"
+  check "kda-pins.txt is what the two #68415 diffs make of 8700cc9ba0 in $VLLM_SRC" "diff -q <(sort '$KPINS') <(sort '$WORK/krederived') >/dev/null"
+else
+  echo "skip kda-pins.txt against a vLLM checkout (set VLLM_SRC to rederive them)"
 fi
 
 # ---------------------------------------------------------------- the wrapper on its own, against a stub torch
@@ -197,6 +241,70 @@ echo "sha256:abc  vllm-0.0.0-cp38-abi3-linux_x86_64.whl" > "$WORK/wheel.sha256"
 check "the moved state script still reads every container path from the fake tree" \
   "! grep -nE '/usr/local/lib|/vllm-workspace|[ \"=]/in/|[ \"=]/out/' '$WORK/in/state.sh' | grep -v '^[0-9]*:#'"
 
+# #68415's fake: a kda.py with the real bug line, the two diffs made the way the real ones are, and pins over the same four paths.
+KDA=vllm/third_party/flash_linear_attention/ops/kda.py
+KDAT=tests/kernels/mamba/test_fla_fused_recurrent_kda.py
+KBUG=$(grep -m1 "^BUG_LINE=" "$DIR/kda-state.sh" | cut -d"'" -f2)
+KFIX=$(grep -m1 "^FIX_LINE=" "$DIR/kda-state.sh" | cut -d"'" -f2)
+printf 'def fwd(k, v):\n%s\n    w = torch.empty_like(k)\n    return o\n' "$KBUG" > "$WORK/pristine/site/$KDA"
+# mkdiff leaves its tree in $WORK/mk/t, which a later #68414 check copies its fixed index.py from, so that tree is kept aside.
+mv "$WORK/mk/t" "$WORK/mk/t.gdn"
+mkdiff "$WORK/kda-test.diff" sh -c "printf 'def test_x():\n    pass\n' > $KDAT"
+mkdiff "$WORK/kda-fix.diff" sh -c "printf 'def test_x():\n    pass\n' > $KDAT && sed -i 's/^$KBUG\$/$KFIX/' $KDA"
+rm -rf "$WORK/mk/t"; mv "$WORK/mk/t.gdn" "$WORK/mk/t"
+cp "$WORK/kda-test.diff" "$WORK/kda-fix.diff" "$WORK/in/"
+mkkdapins() {
+  local st d
+  : > "$WORK/in/kda-pins.txt"
+  for st in base before after; do
+    rm -rf "$WORK/mk/k"; mkdir -p "$WORK/mk/k"; cp -r "$WORK/pristine/site/vllm" "$WORK/pristine/w/tests" "$WORK/mk/k/"
+    case $st in before) d=kda-test.diff ;; after) d=kda-fix.diff ;; *) d="" ;; esac
+    [ -z "$d" ] || (cd "$WORK/mk/k" && git apply "$WORK/in/$d")
+    for p in "$KDA" "$KDAT" "$IDX" "$NEWT"; do
+      if [ -e "$WORK/mk/k/$p" ]; then echo "$st $(sha256sum "$WORK/mk/k/$p" | cut -d' ' -f1) $p"; else echo "$st absent $p"; fi
+    done >> "$WORK/in/kda-pins.txt"
+  done
+}
+mkkdapins
+sed -e "s|^SITE=.*|SITE=$WORK/site|" -e "s|^W=.*|W=$WORK/w|" -e "s|/in/|$WORK/in/|g" -e "s|^O=/out/|O=$WORK/out/|" \
+  "$DIR/kda-state.sh" > "$WORK/in/kda-state.sh"
+check "the moved #68415 state script reads every container path from the fake tree" \
+  "! grep -nE '/usr/local/lib|/vllm-workspace|[ \"=]/in/|[ \"=]/out/' '$WORK/in/kda-state.sh' | grep -v '^[0-9]*:#'"
+# The fake pytest selects cases as pytest does, by node id and then by -k substring.
+# Run unfixed, the 32-64 case writes past its output, so the fake records the breach and dies as a crashed process would.
+cat > "$WORK/fake_kda_pytest.py" <<'EOF'
+import os, sys
+xml, kda_file, args = sys.argv[1], sys.argv[2], sys.argv[3:]
+fix = open(os.environ["KFIX_FILE"]).read().rstrip("\n")
+fixed = any(line.rstrip("\n") == fix for line in open(kda_file))
+ids = ["64-32", "64-64", "32-64"]
+named = [a.split("[", 1)[1].rstrip("]") for a in args if "::" in a and "[" in a]
+sel = [i for i in ids if not named or i in named]
+if "-k" in args:
+    sel = [i for i in sel if args[args.index("-k") + 1] in i]
+with open(os.environ["WORK"] + "/calls", "a") as f:
+    f.write("kda-selected %s fixed=%s\n" % (",".join(sel), fixed))
+if os.environ.get("FAKE_KDA_TIMEOUT"):
+    sys.exit(124)
+if "32-64" in sel and not fixed:
+    with open(os.environ["WORK"] + "/calls", "a") as f:
+        f.write("KDA 32-64 RAN UNFIXED\n")
+    sys.exit(139)
+out, bad = [], 0
+for i in sel:
+    k, v = map(int, i.split("-"))
+    name = "test_fused_recurrent_kda_output_has_value_shape[%s]" % i
+    if (not fixed and k != v) or (fixed and i == "32-64" and os.environ.get("FAKE_KDA_AFTER_FAIL")):
+        bad += 1
+        out.append('<testcase classname="t" name="%s"><failure message="AssertionError: assert torch.Size([1, 4, 1, %d]) == torch.Size([1, 4, 1, %d])">&gt;       assert out.shape == v.shape</failure></testcase>' % (name, k, v))
+    else:
+        out.append('<testcase classname="t" name="%s"/>' % name)
+open(xml, "w").write("<testsuites><testsuite>%s</testsuite></testsuites>" % "".join(out))
+print("==== %d failed, %d passed in 1.00s ====" % (bad, len(sel) - bad) if bad else "==== %d passed in 1.00s ====" % len(sel))
+sys.exit(1 if bad else (5 if not sel else 0))
+EOF
+printf '%s\n' "$KFIX" > "$WORK/kfix.txt"
+
 sed "s|/opt/gdn/|$WORK/opt/|g" "$R" > "$WORK/runner.sh"
 mkfakes() {
   local bin="$WORK/bin"
@@ -208,14 +316,15 @@ case "$1" in
   pull) exit 0 ;;
   image) echo "[\"public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed\"] ${FAKE_REVISION:-8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd}" ;;
   run)
-    if printf '%s\n' "$@" | grep -qx /in/state.sh; then
+    script=$(printf '%s\n' "$@" | grep -xE '/in/(kda-)?state\.sh')
+    if [ -n "$script" ]; then
       # A fresh container: the image's tree as built, unless the fake is told to leave the last state's edits.
       if [ -z "${FAKE_STALE:-}" ] || [ ! -d "$WORK/site" ]; then
         rm -rf "$WORK/site" "$WORK/w"; cp -r "$WORK/pristine/site" "$WORK/site"; cp -r "$WORK/pristine/w" "$WORK/w"
       fi
       [ -z "${FAKE_IMAGE_DRIFT:-}" ] || echo "# drift" >> "$WORK/site/vllm/third_party/flash_linear_attention/ops/index.py"
-      args=$(printf '%s\n' "$@" | sed -n '/^\/in\/state.sh$/,$p' | tail -n +2)
-      PYTHONPATH="$WORK/site:$WORK/stubs" bash "$WORK/in/state.sh" $args; exit $?
+      args=$(printf '%s\n' "$@" | sed -n "\|^$script\$|,\$p" | tail -n +2)
+      PYTHONPATH="$WORK/site:$WORK/stubs" bash "$WORK/in/${script#/in/}" $args; exit $?
     fi
     printf '%s\n' "$@" | grep -qx cat && { cat "$WORK/wheel.sha256"; exit 0; }
     exit 1 ;;
@@ -232,6 +341,9 @@ if [ "\$1 \$2" = "-m pytest" ]; then
   [ -z "\${FAKE_PYTEST_TIMEOUT:-}" ] || exit 124
   lf=\$($REAL_PY -c 'import vllm.third_party.flash_linear_attention.ops.index as m; print(m.__file__)')
   case "\$*" in
+    *test_fla_fused_recurrent_kda.py*)
+      kf=\$($REAL_PY -c 'import vllm.third_party.flash_linear_attention.ops.kda as m; print(m.__file__)')
+      exec $REAL_PY "$WORK/fake_kda_pytest.py" "\$x" "\$kf" "\$@" ;;
     *test_fla_chunk_indices.py*)
       if [ -z "\${FAKE_UNIT_FAIL:-}" ] && grep -qF '$fixl' "\$lf"; then
         { echo '<testsuites><testsuite>'
@@ -267,7 +379,7 @@ EOF
 }
 runfake() {
   mkfakes; rm -rf "$WORK/out"; mkdir -p "$WORK/out"
-  env WORK="$WORK" PATH="$WORK/bin:$PATH" "${@:2}" \
+  env WORK="$WORK" KFIX_FILE="$WORK/kfix.txt" PATH="$WORK/bin:$PATH" "${@:2}" \
     timeout 120 bash "$WORK/runner.sh" "$WORK/in" "$WORK/out" $(( $(date +%s) + 100000 )) > "$WORK/runner-$1.out" 2>&1
   echo $? > "$WORK/rc-$1"
   python3 "$V" "$WORK/out" "$(sha256sum "$WORK/in/fix.diff" | cut -d' ' -f1)" "$FAKE_REPRO_SHA" > "$WORK/verdict-$1.txt" 2>&1
@@ -278,6 +390,9 @@ runfake() {
 sed "s|^INDEX = .*|INDEX = \"$WORK/site/$IDX\"|" "$V" > "$WORK/verdict-local.py"
 # Both print the verdict whatever its exit status, which pipefail would otherwise turn into the pipeline's.
 fake_verdict() { python3 "$WORK/verdict-local.py" "$WORK/out-$1" "$(sha256sum "$WORK/in/fix.diff" | cut -d' ' -f1)" "$FAKE_REPRO_SHA"; true; }
+KV="$DIR/kda-verdict.py"
+sed "s|^KDA = .*|KDA = \"$WORK/site/$KDA\"|" "$KV" > "$WORK/kda-verdict-local.py"
+kda_verdict() { python3 "$WORK/kda-verdict-local.py" "$WORK/out-$1" "$(sha256sum "$WORK/in/kda-test.diff" | cut -d' ' -f1)" "$(sha256sum "$WORK/in/kda-fix.diff" | cut -d' ' -f1)"; true; }
 
 runfake good env
 check "the runner does BEFORE, then AFTER, and ends" \
@@ -289,13 +404,47 @@ check "the repro runs as-is first, then through the wrapper with its pinned sha2
 check "BEFORE records the buggy line and AFTER the fixed one" \
   "grep -qx 'repro_line=$BUGGY' '$WORK/out-good/before/state.txt' && grep -qx 'repro_line=$FIXED' '$WORK/out-good/after/state.txt'"
 check "BEFORE runs no pytest, and AFTER runs the new test then the two existing tests, one file each" \
-  "[ \"\$(grep '^pytest' '$WORK/calls' | sed 's/ --junitxml=.*//' | paste -sd'|')\" = 'pytest -m pytest $NEWT -rA -p no:cacheprovider|pytest -m pytest $CORE -rA -p no:cacheprovider|pytest -m pytest $ROCM -rA -p no:cacheprovider' ]"
+  "[ \"\$(grep '^pytest' '$WORK/calls' | grep -v test_fla_fused_recurrent_kda | sed 's/ --junitxml=.*//' | paste -sd'|')\" = 'pytest -m pytest $NEWT -rA -p no:cacheprovider|pytest -m pytest $CORE -rA -p no:cacheprovider|pytest -m pytest $ROCM -rA -p no:cacheprovider' ]"
 check "the import check records the imported index.py, with the bug line and no fix BEFORE and the reverse AFTER" \
   "grep -qx 'index_file=$WORK/site/$IDX' '$WORK/out-good/before/state.txt' && grep -qx 'fix_grep_rc=1' '$WORK/out-good/before/state.txt' && grep -qx 'bug_grep_rc=0' '$WORK/out-good/before/state.txt' && grep -qx 'fix_grep_rc=0' '$WORK/out-good/after/state.txt' && grep -qx 'bug_grep_rc=1' '$WORK/out-good/after/state.txt' && grep -qx 'repro_index_file=$WORK/site/$IDX' '$WORK/out-good/after/state.txt'"
 check "the fake run, with the bug BEFORE and the fixed line and tests AFTER, is confirmed with the skip reasons recorded" \
   "fake_verdict good | grep -qx 'verdict=confirmed' && fake_verdict good | grep -qx 'core_split_rc=5' '$WORK/out-good/after/state.txt' && fake_verdict good | grep -qx 'after_core_split=skipped(requires CUDA SM10x)' && fake_verdict good | grep -qx 'after_rocm_layout=skipped(ROCm-specific tests)' && fake_verdict good | grep -qx 'repro_mode=cuda-default,cuda-default'"
 check "the real verdict refuses the fake run, whose index.py is not the image's path" \
   "grep -q '^import_check=wrong-file-before' '$WORK/verdict-good.txt' && [ \"\$(cat '$WORK/vrc-good')\" = 2 ]"
+
+# ---------------------------------------------------------------- #68415 on the same run
+check "#68415 runs after #68414's AFTER, in two fresh containers of its own, and the run ends after them" \
+  "[ \"\$(grep -o 'run --rm --name gdn-[a-z-]* --gpus all' '$WORK/calls' | awk '{print \$4}' | paste -sd' ')\" = 'gdn-before gdn-after gdn-kda-before gdn-kda-after' ] && [ \"\$(grep -n 'both states done\\|state kda-before: start' '$WORK/out-good/steps.log' | cut -d' ' -f2- | paste -sd'|')\" = 'both states done|state kda-before: start' ] && grep -q 'kda states done' '$WORK/out-good/steps.log'"
+check "#68415 BEFORE applies the test diff alone and AFTER the whole diff, each to a tree whose pins held first" \
+  "grep -qx \"diff_sha256=\$(sha256sum '$WORK/in/kda-test.diff' | cut -d' ' -f1)\" '$WORK/out-good/kda-before/state.txt' && grep -qx \"diff_sha256=\$(sha256sum '$WORK/in/kda-fix.diff' | cut -d' ' -f1)\" '$WORK/out-good/kda-after/state.txt' && [ \"\$(grep -hc '^base_identity=ok\$\\|^apply=ok\$\\|^applied_identity=ok\$' '$WORK/out-good/kda-before/state.txt' '$WORK/out-good/kda-after/state.txt' | paste -sd' ')\" = '3 3' ]"
+check "#68415 BEFORE selects only 64-32, by node id and by -k, and the unfixed 32-64 case never ran" \
+  "[ \"\$(grep '^kda-selected' '$WORK/calls' | paste -sd'|')\" = 'kda-selected 64-32 fixed=False|kda-selected 64-32,64-64,32-64 fixed=True' ] && ! grep -q 'RAN UNFIXED' '$WORK/calls' && grep -qx 'pytest_args=$KDAT::test_fused_recurrent_kda_output_has_value_shape\\[64-32\\] -k 64-32' '$WORK/out-good/kda-before/state.txt' && grep -qx 'pytest_args=$KDAT' '$WORK/out-good/kda-after/state.txt'"
+# The command line itself, read from the script: no 32-64 anywhere on BEFORE's line, and both selectors present.
+kb=$(grep -E '^ *before\) DIFF=' "$DIR/kda-state.sh")
+check "kda-state.sh's BEFORE line names 64-32 by node id and -k and cannot name 32-64 ($kb)" \
+  "[ \"\$(grep -cE '^ *before\\) DIFF=' '$DIR/kda-state.sh')\" = 1 ] && [[ \"\$kb\" != *32-64* ]] && [[ \"\$kb\" == *'SELECT=(\"\$TEST::\$CASE[64-32]\" -k \"64-32\")'* ]]"
+check "#68415's import check records the imported kda.py, with the bug line and no fix BEFORE and the reverse AFTER" \
+  "grep -qx 'kda_file=$WORK/site/$KDA' '$WORK/out-good/kda-before/state.txt' && grep -qx 'fix_grep_rc=1' '$WORK/out-good/kda-before/state.txt' && grep -qx 'bug_grep_rc=0' '$WORK/out-good/kda-before/state.txt' && grep -qx 'fix_grep_rc=0' '$WORK/out-good/kda-after/state.txt' && grep -qx 'bug_grep_rc=1' '$WORK/out-good/kda-after/state.txt'"
+check "the fake run confirms #68415 on its own lines, and #68414's verdict is unchanged beside it" \
+  "kda_verdict good | grep -qx 'kda_verdict=confirmed' && kda_verdict good | grep -qx 'kda_before_test=bug-shown' && kda_verdict good | grep -qx 'kda_after_test=passed' && fake_verdict good | grep -qx 'verdict=confirmed' && ! fake_verdict good | grep -q '^kda_'"
+check "the real #68415 verdict refuses the fake run, whose kda.py is not the image's path" \
+  "{ python3 '$KV' '$WORK/out-good' x y; true; } | grep -q '^kda_import_check=wrong-file-before' && ! python3 '$KV' '$WORK/out-good' x y > /dev/null"
+runfake kdastale env FAKE_STALE=1
+check "a #68415 container that kept #68414's edits is refused before anything is applied, and #68414 stays confirmed" \
+  "grep -qx 'base_identity=bad' '$WORK/out-kdastale/kda-before/state.txt' && ! grep -q '^pytest_args=' '$WORK/out-kdastale/kda-before/state.txt' && [ \"\$(cat '$WORK/rc-kdastale')\" = 3 ] && kda_verdict kdastale | grep -qx 'kda_verdict=void-identity' && fake_verdict kdastale | grep -qx 'verdict=confirmed'"
+runfake kdaafter env FAKE_KDA_AFTER_FAIL=1
+check "a #68415 AFTER with one case failed is named, and #68414 stays confirmed" \
+  "kda_verdict kdaafter | grep -q '^kda_after_test=not-passed(rc=1,cases=3,' && kda_verdict kdaafter | grep -qx 'kda_verdict=after-not-passed' && fake_verdict kdaafter | grep -qx 'verdict=confirmed'"
+runfake kdatimeout env FAKE_KDA_TIMEOUT=1
+check "a #68415 pytest that timed out is not confirmed, and #68414 stays confirmed" \
+  "grep -qx 'test_rc=124' '$WORK/out-kdatimeout/kda-before/state.txt' && ! kda_verdict kdatimeout | grep -qx 'kda_verdict=confirmed' && fake_verdict kdatimeout | grep -qx 'verdict=confirmed'"
+# A BEFORE that selected the whole file: the fake shows the out-of-bounds run, and the verdict voids the selection.
+cp "$WORK/in/kda-state.sh" "$WORK/kda-state.keep"
+sed -i 's|^  before) DIFF=\(.*\); SELECT=.*|  before) DIFF=\1; SELECT=("$TEST") ;;|' "$WORK/in/kda-state.sh"
+runfake kdawide env
+check "a BEFORE that selects 32-64 is caught by the fake and voided by the verdict" \
+  "grep -q 'KDA 32-64 RAN UNFIXED' '$WORK/out-kdawide/calls' && kda_verdict kdawide | grep -qx 'kda_verdict=void-before-selection'"
+cp "$WORK/kda-state.keep" "$WORK/in/kda-state.sh"
 
 runfake asis env FAKE_ASIS_WORKS=1
 check "a repro that answers as-is is not rerun through the wrapper, and the mode says so" \
@@ -414,6 +563,47 @@ check "70 unwritten rows with a finite state error still show the bug, and the r
   "vd '$d' | grep -qx 'before_repro=bug-shown-finite-state' && vd '$d' | grep -qx 'verdict=confirmed'"
 d=$(case_dir ran); (cd "$d" && echo '<testsuites><testsuite><testcase classname="t" name="test_a"/></testsuite></testsuites>' > after/rocm_layout.xml)
 check "an existing test that ran and passed counts as passed" "vd '$d' | grep -qx 'after_rocm_layout=passed(1p,0s)' && vd '$d' | grep -qx 'verdict=confirmed'"
+
+# ---------------------------------------------------------------- the #68415 verdict, case by case
+KX=/usr/local/lib/python3.12/dist-packages/$KDAP
+KC=test_fused_recurrent_kda_output_has_value_shape
+kpass() { local i; echo '<testsuites><testsuite>'; for i in "$@"; do echo "<testcase classname=\"t\" name=\"$KC[$i]\"/>"; done; echo '</testsuite></testsuites>'; }
+kda_case_dir() { # kda_case_dir NAME: a confirmed #68415 record beside a confirmed #68414 one, which each case mutates
+  local d; d=$(case_dir "$1")
+  mkdir -p "$d/kda-before" "$d/kda-after"
+  printf 'started=1000\ndiff_sha256=KTEST\nbase_identity=ok\napply=ok\napplied_identity=ok\nkda_file=%s\nfix_grep_rc=1\nbug_grep_rc=0\npytest_args=%s::%s[64-32] -k 64-32\ntest_rc=1\nended=1100\n' "$KX" "$KDATP" "$KC" > "$d/kda-before/state.txt"
+  printf 'started=1200\ndiff_sha256=KFIX\nbase_identity=ok\napply=ok\napplied_identity=ok\nkda_file=%s\nfix_grep_rc=0\nbug_grep_rc=1\npytest_args=%s\ntest_rc=0\nended=1300\n' "$KX" "$KDATP" > "$d/kda-after/state.txt"
+  echo "<testsuites><testsuite><testcase classname=\"t\" name=\"$KC[64-32]\"><failure message=\"AssertionError: assert torch.Size([1, 4, 1, 64]) == torch.Size([1, 4, 1, 32])\">&gt;       assert out.shape == v.shape</failure></testcase></testsuite></testsuites>" > "$d/kda-before/test.xml"
+  kpass 64-32 64-64 32-64 > "$d/kda-after/test.xml"
+  echo "$d"
+}
+kvd() { python3 "$KV" "$1" KTEST KFIX; true; }
+kvdrc() { python3 "$KV" "$1" KTEST KFIX > /dev/null; }
+d=$(kda_case_dir kgood)
+check "the #68415 verdict confirms the shape failure BEFORE and three passes AFTER, and #68414's verdict beside it is unchanged" \
+  "kvd '$d' | grep -qx 'kda_verdict=confirmed' && kvdrc '$d' && [ \"\$(kvd '$d' | head -1)\" = 'kda_import_check=ok' ] && vd '$d' | grep -qx 'verdict=confirmed'"
+knamed() { # knamed VERDICT DESCRIPTION EDIT: a confirmed #68415 record with EDIT applied gets VERDICT, exits non-zero, and leaves #68414 confirmed
+  local d; d=$(kda_case_dir "k$RANDOM$RANDOM"); (cd "$d" && eval "$3")
+  check "#68415: $2 -> $1" "kvd '$d' | grep -qx 'kda_verdict=$1' && ! kvdrc '$d' && vd '$d' | grep -qx 'verdict=confirmed'"
+}
+knamed after-not-passed "AFTER passed two cases" "kpass 64-32 64-64 > kda-after/test.xml"
+knamed after-not-passed "AFTER's three cases are one name repeated" "kpass 64-32 64-32 64-32 > kda-after/test.xml"
+knamed after-not-passed "AFTER exited 1 with three passes recorded" "sed -i 's/^test_rc=0/test_rc=1/' kda-after/state.txt"
+knamed after-not-passed "AFTER's junit is missing" "rm kda-after/test.xml"
+knamed void-before-selection "BEFORE ran 32-64 too" "kpass 64-32 32-64 > kda-before/test.xml"
+knamed void-before-selection "BEFORE's command line was the whole file" "sed -i 's/^pytest_args=.*/pytest_args=$(printf '%s' "$KDATP" | sed 's|/|\\/|g')/' kda-before/state.txt"
+knamed void-before-selection "BEFORE crashed with no junit after a widened selection" "rm kda-before/test.xml; sed -i 's/^pytest_args=.*/pytest_args=x -k 32-64/; s/^test_rc=1/test_rc=139/' kda-before/state.txt"
+knamed before-did-not-reproduce "BEFORE's 64-32 case passed" "kpass 64-32 > kda-before/test.xml; sed -i 's/^test_rc=1/test_rc=0/' kda-before/state.txt"
+knamed before-did-not-reproduce "BEFORE failed on something other than the shape" "sed -i 's/out.shape == v.shape/out.dtype == k.dtype/' kda-before/test.xml"
+knamed before-did-not-reproduce "BEFORE timed out" "rm kda-before/test.xml; sed -i 's/^test_rc=1/test_rc=124/' kda-before/state.txt"
+knamed void-import-check "BEFORE imported kda.py from elsewhere" "sed -i 's|^kda_file=.*|kda_file=/vllm-workspace/vllm/kda.py|' kda-before/state.txt"
+knamed void-import-check "the fix line was in kda.py BEFORE" "sed -i 's/^fix_grep_rc=1/fix_grep_rc=0/' kda-before/state.txt"
+knamed void-import-check "the bug line was still in kda.py AFTER" "sed -i 's/^bug_grep_rc=1/bug_grep_rc=0/' kda-after/state.txt"
+knamed void-identity "BEFORE applied the whole fix" "sed -i 's/^diff_sha256=KTEST/diff_sha256=KFIX/' kda-before/state.txt"
+knamed void-identity "AFTER applied the test alone" "sed -i 's/^diff_sha256=KFIX/diff_sha256=KTEST/' kda-after/state.txt"
+knamed void-identity "the #68415 container was not the commit's" "sed -i 's/^base_identity=ok/base_identity=bad/' kda-before/state.txt"
+knamed void-identity "#68415 AFTER started before its BEFORE ended" "sed -i 's/^started=1200/started=1050/' kda-after/state.txt"
+knamed void-identity "#68415 never ran" "rm -r kda-before kda-after"
 
 if [[ $failures -ne 0 ]]; then
   echo "$failures check(s) failed" >&2

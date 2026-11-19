@@ -1,0 +1,51 @@
+diff --git a/tests/kernels/mamba/test_fla_fused_recurrent_kda.py b/tests/kernels/mamba/test_fla_fused_recurrent_kda.py
+new file mode 100644
+index 0000000000..6b34984247
+--- /dev/null
++++ b/tests/kernels/mamba/test_fla_fused_recurrent_kda.py
+@@ -0,0 +1,45 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++import pytest
++import torch
++
++from vllm.platforms import current_platform
++from vllm.third_party.flash_linear_attention.ops.kda import fused_recurrent_kda
++
++pytestmark = pytest.mark.skipif(
++    not current_platform.is_cuda_alike(), reason="Requires CUDA or ROCm"
++)
++
++
++@pytest.mark.parametrize("head_k_dim, head_v_dim", [(64, 32), (64, 64), (32, 64)])
++def test_fused_recurrent_kda_output_has_value_shape(head_k_dim, head_v_dim):
++    """The kernel writes HV heads of width V, so the output must be allocated
++    from v, not k (#68415). Zero queries make every output value zero."""
++    device = "cuda"
++    num_tokens = 4
++    q = torch.zeros(1, num_tokens, 1, head_k_dim, dtype=torch.float16, device=device)
++    k = torch.ones_like(q)
++    v = torch.ones(1, num_tokens, 1, head_v_dim, dtype=torch.float16, device=device)
++    g = -torch.ones_like(q, dtype=torch.float32)
++    beta = torch.ones(1, num_tokens, 1, dtype=torch.float16, device=device)
++    state = torch.zeros(
++        num_tokens + 1, 1, head_v_dim, head_k_dim, dtype=torch.float32, device=device
++    )
++
++    out, _ = fused_recurrent_kda(
++        q,
++        k,
++        v,
++        g,
++        beta,
++        initial_state=state,
++        cu_seqlens=torch.arange(num_tokens + 1, dtype=torch.int32, device=device),
++        ssm_state_indices=torch.arange(
++            1, num_tokens + 1, dtype=torch.int32, device=device
++        ),
++    )
++
++    assert out.shape == v.shape
++    assert out.dtype == k.dtype
++    assert torch.count_nonzero(out) == 0

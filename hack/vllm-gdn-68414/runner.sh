@@ -1,5 +1,5 @@
 #!/bin/bash
-# The on-instance part of hack/vllm-gdn-68414-session.sh: pull, image identity, BEFORE, then AFTER.
+# The on-instance part of hack/vllm-gdn-68414-session.sh: pull, image identity, BEFORE, then AFTER, then #68415's BEFORE and AFTER.
 #
 #   runner.sh <dir with the fetched inputs> <out dir> <harness-end epoch>
 #
@@ -20,6 +20,7 @@ ASIS_S=120
 CUDA_S=360
 UNIT_S=120
 EXIST_S=120
+KDA_S=120
 STOP_S=30
 
 mkdir -p "$D"
@@ -42,13 +43,13 @@ timeout --kill-after=15 "$(left $IMAGE_ID_S)" docker run --rm --entrypoint cat "
   > "$D/wheel-sha256.txt" 2>&1 || { step "IMAGE IDENTITY FAILED: no wheel hash in the image"; exit 2; }
 step "image identity ok"
 
-# state NAME BOUND ARGS...: one state in a fresh container, bounded here and again inside by state.sh's own timeouts.
+# contained SCRIPT NAME BOUND ARGS...: one state in a fresh container named gdn-NAME, bounded here and again inside by the script's own timeouts.
 # No model or network is needed, so the container gets neither a cache mount nor a token.
-state() {
-  local name=$1 bound=$2 rc; shift 2
+contained() {
+  local script=$1 name=$2 bound=$3 rc; shift 3
   step "state $name: start"
   timeout --kill-after=15 "$(left "$bound")" docker run --rm --name "gdn-$name" --gpus all --ipc host \
-    -v "$IN:/in:ro" -v "$D:/out" --entrypoint bash "$IMG" /in/state.sh "$name" "$@" > "$D/$name.container.log" 2>&1
+    -v "$IN:/in:ro" -v "$D:/out" --entrypoint bash "$IMG" "/in/$script" "${name#kda-}" "$@" > "$D/$name.container.log" 2>&1
   rc=$?
   # A host-side timeout kills only the docker client, so the container is removed and its removal checked.
   # Absence is read from a listing that succeeded, because a failed inspect would look the same as a removed container.
@@ -60,6 +61,10 @@ state() {
   step "state $name: exited $rc"
   return "$rc"
 }
+# state NAME BOUND ARGS...: a #68414 state, run by state.sh.
+state() { contained state.sh "$@"; }
+# kda_state NAME BOUND ARGS...: a #68415 state, run by kda-state.sh, whose records go to kda-NAME.
+kda_state() { local name=$1; shift; contained kda-state.sh "kda-$name" "$@"; }
 state before $(( SETUP_S + ASIS_S + CUDA_S + STOP_S )) "$ASIS_S" "$CUDA_S" ||
   { step "BEFORE did not complete; AFTER is not run"; exit 2; }
 # A BEFORE that completed without showing the bug still goes on, because the AFTER tests answer the PR's question either way.
@@ -69,3 +74,10 @@ grep -q '^repro_line=unwritten ' "$D/before/state.txt" ||
 state after $(( SETUP_S + ASIS_S + CUDA_S + UNIT_S + 2 * EXIST_S + STOP_S )) "$ASIS_S" "$CUDA_S" "$UNIT_S" "$EXIST_S" ||
   { step "AFTER did not complete"; exit 2; }
 step "both states done"
+# #68415 runs only after #68414's records are complete, so a crash or hang here cannot cost #68414 its result.
+# Its own fresh containers start from the image, and kda-state.sh's pins show neither #68414's fix nor its test reached them.
+kda_state before $(( SETUP_S + KDA_S + STOP_S )) "$KDA_S" ||
+  { step "#68415 BEFORE did not complete; its AFTER is not run"; exit 3; }
+kda_state after $(( SETUP_S + KDA_S + STOP_S )) "$KDA_S" ||
+  { step "#68415 AFTER did not complete"; exit 3; }
+step "kda states done"

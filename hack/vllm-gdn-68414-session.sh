@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# vLLM #68414 (GDN prepare_chunk_indices), before and after the fix: one g5.xlarge Spot instance, one attempt, stopped by itself 4,200 s after launch.
+# vLLM #68414 (GDN prepare_chunk_indices), before and after the fix, then vLLM #68415 (KDA output shape) the same way: one g5.xlarge Spot instance, one attempt, stopped by itself 4,740 s after launch.
 #
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh
 #
@@ -10,6 +10,17 @@
 # AFTER: the same commit with fix.diff, where it must print `unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True`.
 # AFTER then runs the diff's new test and the two existing GDN tests, which hack/vllm-gdn-68414/verdict.py expects to skip on sm_86 for their own stated reasons (SM10x only, ROCm only), and records those reasons.
 # fix.diff and kernel_repro.py are copies of the runtime session's, pinned below by sha256.
+#
+# #68415, ON THE SAME INSTANCE.
+# The runtime session's second fix (storage/open-source/contributions/vllm/kda-output-shape-68415) allocates fused_recurrent_kda's output from v rather than k.
+# kda.py is the same blob (ff676ce) at the fix's base 428c371b32 and at 8700cc9ba0, so the image above serves it too; hack/vllm-gdn-68414/kda-pins.txt holds the hashes.
+# The two commits differ only in vllm/utils/torch_utils.py, whose change takes effect only on torch 2.14 and touches LayerName, not the KDA kernel.
+# Its two states run after #68414's AFTER, each in its own fresh container, through hack/vllm-gdn-68414/kda-state.sh.
+# KDA BEFORE: only the new test file, and only its 64-32 case, which must fail on `out.shape == v.shape` ([1, 4, 1, 64] against [1, 4, 1, 32]).
+# The 32-64 case is never run before the fix, because with V above K the unfixed kernel writes past the output and can crash the process.
+# KDA AFTER: the whole kda-fix.diff, where all three cases must pass.
+# hack/vllm-gdn-68414/kda-verdict.py judges them apart from verdict.py, so #68414's verdict and its exit status are what they were without #68415.
+#
 # It is hack/vllm-tpot-session.sh with another runner, and shares its EC2 lifecycle (hack/lib/spot-run.sh).
 #
 # THE BUILD.
@@ -33,16 +44,19 @@
 #   image identity                                                           300 s
 #   BEFORE: setup 120 + as-is 120 + CUDA default 360 + stop 30                630 s
 #   AFTER: setup, as-is and CUDA default 600 + new test 120 + 2 x 120 + 30  990 s
-#   so the runner ends by 600 + 1,500 + 300 + 630 + 990                    = 4,020 s
-#   evidence upload                                                          120 s -> 4,140
-# The launch carries the termination sweeper's study-deadline tag at the request plus 4,140 s, rewritten to LaunchTime plus 4,170 s once LaunchTime is known; the instance shuts itself down at 4,200 s; the termination is to be confirmed by 4,500 s, the sweeper's five-minute period after its tag plus 30 s.
+#   KDA BEFORE: setup 120 + pytest 120 + stop 30                              270 s
+#   KDA AFTER: setup 120 + pytest 120 + stop 30                               270 s
+#   so the runner ends by 600 + 1,500 + 300 + 630 + 990 + 270 + 270       = 4,560 s
+#   evidence upload                                                          120 s -> 4,680
+# The launch carries the termination sweeper's study-deadline tag at the request plus 4,680 s, rewritten to LaunchTime plus 4,710 s once LaunchTime is known; the instance shuts itself down at 4,740 s; the termination is to be confirmed by 5,040 s, the sweeper's five-minute period after its tag plus 30 s.
+# The KDA states are expected to take about two minutes together, and their bounds are wider because each starts a fresh container and compiles its kernel.
 # The CUDA-default bound is 360 s because the FLA kernels autotune on first use, compiling about a hundred Triton configs in a fresh container.
 # The repro and pytest bounds therefore add up to 1,320 s, above the "about 15 minutes of run time" the request set, which is the expected time rather than the bound.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 4,500 s = 1.25 h.
+# The worst case bills to the termination deadline: 5,040 s = 1.4 h.
 # The rate is the TPOT session's, from the same instance, volume and provisioning: the $0.70/h Spot cap, $0.0324/h for 200 GB gp3 and a public IPv4, and $0.0468/h for 500 MiB/s and 6,000 IOPS.
-# So it is $0.7792/h all in, and $0.9740, under $1.50.
+# So it is $0.7792/h all in, and $1.0909, under $1.50.
 # The script refuses to run if the constants below stop giving a worst case under $1.50.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the diff, the repro, the bounds and the stop are constants, and a caller who sets one is refused rather than ignored.
@@ -71,6 +85,14 @@ FIX_DIFF=hack/vllm-gdn-68414/fix.diff
 FIX_DIFF_SHA256=c75343ff6066abb233398110147cb3410de75e39d034633bf409ea1233f6756c
 REPRO=hack/vllm-gdn-68414/kernel_repro.py
 REPRO_SHA256=766ccd795b2e1f71ba9c48dc99e22deec8f17047467b70866acf7378310af3af
+KDA_STATE=hack/vllm-gdn-68414/kda-state.sh
+KDA_PINS=hack/vllm-gdn-68414/kda-pins.txt
+KDA_VERDICT=hack/vllm-gdn-68414/kda-verdict.py
+# kda-fix.diff is the runtime session's #68415 diff byte for byte, and kda-test.diff is its first part, the new test file alone.
+KDA_FIX_DIFF=hack/vllm-gdn-68414/kda-fix.diff
+KDA_FIX_DIFF_SHA256=b2d388ec7d5139889f37374b77e42f69bf82a0d969fb7f9a7752852da79e9bfd
+KDA_TEST_DIFF=hack/vllm-gdn-68414/kda-test.diff
+KDA_TEST_DIFF_SHA256=107e102ce35b8cbbebc09a9a3dfffc661a2c0eebe423f903d815f5a8944d359f
 # The step bounds, each the runner's own; hack/vllm-gdn-68414-session-test.sh holds the two equal.
 BRINGUP_S=600
 PULL_BOUND_S=1500
@@ -80,9 +102,10 @@ ASIS_S=120
 CUDA_S=360
 UNIT_S=120
 EXIST_S=120
+KDA_S=120
 STOP_S=30
 EVIDENCE_UPLOAD_S=120
-STATES_S=$(( (SETUP_S + ASIS_S + CUDA_S + STOP_S) + (SETUP_S + ASIS_S + CUDA_S + UNIT_S + 2 * EXIST_S + STOP_S) ))
+STATES_S=$(( (SETUP_S + ASIS_S + CUDA_S + STOP_S) + (SETUP_S + ASIS_S + CUDA_S + UNIT_S + 2 * EXIST_S + STOP_S) + 2 * (SETUP_S + KDA_S + STOP_S) ))
 HARNESS_END_S=$(( BRINGUP_S + PULL_BOUND_S + IMAGE_ID_S + STATES_S ))
 EVIDENCE_S=$(( HARNESS_END_S + EVIDENCE_UPLOAD_S ))
 TAG_AT_LAUNCH_S=$EVIDENCE_S
@@ -256,7 +279,7 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>&1) || fai
 [ "$ACCOUNT" = "$ACCOUNT_WANT" ] || fail "the credentials are for account $ACCOUNT; paid sessions run only in gpu-lab ($ACCOUNT_WANT)"
 [ ! -e "$OUT" ] || fail "$OUT already exists; each session writes a new directory"
 mkdir -p "$OUT" || fail "cannot create $OUT"
-say "vLLM #68414 before and after for $STUDY_ID, from $COMMIT, into $OUT"
+say "vLLM #68414 and #68415 before and after for $STUDY_ID, from $COMMIT, into $OUT"
 say "hard stop $STOP_FROM_LAUNCH_S s after LaunchTime; worst case $TERMINATION_S s at \$$ALL_IN_RATE/h"
 
 # The diff and the repro are the runtime session's, byte for byte, so a changed copy costs nothing.
@@ -264,6 +287,9 @@ say "hard stop $STOP_FROM_LAUNCH_S s after LaunchTime; worst case $TERMINATION_S
 [ "$(sha256sum "$REPRO" | cut -d' ' -f1)" = "$REPRO_SHA256" ] || fail "$REPRO is not the pinned $REPRO_SHA256"
 mkdir -p "$OUT/in" || fail "cannot create $OUT/in"
 cp "$RUNNER" "$STATE" "$PINS" "$FIX_DIFF" "$REPRO" "$RUN_REPRO" "$OUT/in/" || fail "copy the inputs"
+[ "$(sha256sum "$KDA_FIX_DIFF" | cut -d' ' -f1)" = "$KDA_FIX_DIFF_SHA256" ] || fail "$KDA_FIX_DIFF is not the pinned $KDA_FIX_DIFF_SHA256"
+[ "$(sha256sum "$KDA_TEST_DIFF" | cut -d' ' -f1)" = "$KDA_TEST_DIFF_SHA256" ] || fail "$KDA_TEST_DIFF is not the pinned $KDA_TEST_DIFF_SHA256"
+cp "$KDA_STATE" "$KDA_PINS" "$KDA_FIX_DIFF" "$KDA_TEST_DIFF" "$OUT/in/" || fail "copy the #68415 inputs"
 tar -czf "$OUT/inputs.tgz" -C "$OUT/in" . || fail "pack the inputs"
 say "fix.diff $FIX_DIFF_SHA256 and kernel_repro.py $REPRO_SHA256 match their pins"
 
@@ -360,6 +386,8 @@ BUCKET="$STACK-$ACCOUNT"
   echo "inputs_sha256=$INPUTS_SHA"
   echo "fix_diff_sha256=$FIX_DIFF_SHA256"
   echo "kernel_repro_sha256=$REPRO_SHA256"
+  echo "kda_fix_diff_sha256=$KDA_FIX_DIFF_SHA256"
+  echo "kda_test_diff_sha256=$KDA_TEST_DIFF_SHA256"
   echo "image=$(grep -m1 '^IMG=' "$RUNNER" | cut -d'"' -f2)"
   echo "vllm_commit=$(grep -m1 '^VLLM_COMMIT=' "$RUNNER" | cut -d= -f2)"
   echo "harness_end_from_launch_s=$HARNESS_END_S"
@@ -496,14 +524,21 @@ if [ "$unpacked" != yes ] || ! grep -q "both states done" "$SWEEP/steps.log" 2>/
 fi
 # The verdict reads whatever records came back, so a stopped run still says how far it got and why it is not confirmed.
 python3 "$VERDICT" "$SWEEP" "$FIX_DIFF_SHA256" "$REPRO_SHA256" >"$OUT/verdict.txt" 2>>"$OUT/download-errors.txt"
+# #68415's verdict is its own file and its own lines, and nothing below gates on it, so it cannot change #68414's outcome.
+python3 "$KDA_VERDICT" "$SWEEP" "$KDA_TEST_DIFF_SHA256" "$KDA_FIX_DIFF_SHA256" >"$OUT/kda-verdict.txt" 2>>"$OUT/download-errors.txt"
+# The #68415 records come after #68414's in the run, so a run that stopped between them returns #68414 whole and #68415 not.
+kda_evidence=missing
+[ "$EVIDENCE" = returned ] && grep -q "kda states done" "$SWEEP/steps.log" 2>/dev/null && kda_evidence=returned
 {
   echo "evidence=$EVIDENCE"
   echo "termination=$TERMINATION"
   cat "$OUT/verdict.txt"
+  echo "kda_evidence=$kda_evidence"
+  cat "$OUT/kda-verdict.txt"
 } >"$OUT/outcome.txt"
 [ ! -s "$OUT/gdn-run/summary.txt" ] || cat "$OUT/gdn-run/summary.txt"
 cat "$OUT/outcome.txt"
-say "evidence $EVIDENCE; termination $TERMINATION; $(grep '^verdict=' "$OUT/verdict.txt" || echo 'verdict=unread')"
+say "evidence $EVIDENCE; termination $TERMINATION; $(grep '^verdict=' "$OUT/verdict.txt" || echo 'verdict=unread'); #68415 evidence $kda_evidence, $(grep '^kda_verdict=' "$OUT/kda-verdict.txt" || echo 'kda_verdict=unread')"
 [ "$TERMINATION" = confirmed ] || exit 1
 [ "$EVIDENCE" = returned ] || exit 1
 grep -qx 'verdict=confirmed' "$OUT/verdict.txt" || exit 2
