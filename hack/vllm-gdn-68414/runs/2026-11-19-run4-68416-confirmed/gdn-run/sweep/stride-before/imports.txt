@@ -1,0 +1,5 @@
+IMPORTED fused_recurrent_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+IMPORTED fused_sigmoid_gating_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+IMPORTED kda_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/kda.py
+IMPORTED kda_kernel_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+IMPORTED test_file=/vllm-workspace/tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py

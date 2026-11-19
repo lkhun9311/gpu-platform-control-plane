@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="6.214" timestamp="2026-11-19T08:18:39.346419+00:00" hostname="bb4c95fe4524"><testcase classname="tests.kernels.fla.test_fused_sigmoid_gating_delta_rule" name="test_state_index_table_stride_does_not_change_results[recurrent]" time="4.207"><failure message="AssertionError: Tensor-likes are not equal!&#10;&#10;Mismatched elements: 192 / 768 (25.0%)&#10;Greatest absolute difference: 0.027801513671875 at index (0, 3, 0, 61)&#10;Greatest relative difference: 24.640625 at index (0, 4, 0, 34)">tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py:268: in test_state_index_table_stride_does_not_change_results
+    torch.testing.assert_close(results[0][0], results[1][0], rtol=0, atol=0)
+E   AssertionError: Tensor-likes are not equal!
+E   
+E   Mismatched elements: 192 / 768 (25.0%)
+E   Greatest absolute difference: 0.027801513671875 at index (0, 3, 0, 61)
+E   Greatest relative difference: 24.640625 at index (0, 4, 0, 34)</failure></testcase><testcase classname="tests.kernels.fla.test_fused_sigmoid_gating_delta_rule" name="test_state_index_table_stride_does_not_change_results[sigmoid_gating]" time="0.947"><failure message="AssertionError: Tensor-likes are not equal!&#10;&#10;Mismatched elements: 192 / 768 (25.0%)&#10;Greatest absolute difference: 0.027801513671875 at index (0, 3, 0, 61)&#10;Greatest relative difference: 24.640625 at index (0, 4, 0, 34)">tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py:268: in test_state_index_table_stride_does_not_change_results
+    torch.testing.assert_close(results[0][0], results[1][0], rtol=0, atol=0)
+E   AssertionError: Tensor-likes are not equal!
+E   
+E   Mismatched elements: 192 / 768 (25.0%)
+E   Greatest absolute difference: 0.027801513671875 at index (0, 3, 0, 61)
+E   Greatest relative difference: 24.640625 at index (0, 4, 0, 34)</failure></testcase><testcase classname="tests.kernels.fla.test_fused_sigmoid_gating_delta_rule" name="test_state_index_table_stride_does_not_change_results[kda]" time="0.891"><failure message="AssertionError: Tensor-likes are not equal!&#10;&#10;Mismatched elements: 384 / 768 (50.0%)&#10;Greatest absolute difference: 0.1751708984375 at index (0, 3, 1, 58)&#10;Greatest relative difference: 622.5 at index (0, 4, 1, 19)">tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py:268: in test_state_index_table_stride_does_not_change_results
+    torch.testing.assert_close(results[0][0], results[1][0], rtol=0, atol=0)
+E   AssertionError: Tensor-likes are not equal!
+E   
+E   Mismatched elements: 384 / 768 (50.0%)
+E   Greatest absolute difference: 0.1751708984375 at index (0, 3, 1, 58)
+E   Greatest relative difference: 622.5 at index (0, 4, 1, 19)</failure></testcase></testsuite></testsuites>

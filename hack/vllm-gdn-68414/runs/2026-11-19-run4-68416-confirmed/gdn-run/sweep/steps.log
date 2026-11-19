@@ -1,0 +1,10 @@
+2026-11-19T08:02:35Z pull public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:639209c4b3c1f16f309837668608ac889e92db0d4dd4facf5a6987c6d54ef8ac
+2026-11-19T08:16:11Z pulled
+2026-11-19T08:16:11Z image identity
+2026-11-19T08:16:38Z image identity ok
+2026-11-19T08:16:38Z state stride-before: start
+2026-11-19T08:18:48Z state stride-before: exited 0
+2026-11-19T08:18:48Z state stride-after: start
+2026-11-19T08:20:01Z state stride-after: exited 0
+2026-11-19T08:20:01Z stride states done
+2026-11-19T08:20:01Z all items done, 0 state(s) exited non-zero
