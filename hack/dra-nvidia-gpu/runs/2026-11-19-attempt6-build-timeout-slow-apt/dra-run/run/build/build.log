@@ -1,0 +1,511 @@
+mkdir -p /opt/dra/src/dist
+DOCKER_BUILDKIT=1 \
+	docker buildx build --pull \
+	--load \
+	--platform=linux/amd64 \
+	--tag registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev \
+	--build-arg GOLANG_VERSION="1.27.3" \
+	--build-arg TOOLKIT_CONTAINER_IMAGE="nvcr.io/nvidia/k8s/container-toolkit:v1.20.1" \
+	--build-arg VERSION="v0.6.0-dev" \
+	--build-arg GIT_COMMIT="e775fdb63e593a121b40fc1cc4c9a9c89955e635" \
+	--build-arg GOCACHE="/go/build-cache" \
+	--build-arg GOMODCACHE="/go/pkg/mod" \
+	--build-arg GOPROXY="https://proxy.golang.org,direct" \
+	--build-arg GO_MOD="vendor" \
+	--progress=plain \
+	-f /opt/dra/src/deployments/container/Dockerfile \
+	/opt/dra/src
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 7.47kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1.7-labs
+#2 DONE 1.7s
+
+#3 docker-image://docker.io/docker/dockerfile:1.7-labs@sha256:b99fecfe00268a8b556fad7d9c37ee25d716ae08a5d7320e6d51c4dd83246894
+#3 resolve docker.io/docker/dockerfile:1.7-labs@sha256:b99fecfe00268a8b556fad7d9c37ee25d716ae08a5d7320e6d51c4dd83246894 0.0s done
+#3 sha256:5d621c7972da41593ed1ce5fa5c83c73eb970d4916618d7b1e2d82dfc8ca9ca8 0B / 11.99MB 0.2s
+#3 sha256:5d621c7972da41593ed1ce5fa5c83c73eb970d4916618d7b1e2d82dfc8ca9ca8 11.99MB / 11.99MB 0.3s
+#3 sha256:5d621c7972da41593ed1ce5fa5c83c73eb970d4916618d7b1e2d82dfc8ca9ca8 11.99MB / 11.99MB 0.3s done
+#3 extracting sha256:5d621c7972da41593ed1ce5fa5c83c73eb970d4916618d7b1e2d82dfc8ca9ca8
+#3 extracting sha256:5d621c7972da41593ed1ce5fa5c83c73eb970d4916618d7b1e2d82dfc8ca9ca8 0.1s done
+#3 DONE 0.6s
+
+#4 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:8d7a3dca57e62717b0f10897aca189da5d7acde3cc1ced657bdfd06ef5379576
+#4 ...
+
+#5 [internal] load metadata for nvcr.io/nvidia/k8s/container-toolkit:v1.20.1
+#5 DONE 1.5s
+
+#6 [internal] load metadata for nvcr.io/nvidia/base/ubuntu:jammy-20260930
+#6 DONE 1.5s
+
+#4 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:8d7a3dca57e62717b0f10897aca189da5d7acde3cc1ced657bdfd06ef5379576
+#4 DONE 1.6s
+
+#7 [internal] load metadata for gcr.io/distroless/cc:debug
+#7 DONE 1.8s
+
+#8 [internal] load .dockerignore
+#8 transferring context: 107B done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 DONE 0.0s
+
+#10 [build  1/15] FROM nvcr.io/nvidia/base/ubuntu:jammy-20260930@sha256:e22b60c0805282b10a40c2c78dbb0849791e1d19b3c101f98dc3aba7f454d51c
+#10 resolve nvcr.io/nvidia/base/ubuntu:jammy-20260930@sha256:e22b60c0805282b10a40c2c78dbb0849791e1d19b3c101f98dc3aba7f454d51c 0.1s done
+#10 DONE 0.2s
+
+#11 [bash 1/2] FROM docker.io/library/debian:trixie-slim@sha256:8d7a3dca57e62717b0f10897aca189da5d7acde3cc1ced657bdfd06ef5379576
+#11 resolve docker.io/library/debian:trixie-slim@sha256:8d7a3dca57e62717b0f10897aca189da5d7acde3cc1ced657bdfd06ef5379576 0.1s done
+#11 sha256:5b4d6ff92fc4e14e911b7753c954fac965d48c40fe1075758d284148ccace970 0B / 29.78MB 0.2s
+#11 sha256:5b4d6ff92fc4e14e911b7753c954fac965d48c40fe1075758d284148ccace970 11.53MB / 29.78MB 0.3s
+#11 sha256:5b4d6ff92fc4e14e911b7753c954fac965d48c40fe1075758d284148ccace970 27.26MB / 29.78MB 0.5s
+#11 sha256:5b4d6ff92fc4e14e911b7753c954fac965d48c40fe1075758d284148ccace970 29.78MB / 29.78MB 0.5s done
+#11 extracting sha256:5b4d6ff92fc4e14e911b7753c954fac965d48c40fe1075758d284148ccace970
+#11 ...
+
+#9 [internal] load build context
+#9 transferring context: 68.41MB 1.5s done
+#9 DONE 1.7s
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 resolve gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614 0.1s done
+#12 DONE 2.0s
+
+#10 [build  1/15] FROM nvcr.io/nvidia/base/ubuntu:jammy-20260930@sha256:e22b60c0805282b10a40c2c78dbb0849791e1d19b3c101f98dc3aba7f454d51c
+#10 sha256:0826972ca394d45dfb7ba1ae857c499d32aeab231434c5d073a03db36d29ea85 609.49kB / 609.49kB 0.2s done
+#10 sha256:cf1a5487baaf7d71eb78fd0888933c6cdecb40e59edb896511aa0ef4a896031e 29.75MB / 29.75MB 0.6s done
+#10 extracting sha256:cf1a5487baaf7d71eb78fd0888933c6cdecb40e59edb896511aa0ef4a896031e
+#10 ...
+
+#11 [bash 1/2] FROM docker.io/library/debian:trixie-slim@sha256:8d7a3dca57e62717b0f10897aca189da5d7acde3cc1ced657bdfd06ef5379576
+#11 extracting sha256:5b4d6ff92fc4e14e911b7753c954fac965d48c40fe1075758d284148ccace970 1.9s done
+#11 DONE 2.6s
+
+#10 [build  1/15] FROM nvcr.io/nvidia/base/ubuntu:jammy-20260930@sha256:e22b60c0805282b10a40c2c78dbb0849791e1d19b3c101f98dc3aba7f454d51c
+#10 extracting sha256:cf1a5487baaf7d71eb78fd0888933c6cdecb40e59edb896511aa0ef4a896031e 1.8s done
+#10 extracting sha256:0826972ca394d45dfb7ba1ae857c499d32aeab231434c5d073a03db36d29ea85
+#10 extracting sha256:0826972ca394d45dfb7ba1ae857c499d32aeab231434c5d073a03db36d29ea85 0.1s done
+#10 DONE 2.7s
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 sha256:1a4be5562d92d659f95e0b44b245ea5208bf5317481b9a351b07fad7fe5265ec 0B / 51.53kB 0.8s
+#12 sha256:8224d91da70b7992430d3b04040ea38ecdef4a7b719bee38397c89aaa886e198 0B / 84.21kB 0.6s
+#12 sha256:7cc70dfd88cf2327bb827123c9156f7cb95de95b2f98f3a7a931296aacec5786 0B / 901.29kB 0.6s
+#12 sha256:dd0d9bfd3bee080ad25a464362ec4f37ec5ca625695a4d7179fe69d207dc068d 0B / 158.45kB 0.6s
+#12 sha256:1a4be5562d92d659f95e0b44b245ea5208bf5317481b9a351b07fad7fe5265ec 51.53kB / 51.53kB 1.4s
+#12 sha256:1a4be5562d92d659f95e0b44b245ea5208bf5317481b9a351b07fad7fe5265ec 51.53kB / 51.53kB 1.4s done
+#12 sha256:8224d91da70b7992430d3b04040ea38ecdef4a7b719bee38397c89aaa886e198 84.21kB / 84.21kB 1.4s done
+#12 sha256:208bf18bfcdc726b93ead2fc48fe5c02345604d3f4654a96b9d809618f0f5025 0B / 95.97kB 0.2s
+#12 ...
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 resolve nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac 0.1s done
+#13 sha256:edee94ebdf522258c7e474f4d153ad3c8a5e62d4849b9578f55bda46f1a9c17d 146B / 146B 0.2s done
+#13 sha256:43b66436758107edefd33fecce9f22ac1d25ee92ad5eec4c4cb7c01ff45d7cea 4.06kB / 4.06kB 0.3s done
+#13 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 32B / 32B 0.4s done
+#13 sha256:4dea396047d8caf533c147110e89aeba2aefb85cd3513eeac3165a6f283ccde7 4.63MB / 4.63MB 0.4s done
+#13 sha256:933554f26f5813dea3ec385676624657c461cc0a8c22c7d57edc153d096a42f4 19.70MB / 19.70MB 0.4s done
+#13 sha256:2a1b7af62b90d35555109ccbfd5b58c804b86e2b0e252f185e5c3b53469ded3a 19.79MB / 19.79MB 0.4s done
+#13 sha256:2266b3baf06afec79292880e35e3d0250e2d9317694ece9be38e10b7910686f4 149B / 149B 0.2s done
+#13 sha256:cbb554a6c2cdf2e40c7d67554baeda0989373f678eb0d7520f0922880a8e90f7 1.11MB / 1.11MB 0.2s done
+#13 sha256:656047634ac8a3c8224d0cc079a101a6c511f51d94dd64074a0762e3641f6ffc 127B / 127B 0.1s done
+#13 sha256:88d59a2387a1a041db96185febb689ba8e2810b0f2acb1e0f1f690441257cb84 151B / 151B 0.1s done
+#13 sha256:01f0ed68eaba38490630004cfc9539ef83586d1098063129cb5c2d1e3db2b62b 124B / 124B 0.2s done
+#13 sha256:9ad4de8f14237a7d96965fd4961c9b548610ff697501638bdd2dcf8ce6a26bea 2.88MB / 2.88MB 0.2s done
+#13 sha256:76174946032b8831915b10a864511bb8fec84d1e114bf22f4d24bc35fdb774c2 10.24kB / 10.24kB 0.2s done
+#13 sha256:ed0df3f9ec3c82b5efec898394ae7e85f3adb7d2b9e2a99ee82383babbf16f1f 1.32MB / 1.32MB 0.1s done
+#13 sha256:cac2ae0193cb073e7492050b05fc342a888651b4bbc966908c8793f889c299ba 96.15kB / 96.15kB 0.2s done
+#13 sha256:58c0c263dc73f20a6488f5a19989645aea42be93147eb5a52bf69112982e34a5 3.07MB / 3.07MB 0.2s done
+#13 sha256:c4bc6f35ff5e25aa1afe7a148a0b6f10a760f54e298f86a4a4d44b91f1afbfab 143.34kB / 143.34kB 0.2s done
+#13 sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 311B / 311B 0.1s done
+#13 sha256:f6069939f718601b38d25ec5ed5631ed047e4da24acec2e252f8f29d251be718 254.67kB / 254.67kB 0.1s done
+#13 sha256:218cf840d0d95a86231eb9d33d26ac8a520a4299c6096cb70a0c2fb2a87c9e0a 288.06kB / 288.06kB 0.1s done
+#13 DONE 3.6s
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 sha256:bd8962e292918c50c90edebd9684c053bc386b9c5503acd8fec75d0c6f93a0b7 0B / 372.77kB 0.2s
+#12 sha256:dd0d9bfd3bee080ad25a464362ec4f37ec5ca625695a4d7179fe69d207dc068d 158.45kB / 158.45kB 1.6s done
+#12 sha256:7cc70dfd88cf2327bb827123c9156f7cb95de95b2f98f3a7a931296aacec5786 901.29kB / 901.29kB 1.8s done
+#12 sha256:810e2b405a0884835290e120ef380aa14dd1f53198a0cfa2260147e736d82cd5 0B / 3.08MB 0.2s
+#12 sha256:b96fe2995f90d0ef0bf14f9b4a67b5f4e77d478e6108166e0565adc9efd6e4a3 0B / 5.08MB 0.2s
+#12 sha256:208bf18bfcdc726b93ead2fc48fe5c02345604d3f4654a96b9d809618f0f5025 95.97kB / 95.97kB 0.8s done
+#12 sha256:61ea958ebee1eda610e5b63dd4622c6e7722ff2951cc28195b6987394dc523f8 0B / 740.16kB 0.2s
+#12 sha256:bd8962e292918c50c90edebd9684c053bc386b9c5503acd8fec75d0c6f93a0b7 372.77kB / 372.77kB 1.2s done
+#12 sha256:ec1b04bf2eb2122e86781f791b03ea0cf6588694e0f4a88245250224c186cdf0 0B / 142.00kB 0.2s
+#12 sha256:810e2b405a0884835290e120ef380aa14dd1f53198a0cfa2260147e736d82cd5 3.08MB / 3.08MB 1.5s done
+#12 sha256:b96fe2995f90d0ef0bf14f9b4a67b5f4e77d478e6108166e0565adc9efd6e4a3 1.05MB / 5.08MB 1.4s
+#12 sha256:b96fe2995f90d0ef0bf14f9b4a67b5f4e77d478e6108166e0565adc9efd6e4a3 4.19MB / 5.08MB 1.5s
+#12 sha256:c3c9c2f21e6c3293a061cee538a81f4cb29ea224f43d075750ec702b923b77d7 0B / 312B 0.2s
+#12 sha256:b96fe2995f90d0ef0bf14f9b4a67b5f4e77d478e6108166e0565adc9efd6e4a3 5.08MB / 5.08MB 1.5s done
+#12 sha256:61ea958ebee1eda610e5b63dd4622c6e7722ff2951cc28195b6987394dc523f8 740.16kB / 740.16kB 1.3s done
+#12 sha256:c3c9c2f21e6c3293a061cee538a81f4cb29ea224f43d075750ec702b923b77d7 312B / 312B 0.3s done
+#12 sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 0B / 351B 0.2s
+#12 sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 0B / 80B 0.2s
+#12 sha256:ec1b04bf2eb2122e86781f791b03ea0cf6588694e0f4a88245250224c186cdf0 142.00kB / 142.00kB 1.0s done
+#12 sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 0B / 162B 0.2s
+#12 sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 351B / 351B 0.3s done
+#12 sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 80B / 80B 0.3s done
+#12 sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 0B / 123B 0.2s
+#12 sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 162B / 162B 0.3s done
+#12 sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 0B / 188B 0.2s
+#12 sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 123B / 123B 0.3s done
+#12 sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 0B / 67B 0.2s
+#12 sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 0B / 32.09kB 0.2s
+#12 sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 188B / 188B 0.3s done
+#12 sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 67B / 67B 0.3s done
+#12 sha256:fc4330146a1cc76e06ce6def693f5da42c16e2615be6f49e1ea5b6e249ff8262 0B / 290.16kB 0.2s
+#12 sha256:777e9d0975e474519f4f14ff87e547cbb8f9fff4cfc4f1a147ac81906880e503 0B / 257.71kB 0.2s
+#12 sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 0B / 12.68kB 0.2s
+#12 sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 32.09kB / 32.09kB 0.6s done
+#12 sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 12.68kB / 12.68kB 0.3s done
+#12 sha256:2cc7ee286bf3a9e6af5f71756d7fc8e22e23ce65fec9047d774511ffcef79fa8 0B / 124.53kB 0.2s
+#12 sha256:fc4330146a1cc76e06ce6def693f5da42c16e2615be6f49e1ea5b6e249ff8262 290.16kB / 290.16kB 1.2s done
+#12 sha256:777e9d0975e474519f4f14ff87e547cbb8f9fff4cfc4f1a147ac81906880e503 257.71kB / 257.71kB 1.0s done
+#12 sha256:2cc7ee286bf3a9e6af5f71756d7fc8e22e23ce65fec9047d774511ffcef79fa8 124.53kB / 124.53kB 0.9s
+#12 sha256:2cc7ee286bf3a9e6af5f71756d7fc8e22e23ce65fec9047d774511ffcef79fa8 124.53kB / 124.53kB 1.0s done
+#12 DONE 7.6s
+
+#14 [bash 2/2] RUN apt-get update  && apt-get install -y --no-install-recommends bash-static  && rm -rf /var/lib/apt/lists/*  && /bin/bash-static --version
+#14 0.274 Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+#14 0.296 Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+#14 0.297 Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+#14 0.323 Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9678 kB]
+#14 0.415 Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [1108 B]
+#14 0.419 Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [325 kB]
+#14 1.256 Fetched 10.2 MB in 1s (10.3 MB/s)
+#14 1.256 Reading package lists...
+#14 1.906 Reading package lists...
+#14 2.587 Building dependency tree...
+#14 2.778 Reading state information...
+#14 3.117 The following additional packages will be installed:
+#14 3.119   bash
+#14 3.121 Suggested packages:
+#14 3.121   bash-doc
+#14 3.146 The following NEW packages will be installed:
+#14 3.147   bash-static
+#14 3.148 The following packages will be upgraded:
+#14 3.150   bash
+#14 3.187 1 upgraded, 1 newly installed, 0 to remove and 26 not upgraded.
+#14 3.187 Need to get 2615 kB of archives.
+#14 3.187 After this operation, 2617 kB of additional disk space will be used.
+#14 3.187 Get:1 http://deb.debian.org/debian trixie/main amd64 bash amd64 5.2.37-2+b10 [1501 kB]
+#14 3.201 Get:2 http://deb.debian.org/debian trixie/main amd64 bash-static amd64 5.2.37-2+b10 [1114 kB]
+#14 3.361 debconf: unable to initialize frontend: Dialog
+#14 3.361 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#14 3.361 debconf: falling back to frontend: Readline
+#14 3.362 debconf: unable to initialize frontend: Readline
+#14 3.362 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/x86_64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 2.)
+#14 3.362 debconf: falling back to frontend: Teletype
+#14 3.366 debconf: unable to initialize frontend: Teletype
+#14 3.366 debconf: (This frontend requires a controlling tty.)
+#14 3.366 debconf: falling back to frontend: Noninteractive
+#14 4.054 Fetched 2615 kB in 0s (74.0 MB/s)
+#14 4.084 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 4936 files and directories currently installed.)
+#14 4.090 Preparing to unpack .../bash_5.2.37-2+b10_amd64.deb ...
+#14 4.098 update-alternatives: warning: alternative /usr/share/man/man7/bash-builtins.7.gz (part of link group builtins.7.gz) doesn't exist; removing from list of alternatives
+#14 4.098 update-alternatives: warning: /etc/alternatives/builtins.7.gz is dangling; it will be updated with best choice
+#14 4.110 Unpacking bash (5.2.37-2+b10) over (5.2.37-2+b9) ...
+#14 4.225 Setting up bash (5.2.37-2+b10) ...
+#14 4.260 update-alternatives: error: alternative path /usr/share/man/man7/bash-builtins.7.gz doesn't exist
+#14 4.293 Selecting previously unselected package bash-static.
+#14 4.293 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 4936 files and directories currently installed.)
+#14 4.298 Preparing to unpack .../bash-static_5.2.37-2+b10_amd64.deb ...
+#14 4.303 Unpacking bash-static (5.2.37-2+b10) ...
+#14 4.388 Setting up bash-static (5.2.37-2+b10) ...
+#14 4.403 Processing triggers for debianutils (5.23.2) ...
+#14 4.489 GNU bash, version 5.2.37(1)-release (x86_64-pc-linux-gnu)
+#14 4.489 Copyright (C) 2022 Free Software Foundation, Inc.
+#14 4.489 License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+#14 4.489 
+#14 4.489 This is free software; you are free to change and redistribute it.
+#14 4.489 There is NO WARRANTY, to the extent permitted by law.
+#14 ...
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 extracting sha256:2cc7ee286bf3a9e6af5f71756d7fc8e22e23ce65fec9047d774511ffcef79fa8
+#12 extracting sha256:2cc7ee286bf3a9e6af5f71756d7fc8e22e23ce65fec9047d774511ffcef79fa8 0.1s done
+#12 extracting sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 0.0s done
+#12 DONE 7.7s
+
+#15 [build  2/15] RUN apt-get update && apt-get install -y         curl time make         gcc         gcc-aarch64-linux-gnu         gcc-x86-64-linux-gnu &&         rm -rf /var/lib/apt/lists/* /var/cache/apt/archives
+#15 0.691 Get:1 http://security.ubuntu.com/ubuntu jammy-security InRelease [129 kB]
+#15 0.944 Get:2 http://archive.ubuntu.com/ubuntu jammy InRelease [270 kB]
+#15 1.757 Get:3 http://security.ubuntu.com/ubuntu jammy-security/restricted amd64 Packages [8086 kB]
+#15 3.358 Get:4 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 Packages [1329 kB]
+#15 3.383 Get:5 http://security.ubuntu.com/ubuntu jammy-security/multiverse amd64 Packages [96.7 kB]
+#15 3.384 Get:6 http://security.ubuntu.com/ubuntu jammy-security/main amd64 Packages [4525 kB]
+#15 ...
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:218cf840d0d95a86231eb9d33d26ac8a520a4299c6096cb70a0c2fb2a87c9e0a
+#13 ...
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 extracting sha256:fc4330146a1cc76e06ce6def693f5da42c16e2615be6f49e1ea5b6e249ff8262 0.2s done
+#12 DONE 7.9s
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:218cf840d0d95a86231eb9d33d26ac8a520a4299c6096cb70a0c2fb2a87c9e0a 0.2s done
+#13 extracting sha256:f6069939f718601b38d25ec5ed5631ed047e4da24acec2e252f8f29d251be718
+#13 ...
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 extracting sha256:777e9d0975e474519f4f14ff87e547cbb8f9fff4cfc4f1a147ac81906880e503 0.2s done
+#12 DONE 8.1s
+
+#14 [bash 2/2] RUN apt-get update  && apt-get install -y --no-install-recommends bash-static  && rm -rf /var/lib/apt/lists/*  && /bin/bash-static --version
+#14 DONE 5.7s
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 extracting sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 0.1s done
+#12 extracting sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 0.0s done
+#12 DONE 8.2s
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:f6069939f718601b38d25ec5ed5631ed047e4da24acec2e252f8f29d251be718 0.2s done
+#13 extracting sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 0.1s done
+#13 ...
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 extracting sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 0.0s done
+#12 extracting sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 0.0s done
+#12 extracting sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 0.0s done
+#12 extracting sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 0.0s done
+#12 extracting sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 0.0s done
+#12 DONE 8.3s
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 0.0s done
+#13 extracting sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 0.0s done
+#13 extracting sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 0.0s done
+#13 extracting sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 0.0s done
+#13 extracting sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 0.0s done
+#13 ...
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 extracting sha256:c3c9c2f21e6c3293a061cee538a81f4cb29ea224f43d075750ec702b923b77d7 0.0s done
+#12 extracting sha256:ec1b04bf2eb2122e86781f791b03ea0cf6588694e0f4a88245250224c186cdf0 0.0s done
+#12 extracting sha256:61ea958ebee1eda610e5b63dd4622c6e7722ff2951cc28195b6987394dc523f8 0.1s done
+#12 DONE 8.4s
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 0.0s done
+#13 extracting sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 0.0s done
+#13 extracting sha256:c4bc6f35ff5e25aa1afe7a148a0b6f10a760f54e298f86a4a4d44b91f1afbfab 0.0s done
+#13 extracting sha256:b96fe2995f90d0ef0bf14f9b4a67b5f4e77d478e6108166e0565adc9efd6e4a3
+#13 ...
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 extracting sha256:b96fe2995f90d0ef0bf14f9b4a67b5f4e77d478e6108166e0565adc9efd6e4a3 0.1s done
+#12 DONE 8.6s
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:b96fe2995f90d0ef0bf14f9b4a67b5f4e77d478e6108166e0565adc9efd6e4a3 0.2s done
+#13 extracting sha256:58c0c263dc73f20a6488f5a19989645aea42be93147eb5a52bf69112982e34a5
+#13 extracting sha256:58c0c263dc73f20a6488f5a19989645aea42be93147eb5a52bf69112982e34a5 0.1s done
+#13 extracting sha256:bd8962e292918c50c90edebd9684c053bc386b9c5503acd8fec75d0c6f93a0b7 0.0s done
+#13 extracting sha256:cac2ae0193cb073e7492050b05fc342a888651b4bbc966908c8793f889c299ba 0.0s done
+#13 extracting sha256:ed0df3f9ec3c82b5efec898394ae7e85f3adb7d2b9e2a99ee82383babbf16f1f 0.0s done
+#13 DONE 4.6s
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 extracting sha256:810e2b405a0884835290e120ef380aa14dd1f53198a0cfa2260147e736d82cd5 0.1s done
+#12 extracting sha256:bd8962e292918c50c90edebd9684c053bc386b9c5503acd8fec75d0c6f93a0b7 0.0s done
+#12 extracting sha256:208bf18bfcdc726b93ead2fc48fe5c02345604d3f4654a96b9d809618f0f5025
+#12 ...
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:76174946032b8831915b10a864511bb8fec84d1e114bf22f4d24bc35fdb774c2 0.0s done
+#13 extracting sha256:9ad4de8f14237a7d96965fd4961c9b548610ff697501638bdd2dcf8ce6a26bea 0.1s done
+#13 extracting sha256:88d59a2387a1a041db96185febb689ba8e2810b0f2acb1e0f1f690441257cb84 0.0s done
+#13 DONE 4.7s
+
+#12 [stage-3  1/15] FROM gcr.io/distroless/cc:debug@sha256:2c1561995d131158b6f6d23f634ba18a553549f3e81e3705a0e1fcc45b997614
+#12 extracting sha256:208bf18bfcdc726b93ead2fc48fe5c02345604d3f4654a96b9d809618f0f5025 0.0s done
+#12 extracting sha256:dd0d9bfd3bee080ad25a464362ec4f37ec5ca625695a4d7179fe69d207dc068d 0.0s done
+#12 extracting sha256:7cc70dfd88cf2327bb827123c9156f7cb95de95b2f98f3a7a931296aacec5786 0.0s done
+#12 extracting sha256:8224d91da70b7992430d3b04040ea38ecdef4a7b719bee38397c89aaa886e198
+#12 extracting sha256:8224d91da70b7992430d3b04040ea38ecdef4a7b719bee38397c89aaa886e198 0.0s done
+#12 extracting sha256:1a4be5562d92d659f95e0b44b245ea5208bf5317481b9a351b07fad7fe5265ec 0.0s done
+#12 DONE 8.8s
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:01f0ed68eaba38490630004cfc9539ef83586d1098063129cb5c2d1e3db2b62b 0.0s done
+#13 extracting sha256:656047634ac8a3c8224d0cc079a101a6c511f51d94dd64074a0762e3641f6ffc 0.0s done
+#13 extracting sha256:cbb554a6c2cdf2e40c7d67554baeda0989373f678eb0d7520f0922880a8e90f7 0.1s done
+#13 DONE 4.8s
+
+#16 [stage-3  2/15] COPY LICENSE /
+#16 DONE 0.3s
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:2266b3baf06afec79292880e35e3d0250e2d9317694ece9be38e10b7910686f4 0.0s done
+#13 extracting sha256:2a1b7af62b90d35555109ccbfd5b58c804b86e2b0e252f185e5c3b53469ded3a
+#13 extracting sha256:2a1b7af62b90d35555109ccbfd5b58c804b86e2b0e252f185e5c3b53469ded3a 0.3s done
+#13 DONE 5.2s
+
+#17 [stage-3  3/15] COPY --from=bash    /bin/bash-static                          /bin/bash
+#17 DONE 0.1s
+
+#15 [build  2/15] RUN apt-get update && apt-get install -y         curl time make         gcc         gcc-aarch64-linux-gnu         gcc-x86-64-linux-gnu &&         rm -rf /var/lib/apt/lists/* /var/cache/apt/archives
+#15 ...
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:933554f26f5813dea3ec385676624657c461cc0a8c22c7d57edc153d096a42f4
+#13 extracting sha256:933554f26f5813dea3ec385676624657c461cc0a8c22c7d57edc153d096a42f4 0.3s done
+#13 DONE 5.5s
+
+#15 [build  2/15] RUN apt-get update && apt-get install -y         curl time make         gcc         gcc-aarch64-linux-gnu         gcc-x86-64-linux-gnu &&         rm -rf /var/lib/apt/lists/* /var/cache/apt/archives
+#15 ...
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:4dea396047d8caf533c147110e89aeba2aefb85cd3513eeac3165a6f283ccde7 0.1s done
+#13 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 0.0s done
+#13 extracting sha256:43b66436758107edefd33fecce9f22ac1d25ee92ad5eec4c4cb7c01ff45d7cea 0.0s done
+#13 DONE 5.6s
+
+#13 [toolkit 1/1] FROM nvcr.io/nvidia/k8s/container-toolkit:v1.20.1@sha256:00a422252dd875b112f5974321c2feebbdf11c338f8ad131e5ce18e5b3a3bfac
+#13 extracting sha256:edee94ebdf522258c7e474f4d153ad3c8a5e62d4849b9578f55bda46f1a9c17d 0.0s done
+#13 DONE 5.6s
+
+#18 [stage-3  4/15] COPY --from=toolkit /artifacts/rpm/usr/bin/nvidia-cdi-hook    /usr/bin/nvidia-cdi-hook
+#18 DONE 0.2s
+
+#15 [build  2/15] RUN apt-get update && apt-get install -y         curl time make         gcc         gcc-aarch64-linux-gnu         gcc-x86-64-linux-gnu &&         rm -rf /var/lib/apt/lists/* /var/cache/apt/archives
+#15 36.05 Ign:2 http://archive.ubuntu.com/ubuntu jammy InRelease
+#15 36.57 Get:7 http://archive.ubuntu.com/ubuntu jammy-updates InRelease [128 kB]
+#15 37.69 Get:8 http://archive.ubuntu.com/ubuntu jammy-backports InRelease [127 kB]
+#15 38.13 Get:2 http://archive.ubuntu.com/ubuntu jammy InRelease [270 kB]
+#15 38.39 Get:9 http://archive.ubuntu.com/ubuntu jammy-updates/restricted amd64 Packages [8388 kB]
+#15 39.91 Get:10 http://archive.ubuntu.com/ubuntu jammy-updates/universe amd64 Packages [1631 kB]
+#15 40.00 Get:11 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages [4866 kB]
+#15 40.29 Get:12 http://archive.ubuntu.com/ubuntu jammy-updates/multiverse amd64 Packages [104 kB]
+#15 40.29 Get:13 http://archive.ubuntu.com/ubuntu jammy-backports/universe amd64 Packages [35.6 kB]
+#15 40.29 Get:14 http://archive.ubuntu.com/ubuntu jammy-backports/main amd64 Packages [82.9 kB]
+#15 40.30 Get:15 http://archive.ubuntu.com/ubuntu jammy/restricted amd64 Packages [164 kB]
+#15 40.31 Get:16 http://archive.ubuntu.com/ubuntu jammy/multiverse amd64 Packages [266 kB]
+#15 40.32 Get:17 http://archive.ubuntu.com/ubuntu jammy/universe amd64 Packages [17.5 MB]
+#15 41.35 Get:18 http://archive.ubuntu.com/ubuntu jammy/main amd64 Packages [1792 kB]
+#15 42.01 Fetched 49.2 MB in 42s (1179 kB/s)
+#15 42.01 Reading package lists...
+#15 43.27 Reading package lists...
+#15 44.47 Building dependency tree...
+#15 44.72 Reading state information...
+#15 45.02 The following additional packages will be installed:
+#15 45.02   binutils binutils-aarch64-linux-gnu binutils-common
+#15 45.02   binutils-x86-64-linux-gnu ca-certificates cpp cpp-11
+#15 45.02   cpp-11-aarch64-linux-gnu cpp-aarch64-linux-gnu fontconfig-config
+#15 45.02   fonts-dejavu-core gcc-11 gcc-11-aarch64-linux-gnu
+#15 45.02   gcc-11-aarch64-linux-gnu-base gcc-11-base gcc-11-cross-base
+#15 45.02   gcc-12-cross-base libasan6 libasan6-arm64-cross libatomic1
+#15 45.02   libatomic1-arm64-cross libbinutils libbrotli1 libbsd0 libc-dev-bin
+#15 45.02   libc-devtools libc6 libc6-arm64-cross libc6-dev libc6-dev-arm64-cross
+#15 45.02   libcc1-0 libcrypt-dev libctf-nobfd0 libctf0 libcurl4 libdeflate0 libexpat1
+#15 45.02   libfontconfig1 libfreetype6 libgcc-11-dev libgcc-11-dev-arm64-cross
+#15 45.02   libgcc-s1-arm64-cross libgd3 libgomp1 libgomp1-arm64-cross
+#15 45.02   libhwasan0-arm64-cross libisl23 libitm1 libitm1-arm64-cross libjbig0
+#15 45.02   libjpeg-turbo8 libjpeg8 libldap-2.5-0 libldap-common liblsan0
+#15 45.02   liblsan0-arm64-cross libmd0 libmpc3 libmpfr6 libnghttp2-14 libnsl-dev
+#15 45.02   libpng16-16 libpsl5 libquadmath0 librtmp1 libsasl2-2 libsasl2-modules
+#15 45.02   libsasl2-modules-db libssh-4 libstdc++6-arm64-cross libtiff5 libtirpc-dev
+#15 45.02   libtsan0 libtsan0-arm64-cross libubsan1 libubsan1-arm64-cross libwebp7
+#15 45.02   libx11-6 libx11-data libxau6 libxcb1 libxdmcp6 libxpm4 linux-libc-dev
+#15 45.03   linux-libc-dev-arm64-cross manpages manpages-dev openssl publicsuffix
+#15 45.03   rpcsvc-proto ucf
+#15 45.03 Suggested packages:
+#15 45.03   binutils-doc cpp-doc gcc-11-locales gcc-multilib autoconf automake libtool
+#15 45.03   flex bison gdb gcc-doc gcc-11-multilib gcc-11-doc gdb-aarch64-linux-gnu
+#15 45.03   glibc-doc locales libgd-tools libsasl2-modules-gssapi-mit
+#15 45.03   | libsasl2-modules-gssapi-heimdal libsasl2-modules-ldap libsasl2-modules-otp
+#15 45.03   libsasl2-modules-sql make-doc man-browser
+#15 45.03 Recommended packages:
+#15 45.03   libnss-nis libnss-nisplus
+#15 45.20 The following NEW packages will be installed:
+#15 45.20   binutils binutils-aarch64-linux-gnu binutils-common
+#15 45.20   binutils-x86-64-linux-gnu ca-certificates cpp cpp-11
+#15 45.20   cpp-11-aarch64-linux-gnu cpp-aarch64-linux-gnu curl fontconfig-config
+#15 45.20   fonts-dejavu-core gcc gcc-11 gcc-11-aarch64-linux-gnu
+#15 45.20   gcc-11-aarch64-linux-gnu-base gcc-11-base gcc-11-cross-base
+#15 45.20   gcc-12-cross-base gcc-aarch64-linux-gnu libasan6 libasan6-arm64-cross
+#15 45.20   libatomic1 libatomic1-arm64-cross libbinutils libbrotli1 libbsd0
+#15 45.20   libc-dev-bin libc-devtools libc6-arm64-cross libc6-dev libc6-dev-arm64-cross
+#15 45.20   libcc1-0 libcrypt-dev libctf-nobfd0 libctf0 libcurl4 libdeflate0 libexpat1
+#15 45.20   libfontconfig1 libfreetype6 libgcc-11-dev libgcc-11-dev-arm64-cross
+#15 45.20   libgcc-s1-arm64-cross libgd3 libgomp1 libgomp1-arm64-cross
+#15 45.20   libhwasan0-arm64-cross libisl23 libitm1 libitm1-arm64-cross libjbig0
+#15 45.20   libjpeg-turbo8 libjpeg8 libldap-2.5-0 libldap-common liblsan0
+#15 45.20   liblsan0-arm64-cross libmd0 libmpc3 libmpfr6 libnghttp2-14 libnsl-dev
+#15 45.20   libpng16-16 libpsl5 libquadmath0 librtmp1 libsasl2-2 libsasl2-modules
+#15 45.20   libsasl2-modules-db libssh-4 libstdc++6-arm64-cross libtiff5 libtirpc-dev
+#15 45.20   libtsan0 libtsan0-arm64-cross libubsan1 libubsan1-arm64-cross libwebp7
+#15 45.20   libx11-6 libx11-data libxau6 libxcb1 libxdmcp6 libxpm4 linux-libc-dev
+#15 45.20   linux-libc-dev-arm64-cross make manpages manpages-dev openssl publicsuffix
+#15 45.20   rpcsvc-proto time ucf
+#15 45.20 The following packages will be upgraded:
+#15 45.20   libc6
+#15 46.38 1 upgraded, 95 newly installed, 0 to remove and 5 not upgraded.
+#15 46.38 Need to get 109 MB of archives.
+#15 46.38 After this operation, 341 MB of additional disk space will be used.
+#15 46.38 Get:1 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libc6 amd64 2.35-0ubuntu3.18 [3236 kB]
+#15 170.1 Ign:1 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libc6 amd64 2.35-0ubuntu3.18
+#15 177.2 Get:2 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 openssl amd64 3.0.2-0ubuntu1.30 [1186 kB]
+#15 187.7 Get:3 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 ca-certificates all 20260816ubuntu0.22.04.2 [140 kB]
+#15 189.6 Get:4 http://archive.ubuntu.com/ubuntu jammy/main amd64 libmd0 amd64 1.0.4-1build1 [23.0 kB]
+#15 189.8 Get:5 http://archive.ubuntu.com/ubuntu jammy/main amd64 libbsd0 amd64 0.11.5-1 [44.8 kB]
+#15 190.1 Get:6 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libexpat1 amd64 2.4.7-1ubuntu0.9 [96.9 kB]
+#15 190.9 Get:7 http://archive.ubuntu.com/ubuntu jammy/main amd64 ucf all 3.0043 [56.1 kB]
+#15 191.4 Get:8 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libnghttp2-14 amd64 1.43.0-1ubuntu0.4 [76.9 kB]
+#15 192.5 Get:9 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libpng16-16 amd64 1.6.37-3ubuntu0.7 [192 kB]
+#15 194.6 Get:10 http://archive.ubuntu.com/ubuntu jammy/main amd64 libpsl5 amd64 0.21.0-1.2build2 [58.4 kB]
+#15 195.1 Get:11 http://archive.ubuntu.com/ubuntu jammy/main amd64 libxau6 amd64 1:1.0.9-1build5 [7634 B]
+#15 195.2 Get:12 http://archive.ubuntu.com/ubuntu jammy/main amd64 libxdmcp6 amd64 1:1.1.3-0ubuntu5 [10.9 kB]
+#15 195.3 Get:13 http://archive.ubuntu.com/ubuntu jammy/main amd64 libxcb1 amd64 1.14-3ubuntu3 [49.0 kB]
+#15 195.7 Get:14 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libx11-data all 2:1.7.5-1ubuntu0.4 [120 kB]
+#15 197.7 Get:15 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libx11-6 amd64 2:1.7.5-1ubuntu0.4 [668 kB]
+#15 205.6 Get:16 http://archive.ubuntu.com/ubuntu jammy/main amd64 manpages all 5.10-1ubuntu1 [1375 kB]
+#15 220.3 Get:17 http://archive.ubuntu.com/ubuntu jammy/main amd64 publicsuffix all 20211207.1025-1 [129 kB]
+#15 221.3 Get:18 http://archive.ubuntu.com/ubuntu jammy/main amd64 time amd64 1.9-0.1build2 [46.7 kB]
+#15 221.7 Get:19 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 binutils-common amd64 2.38-4ubuntu2.12 [223 kB]
+#15 223.4 Get:20 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libbinutils amd64 2.38-4ubuntu2.12 [663 kB]
+#15 228.6 Get:21 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libctf-nobfd0 amd64 2.38-4ubuntu2.12 [108 kB]
+#15 230.0 Get:22 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libctf0 amd64 2.38-4ubuntu2.12 [103 kB]
+#15 230.8 Get:23 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 binutils-x86-64-linux-gnu amd64 2.38-4ubuntu2.12 [2324 kB]
+#15 264.5 Get:24 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 binutils amd64 2.38-4ubuntu2.12 [3184 B]
+#15 264.5 Get:25 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 gcc-11-base amd64 11.4.0-1ubuntu1~22.04.3 [216 kB]
+#15 268.9 Get:26 http://archive.ubuntu.com/ubuntu jammy/main amd64 libisl23 amd64 0.24-2build1 [727 kB]
+#15 284.1 Get:27 http://archive.ubuntu.com/ubuntu jammy/main amd64 libmpfr6 amd64 4.1.0-3build3 [1425 kB]
+#15 313.0 Get:28 http://archive.ubuntu.com/ubuntu jammy/main amd64 libmpc3 amd64 1.2.1-2build1 [46.9 kB]
+#15 314.0 Get:29 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 cpp-11 amd64 11.4.0-1ubuntu1~22.04.3 [10.0 MB]
+#15 492.9 Get:30 http://archive.ubuntu.com/ubuntu jammy/main amd64 cpp amd64 4:11.2.0-1ubuntu1 [27.7 kB]
+#15 493.3 Get:31 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 gcc-11-aarch64-linux-gnu-base amd64 11.4.0-1ubuntu1~22.04.3cross1 [216 kB]
+#15 496.7 Get:32 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 cpp-11-aarch64-linux-gnu amd64 11.4.0-1ubuntu1~22.04.3cross1 [9421 kB]
+#15 592.3 Get:33 http://archive.ubuntu.com/ubuntu jammy/main amd64 cpp-aarch64-linux-gnu amd64 4:11.2.0-1ubuntu1 [3478 B]
+#15 592.3 Get:34 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libbrotli1 amd64 1.0.9-2ubuntu0.1 [315 kB]
+#15 593.2 Get:35 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libsasl2-modules-db amd64 2.1.27+dfsg2-3ubuntu1.2 [20.5 kB]
+#15 593.3 Get:36 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libsasl2-2 amd64 2.1.27+dfsg2-3ubuntu1.2 [53.8 kB]
+#15 593.5 Get:37 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libldap-2.5-0 amd64 2.5.20+dfsg-0ubuntu0.22.04.1 [184 kB]
+#15 593.9 Get:38 http://archive.ubuntu.com/ubuntu jammy/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2build4 [58.2 kB]
+#15 594.0 Get:39 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libssh-4 amd64 0.9.6-2ubuntu0.22.04.8 [189 kB]
+#15 595.1 Get:40 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libcurl4 amd64 7.81.0-1ubuntu1.30 [293 kB]
+#15 595.7 Get:41 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 curl amd64 7.81.0-1ubuntu1.30 [194 kB]
+#15 596.2 Get:42 http://archive.ubuntu.com/ubuntu jammy/main amd64 fonts-dejavu-core all 2.37-2build1 [1041 kB]
+#15 598.8 Get:43 http://archive.ubuntu.com/ubuntu jammy/main amd64 fontconfig-config all 2.13.1-4.2ubuntu5 [29.1 kB]
+#15 598.9 Get:44 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libcc1-0 amd64 12.3.0-1ubuntu1~22.04.3 [48.3 kB]
+#15 599.0 Get:45 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libgomp1 amd64 12.3.0-1ubuntu1~22.04.3 [127 kB]
+#15 599.2 Get:46 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libitm1 amd64 12.3.0-1ubuntu1~22.04.3 [30.2 kB]
+#15 599.4 Get:47 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libatomic1 amd64 12.3.0-1ubuntu1~22.04.3 [10.5 kB]
+#15 599.4 Get:48 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libasan6 amd64 11.4.0-1ubuntu1~22.04.3 [2283 kB]
+#15 604.2 Get:49 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 liblsan0 amd64 12.3.0-1ubuntu1~22.04.3 [1069 kB]
+#15 606.8 Get:50 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libtsan0 amd64 11.4.0-1ubuntu1~22.04.3 [2260 kB]
+#15 612.5 Get:51 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libubsan1 amd64 12.3.0-1ubuntu1~22.04.3 [976 kB]
+#15 614.6 Get:52 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libquadmath0 amd64 12.3.0-1ubuntu1~22.04.3 [154 kB]
+#15 614.9 Get:53 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libgcc-11-dev amd64 11.4.0-1ubuntu1~22.04.3 [2517 kB]
+#15 620.5 Get:54 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 gcc-11 amd64 11.4.0-1ubuntu1~22.04.3 [20.1 MB]
+make: *** [deployments/container/Makefile:94: build] Terminated
+#15 CANCELED
+ERROR: failed to build: failed to solve: Canceled: context canceled

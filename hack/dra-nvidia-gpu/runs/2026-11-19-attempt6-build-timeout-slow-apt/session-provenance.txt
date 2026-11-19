@@ -1,0 +1,16 @@
+commit=db39c4ae4e3e0f49be06e2d1faaea3e7825d9034
+study=dra-nvidia-gpu-single-2026-11-18
+ami_id=ami-035e3088f6b7821fb
+ami_name=Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261113	available
+candidates=g5.xlarge:ap-northeast-2c g5.xlarge:ap-northeast-2d g5.xlarge:ap-northeast-2a
+max_spot_price_g6=0.99
+max_spot_price_g5=1.24
+all_in_rate=1.2575
+worst_case_usd=1.7186
+inputs_sha256=81d0a4b638d9b0b96b0524ea3ac1018afe5e04f69d8db963d837c04a1db3b266
+dra_commit=e775fdb63e593a121b40fc1cc4c9a9c89955e635
+harness_end_from_launch_s=4440
+stop_from_launch_s=4620
+termination_from_launch_s=4920
+run_id=dra-nvidia-gpu-20261119T112047Z-a6b643ae
+instance_type=g5.xlarge
