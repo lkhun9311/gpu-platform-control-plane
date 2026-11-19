@@ -1,0 +1,4 @@
+2026-11-19T07:58:13Z fetch https://github.com/kubernetes-sigs/dra-driver-nvidia-gpu at e775fdb63e593a121b40fc1cc4c9a9c89955e635
+2026-11-19T07:58:16Z checked out e775fdb63e593a121b40fc1cc4c9a9c89955e635
+2026-11-19T07:58:16Z setup-nvkind-node.sh, cluster dra-session, Kubernetes v1.34.3
+2026-11-19T08:02:07Z setup-nvkind-node.sh exited 0

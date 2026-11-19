@@ -1,0 +1,349 @@
++ : dra-session
++ : v1.34.3
++ : /src/dra-run/run/cluster/nvkind-config.yaml.tmpl
++ : 'nvidia.com/gpu.present=true feature.node.kubernetes.io/pci-10de.present=true'
++ : 1.24.2
++ : v1.34.3
++ export DEBIAN_FRONTEND=noninteractive
++ DEBIAN_FRONTEND=noninteractive
++ nvidia-smi -L
++ grep -q '^GPU '
+++ nvidia-smi -L
+++ head -1
++ echo 'Host sees: GPU 0: NVIDIA A10G (UUID: GPU-990a6b59-6903-1310-e958-489926dbf3c7)'
+Host sees: GPU 0: NVIDIA A10G (UUID: GPU-990a6b59-6903-1310-e958-489926dbf3c7)
++ sudo apt-get update -qq
+W: Target Packages (Packages) is configured multiple times in /etc/apt/sources.list.d/archive_uri-https_developer_download_nvidia_com_compute_cuda_repos_ubuntu2204_x86_64_-jammy.list:1 and /etc/apt/sources.list.d/cuda-ubuntu2204-x86_64.list:1
+W: Target Translations (en) is configured multiple times in /etc/apt/sources.list.d/archive_uri-https_developer_download_nvidia_com_compute_cuda_repos_ubuntu2204_x86_64_-jammy.list:1 and /etc/apt/sources.list.d/cuda-ubuntu2204-x86_64.list:1
+W: Target Packages (Packages) is configured multiple times in /etc/apt/sources.list.d/archive_uri-https_developer_download_nvidia_com_compute_cuda_repos_ubuntu2204_x86_64_-jammy.list:1 and /etc/apt/sources.list.d/cuda-ubuntu2204-x86_64.list:1
+W: Target Translations (en) is configured multiple times in /etc/apt/sources.list.d/archive_uri-https_developer_download_nvidia_com_compute_cuda_repos_ubuntu2204_x86_64_-jammy.list:1 and /etc/apt/sources.list.d/cuda-ubuntu2204-x86_64.list:1
++ sudo apt-get install -y -qq ca-certificates curl gnupg make build-essential git jq
++ command -v docker
+++ id -un
++ sudo usermod -aG docker root
++ command -v nvidia-ctk
+++ sudo sha256sum /etc/docker/daemon.json
+++ awk '{print $1}'
++ before=6376ec5a8dea443f35d6937aaf017a5c93f3d98f859774443d9a51e796102758
++ sudo nvidia-ctk runtime configure --runtime=docker --set-as-default --cdi.enabled
+time="2026-11-19T07:59:04Z" level=info msg="Loading config from /etc/docker/daemon.json"
+time="2026-11-19T07:59:04Z" level=info msg="Wrote updated config to /etc/docker/daemon.json"
+time="2026-11-19T07:59:04Z" level=info msg="It is recommended that docker daemon be restarted."
++ sudo nvidia-ctk config --set accept-nvidia-visible-devices-as-volume-mounts=true --in-place
+++ sudo sha256sum /etc/docker/daemon.json
+++ awk '{print $1}'
++ after=e674cf4b927efc14a7be77b48f0609efc76aea75dbce9799f0ce81d3326aa109
++ '[' 6376ec5a8dea443f35d6937aaf017a5c93f3d98f859774443d9a51e796102758 '!=' e674cf4b927efc14a7be77b48f0609efc76aea75dbce9799f0ce81d3326aa109 ']'
++ sudo systemctl restart docker
++ sudo docker run --rm --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all ubuntu:22.04 nvidia-smi -L
+Unable to find image 'ubuntu:22.04' locally
+22.04: Pulling from library/ubuntu
+02163de04dd1: Pulling fs layer
+02163de04dd1: Download complete
+e46b14f18b09: Download complete
+02163de04dd1: Pull complete
+Digest: sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde
+Status: Downloaded newer image for ubuntu:22.04
+GPU 0: NVIDIA A10G (UUID: GPU-990a6b59-6903-1310-e958-489926dbf3c7)
++ /usr/local/go/bin/go version
++ grep -q 1.24.2
++ curl -fsSL https://go.dev/dl/go1.24.2.linux-amd64.tar.gz -o /tmp/go.tgz
++ sudo rm -rf /usr/local/go
++ sudo tar -C /usr/local -xzf /tmp/go.tgz
++ export PATH=/usr/local/go/bin:/root/go/bin:/usr/local/go/bin:/root/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ PATH=/usr/local/go/bin:/root/go/bin:/usr/local/go/bin:/root/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ kubectl version --client
++ grep -q v1.34.3
++ curl -fsSLo /tmp/kubectl https://dl.k8s.io/release/v1.34.3/bin/linux/amd64/kubectl
++ sudo install /tmp/kubectl /usr/local/bin/kubectl
++ command -v helm
++ curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
++ bash
+Downloading https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz
+Verifying checksum... Done.
+Preparing to install helm into /usr/local/bin
+helm installed into /usr/local/bin/helm
++ : 9a3061c75e59ac7e4f29e001f1c5875d46a7cc54
++ go install sigs.k8s.io/kind@v0.31.0
+go: downloading sigs.k8s.io/kind v0.31.0
+go: downloading github.com/spf13/pflag v1.0.5
+go: downloading github.com/spf13/cobra v1.8.0
+go: downloading github.com/pkg/errors v0.9.1
+go: downloading al.essio.dev/pkg/shellescape v1.5.1
+go: downloading github.com/mattn/go-isatty v0.0.20
+go: downloading golang.org/x/sys v0.6.0
+go: downloading github.com/pelletier/go-toml v1.9.5
+go: downloading github.com/BurntSushi/toml v1.4.0
+go: downloading github.com/evanphx/json-patch/v5 v5.6.0
+go: downloading go.yaml.in/yaml/v3 v3.0.4
+go: downloading sigs.k8s.io/yaml v1.4.0
++ go install github.com/NVIDIA/nvkind/cmd/nvkind@9a3061c75e59ac7e4f29e001f1c5875d46a7cc54
+go: downloading github.com/NVIDIA/nvkind v0.0.0-20260420105128-9a3061c75e59
+go: downloading github.com/urfave/cli/v2 v2.27.7
+go: downloading k8s.io/client-go v0.29.3
+go: downloading k8s.io/klog/v2 v2.110.1
+go: downloading github.com/Masterminds/sprig/v3 v3.2.3
+go: downloading github.com/NVIDIA/go-nvml v0.12.9-0
+go: downloading gopkg.in/yaml.v2 v2.4.0
+go: downloading k8s.io/api v0.29.3
+go: downloading k8s.io/apimachinery v0.29.3
+go: downloading github.com/go-logr/logr v1.3.0
+go: downloading github.com/Masterminds/goutils v1.1.1
+go: downloading github.com/Masterminds/semver/v3 v3.2.0
+go: downloading github.com/google/uuid v1.6.0
+go: downloading github.com/huandu/xstrings v1.3.3
+go: downloading github.com/imdario/mergo v0.3.11
+go: downloading github.com/mitchellh/copystructure v1.0.0
+go: downloading github.com/shopspring/decimal v1.2.0
+go: downloading github.com/spf13/cast v1.5.0
+go: downloading golang.org/x/crypto v0.45.0
+go: downloading github.com/cpuguy83/go-md2man/v2 v2.0.7
+go: downloading github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1
+go: downloading github.com/gogo/protobuf v1.3.2
+go: downloading golang.org/x/term v0.37.0
+go: downloading github.com/mitchellh/reflectwalk v1.0.0
+go: downloading github.com/russross/blackfriday/v2 v2.1.0
+go: downloading github.com/google/gofuzz v1.2.0
+go: downloading sigs.k8s.io/structured-merge-diff/v4 v4.4.1
+go: downloading k8s.io/utils v0.0.0-20230726121419-3b25d923346b
+go: downloading gopkg.in/inf.v0 v0.9.1
+go: downloading golang.org/x/net v0.47.0
+go: downloading github.com/golang/protobuf v1.5.4
+go: downloading github.com/google/gnostic-models v0.6.8
+go: downloading golang.org/x/time v0.3.0
+go: downloading sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd
+go: downloading github.com/json-iterator/go v1.1.12
+go: downloading golang.org/x/oauth2 v0.27.0
+go: downloading google.golang.org/protobuf v1.33.0
+go: downloading gopkg.in/yaml.v3 v3.0.1
+go: downloading k8s.io/kube-openapi v0.0.0-20231010175941-2dd684a91f00
+go: downloading golang.org/x/sys v0.38.0
+go: downloading github.com/davecgh/go-spew v1.1.1
+go: downloading github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
+go: downloading github.com/modern-go/reflect2 v1.0.2
+go: downloading github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
+go: downloading github.com/go-openapi/swag v0.22.3
+go: downloading github.com/go-openapi/jsonreference v0.20.2
+go: downloading golang.org/x/text v0.31.0
+go: downloading github.com/emicklei/go-restful/v3 v3.11.0
+go: downloading github.com/go-openapi/jsonpointer v0.19.6
+go: downloading github.com/mailru/easyjson v0.7.7
+go: downloading github.com/josharian/intern v1.0.0
++ sg docker -c 'kind get clusters'
++ grep -qx dra-session
+No kind clusters found.
++ sg docker -c 'nvkind cluster create   --name dra-session   --image kindest/node:v1.34.3   --config-template /src/dra-run/run/cluster/nvkind-config.yaml.tmpl'
+Creating cluster "dra-session" ...
+ • Ensuring node image (kindest/node:v1.34.3) 🖼  ...
+ ✓ Ensuring node image (kindest/node:v1.34.3) 🖼
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-dra-session"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-dra-session
+
+Have a question, bug, or feature request? Let us know! https://kind.sigs.k8s.io/#community 🙂
+Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [376 kB]
+Fetched 9415 kB in 1s (9202 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  dirmngr gnupg gnupg-l10n gnupg-utils gpg-agent gpg-wks-client gpg-wks-server
+  gpgconf gpgsm gpgv libassuan0 libksba8 libnpth0 pinentry-curses
+Suggested packages:
+  dbus-user-session libpam-systemd pinentry-gnome3 tor parcimonie xloadimage
+  scdaemon pinentry-doc
+The following NEW packages will be installed:
+  dirmngr gnupg gnupg-l10n gnupg-utils gpg gpg-agent gpg-wks-client
+  gpg-wks-server gpgconf gpgsm libassuan0 libksba8 libnpth0 pinentry-curses
+The following packages will be upgraded:
+  gpgv
+1 upgraded, 14 newly installed, 0 to remove and 51 not upgraded.
+Need to get 8534 kB of archives.
+After this operation, 16.0 MB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian bookworm/main amd64 gpgv amd64 2.2.40-1.1+deb12u2 [649 kB]
+Get:2 http://deb.debian.org/debian bookworm/main amd64 libassuan0 amd64 2.5.5-5 [48.5 kB]
+Get:3 http://deb.debian.org/debian bookworm/main amd64 gpgconf amd64 2.2.40-1.1+deb12u2 [565 kB]
+Get:4 http://deb.debian.org/debian bookworm/main amd64 libksba8 amd64 1.6.3-2 [128 kB]
+Get:5 http://deb.debian.org/debian bookworm/main amd64 libnpth0 amd64 1.6-3 [19.0 kB]
+Get:6 http://deb.debian.org/debian bookworm/main amd64 dirmngr amd64 2.2.40-1.1+deb12u2 [793 kB]
+Get:7 http://deb.debian.org/debian bookworm/main amd64 gnupg-l10n all 2.2.40-1.1+deb12u2 [1093 kB]
+Get:8 http://deb.debian.org/debian bookworm/main amd64 gnupg-utils amd64 2.2.40-1.1+deb12u2 [927 kB]
+Get:9 http://deb.debian.org/debian bookworm/main amd64 gpg amd64 2.2.40-1.1+deb12u2 [950 kB]
+Get:10 http://deb.debian.org/debian bookworm/main amd64 pinentry-curses amd64 1.2.1-1 [77.4 kB]
+Get:11 http://deb.debian.org/debian bookworm/main amd64 gpg-agent amd64 2.2.40-1.1+deb12u2 [695 kB]
+Get:12 http://deb.debian.org/debian bookworm/main amd64 gpg-wks-client amd64 2.2.40-1.1+deb12u2 [541 kB]
+Get:13 http://deb.debian.org/debian bookworm/main amd64 gpg-wks-server amd64 2.2.40-1.1+deb12u2 [531 kB]
+Get:14 http://deb.debian.org/debian bookworm/main amd64 gpgsm amd64 2.2.40-1.1+deb12u2 [671 kB]
+Get:15 http://deb.debian.org/debian bookworm/main amd64 gnupg all 2.2.40-1.1+deb12u2 [846 kB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 8534 kB in 0s (105 MB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9639 files and directories currently installed.)
+Preparing to unpack .../gpgv_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgv (2.2.40-1.1+deb12u2) over (2.2.40-1.1+deb12u1) ...
+Setting up gpgv (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package libassuan0:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9639 files and directories currently installed.)
+Preparing to unpack .../00-libassuan0_2.5.5-5_amd64.deb ...
+Unpacking libassuan0:amd64 (2.5.5-5) ...
+Selecting previously unselected package gpgconf.
+Preparing to unpack .../01-gpgconf_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgconf (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package libksba8:amd64.
+Preparing to unpack .../02-libksba8_1.6.3-2_amd64.deb ...
+Unpacking libksba8:amd64 (1.6.3-2) ...
+Selecting previously unselected package libnpth0:amd64.
+Preparing to unpack .../03-libnpth0_1.6-3_amd64.deb ...
+Unpacking libnpth0:amd64 (1.6-3) ...
+Selecting previously unselected package dirmngr.
+Preparing to unpack .../04-dirmngr_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking dirmngr (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg-l10n.
+Preparing to unpack .../05-gnupg-l10n_2.2.40-1.1+deb12u2_all.deb ...
+Unpacking gnupg-l10n (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg-utils.
+Preparing to unpack .../06-gnupg-utils_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gnupg-utils (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg.
+Preparing to unpack .../07-gpg_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package pinentry-curses.
+Preparing to unpack .../08-pinentry-curses_1.2.1-1_amd64.deb ...
+Unpacking pinentry-curses (1.2.1-1) ...
+Selecting previously unselected package gpg-agent.
+Preparing to unpack .../09-gpg-agent_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-agent (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg-wks-client.
+Preparing to unpack .../10-gpg-wks-client_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-wks-client (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg-wks-server.
+Preparing to unpack .../11-gpg-wks-server_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-wks-server (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpgsm.
+Preparing to unpack .../12-gpgsm_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgsm (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg.
+Preparing to unpack .../13-gnupg_2.2.40-1.1+deb12u2_all.deb ...
+Unpacking gnupg (2.2.40-1.1+deb12u2) ...
+Setting up libksba8:amd64 (1.6.3-2) ...
+Setting up libnpth0:amd64 (1.6-3) ...
+Setting up libassuan0:amd64 (2.5.5-5) ...
+Setting up gnupg-l10n (2.2.40-1.1+deb12u2) ...
+Setting up gpgconf (2.2.40-1.1+deb12u2) ...
+Setting up gpg (2.2.40-1.1+deb12u2) ...
+Setting up gnupg-utils (2.2.40-1.1+deb12u2) ...
+Setting up pinentry-curses (1.2.1-1) ...
+Setting up gpg-agent (2.2.40-1.1+deb12u2) ...
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-browser.socket → /usr/lib/systemd/user/gpg-agent-browser.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-extra.socket → /usr/lib/systemd/user/gpg-agent-extra.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-ssh.socket → /usr/lib/systemd/user/gpg-agent-ssh.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent.socket → /usr/lib/systemd/user/gpg-agent.socket.
+Setting up gpgsm (2.2.40-1.1+deb12u2) ...
+Setting up dirmngr (2.2.40-1.1+deb12u2) ...
+Created symlink /etc/systemd/user/sockets.target.wants/dirmngr.socket → /usr/lib/systemd/user/dirmngr.socket.
+Setting up gpg-wks-server (2.2.40-1.1+deb12u2) ...
+Setting up gpg-wks-client (2.2.40-1.1+deb12u2) ...
+Setting up gnupg (2.2.40-1.1+deb12u2) ...
+Processing triggers for libc-bin (2.36-9+deb12u13) ...
+deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/experimental/deb/$(ARCH) /
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Get:4 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  InRelease [1477 B]
+Get:5 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  Packages [29.0 kB]
+Fetched 30.5 kB in 0s (112 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  libnvidia-container-tools libnvidia-container1 nvidia-container-toolkit-base
+The following NEW packages will be installed:
+  libnvidia-container-tools libnvidia-container1 nvidia-container-toolkit
+  nvidia-container-toolkit-base
+0 upgraded, 4 newly installed, 0 to remove and 51 not upgraded.
+Need to get 8792 kB of archives.
+After this operation, 37.9 MB of additional disk space will be used.
+Get:1 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  libnvidia-container1 1.20.2-1 [1238 kB]
+Get:2 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  libnvidia-container-tools 1.20.2-1 [20.8 kB]
+Get:3 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  nvidia-container-toolkit-base 1.20.2-1 [6002 kB]
+Get:4 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  nvidia-container-toolkit 1.20.2-1 [1531 kB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 8792 kB in 0s (72.0 MB/s)
+Selecting previously unselected package libnvidia-container1:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9894 files and directories currently installed.)
+Preparing to unpack .../libnvidia-container1_1.20.2-1_amd64.deb ...
+Unpacking libnvidia-container1:amd64 (1.20.2-1) ...
+Selecting previously unselected package libnvidia-container-tools.
+Preparing to unpack .../libnvidia-container-tools_1.20.2-1_amd64.deb ...
+Unpacking libnvidia-container-tools (1.20.2-1) ...
+Selecting previously unselected package nvidia-container-toolkit-base.
+Preparing to unpack .../nvidia-container-toolkit-base_1.20.2-1_amd64.deb ...
+Unpacking nvidia-container-toolkit-base (1.20.2-1) ...
+Selecting previously unselected package nvidia-container-toolkit.
+Preparing to unpack .../nvidia-container-toolkit_1.20.2-1_amd64.deb ...
+Unpacking nvidia-container-toolkit (1.20.2-1) ...
+Setting up nvidia-container-toolkit-base (1.20.2-1) ...
+Created symlink /etc/systemd/system/multi-user.target.wants/nvidia-cdi-refresh.path → /lib/systemd/system/nvidia-cdi-refresh.path.
+Created symlink /etc/systemd/system/multi-user.target.wants/nvidia-cdi-refresh.service → /lib/systemd/system/nvidia-cdi-refresh.service.
+/usr/sbin/policy-rc.d returned 101, not running 'start nvidia-cdi-refresh.path nvidia-cdi-refresh.service'
+Setting up libnvidia-container1:amd64 (1.20.2-1) ...
+Setting up libnvidia-container-tools (1.20.2-1) ...
+Setting up nvidia-container-toolkit (1.20.2-1) ...
+Processing triggers for libc-bin (2.36-9+deb12u13) ...
+time="2026-11-19T08:02:01Z" level=info msg="Using config version 3"
+time="2026-11-19T08:02:01Z" level=info msg="Using CRI runtime plugin name \"io.containerd.cri.v1.runtime\""
+time="2026-11-19T08:02:01Z" level=info msg="Wrote updated config to /etc/containerd/conf.d/99-nvidia.toml"
+time="2026-11-19T08:02:01Z" level=info msg="It is recommended that containerd daemon be restarted."
++ kubectl cluster-info --context kind-dra-session
+Kubernetes control plane is running at https://127.0.0.1:46343
+CoreDNS is running at https://127.0.0.1:46343/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
++ kubectl --context kind-dra-session get nodes
+NAME                        STATUS     ROLES           AGE   VERSION
+dra-session-control-plane   NotReady   control-plane   19s   v1.34.3
+dra-session-worker          NotReady   <none>          9s    v1.34.3
++ kubectl --context kind-dra-session apply -f -
+runtimeclass.node.k8s.io/nvidia created
++ kubectl --context kind-dra-session wait --for=condition=Ready nodes --all --timeout=300s
+node/dra-session-control-plane condition met
+node/dra-session-worker condition met
+++ kubectl --context kind-dra-session get nodes -l '!node-role.kubernetes.io/control-plane' -o name
++ for node in $(kubectl --context "kind-${NVKIND_CLUSTER_NAME}" get nodes -l '!node-role.kubernetes.io/control-plane' -o name)
++ kubectl --context kind-dra-session label node/dra-session-worker nvidia.com/gpu.present=true feature.node.kubernetes.io/pci-10de.present=true --overwrite
+node/dra-session-worker labeled
++ sg docker -c 'nvkind cluster print-gpus --name dra-session'
+[
+    {
+        "node": "dra-session-worker",
+        "gpus": [
+            {
+                "Index": "0",
+                "Name": "NVIDIA A10G",
+                "UUID": "GPU-990a6b59-6903-1310-e958-489926dbf3c7"
+            }
+        ]
+    }
+]
++ echo 'nvkind cluster dra-session ready'
+nvkind cluster dra-session ready

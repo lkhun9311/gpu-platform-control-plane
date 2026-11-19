@@ -1,0 +1,53 @@
+++ date +%s
++ SR_START=1795075089
++ BUCKET=dra-gpu-007635145730
++ PREFIX=dra-nvidia-gpu-20261119T075701Z-55ed4f81
++ trap 'upload /var/log/dra.log log.txt; shutdown -h now' EXIT
++ mkdir -p /opt/dra/in /src/dra-run
++ aws s3 cp --only-show-errors s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T075701Z-55ed4f81/inputs.tgz /opt/dra/inputs.tgz
+++ sha256sum /opt/dra/inputs.tgz
+++ cut '-d ' -f1
++ '[' 29b9e47a933898621f4b2bb07104926b70ad901e031f9dd76392e899e6bc9b12 = 29b9e47a933898621f4b2bb07104926b70ad901e031f9dd76392e899e6bc9b12 ']'
++ tar -xzf /opt/dra/inputs.tgz -C /opt/dra/in
++ L=
+++ date +%s
++ '[' 1 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T075701Z-55ed4f81/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-11-19T07:57:15+00:00 +%s
++ L=1795075035
++ break
+++ date +%s
++ NOW=1795075091
++ [[ 1795075035 =~ ^[0-9]+$ ]]
++ '[' 1795075035 -gt 1795075091 ']'
++ '[' 56 -gt 900 ']'
++ BOOT_END=1795075455
++ HE=1795080255
++ EV=1795080375
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version,compute_mode --format=csv
++ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
++ timeout 60 aws s3 cp --only-show-errors /tmp/nvidia-smi.csv s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T075701Z-55ed4f81/preflight-nvidia-smi.csv
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ wc -l
++ '[' 1 = 1 ']'
++ tail -n +2 /tmp/nvidia-smi.csv
++ grep -qE 'NVIDIA (L4|A10G),'
++ cp /tmp/nvidia-smi.csv /src/dra-run/nvidia-smi.csv
++ echo launch_time_epoch=1795075035
++ sha256sum /opt/dra/inputs.tgz
+++ date +%s
++ '[' 1795075092 -lt 1795075455 ']'
+++ date +%s
+++ date +%s
++ UPLOAD_PREFIX=s3://dra-gpu-007635145730/dra-nvidia-gpu-20261119T075701Z-55ed4f81
++ timeout --kill-after=15 5163 bash /opt/dra/in/runner.sh /opt/dra/in /src/dra-run/run 1795080255
++ echo harness_rc=2
++ cat /src/dra-run/summary.txt
+2026-11-19T07:58:13Z phase cluster: start, bound 840 s
+2026-11-19T08:02:07Z phase cluster: exit 0 after 234 s
+2026-11-19T08:02:08Z worker node dra-session-worker
+2026-11-19T08:02:08Z phase build: start, bound 720 s
+2026-11-19T08:02:51Z phase build: exit 2 after 43 s
+2026-11-19T08:02:52Z BUILD FAILED; nothing else runs
++ cp /var/log/dra.log /src/dra-run/instance.log
