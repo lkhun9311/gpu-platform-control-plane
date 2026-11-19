@@ -1,0 +1,34 @@
+2026-11-19T14:21:47Z step r1-prepare: prepare /src/dra-run/run/s1/r1.yaml s1-r1
+2026-11-19T14:21:49Z step r1-prepare: exit 0
+2026-11-19T14:21:50Z step r1-plugin-down: plugin_down
+2026-11-19T14:21:53Z step r1-plugin-down: exit 0
+2026-11-19T14:21:53Z step r1-delete: delete_both s1-r1
+2026-11-19T14:23:10Z step r1-delete: exit 0
+2026-11-19T14:23:10Z step r1-plugin-up: plugin_up
+2026-11-19T14:23:14Z step r1-plugin-up: exit 0
+2026-11-19T14:23:15Z step r1-watch: watch_entry a81f7b21-d3bc-4484-b848-f0acf44cd20d
+2026-11-19T14:25:46Z step r1-watch: exit 0
+2026-11-19T14:25:46Z rep 1 (valid=yes): claim a81f7b21-d3bc-4484-b848-f0acf44cd20d PrepareCompleted -> PrepareCompleted at the plugin's return -> absent after the watch
+2026-11-19T14:25:47Z step r2-prepare: prepare /src/dra-run/run/s1/r2.yaml s1-r2
+2026-11-19T14:25:48Z step r2-prepare: exit 0
+2026-11-19T14:25:49Z step r2-plugin-down: plugin_down
+2026-11-19T14:25:52Z step r2-plugin-down: exit 0
+2026-11-19T14:25:52Z step r2-delete: delete_both s1-r2
+2026-11-19T14:27:09Z step r2-delete: exit 0
+2026-11-19T14:27:10Z step r2-plugin-up: plugin_up
+2026-11-19T14:27:14Z step r2-plugin-up: exit 0
+2026-11-19T14:27:14Z step r2-watch: watch_entry b6c75dc0-cb18-43bd-8e03-d8a4ed35eb90
+2026-11-19T14:29:45Z step r2-watch: exit 0
+2026-11-19T14:29:46Z rep 2 (valid=yes): claim b6c75dc0-cb18-43bd-8e03-d8a4ed35eb90 PrepareCompleted -> absent at the plugin's return -> absent after the watch
+2026-11-19T14:29:46Z step r3-prepare: prepare /src/dra-run/run/s1/r3.yaml s1-r3
+2026-11-19T14:29:48Z step r3-prepare: exit 0
+2026-11-19T14:29:48Z step r3-plugin-down: plugin_down
+2026-11-19T14:29:52Z step r3-plugin-down: exit 0
+2026-11-19T14:29:52Z step r3-delete: delete_both s1-r3
+2026-11-19T14:31:09Z step r3-delete: exit 0
+2026-11-19T14:31:09Z step r3-plugin-up: plugin_up
+2026-11-19T14:31:13Z step r3-plugin-up: exit 0
+2026-11-19T14:31:13Z step r3-watch: watch_entry 9f2cd156-74e2-4b55-a7bc-53c41556827f
+2026-11-19T14:33:45Z step r3-watch: exit 0
+2026-11-19T14:33:45Z rep 3 (valid=yes): claim 9f2cd156-74e2-4b55-a7bc-53c41556827f PrepareCompleted -> PrepareCompleted at the plugin's return -> absent after the watch
+2026-11-19T14:33:46Z 3 of 3 repetitions valid

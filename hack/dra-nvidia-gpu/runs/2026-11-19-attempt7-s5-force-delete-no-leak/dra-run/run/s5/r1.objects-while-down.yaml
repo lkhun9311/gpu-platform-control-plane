@@ -1,0 +1,7 @@
+apiVersion: v1
+items: []
+kind: List
+metadata:
+  resourceVersion: ""
+Error from server (NotFound): pods "pod" not found
+Error from server (NotFound): resourceclaims.resource.k8s.io "pod-gpu-p876m" not found

@@ -1,0 +1,106 @@
+NAMESPACE               LAST SEEN   TYPE      REASON                    OBJECT                                           MESSAGE
+default                 15m         Normal    Starting                  node/dra-session-worker                          
+default                 15m         Normal    Starting                  node/dra-session-control-plane                   
+default                 15m         Normal    Starting                  node/dra-session-control-plane                   Starting kubelet.
+kube-system             15m         Warning   Unhealthy                 pod/kube-scheduler-dra-session-control-plane     Readiness probe failed: HTTP probe failed with statuscode: 500
+default                 15m         Normal    NodeAllocatableEnforced   node/dra-session-control-plane                   Updated Node Allocatable limit across pods
+default                 15m         Normal    NodeHasSufficientMemory   node/dra-session-control-plane                   Node dra-session-control-plane status is now: NodeHasSufficientMemory
+default                 15m         Normal    NodeHasNoDiskPressure     node/dra-session-control-plane                   Node dra-session-control-plane status is now: NodeHasNoDiskPressure
+kube-system             15m         Normal    LeaderElection            lease/kube-controller-manager                    dra-session-control-plane_8d6c0e33-6f25-4c88-9f7e-7155af829400 became leader
+default                 15m         Normal    NodeHasSufficientPID      node/dra-session-control-plane                   Node dra-session-control-plane status is now: NodeHasSufficientPID
+kube-system             15m         Normal    LeaderElection            lease/kube-scheduler                             dra-session-control-plane_45bcbbf8-35e5-49ea-a4e5-5b6fd367a19d became leader
+default                 15m         Normal    RegisteredNode            node/dra-session-control-plane                   Node dra-session-control-plane event: Registered Node dra-session-control-plane in Controller
+kube-system             15m         Normal    Pulled                    pod/kube-proxy-fnr6k                             Container image "registry.k8s.io/kube-proxy:v1.34.3" already present on machine
+kube-system             15m         Normal    Scheduled                 pod/kube-proxy-fnr6k                             Successfully assigned kube-system/kube-proxy-fnr6k to dra-session-control-plane
+local-path-storage      15m         Normal    ScalingReplicaSet         deployment/local-path-provisioner                Scaled up replica set local-path-provisioner-5c4cdb564f from 0 to 1
+kube-system             15m         Normal    SuccessfulCreate          replicaset/coredns-66bc5c9577                    Created pod: coredns-66bc5c9577-rc9vw
+local-path-storage      15m         Normal    SuccessfulCreate          replicaset/local-path-provisioner-5c4cdb564f     Created pod: local-path-provisioner-5c4cdb564f-j2hkc
+kube-system             15m         Normal    SuccessfulCreate          replicaset/coredns-66bc5c9577                    Created pod: coredns-66bc5c9577-288zd
+kube-system             15m         Warning   FailedScheduling          pod/coredns-66bc5c9577-288zd                     0/1 nodes are available: 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+kube-system             15m         Normal    Scheduled                 pod/kindnet-w7t8q                                Successfully assigned kube-system/kindnet-w7t8q to dra-session-control-plane
+kube-system             15m         Normal    SuccessfulCreate          daemonset/kindnet                                Created pod: kindnet-w7t8q
+kube-system             15m         Normal    ScalingReplicaSet         deployment/coredns                               Scaled up replica set coredns-66bc5c9577 from 0 to 2
+kube-system             15m         Normal    SuccessfulCreate          daemonset/kube-proxy                             Created pod: kube-proxy-fnr6k
+local-path-storage      15m         Warning   FailedScheduling          pod/local-path-provisioner-5c4cdb564f-j2hkc      0/1 nodes are available: 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+kube-system             15m         Warning   FailedScheduling          pod/coredns-66bc5c9577-rc9vw                     0/1 nodes are available: 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+default                 15m         Normal    CIDRAssignmentFailed      node/dra-session-control-plane                   Node dra-session-control-plane status is now: CIDRAssignmentFailed
+kube-system             15m         Normal    Pulled                    pod/kindnet-w7t8q                                Container image "docker.io/kindest/kindnetd:v20251212-v0.29.0-alpha-105-g20ccfc88" already present on machine
+kube-system             15m         Normal    Started                   pod/kube-proxy-fnr6k                             Started container kube-proxy
+kube-system             15m         Normal    Created                   pod/kube-proxy-fnr6k                             Created container: kube-proxy
+default                 15m         Normal    NodeHasSufficientPID      node/dra-session-worker                          Node dra-session-worker status is now: NodeHasSufficientPID
+kube-system             15m         Normal    Started                   pod/kindnet-w7t8q                                Started container kindnet-cni
+kube-system             15m         Normal    Scheduled                 pod/kindnet-99vx9                                Successfully assigned kube-system/kindnet-99vx9 to dra-session-worker
+default                 15m         Normal    NodeHasSufficientMemory   node/dra-session-worker                          Node dra-session-worker status is now: NodeHasSufficientMemory
+default                 15m         Normal    NodeHasNoDiskPressure     node/dra-session-worker                          Node dra-session-worker status is now: NodeHasNoDiskPressure
+kube-system             15m         Normal    SuccessfulCreate          daemonset/kube-proxy                             Created pod: kube-proxy-hpv5l
+kube-system             15m         Normal    Created                   pod/kindnet-w7t8q                                Created container: kindnet-cni
+kube-system             15m         Normal    SuccessfulCreate          daemonset/kindnet                                Created pod: kindnet-99vx9
+default                 15m         Normal    NodeAllocatableEnforced   node/dra-session-worker                          Updated Node Allocatable limit across pods
+kube-system             15m         Normal    Scheduled                 pod/kube-proxy-hpv5l                             Successfully assigned kube-system/kube-proxy-hpv5l to dra-session-worker
+default                 15m         Normal    RegisteredNode            node/dra-session-worker                          Node dra-session-worker event: Registered Node dra-session-worker in Controller
+kube-system             15m         Normal    Started                   pod/kube-proxy-hpv5l                             Started container kube-proxy
+kube-system             15m         Normal    Created                   pod/kube-proxy-hpv5l                             Created container: kube-proxy
+kube-system             15m         Normal    Pulled                    pod/kindnet-99vx9                                Container image "docker.io/kindest/kindnetd:v20251212-v0.29.0-alpha-105-g20ccfc88" already present on machine
+kube-system             15m         Normal    Pulled                    pod/kube-proxy-hpv5l                             Container image "registry.k8s.io/kube-proxy:v1.34.3" already present on machine
+kube-system             15m         Normal    Created                   pod/kindnet-99vx9                                Created container: kindnet-cni
+kube-system             15m         Normal    Started                   pod/kindnet-99vx9                                Started container kindnet-cni
+local-path-storage      15m         Normal    Scheduled                 pod/local-path-provisioner-5c4cdb564f-j2hkc      Successfully assigned local-path-storage/local-path-provisioner-5c4cdb564f-j2hkc to dra-session-control-plane
+kube-system             15m         Normal    Scheduled                 pod/coredns-66bc5c9577-288zd                     Successfully assigned kube-system/coredns-66bc5c9577-288zd to dra-session-control-plane
+kube-system             15m         Normal    Scheduled                 pod/coredns-66bc5c9577-rc9vw                     Successfully assigned kube-system/coredns-66bc5c9577-rc9vw to dra-session-control-plane
+default                 15m         Normal    NodeReady                 node/dra-session-control-plane                   Node dra-session-control-plane status is now: NodeReady
+local-path-storage      15m         Normal    Pulled                    pod/local-path-provisioner-5c4cdb564f-j2hkc      Container image "docker.io/kindest/local-path-provisioner:v20251212-v0.29.0-alpha-105-g20ccfc88" already present on machine
+kube-system             15m         Normal    Pulled                    pod/coredns-66bc5c9577-rc9vw                     Container image "registry.k8s.io/coredns/coredns:v1.12.1" already present on machine
+kube-system             15m         Normal    Pulled                    pod/coredns-66bc5c9577-288zd                     Container image "registry.k8s.io/coredns/coredns:v1.12.1" already present on machine
+kube-system             15m         Normal    TaintManagerEviction      pod/coredns-66bc5c9577-288zd                     Cancelling deletion of Pod kube-system/coredns-66bc5c9577-288zd
+kube-system             15m         Normal    TaintManagerEviction      pod/coredns-66bc5c9577-rc9vw                     Cancelling deletion of Pod kube-system/coredns-66bc5c9577-rc9vw
+local-path-storage      15m         Normal    TaintManagerEviction      pod/local-path-provisioner-5c4cdb564f-j2hkc      Cancelling deletion of Pod local-path-storage/local-path-provisioner-5c4cdb564f-j2hkc
+kube-system             15m         Normal    Created                   pod/coredns-66bc5c9577-288zd                     Created container: coredns
+kube-system             15m         Normal    Created                   pod/coredns-66bc5c9577-rc9vw                     Created container: coredns
+kube-system             15m         Normal    Started                   pod/coredns-66bc5c9577-rc9vw                     Started container coredns
+kube-system             15m         Normal    Started                   pod/coredns-66bc5c9577-288zd                     Started container coredns
+local-path-storage      15m         Normal    Started                   pod/local-path-provisioner-5c4cdb564f-j2hkc      Started container local-path-provisioner
+local-path-storage      15m         Normal    Created                   pod/local-path-provisioner-5c4cdb564f-j2hkc      Created container: local-path-provisioner
+default                 15m         Normal    NodeReady                 node/dra-session-worker                          Node dra-session-worker status is now: NodeReady
+dra-driver-nvidia-gpu   12m         Normal    SuccessfulCreate          daemonset/dra-driver-nvidia-gpu-kubelet-plugin   Created pod: dra-driver-nvidia-gpu-kubelet-plugin-wh2zd
+dra-driver-nvidia-gpu   12m         Normal    Scheduled                 pod/dra-driver-nvidia-gpu-kubelet-plugin-wh2zd   Successfully assigned dra-driver-nvidia-gpu/dra-driver-nvidia-gpu-kubelet-plugin-wh2zd to dra-session-worker
+dra-driver-nvidia-gpu   12m         Normal    Pulled                    pod/dra-driver-nvidia-gpu-kubelet-plugin-wh2zd   Container image "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev" already present on machine
+dra-driver-nvidia-gpu   12m         Normal    Created                   pod/dra-driver-nvidia-gpu-kubelet-plugin-wh2zd   Created container: init-container
+dra-driver-nvidia-gpu   12m         Normal    Started                   pod/dra-driver-nvidia-gpu-kubelet-plugin-wh2zd   Started container init-container
+dra-driver-nvidia-gpu   12m         Normal    Pulled                    pod/dra-driver-nvidia-gpu-kubelet-plugin-wh2zd   Container image "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev" already present on machine
+dra-driver-nvidia-gpu   12m         Normal    Started                   pod/dra-driver-nvidia-gpu-kubelet-plugin-wh2zd   Started container gpus
+dra-driver-nvidia-gpu   12m         Normal    Created                   pod/dra-driver-nvidia-gpu-kubelet-plugin-wh2zd   Created container: gpus
+dra-driver-nvidia-gpu   11m         Normal    SuccessfulDelete          daemonset/dra-driver-nvidia-gpu-kubelet-plugin   Deleted pod: dra-driver-nvidia-gpu-kubelet-plugin-wh2zd
+dra-driver-nvidia-gpu   11m         Normal    Killing                   pod/dra-driver-nvidia-gpu-kubelet-plugin-wh2zd   Stopping container gpus
+dra-driver-nvidia-gpu   10m         Normal    Started                   pod/dra-driver-nvidia-gpu-kubelet-plugin-xd8bc   Started container init-container
+dra-driver-nvidia-gpu   10m         Normal    Created                   pod/dra-driver-nvidia-gpu-kubelet-plugin-xd8bc   Created container: init-container
+dra-driver-nvidia-gpu   10m         Normal    Pulled                    pod/dra-driver-nvidia-gpu-kubelet-plugin-xd8bc   Container image "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev" already present on machine
+dra-driver-nvidia-gpu   10m         Normal    Scheduled                 pod/dra-driver-nvidia-gpu-kubelet-plugin-xd8bc   Successfully assigned dra-driver-nvidia-gpu/dra-driver-nvidia-gpu-kubelet-plugin-xd8bc to dra-session-worker
+dra-driver-nvidia-gpu   10m         Normal    SuccessfulCreate          daemonset/dra-driver-nvidia-gpu-kubelet-plugin   Created pod: dra-driver-nvidia-gpu-kubelet-plugin-xd8bc
+dra-driver-nvidia-gpu   10m         Normal    Pulled                    pod/dra-driver-nvidia-gpu-kubelet-plugin-xd8bc   Container image "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev" already present on machine
+dra-driver-nvidia-gpu   10m         Normal    Started                   pod/dra-driver-nvidia-gpu-kubelet-plugin-xd8bc   Started container gpus
+dra-driver-nvidia-gpu   10m         Normal    Created                   pod/dra-driver-nvidia-gpu-kubelet-plugin-xd8bc   Created container: gpus
+dra-driver-nvidia-gpu   7m56s       Normal    Killing                   pod/dra-driver-nvidia-gpu-kubelet-plugin-xd8bc   Stopping container gpus
+dra-driver-nvidia-gpu   7m56s       Normal    SuccessfulDelete          daemonset/dra-driver-nvidia-gpu-kubelet-plugin   Deleted pod: dra-driver-nvidia-gpu-kubelet-plugin-xd8bc
+dra-driver-nvidia-gpu   6m35s       Normal    Scheduled                 pod/dra-driver-nvidia-gpu-kubelet-plugin-4bfj7   Successfully assigned dra-driver-nvidia-gpu/dra-driver-nvidia-gpu-kubelet-plugin-4bfj7 to dra-session-worker
+dra-driver-nvidia-gpu   6m35s       Normal    Pulled                    pod/dra-driver-nvidia-gpu-kubelet-plugin-4bfj7   Container image "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev" already present on machine
+dra-driver-nvidia-gpu   6m35s       Normal    Created                   pod/dra-driver-nvidia-gpu-kubelet-plugin-4bfj7   Created container: init-container
+dra-driver-nvidia-gpu   6m35s       Normal    SuccessfulCreate          daemonset/dra-driver-nvidia-gpu-kubelet-plugin   Created pod: dra-driver-nvidia-gpu-kubelet-plugin-4bfj7
+dra-driver-nvidia-gpu   6m34s       Normal    Pulled                    pod/dra-driver-nvidia-gpu-kubelet-plugin-4bfj7   Container image "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev" already present on machine
+dra-driver-nvidia-gpu   6m34s       Normal    Started                   pod/dra-driver-nvidia-gpu-kubelet-plugin-4bfj7   Started container init-container
+dra-driver-nvidia-gpu   6m34s       Normal    Created                   pod/dra-driver-nvidia-gpu-kubelet-plugin-4bfj7   Created container: gpus
+dra-driver-nvidia-gpu   6m33s       Normal    Started                   pod/dra-driver-nvidia-gpu-kubelet-plugin-4bfj7   Started container gpus
+s1-r3                   3m59s       Normal    Scheduled                 pod/pod                                          Successfully assigned s1-r3/pod to dra-session-worker
+s1-r3                   3m58s       Normal    Started                   pod/pod                                          Started container ctr
+s1-r3                   3m58s       Normal    Created                   pod/pod                                          Created container: ctr
+s1-r3                   3m58s       Normal    Pulled                    pod/pod                                          Container image "ubuntu:22.04" already present on machine
+dra-driver-nvidia-gpu   3m57s       Normal    SuccessfulDelete          daemonset/dra-driver-nvidia-gpu-kubelet-plugin   Deleted pod: dra-driver-nvidia-gpu-kubelet-plugin-4bfj7
+dra-driver-nvidia-gpu   3m57s       Normal    Killing                   pod/dra-driver-nvidia-gpu-kubelet-plugin-4bfj7   Stopping container gpus
+s1-r3                   3m53s       Normal    Killing                   pod/pod                                          Stopping container ctr
+dra-driver-nvidia-gpu   2m36s       Normal    SuccessfulCreate          daemonset/dra-driver-nvidia-gpu-kubelet-plugin   Created pod: dra-driver-nvidia-gpu-kubelet-plugin-h764t
+dra-driver-nvidia-gpu   2m36s       Normal    Scheduled                 pod/dra-driver-nvidia-gpu-kubelet-plugin-h764t   Successfully assigned dra-driver-nvidia-gpu/dra-driver-nvidia-gpu-kubelet-plugin-h764t to dra-session-worker
+dra-driver-nvidia-gpu   2m35s       Normal    Started                   pod/dra-driver-nvidia-gpu-kubelet-plugin-h764t   Started container init-container
+dra-driver-nvidia-gpu   2m35s       Normal    Created                   pod/dra-driver-nvidia-gpu-kubelet-plugin-h764t   Created container: init-container
+dra-driver-nvidia-gpu   2m35s       Normal    Pulled                    pod/dra-driver-nvidia-gpu-kubelet-plugin-h764t   Container image "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev" already present on machine
+dra-driver-nvidia-gpu   2m34s       Normal    Started                   pod/dra-driver-nvidia-gpu-kubelet-plugin-h764t   Started container gpus
+dra-driver-nvidia-gpu   2m34s       Normal    Created                   pod/dra-driver-nvidia-gpu-kubelet-plugin-h764t   Created container: gpus
+dra-driver-nvidia-gpu   2m34s       Normal    Pulled                    pod/dra-driver-nvidia-gpu-kubelet-plugin-h764t   Container image "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev" already present on machine

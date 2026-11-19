@@ -1,0 +1,4 @@
+2026-11-19T14:18:30Z dockerfile_rewrite sed="sed -f dockerfile-mirror.sed deployments/container/Dockerfile" sed_sha256=873389c5f117c27374d207accaaeaf0e553b6f3978b317cb7584e12276224ab0 before_sha256=7fd0f172203376d7352bd7c772a32067aa5e44d26e7afb3d1a06eb49b38e9d05 after_sha256=30fdcc8b92d8bba86974317c31d22ff61f9a43e3f98b41b7d5267ef74e3d1575 note="one RUN inserted before the build stage's apt step; it changes only the apt source host archive.ubuntu.com to ap-northeast-2.ec2.archive.ubuntu.com and adds apt retries; every upstream line is unchanged"
+2026-11-19T14:18:30Z build registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev
+2026-11-19T14:21:25Z apt fetches: 109 from the EC2 mirror, 0 from archive.ubuntu.com
+2026-11-19T14:21:33Z loaded registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.6.0-dev

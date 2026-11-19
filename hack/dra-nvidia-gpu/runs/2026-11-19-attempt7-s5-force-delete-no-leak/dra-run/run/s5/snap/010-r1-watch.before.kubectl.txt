@@ -1,0 +1,13 @@
+NAMESPACE               NAME                                                    READY   STATUS    RESTARTS   AGE   IP            NODE                        NOMINATED NODE   READINESS GATES
+dra-driver-nvidia-gpu   pod/dra-driver-nvidia-gpu-kubelet-plugin-kbvbw          1/1     Running   0          4s    10.244.2.10   dra-session-worker          <none>           <none>
+kube-system             pod/coredns-66bc5c9577-288zd                            1/1     Running   0          15m   10.244.0.4    dra-session-control-plane   <none>           <none>
+kube-system             pod/coredns-66bc5c9577-rc9vw                            1/1     Running   0          15m   10.244.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/etcd-dra-session-control-plane                      1/1     Running   0          15m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kindnet-99vx9                                       1/1     Running   0          15m   172.18.0.3    dra-session-worker          <none>           <none>
+kube-system             pod/kindnet-w7t8q                                       1/1     Running   0          15m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kube-apiserver-dra-session-control-plane            1/1     Running   0          15m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kube-controller-manager-dra-session-control-plane   1/1     Running   0          15m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kube-proxy-fnr6k                                    1/1     Running   0          15m   172.18.0.2    dra-session-control-plane   <none>           <none>
+kube-system             pod/kube-proxy-hpv5l                                    1/1     Running   0          15m   172.18.0.3    dra-session-worker          <none>           <none>
+kube-system             pod/kube-scheduler-dra-session-control-plane            1/1     Running   0          15m   172.18.0.2    dra-session-control-plane   <none>           <none>
+local-path-storage      pod/local-path-provisioner-5c4cdb564f-j2hkc             1/1     Running   0          15m   10.244.0.3    dra-session-control-plane   <none>           <none>

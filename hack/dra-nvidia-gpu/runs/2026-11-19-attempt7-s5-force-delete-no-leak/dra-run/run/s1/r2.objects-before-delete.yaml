@@ -1,0 +1,184 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Pod","metadata":{"annotations":{},"name":"pod","namespace":"s1-r2"},"spec":{"containers":[{"args":["nvidia-smi -L; trap 'exit 0' TERM; sleep 9999 \u0026 wait"],"command":["bash","-c"],"image":"ubuntu:22.04","name":"ctr","resources":{"claims":[{"name":"gpu"}]}}],"resourceClaims":[{"name":"gpu","resourceClaimName":"gpu"}],"restartPolicy":"Never","tolerations":[{"effect":"NoSchedule","key":"nvidia.com/gpu","operator":"Exists"}]}}
+    creationTimestamp: "2026-11-19T14:25:47Z"
+    generation: 1
+    name: pod
+    namespace: s1-r2
+    resourceVersion: "1250"
+    uid: 339ddef5-a2ba-41fb-a73b-d68976e4ea06
+  spec:
+    containers:
+    - args:
+      - nvidia-smi -L; trap 'exit 0' TERM; sleep 9999 & wait
+      command:
+      - bash
+      - -c
+      image: ubuntu:22.04
+      imagePullPolicy: IfNotPresent
+      name: ctr
+      resources:
+        claims:
+        - name: gpu
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-lp8z2
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    nodeName: dra-session-worker
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    resourceClaims:
+    - name: gpu
+      resourceClaimName: gpu
+    restartPolicy: Never
+    schedulerName: default-scheduler
+    securityContext: {}
+    serviceAccount: default
+    serviceAccountName: default
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoSchedule
+      key: nvidia.com/gpu
+      operator: Exists
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: kube-api-access-lp8z2
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-19T14:25:48Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodReadyToStartContainers
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-19T14:25:47Z"
+      observedGeneration: 1
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-19T14:25:48Z"
+      observedGeneration: 1
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-19T14:25:48Z"
+      observedGeneration: 1
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-19T14:25:47Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - containerID: containerd://aa4fe6ce5ffa2b4acbc8c76d2e8227c75f1c0295cb313da7b212ee85b2b01005
+      image: docker.io/library/ubuntu:22.04
+      imageID: docker.io/library/ubuntu@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde
+      lastState: {}
+      name: ctr
+      ready: true
+      resources:
+        claims:
+        - name: gpu
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2026-11-19T14:25:47Z"
+      user:
+        linux:
+          gid: 0
+          supplementalGroups:
+          - 0
+          uid: 0
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-lp8z2
+        readOnly: true
+        recursiveReadOnly: Disabled
+    hostIP: 172.18.0.3
+    hostIPs:
+    - ip: 172.18.0.3
+    observedGeneration: 1
+    phase: Running
+    podIP: 10.244.2.5
+    podIPs:
+    - ip: 10.244.2.5
+    qosClass: BestEffort
+    startTime: "2026-11-19T14:25:47Z"
+- apiVersion: resource.k8s.io/v1
+  kind: ResourceClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"resource.k8s.io/v1","kind":"ResourceClaim","metadata":{"annotations":{},"name":"gpu","namespace":"s1-r2"},"spec":{"devices":{"requests":[{"exactly":{"deviceClassName":"gpu.nvidia.com"},"name":"gpu"}]}}}
+    creationTimestamp: "2026-11-19T14:25:47Z"
+    finalizers:
+    - resource.kubernetes.io/delete-protection
+    name: gpu
+    namespace: s1-r2
+    resourceVersion: "1241"
+    uid: b6c75dc0-cb18-43bd-8e03-d8a4ed35eb90
+  spec:
+    devices:
+      requests:
+      - exactly:
+          allocationMode: ExactCount
+          count: 1
+          deviceClassName: gpu.nvidia.com
+        name: gpu
+  status:
+    allocation:
+      devices:
+        results:
+        - device: gpu-0
+          driver: gpu.nvidia.com
+          pool: dra-session-worker
+          request: gpu
+      nodeSelector:
+        nodeSelectorTerms:
+        - matchFields:
+          - key: metadata.name
+            operator: In
+            values:
+            - dra-session-worker
+    reservedFor:
+    - name: pod
+      resource: pods
+      uid: 339ddef5-a2ba-41fb-a73b-d68976e4ea06
+kind: List
+metadata:
+  resourceVersion: ""

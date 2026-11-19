@@ -1,0 +1,4 @@
+rep	valid	claim_uid	after_prepare	pod_gone_while_down	claim_gone_while_down	at_return	after_watch	kubelet_unprepare_lines	plugin_unprepare_lines
+1	yes	a81f7b21-d3bc-4484-b848-f0acf44cd20d	PrepareCompleted	present	present	PrepareCompleted	absent	0	4
+2	yes	b6c75dc0-cb18-43bd-8e03-d8a4ed35eb90	PrepareCompleted	present	present	absent	absent	0	4
+3	yes	9f2cd156-74e2-4b55-a7bc-53c41556827f	PrepareCompleted	present	present	PrepareCompleted	absent	0	4

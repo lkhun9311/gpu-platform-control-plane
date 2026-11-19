@@ -1,0 +1,4 @@
+rep	valid	claim_name	claim_uid	pod_uid	after_prepare	force_delete	finalizers_removed	pod_while_down	claim_while_down	at_return	after_watch	watched_s	cleanup_interval_watched	kubelet_unprepare_lines_pod_uid	kubelet_lines_claim_uid	plugin_unprepare_called	pod_b	pod_b_events_naming_uid
+1	yes	pod-gpu-p876m	7d3ab5a6-505b-412b-b09c-a3b841b90975	e7f462cf-39de-4621-aed8-9a37650a0817	PrepareCompleted	yes	no	gone	gone	absent	absent	152	no	3	0	1	-	-
+2	yes	pod-gpu-6cl7s	d04fbfad-5607-4cac-8705-7dadea939c34	9544cb26-56f3-4b4a-a02a-e95ce8e18dc5	PrepareCompleted	yes	no	gone	gone	absent	absent	152	no	4	0	1	-	-
+3	yes	pod-gpu-4dkk4	56231977-4540-4315-b2c3-03079cd9ca42	070ded88-37d6-4a4c-9a78-0f396a9b38a3	PrepareCompleted	yes	no	gone	gone	absent	absent	152	no	3	0	1	-	-

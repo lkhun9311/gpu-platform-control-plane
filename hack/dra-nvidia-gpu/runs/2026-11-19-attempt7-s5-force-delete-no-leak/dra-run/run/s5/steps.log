@@ -1,0 +1,40 @@
+2026-11-19T14:33:48Z step r1-prepare: prepare /src/dra-run/run/s5/r1.yaml s5-r1
+2026-11-19T14:33:49Z step r1-prepare: exit 0
+2026-11-19T14:33:50Z step r1-plugin-down: plugin_down
+2026-11-19T14:33:53Z step r1-plugin-down: exit 0
+2026-11-19T14:33:54Z step r1-force-delete: force_delete s5-r1 pod-gpu-p876m
+2026-11-19T14:33:54Z step r1-force-delete: exit 0
+2026-11-19T14:33:54Z step r1-until-gone: until_gone s5-r1 pod-gpu-p876m
+2026-11-19T14:33:55Z step r1-until-gone: exit 0
+2026-11-19T14:33:55Z step r1-plugin-up: plugin_up
+2026-11-19T14:33:58Z step r1-plugin-up: exit 0
+2026-11-19T14:33:59Z step r1-watch: watch_until 7d3ab5a6-505b-412b-b09c-a3b841b90975 1795098988
+2026-11-19T14:36:30Z step r1-watch: exit 0
+2026-11-19T14:36:31Z rep 1 (valid=yes): claim pod-gpu-p876m 7d3ab5a6-505b-412b-b09c-a3b841b90975 PrepareCompleted; pod gone and claim gone while down; absent at the return; absent after 152 s
+2026-11-19T14:36:31Z step r2-prepare: prepare /src/dra-run/run/s5/r2.yaml s5-r2
+2026-11-19T14:36:33Z step r2-prepare: exit 0
+2026-11-19T14:36:33Z step r2-plugin-down: plugin_down
+2026-11-19T14:36:37Z step r2-plugin-down: exit 0
+2026-11-19T14:36:37Z step r2-force-delete: force_delete s5-r2 pod-gpu-6cl7s
+2026-11-19T14:36:37Z step r2-force-delete: exit 0
+2026-11-19T14:36:37Z step r2-until-gone: until_gone s5-r2 pod-gpu-6cl7s
+2026-11-19T14:36:38Z step r2-until-gone: exit 0
+2026-11-19T14:36:38Z step r2-plugin-up: plugin_up
+2026-11-19T14:36:42Z step r2-plugin-up: exit 0
+2026-11-19T14:36:42Z step r2-watch: watch_until d04fbfad-5607-4cac-8705-7dadea939c34 1795099152
+2026-11-19T14:39:14Z step r2-watch: exit 0
+2026-11-19T14:39:14Z rep 2 (valid=yes): claim pod-gpu-6cl7s d04fbfad-5607-4cac-8705-7dadea939c34 PrepareCompleted; pod gone and claim gone while down; absent at the return; absent after 152 s
+2026-11-19T14:39:14Z step r3-prepare: prepare /src/dra-run/run/s5/r3.yaml s5-r3
+2026-11-19T14:39:16Z step r3-prepare: exit 0
+2026-11-19T14:39:17Z step r3-plugin-down: plugin_down
+2026-11-19T14:39:20Z step r3-plugin-down: exit 0
+2026-11-19T14:39:20Z step r3-force-delete: force_delete s5-r3 pod-gpu-4dkk4
+2026-11-19T14:39:21Z step r3-force-delete: exit 0
+2026-11-19T14:39:21Z step r3-until-gone: until_gone s5-r3 pod-gpu-4dkk4
+2026-11-19T14:39:21Z step r3-until-gone: exit 0
+2026-11-19T14:39:22Z step r3-plugin-up: plugin_up
+2026-11-19T14:39:25Z step r3-plugin-up: exit 0
+2026-11-19T14:39:25Z step r3-watch: watch_until 56231977-4540-4315-b2c3-03079cd9ca42 1795099315
+2026-11-19T14:41:57Z step r3-watch: exit 0
+2026-11-19T14:41:57Z rep 3 (valid=yes): claim pod-gpu-4dkk4 56231977-4540-4315-b2c3-03079cd9ca42 PrepareCompleted; pod gone and claim gone while down; absent at the return; absent after 152 s
+2026-11-19T14:41:58Z 3 of 3 started repetitions valid (REPS=3), finding=no

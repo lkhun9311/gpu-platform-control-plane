@@ -1,0 +1,72 @@
+== dra-driver-nvidia-gpu phases cluster build s1 s5 for dra-nvidia-gpu-single-2026-11-18, from cb45e196e3726e9737186dd68bdf240f5768c2bd, into hack/dra-nvidia-gpu-20261119T141426Z
+== hard stop 4620 s after LaunchTime; worst case 4920 s at $1.2575/h = $1.7186
+== upstream e775fdb63e593a121b40fc1cc4c9a9c89955e635 has the 11 files the phases use
+== AMI ami-035e3088f6b7821fb: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261113	available
+== Spot candidates, in order: g5.xlarge:ap-northeast-2c g5.xlarge:ap-northeast-2d g5.xlarge:ap-northeast-2a
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 703 minutes
+== before the purchase: credentials expire in 703 minutes
+== launching one of g5.xlarge:ap-northeast-2c g5.xlarge:ap-northeast-2d g5.xlarge:ap-northeast-2a ($1.2575/h all in at worst), study-deadline 2026-11-19T15:30:43Z -- the instance bills from here
+== launched i-0057faedba13d8817, g5.xlarge in ap-northeast-2c
+== LaunchTime 2026-11-19T14:14:45+00:00; the sweeper's deadline moved to 2026-11-19T15:31:15Z
+== the wait ended with status 0 ()
+== waiting up to 3279s for EC2 to report the instance terminated
+== terminating i-0057faedba13d8817
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is shutting-down
+== i-0057faedba13d8817 is terminated
+== evidence returned in hack/dra-nvidia-gpu-20261119T141426Z/dra-run/run; termination confirmed; phases: cluster=0 build=0 s1=0 s5=0
