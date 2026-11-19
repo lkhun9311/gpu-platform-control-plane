@@ -121,6 +121,9 @@ check "the runner pins Qwen2-VL-2B-Instruct at its Hugging Face commit" \
   "[ \"\$(rv MODEL)\" = Qwen/Qwen2-VL-2B-Instruct ] && [ \"\$(rv MODEL_REV)\" = 895c3a49bc3fa70a340399125c650a463535e71c ] && grep -qF -- '--revision \"\$MODEL_REV\"' '$R'"
 check "the replicas publish KV events on 5557 under kv@<served model>, report cached tokens, and keep vLLM's default block size" \
   "grep -qF '\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:5557\",\"topic\":\"kv@' '$R' && grep -qF -- '--enable-prompt-tokens-details' '$R' && ! grep -q -- '--block-size' '$R' && ! grep -q -- '--prefix-match-unit' '$R'"
+mm_line=$(grep -m1 '^MM_LIMITS=' "$R")
+check "each replica asks for 0.45 of the GPU, so the second passes vLLM's free-memory check beside the first, and profiles one 336x336 image and no video ($mm_line)" \
+  "[ \"\$(rv GPU_UTIL)\" = 0.45 ] && grep -qF -- '--gpu-memory-utilization \"\$GPU_UTIL\"' '$R' && grep -qF -- '--limit-mm-per-prompt \"\$MM_LIMITS\"' '$R' && [ \"\$(printf '%s' \"\$mm_line\" | cut -d\"'\" -f2 | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))')\" = '{\"image\": {\"count\": 1, \"height\": 336, \"width\": 336}, \"video\": 0}' ]"
 check "the session's go.mod pin and its stated router commit agree" \
   "grep -qxF \"	github.com/llm-d/llm-d-router \$(sv ROUTER_MODULE_VERSION)\" '$DIR/probe/go.mod' && [ \"\$(sv ROUTER_MODULE_VERSION | sed 's/.*-//')\" = \"\$(sv ROUTER_COMMIT | cut -c1-12)\" ]"
 
@@ -184,6 +187,8 @@ check "a KV capacity the probe's bound cannot flood stops the run" "[ $rc = 2 ] 
 fake_runner probefail FAKE_PROBE_RC=1; rc=$?
 check "a failed probe still collects both replicas' metrics and logs, and the run exits 3" \
   "[ $rc = 3 ] && [ -e '$WORK/probefail/metrics-a-after.txt' ] && [ -e '$WORK/probefail/replica-b.log' ] && grep -q 'probe: exited 1' '$WORK/probefail/steps.log'"
+check "a failed probe does not write 'all items done', which the session reads as a whole record" \
+  "! grep -q 'all items done' '$WORK/probefail/steps.log' && grep -q 'PROBE FAILED, exit 1' '$WORK/probefail/steps.log'"
 
 # ---------------------------------------------------------------- the probe against a fake vLLM, and the verdict on its records
 FX="$WORK/fx"
@@ -200,10 +205,11 @@ judge report "$FX/report"; rc=$?
 check "on the fake's records the session judges calib=pass bias=confirmed dedup=confirmed salt=reproduced, mm void (the fake has no /render), and exits 0" \
   "[ $rc = 0 ] && grep -qx 'verdicts=calib=pass bias=confirmed dedup=confirmed salt=reproduced mm=void' '$WORK/j-report.out'"
 check "the confirmed dedup verdict names four stores and one removal per engine block for the full-report prefix, and one of each for the control" \
-  "grep -qF 'dedup_detail=rep0 full: 16 engine blocks, stores per block [4], removals per block [1], post-eviction predicted r16=1024 r64=1024 realized=0' '$WORK/j-report/out/verdict.txt' && grep -qF 'rep0 incremental: 16 engine blocks, stores per block [1], removals per block [1]' '$WORK/j-report/out/verdict.txt'"
+  "grep -qF 'dedup_detail=rep0 full: 16 engine blocks, 4 store(s) and 1 removal per block before the check; check predicted r16=1024 r64=1024; post-flood realized=0' '$WORK/j-report/out/verdict.txt' && grep -qF 'rep0 incremental: 16 engine blocks, 1 store(s) and 1 removal per block before the check; check predicted r16=0 r64=0' '$WORK/j-report/out/verdict.txt'"
+check "the stream gate saw every batch reach both routers" "grep -qF 'stream_whole=yes' '$WORK/j-report/out/verdict.txt'"
 judge noreport "$FX/noreport"; rc=$?
-check "an engine that sends no reused-block reports gives dedup=refuted, which is a result, so the session still exits 0" \
-  "[ $rc = 0 ] && grep -qF 'dedup=refuted' '$WORK/j-noreport.out'"
+check "an engine that sends no reused-block reports voids dedup rather than refuting it, since the trigger never happened" \
+  "[ $rc = 2 ] && grep -qF 'dedup=void' '$WORK/j-noreport.out' && grep -qF 'the engine did not send its reused-block reports' '$WORK/j-noreport/out/verdict.txt'"
 judge empty ""; rc=$?
 check "a sweep with no probe records exits 2" "[ $rc = 2 ]"
 
@@ -233,8 +239,8 @@ check "a post-flood row the engine still served voids dedup, since the flood did
 mutate_fx noremove 'events[:] = [dict(e, events=[x for x in (e.get("events") or []) if x["type"] != "BlockRemoved"]) for e in events]'
 rc=$?
 check "without BlockRemoved on the wire for the prefix, dedup is void, since nothing shows the engine announced the eviction" \
-  "[ $rc = 2 ] && grep -qF 'dedup=void' '$WORK/j-noremove.out' && grep -qF 'never removed on the wire' '$WORK/j-noremove/out/verdict.txt'"
-mutate_fx stalecontrol 'next(r for r in rows if r["id"].endswith("dedup-incremental-r0-post-a"))["predictions"]["r16"]["a"]["cached_tokens"] = 1024'
+  "[ $rc = 2 ] && grep -qF 'dedup=void' '$WORK/j-noremove.out' && grep -qF 'removals per block before the prediction were [0], want 1' '$WORK/j-noremove/out/verdict.txt'"
+mutate_fx stalecontrol 'next(r for r in rows if r["id"].endswith("dedup-incremental-r0-check-a"))["predictions"]["r16"]["a"]["cached_tokens"] = 1024'
 rc=$?
 check "a stale control voids dedup, since then the reports are not what kept the prefix" \
   "[ $rc = 2 ] && grep -qF 'dedup=void' '$WORK/j-stalecontrol.out'"
@@ -249,12 +255,68 @@ check "an engine that served more than its block rule allows voids bias rather t
 mutate_fx nobias 'exec("for r in rows:\n if r[\"hyp\"] == \"bias\" and r[\"measured\"]:\n  r[\"predictions\"][\"r16\"][\"a\"][\"cached_tokens\"] = r[\"realized_cached_tokens\"]; r[\"predictions\"][\"r64\"][\"a\"][\"cached_tokens\"] = r[\"realized_cached_tokens\"]")'
 rc=$?
 check "routers that predict exactly what the engine served refute bias" "[ $rc = 0 ] && grep -qF 'bias=refuted' '$WORK/j-nobias.out'"
-mutate_fx twosizes 'events.append({"unix_nanos": 1, "pod": "a", "events": [{"type": "BlockStored", "block_size": 16}]})'
+mutate_fx twosizes 'next(x for e in events for x in (e.get("events") or []) if x["type"] == "BlockStored")["block_size"] = 16'
 rc=$?
-check "an engine that announced two block sizes voids every hypothesis" "[ $rc = 2 ] && grep -qF 'bias=void dedup=void' '$WORK/j-twosizes.out'"
+check "an engine that announced two block sizes voids every hypothesis" "[ $rc = 2 ] && grep -qF 'bias=void dedup=void' '$WORK/j-twosizes.out' && grep -qF 'why_void=the engine announced block sizes' '$WORK/j-twosizes/out/verdict.txt'"
 mutate_fx error 'next(r for r in rows if r["id"].endswith("dedup-full-r0-pre-a"))["error"] = "send: reset"'
 rc=$?
 check "a failed row voids its hypothesis" "[ $rc = 2 ] && grep -qF 'dedup=void' '$WORK/j-error.out'"
+
+mutate_fx refuted 'for r in rows:
+    if r["id"].endswith("dedup-full-r0-check-a"):
+        r["predictions"]["r16"]["a"]["cached_tokens"] = 0
+        r["predictions"]["r64"]["a"]["cached_tokens"] = 0'
+rc=$?
+check "routers that drop the reported prefix with its removals, after every report was sent, refute dedup, and the session exits 0" \
+  "[ $rc = 0 ] && grep -qF 'dedup=refuted' '$WORK/j-refuted.out'"
+mutate_fx podb 'next(r for r in rows if r["id"].endswith("bias-repeat576-r0-probe-a"))["predictions"]["r16"]["b"]["cached_tokens"] = 64'
+rc=$?
+check "a prediction for pod b, which serves nothing, voids its hypothesis outside calibration too" \
+  "[ $rc = 2 ] && grep -qF 'bias=void' '$WORK/j-podb.out' && grep -qF 'pod b, which serves nothing' '$WORK/j-podb/out/verdict.txt'"
+mutate_fx missing 'rows[:] = [r for r in rows if not r["id"].endswith("bias-shared544-r0-probe-a")]'
+rc=$?
+check "a planned row that is missing voids every hypothesis, since a cut run cannot pass as a whole one" \
+  "[ $rc = 2 ] && grep -qF 'why_void=rep 0 bias/shared544/probe: 0 rows, want 1' '$WORK/j-missing/out/verdict.txt'"
+mutate_fx gap 'del events[3]'
+rc=$?
+check "a gap in a pod's event sequence voids every hypothesis" \
+  "[ $rc = 2 ] && grep -qF 'stream_why=pod a: event sequence numbers are not consecutive' '$WORK/j-gap/out/verdict.txt' && grep -qF 'calib=void' '$WORK/j-gap.out'"
+mutate_fx lost 'import json as j
+e = j.load(open(d + "/end.json"))
+k = next(k for k in e["router_metrics"] if "messages_received" in k and "hunt/a" in k)
+e["router_metrics"][k] -= 1
+j.dump(e, open(d + "/end.json", "w"))'
+rc=$?
+check "a batch one router's subscriber did not receive voids every hypothesis, though the tap saw it" \
+  "[ $rc = 2 ] && grep -qF 'the routers received' '$WORK/j-lost/out/verdict.txt' && grep -qF 'calib=void' '$WORK/j-lost.out'"
+mutate_fx order 'f = next(r for r in rows if r["id"].endswith("dedup-full-r0-check-a"))
+i = next(r for r in rows if r["id"].endswith("dedup-incremental-r0-check-a"))
+f["predicted_unix_nanos"], i["predicted_unix_nanos"] = i["predicted_unix_nanos"], f["predicted_unix_nanos"]'
+rc=$?
+check "a reported-prefix check taken before the control's voids dedup, since the barrier then says nothing" \
+  "[ $rc = 2 ] && grep -qF 'predicted before the control' '$WORK/j-order/out/verdict.txt'"
+mutate_fx norepeat 'next(r for r in rows if r["hyp"] == "dedup" and r["case"] == "full" and r["phase"] == "repeat")["status"] = 500'
+rc=$?
+check "a full-report repeat that was not served voids dedup, since its report may not have happened" \
+  "[ $rc = 2 ] && grep -qF 'not every repeat was a 1024-token hit' '$WORK/j-norepeat/out/verdict.txt'"
+mutate_fx late 'inc = next(r for r in rows if r["id"].endswith("dedup-incremental-r0-warm-a"))["tokens"][:1024]
+full = next(r for r in rows if r["id"].endswith("dedup-full-r0-warm-a"))["tokens"][:1024]
+hs = lambda pre: {h for e in events for x in (e.get("events") or []) if x["type"] == "BlockStored" and (x.get("tokens") or [])[:64] == pre[:64] for h in x["block_hashes"]}
+fh, ih = hs(full), hs(inc)
+first_inc = min(e["seq"] for e in events for x in (e.get("events") or []) if x["type"] == "BlockRemoved" and set(x["block_hashes"]) & ih)
+for e in events:
+    if e["seq"] <= first_inc:
+        moved = [x for x in (e.get("events") or []) if x["type"] == "BlockRemoved" and set(x["block_hashes"]) & fh]
+        e["events"] = [x for x in (e.get("events") or []) if x not in moved]
+        target = next(t for t in events if t["seq"] == first_inc + 1)
+        target["events"] = moved + (target.get("events") or [])'
+rc=$?
+check "a reported-prefix removal published after the control's first voids dedup, since the control then proves nothing about it" \
+  "[ $rc = 2 ] && grep -qF 'came after the control' '$WORK/j-late/out/verdict.txt'"
+mutate_fx nosalt 'next(r for r in rows if r["id"].endswith("salt-salted512-r0-probe-a"))["predictions"]["r16"]["a"]["cached_tokens"] = 512'
+rc=$?
+check "a harness that does not reproduce the known #3788 on salted prompts fails the session even with both hypotheses judged" \
+  "[ $rc = 2 ] && grep -qF 'salt=not-reproduced' '$WORK/j-nosalt.out'"
 
 echo "$failures failure(s)"
 [ "$failures" = 0 ]

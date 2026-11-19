@@ -57,18 +57,27 @@ mutate() {
 }
 
 # The verdict's guards: what keeps a void from passing as a result.
-mutate "the verdict judges without a passing calibration" "$D/verdict.py" 's|    if calib != "pass" or len(sizes) != 1:|    if len(sizes) != 1:|'
-mutate "the verdict judges with two engine block sizes" "$D/verdict.py" 's|    if calib != "pass" or len(sizes) != 1:|    if calib != "pass":|'
-mutate "dedup ignores a prefix the engine still served after the flood" "$D/verdict.py" 's|            if post\["realized_cached_tokens"\] != 0:|            if False:|'
-mutate "dedup ignores blocks never removed on the wire" "$D/verdict.py" 's|            if unremoved:|            if False:|'
-mutate "dedup ignores a stale control" "$D/verdict.py" 's|        if pred(inc_post, "r16") != 0 or pred(inc_post, "r64") != 0:|        if False:|'
+mutate "the verdict judges without a passing calibration" "$D/verdict.py" 's|        if calib != "pass":|        if False:|'
+mutate "the verdict judges with two engine block sizes" "$D/verdict.py" 's|    if len(sizes) != 1:|    if False:|'
+mutate "the verdict ignores a gap in the event stream" "$D/verdict.py" 's|        if s != list(range(s\[0\], s\[0\] + len(s))):|        if False:|'
+mutate "the verdict judges a run with missing rows" "$D/verdict.py" 's|            if len(got.get((rep, k), \[\])) != 1:|            if False:|'
+mutate "rows ignore a prediction for pod b" "$D/verdict.py" 's|    if any(pred(row, r, "b") != 0 for r in ROUTERS):|    if False:|'
 mutate "rows skip the token parity check" "$D/verdict.py" 's|    if row.get("router_prompt_tokens") != row.get("engine_prompt_tokens"):|    if False:|'
-mutate "rows skip their failures" "$D/verdict.py" 's|    if row.get("error") or row.get("status") != 200 or row.get("realized_cached_tokens", -1) < 0:|    if False:|'
-mutate "bias ignores an engine off its block rule" "$D/verdict.py" 's|        if r\["realized_cached_tokens"\] != expect:|        if False:|'
-mutate "bias never refutes" "$D/verdict.py" 's|    if over == 0:|    if over < 0:|'
-mutate "bias counts the last token as servable" "$D/verdict.py" 's|        expect = floor_to(min(r\["shared_len"\], n - 1), e)|        expect = floor_to(min(r["shared_len"], n), e)|'
+mutate "rows skip their failures" "$D/verdict.py" 's|    if row.get("error"):|    if False:|'
+mutate "dedup ignores a prefix the engine still served after the flood" "$D/verdict.py" 's|            if post\["realized_cached_tokens"\] != 0:|            if False:|'
+mutate "dedup ignores blocks not removed once before the check" "$D/verdict.py" 's|            if any(removes\[h\] != 1 for h in order):|            if False:|'
+mutate "dedup ignores a missing report" "$D/verdict.py" 's|            if any(stores\[h\] != want_stores for h in order):|            if False:|'
+mutate "dedup ignores repeats that were not hits" "$D/verdict.py" 's|            if len(repeats\[c\]) != 3 or any(|            if False and any(|'
+mutate "dedup ignores a stale control" "$D/verdict.py" 's|        if pred(inc_check, "r16") != 0 or pred(inc_check, "r64") != 0:|        if False:|'
+mutate "the verdict ignores a router that missed a batch" "$D/verdict.py" 's|        if got != \[2 \* len(s)\]:|        if False:|'
+mutate "dedup ignores a check taken before the control's" "$D/verdict.py" 's|        if not inc_check\["predicted_unix_nanos"\] < full_check\["predicted_unix_nanos"\]:|        if False:|'
+mutate "dedup ignores removals after the control's barrier" "$D/verdict.py" 's|        if late:|        if False:|'
+mutate "bias ignores an engine off its block rule" "$D/verdict.py" 's|            if r\["realized_cached_tokens"\] != realized:|            if False:|'
+mutate "bias never refutes" "$D/verdict.py" 's|    if a == 0 and b == 0:|    if False:|'
+mutate "bias counts the last token as servable" "$D/verdict.py" 's|            realized = floor_to(min(r\["shared_len"\], length - 1, cached_by_warm), e)|            realized = floor_to(min(r["shared_len"], length, cached_by_warm), e)|'
 # The session's exit status and its cost.
 mutate "the session succeeds on a void" "hack/llmd-prefix-hunt-session.sh" 's|    case "$(verdict_of "$h")" in confirmed \| refuted) ;; \*) return 1 ;; esac|    true|'
+mutate "the session succeeds without the salt control" "hack/llmd-prefix-hunt-session.sh" 's|^  \[ "$(verdict_of salt)" = reproduced \] \|\| return 1|  true|'
 mutate "the cost cap is raised" "hack/llmd-prefix-hunt-session.sh" 's|^COST_CAP_USD=3.00|COST_CAP_USD=30.00|'
 mutate "the Spot cap is raised" "hack/llmd-prefix-hunt-session.sh" 's|^MAX_PRICE_FIXED=0.70|MAX_PRICE_FIXED=1.70|'
 mutate "the probe bound grows in the session only" "hack/llmd-prefix-hunt-session.sh" 's|^PROBE_S=900|PROBE_S=1200|'
@@ -80,11 +89,18 @@ mutate "the runner serves another model revision" "$D/runner.sh" 's|^MODEL_REV=8
 mutate "the runner sets the engine block size" "$D/runner.sh" 's|--max-model-len 4096 --enforce-eager|--max-model-len 4096 --block-size 16 --enforce-eager|'
 mutate "the runner starts the probe while A is not ready" "$D/runner.sh" 's|^ready a "$ADDR_A" "$START_A_S" \|\| {|true \|\| {|'
 mutate "the runner floods only the capacity once over" "$D/runner.sh" 's|^flood=$(( (kv_tokens \* 3 / 2 + 1023) / 1024 ))|flood=$(( (kv_tokens + 1023) / 1024 ))|'
+mutate "the runner marks a failed probe's records whole" "$D/runner.sh" 's|^if \[ "$probe_rc" != 0 \]; then|if false; then|'
+mutate "the replicas keep vLLM's 0.92 utilization default" "$D/runner.sh" 's|^GPU_UTIL=0.45|GPU_UTIL=0.92|'
+mutate "the replicas profile video" "$D/runner.sh" 's|,"video":0}|}|'
 mutate "the runner probes without a readable KV capacity" "$D/runner.sh" 's|  step "KV CAPACITY UNREAD from replica a.s log"; stop_all; exit 2|  kv_tokens=107520|'
 # The probe and its plan.
-mutate "the probe predicts without waiting for events to settle" "$D/probe/main.go" 's|if s.Phase != "flood" \&\& !t.settle(o.quiet, o.grace, o.maxSettle) {|if false \&\& !t.settle(o.quiet, o.grace, o.maxSettle) {|'
+# Removing the probe's settle wait is not among them: it survives, because the fake publishes before it answers, so the test cannot see lag.
+# The dedup verdict does not rest on the settle; it rests on the control's barrier, which the mutants above and the "late" fixture test cover.
 mutate "the control case also sends full reports" "$D/probe/plan.go" 's|}{{"full", full, true}, {"incremental", inc, false}} {|}{{"full", full, true}, {"incremental", inc, true}} {|'
 mutate "the probe reads the prediction after the request" "$D/probe/main.go" 's|^\t\tsend(ctx, client, target.base()+path, raw, \&rec)$|\t\t// the send moved above the prediction|; s|^\t\tif err := predict(ctx, parser, tokens, routers, o.pods, s, path, raw, o.model, \&rec); err != nil {|\t\tsend(ctx, client, target.base()+path, raw, \&rec)\n\t\tt.settle(o.quiet, o.grace, o.maxSettle)\n\t\tif err := predict(ctx, parser, tokens, routers, o.pods, s, path, raw, o.model, \&rec); err != nil {|'
+mutate "the plan checks the reported prefix before the control" "$D/probe/plan.go" 's|}{{"incremental", inc}, {"full", full}} {|}{{"full", full}, {"incremental", inc}} {|'
+mutate "the check rows are sent" "$D/probe/main.go" 's|^\t\tif s.NoSend {|\t\tif false {|'
+mutate "the warm tail does not fill the prefix's engine block" "$D/probe/plan.go" 's|^const warmTail = 104|const warmTail = 40|'
 mutate "the plan sends the post rows before the flood" "$D/probe/plan.go" 's|^\t\tfor i := range floodPrompts {|\t\tfor i := range 0 {|'
 
 echo "$n mutant(s), $survived not killed"
