@@ -1,0 +1,1 @@
+FAILED tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[64-32]

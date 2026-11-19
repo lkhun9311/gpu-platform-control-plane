@@ -1,0 +1,5 @@
+commit=9603dfefa30488be50dc15e175df675a1831e536
+launch_time_epoch=1795062307
+bringup_rc=0
+d878b35f4b0726100e547072197bf903873cfeedf9ea658df73b59ebaf8f1c2e  /opt/gdn/inputs.tgz
+harness_rc=0

@@ -1,0 +1,15 @@
+import_check=ok
+image=ok
+before_identity=ok
+after_identity=ok
+checkout_head=8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd
+order=ok
+repro_mode=cuda-default,cuda-default
+before_repro=bug-shown
+before_line=unwritten 70 o_err 1234.100830078125 state_err nan empty_keeps_h0 True
+after_repro=fixed
+after_line=unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True
+after_unit=missing
+after_core_split=missing
+after_rocm_layout=missing
+verdict=after-unit-test-not-passed

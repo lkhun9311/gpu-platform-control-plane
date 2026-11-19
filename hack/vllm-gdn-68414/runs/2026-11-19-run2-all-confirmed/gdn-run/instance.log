@@ -1,0 +1,256 @@
+++ date +%s
++ SR_START=1795062399
++ BUCKET=gdn-gpu-007635145730
++ PREFIX=vllm-gdn-68414-20261119T042453Z-4fec9740
++ COMMIT=9603dfefa30488be50dc15e175df675a1831e536
++ trap 'upload /var/log/gdn.log log.txt; shutdown -h now' EXIT
++ sleep 3600
++ mkdir -p /src/gdn-run /opt/gdn
++ aws s3 cp --only-show-errors s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/inputs.tgz /opt/gdn/inputs.tgz
+++ sha256sum /opt/gdn/inputs.tgz
+++ cut '-d ' -f1
++ '[' d878b35f4b0726100e547072197bf903873cfeedf9ea658df73b59ebaf8f1c2e = d878b35f4b0726100e547072197bf903873cfeedf9ea658df73b59ebaf8f1c2e ']'
++ mkdir -p /opt/gdn/in
++ tar -xzf /opt/gdn/inputs.tgz -C /opt/gdn/in
++ L=
+++ date +%s
++ '[' 2 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-11-19T04:25:07+00:00 +%s
++ L=1795062307
++ break
+++ date +%s
++ NOW=1795062402
++ [[ 1795062307 =~ ^[0-9]+$ ]]
++ '[' 1795062307 -gt 1795062402 ']'
++ '[' 95 -gt 900 ']'
++ P1=1795062787
++ HE=1795065727
++ EV=1795065847
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+++ date +%s
+++ date +%s
++ sleep 3505
++ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
++ aws s3 cp --only-show-errors /tmp/nvidia-smi.csv s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/preflight-nvidia-smi.csv
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ wc -l
++ '[' 1 = 1 ']'
++ tail -n +2 /tmp/nvidia-smi.csv
++ grep -q A10G
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ awk '-F, ' '{print $4}'
+++ cut -d. -f1
++ drv=595
++ [[ 595 =~ ^[0-9]+$ ]]
++ '[' 595 -ge 580 ']'
++ cat
+++ date +%s
++ bringup_left=384
++ bringup_rc=124
++ '[' 384 -gt 0 ']'
++ timeout --kill-after=15 384 bash /tmp/bringup.sh
+time="2026-11-19T04:26:43Z" level=info msg="Loading config from /etc/docker/daemon.json"
+time="2026-11-19T04:26:43Z" level=info msg="Wrote updated config to /etc/docker/daemon.json"
+time="2026-11-19T04:26:43Z" level=info msg="It is recommended that docker daemon be restarted."
++ bringup_rc=0
++ echo 'bring-up exited 0'
+bring-up exited 0
++ echo commit=9603dfefa30488be50dc15e175df675a1831e536
++ echo launch_time_epoch=1795062307
++ echo bringup_rc=0
++ sha256sum /opt/gdn/inputs.tgz
++ cp /tmp/nvidia-smi.csv /src/gdn-run/nvidia-smi.csv
++ '[' 0 = 0 ']'
++ mkdir -p /src/gdn-run/sweep
++ sync_pid=1794
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
+++ date +%s
+++ date +%s
++ timeout --kill-after=15 3304 bash /opt/gdn/in/runner.sh /opt/gdn/in /src/gdn-run/sweep 1795065727
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ :
++ nice -n 19 ionice -c3 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /src/gdn-run sweep
++ '[' 0 -le 1 ']'
++ timeout 60 nice -n 19 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gdn-gpu-007635145730/vllm-gdn-68414-20261119T042453Z-4fec9740/partial.tgz
++ sleep 30
++ harness_rc=0
++ kill 1794
++ cp /var/log/gdn-sync.log /src/gdn-run/sync.log
++ cat /src/gdn-run/summary.txt
+2026-11-19T04:27:03Z pull public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed
+2026-11-19T04:38:15Z pulled
+2026-11-19T04:38:15Z image identity
+2026-11-19T04:38:34Z image identity ok
+2026-11-19T04:38:34Z state gdn-after: start
+2026-11-19T04:41:11Z state gdn-after: exited 0
+2026-11-19T04:41:11Z gdn states done
+2026-11-19T04:41:11Z state stride-before: start
+2026-11-19T04:41:41Z state stride-before: exited 0
+2026-11-19T04:41:41Z state stride-after: start
+2026-11-19T04:42:11Z state stride-after: exited 0
+2026-11-19T04:42:11Z stride states done
+2026-11-19T04:42:11Z state kda-before: start
+2026-11-19T04:42:38Z state kda-before: exited 0
+2026-11-19T04:42:38Z state kda-after: start
+2026-11-19T04:43:06Z state kda-after: exited 0
+2026-11-19T04:43:06Z kda states done
+2026-11-19T04:43:06Z all items done, 0 state(s) exited non-zero
++ echo harness_rc=0
++ echo 'the runner exited 0'
+the runner exited 0
++ cp /var/log/gdn.log /src/gdn-run/instance.log

@@ -1,0 +1,83 @@
+== the image every call ran in (digest and org.opencontainers.image.revision, as docker image inspect reported them)
+   image:  ["public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:639209c4b3c1f16f309837668608ac889e92db0d4dd4facf5a6987c6d54ef8ac"] 3e469e9ffbef4c54595327df14d209ba9c2481f7
+   wheel:  2cc3650f4449909caa04d892c0c3bd3f0da7e2789fe893414d8c9f514f9959f9  dist/vllm-0.34.0rc1.dev878+g3e469e9ff-cp38-abi3-linux_x86_64.whl
+
+== #68416 BEFORE, test only, -k stride (stride-before, test)
+   command: cd /vllm-workspace && timeout --kill-after=10 60 python3 -m pytest tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py -k stride -rA --tb=short -p no:cacheprovider --junitxml=/out/stride-before/test.xml
+   gpu:     NVIDIA A10G
+   python:  /usr/bin/python3 3.12.3 (pytest 9.2.0)
+   diff:    stride-test.diff sha256 21d8bbecee8dae26df7b75630d3f059513dda2cf022787f8edea28cc04bc5e94 (the pinned one)
+   applied: cd /vllm-workspace && git -c 'safe.directory=*' apply '--exclude=vllm/*' /in/stride-test.diff
+            changed /vllm-workspace/tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py
+   applied: none: the diff changes nothing under vllm/
+   exit:    1
+   summary: ================= 3 failed, 18 deselected, 3 warnings in 6.20s =================
+   cases:   3 in junit
+     failed   test_state_index_table_stride_does_not_change_results[recurrent]
+              > torch.testing.assert_close(results[0][0], results[1][0], rtol=0, atol=0)
+              E   AssertionError: Tensor-likes are not equal!
+              E   Mismatched elements: 192 / 768 (25.0%)
+              E   Greatest absolute difference: 0.027801513671875 at index (0, 3, 0, 61)
+              E   Greatest relative difference: 24.640625 at index (0, 4, 0, 34)
+     failed   test_state_index_table_stride_does_not_change_results[sigmoid_gating]
+              > torch.testing.assert_close(results[0][0], results[1][0], rtol=0, atol=0)
+              E   AssertionError: Tensor-likes are not equal!
+              E   Mismatched elements: 192 / 768 (25.0%)
+              E   Greatest absolute difference: 0.027801513671875 at index (0, 3, 0, 61)
+              E   Greatest relative difference: 24.640625 at index (0, 4, 0, 34)
+     failed   test_state_index_table_stride_does_not_change_results[kda]
+              > torch.testing.assert_close(results[0][0], results[1][0], rtol=0, atol=0)
+              E   AssertionError: Tensor-likes are not equal!
+              E   Mismatched elements: 384 / 768 (50.0%)
+              E   Greatest absolute difference: 0.1751708984375 at index (0, 3, 1, 58)
+              E   Greatest relative difference: 622.5 at index (0, 4, 1, 19)
+
+== #68416 AFTER, full diff, -k stride (stride-after, test)
+   command: cd /vllm-workspace && timeout --kill-after=10 60 python3 -m pytest tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py -k stride -rA --tb=short -p no:cacheprovider --junitxml=/out/stride-after/test.xml
+   gpu:     NVIDIA A10G
+   python:  /usr/bin/python3 3.12.3 (pytest 9.2.0)
+   diff:    stride-fix.diff sha256 0eaef549b2b6919272666660626e70734fb3b07b25ec13d29f52e1d3c178b60a (the pinned one)
+   applied: cd /vllm-workspace && git -c 'safe.directory=*' apply '--exclude=vllm/*' /in/stride-fix.diff
+            changed /vllm-workspace/tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py
+   applied: cd /usr/local/lib/python3.12/dist-packages && git -c 'safe.directory=*' apply '--include=vllm/*' /in/stride-fix.diff
+            changed /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py,/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+   exit:    0
+   summary: ================= 3 passed, 18 deselected, 3 warnings in 4.25s =================
+   cases:   3 in junit
+     passed   test_state_index_table_stride_does_not_change_results[recurrent]
+     passed   test_state_index_table_stride_does_not_change_results[sigmoid_gating]
+     passed   test_state_index_table_stride_does_not_change_results[kda]
+
+== #68416 AFTER, full diff, the whole test file (stride-after, file)
+   command: cd /vllm-workspace && timeout --kill-after=10 120 python3 -m pytest tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py -rA --tb=short -p no:cacheprovider --junitxml=/out/stride-after/file.xml
+   gpu:     NVIDIA A10G
+   python:  /usr/bin/python3 3.12.3 (pytest 9.2.0)
+   diff:    stride-fix.diff sha256 0eaef549b2b6919272666660626e70734fb3b07b25ec13d29f52e1d3c178b60a (the pinned one)
+   applied: cd /vllm-workspace && git -c 'safe.directory=*' apply '--exclude=vllm/*' /in/stride-fix.diff
+            changed /vllm-workspace/tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py
+   applied: cd /usr/local/lib/python3.12/dist-packages && git -c 'safe.directory=*' apply '--include=vllm/*' /in/stride-fix.diff
+            changed /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py,/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+   exit:    0
+   summary: ======================= 21 passed, 3 warnings in 14.54s ========================
+   cases:   21 in junit
+     passed   test_fused_sigmoid_gating_delta_rule_update_non_spec[dtype0-128-128-32-16-1-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_non_spec[dtype0-128-128-32-16-2-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_non_spec[dtype0-128-128-32-16-4-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_non_spec[dtype1-128-128-32-16-1-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_non_spec[dtype1-128-128-32-16-2-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_non_spec[dtype1-128-128-32-16-4-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype0-1-128-128-32-16-1-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype0-1-128-128-32-16-2-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype0-1-128-128-32-16-4-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype0-3-128-128-32-16-1-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype0-3-128-128-32-16-2-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype0-3-128-128-32-16-4-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype1-1-128-128-32-16-1-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype1-1-128-128-32-16-2-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype1-1-128-128-32-16-4-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype1-3-128-128-32-16-1-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype1-3-128-128-32-16-2-1]
+     passed   test_fused_sigmoid_gating_delta_rule_update_spec[dtype1-3-128-128-32-16-4-1]
+     passed   test_state_index_table_stride_does_not_change_results[recurrent]
+     passed   test_state_index_table_stride_does_not_change_results[sigmoid_gating]
+     passed   test_state_index_table_stride_does_not_change_results[kda]

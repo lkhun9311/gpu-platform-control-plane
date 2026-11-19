@@ -1,0 +1,1 @@
+recipes/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml

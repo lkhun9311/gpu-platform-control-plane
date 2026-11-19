@@ -1,0 +1,11 @@
+vllm_version=0.34.0rc1.dev873+g428c371b3
+torch=2.14.0+cu132
+triton=3.8.0
+capability=8.6
+wheel_sha256_file=e43ff635d3287aeecf2757e728ec129c91a95e54eb2e5dd0655f9f38170a1b67 dist/vllm-0.34.0rc1.dev873+g428c371b3-cp38-abi3-linux_x86_64.whl 
+CUDA_VERSION=13.2.1
+HF_HUB_DOWNLOAD_TIMEOUT=60
+HF_XET_HIGH_PERFORMANCE=1
+VLLM_CUDA_COMPATIBILITY_PATH=/usr/local/cuda/compat
+VLLM_ENABLE_CUDA_COMPATIBILITY=0
+VLLM_GPU_SYNC_CHECK=error

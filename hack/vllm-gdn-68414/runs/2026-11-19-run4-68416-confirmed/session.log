@@ -1,0 +1,73 @@
+== vLLM #68416 before and after for vllm-fla-68416-run4-2026-11-19, from 12279fcc7e0399c3de2c2d842c2466c347973639, into hack/vllm-gdn-68414-20261119T080028Z, bought spot
+== spot: $0.70/h compute from the Spot cap MAX_PRICE_FIXED, $0.7792/h all in
+== hard stop 2520 s after LaunchTime; worst case 2820 s at $0.7792/h, $0.6104 under $1.50
+== the two diffs match their pins
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.xlarge under $0.70/h in: ap-northeast-2c ap-northeast-2d ap-northeast-2a (ap-northeast-2a	0.619500 ap-northeast-2d	0.613600 ap-northeast-2c	0.632800)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the build: credentials expire in 350 minutes
+== before the purchase: credentials expire in 350 minutes
+== launching g5.xlarge spot ($0.70/h compute, $0.7792/h all in), study-deadline 2026-11-19T08:41:36Z -- the instance bills from here
+== launched i-0fe962623e8a81071 in ap-northeast-2c
+== LaunchTime 2026-11-19T08:00:37+00:00; the sweeper's deadline moved to 2026-11-19T08:42:07Z
+== the wait ended with status 0 ()
+== waiting up to 1645s for EC2 to report the instance terminated
+== terminating i-0fe962623e8a81071
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is shutting-down
+== i-0fe962623e8a81071 is terminated
+== evidence returned; termination confirmed; stride=confirmed

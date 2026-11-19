@@ -1,0 +1,5 @@
+2026-11-19T04:39:09Z gdn-after: index.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py; fix line: 31:    seq_ids = torch.repeat_interleave( ; output_size: 34:        output_size=indices.numel(), ; bug line: 
+2026-11-19T04:39:09Z gdn-after: kernel_repro.py through run_repro.py, with CUDA as the default device
+2026-11-19T04:40:22Z gdn-after: kernel_repro.py: unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True
+2026-11-19T04:40:22Z gdn-after: pytest unit: tests/kernels/fla/test_chunk_indices.py
+2026-11-19T04:41:11Z gdn-after: pytest unit exited 0: ======================== 12 passed, 3 warnings in 4.00s ========================

@@ -1,0 +1,4 @@
+2026-11-19T07:26:55Z kda-after: kda.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/kda.py; fix line: 56:    o = k.new_empty(v.shape) ; bug line: ; kernel from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py with #68416's term 0 time(s)
+2026-11-19T07:27:11Z kda-after: the collection loaded 591 vllm and tests file(s); of those that differ from the diff base: none
+2026-11-19T07:27:11Z kda-after: pytest test: tests/kernels/fla/test_fused_recurrent_kda.py
+2026-11-19T07:27:29Z kda-after: pytest test exited 0: ======================== 5 passed, 3 warnings in 3.95s =========================

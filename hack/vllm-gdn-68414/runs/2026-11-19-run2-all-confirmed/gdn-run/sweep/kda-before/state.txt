@@ -1,0 +1,14 @@
+started=1795063332
+checkout_head=8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd
+diff_sha256=f3a103fc20f66dafb99574efbab273ea265888935536245499bd423a34f47827
+base_identity=ok
+apply=ok
+applied_identity=ok
+kda_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/kda.py
+fix_grep_rc=1
+bug_grep_rc=0
+pytest_args=tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[64-32] -k 64-32
+test_cmd=cd /vllm-workspace && timeout --kill-after=10 150 python3 -m pytest 'tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[64-32]' -k 64-32 -rA -p no:cacheprovider --junitxml=/out/kda-before/test.xml
+test_rc=1
+test_summary========================= 1 failed, 3 warnings in 1.80s =========================
+ended=1795063358

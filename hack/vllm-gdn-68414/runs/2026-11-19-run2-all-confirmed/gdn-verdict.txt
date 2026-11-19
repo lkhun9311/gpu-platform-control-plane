@@ -1,0 +1,10 @@
+gdn_import_check=ok
+gdn_image=ok
+gdn_after_identity=ok
+gdn_checkout_head=8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd
+gdn_repro_mode=cuda-default
+gdn_after_repro=fixed
+gdn_after_line=unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True
+gdn_before_reference=hack/vllm-gdn-68414/runs/2026-11-19-run1-spot-reclaimed/verdict.txt: unwritten 70 o_err 1234.100830078125 state_err nan empty_keeps_h0 True
+gdn_unit=passed
+gdn_verdict=confirmed

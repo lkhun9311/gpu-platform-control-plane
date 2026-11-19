@@ -1,0 +1,15 @@
+started=1795063302
+checkout_head=8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd
+diff_sha256=7f872cff76664724bd2767ede70490f05bda0a65d475ceb5fdcd4bc6a141488d
+base_identity=ok
+apply=ok
+applied_identity=ok
+fused_recurrent_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+fused_recurrent_fix_count=2
+fused_sigmoid_gating_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+fused_sigmoid_gating_fix_count=2
+pytest_args=tests/kernels/fla/test_state_index_stride.py
+test_cmd=cd /vllm-workspace && timeout --kill-after=10 150 python3 -m pytest tests/kernels/fla/test_state_index_stride.py -rA -p no:cacheprovider --junitxml=/out/stride-after/test.xml
+test_rc=0
+test_summary========================= 2 passed, 3 warnings in 3.62s =========================
+ended=1795063331

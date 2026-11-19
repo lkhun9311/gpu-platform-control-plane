@@ -1,0 +1,31 @@
+started=1795076199
+checkout_head=3e469e9ffbef4c54595327df14d209ba9c2481f7
+python3_path=/usr/bin/python3
+python_executable=/usr/bin/python3
+python_version=3.12.3
+pytest_version=pytest 9.2.0
+gpu_name=NVIDIA A10G
+diff_sha256=21d8bbecee8dae26df7b75630d3f059513dda2cf022787f8edea28cc04bc5e94
+base_identity=ok
+apply_checkout_cmd=cd /vllm-workspace && git -c 'safe.directory=*' apply '--exclude=vllm/*' /in/stride-test.diff
+apply_checkout_files=/vllm-workspace/tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py
+apply_site_cmd=none: the diff changes nothing under vllm/
+apply=ok
+applied_identity=ok
+fused_recurrent_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+fused_sigmoid_gating_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+kda_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/kda.py
+kda_kernel_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+test_file=/vllm-workspace/tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py
+fused_recurrent_fix_count=0
+fused_sigmoid_gating_fix_count=0
+kda_fix_grep_rc=1
+kda_bug_grep_rc=0
+probe_rc=0
+loaded_count=591
+loaded_differs=none
+pytest_args=tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py -k stride
+test_cmd=cd /vllm-workspace && timeout --kill-after=10 60 python3 -m pytest tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py -k stride -rA --tb=short -p no:cacheprovider --junitxml=/out/stride-before/test.xml
+test_rc=1
+test_summary================== 3 failed, 18 deselected, 3 warnings in 6.20s =================
+ended=1795076327

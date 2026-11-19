@@ -220,11 +220,20 @@ spot_subnet_in_zone() {
 # The optional eleventh argument is a security group id. Omitted, the instance takes the VPC's default group, as every
 # runner before hack/slurm-ec2-session.sh did; that session passes its own because its instances talk to each other and
 # the default group in gpu-lab admits all TCP from anywhere.
+#
+# The optional fifteenth argument is the purchase option, "spot" or "on-demand".
+# Omitted, it is "spot", so every runner that does not pass it keeps its launch arguments byte for byte.
+# "on-demand" sends no market options at all, so max_price is not read; any other value refuses the launch.
 spot_launch() {
   local region="$1" ami="$2" instance_type="$3" subnet="$4" profile="$5" \
         max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9" client_token="${10:-}" security_group="${11:-}" \
-        cpu_credits="${12:-}" ebs_throughput="${13:-}" ebs_iops="${14:-}"
-  local token_arg=() sg_arg=() credit_arg=() why ebs_extra=""
+        cpu_credits="${12:-}" ebs_throughput="${13:-}" ebs_iops="${14:-}" market="${15:-spot}"
+  local token_arg=() sg_arg=() credit_arg=() market_arg=() why ebs_extra=""
+  case "$market" in
+    spot) market_arg=(--instance-market-options "{\"MarketType\":\"spot\",\"SpotOptions\":{\"MaxPrice\":\"$max_price\",\"SpotInstanceType\":\"one-time\"}}") ;;
+    on-demand) ;;
+    *) printf 'refusing the launch: the purchase option is %s, not spot or on-demand\n' "$market" >&2; return 1 ;;
+  esac
   # gp3 gives 125 MiB/s and 3,000 IOPS unless more is provisioned, and both are billed by the hour while the volume lives.
   # A caller that provisions more must count it in its own cost cap, so the default stays the free baseline.
   [ -n "$ebs_throughput" ] && ebs_extra="$ebs_extra,\"Throughput\":$ebs_throughput"
@@ -246,7 +255,7 @@ spot_launch() {
     --iam-instance-profile "Name=$profile" \
     --instance-initiated-shutdown-behavior terminate \
     --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":$volume_gb,\"VolumeType\":\"gp3\"$ebs_extra,\"DeleteOnTermination\":true}}]" \
-    --instance-market-options "{\"MarketType\":\"spot\",\"SpotOptions\":{\"MaxPrice\":\"$max_price\",\"SpotInstanceType\":\"one-time\"}}" \
+    ${market_arg[@]+"${market_arg[@]}"} \
     --user-data "file://$user_data_file" \
     --tag-specifications "$tags" \
     ${token_arg[@]+"${token_arg[@]}"} \

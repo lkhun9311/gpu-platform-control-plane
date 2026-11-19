@@ -1,0 +1,54 @@
+== #68414 AFTER, new CPU-only test (gdn-after)
+   command: cd /vllm-workspace && timeout --kill-after=10 120 python3 -m pytest tests/kernels/fla/test_chunk_indices.py -rA -p no:cacheprovider --junitxml=/out/gdn-after/unit.xml
+   diff:    fix.diff sha256 761dc3ef1b95c451463fd5eb017e8e98123ef6f3e274c72891dca9cbefe58dc1 (the pinned one)
+   exit:    0
+   summary: ======================== 12 passed, 3 warnings in 4.00s ========================
+   cases:   12 in junit
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens0-dtype0]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens0-dtype1]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens1-dtype0]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens1-dtype1]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens2-dtype0]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens2-dtype1]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens3-dtype0]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens3-dtype1]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens4-dtype0]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens4-dtype1]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens5-dtype0]
+     passed   test_chunk_indices_keep_ids_of_empty_sequences[seq_lens5-dtype1]
+
+== #68416 BEFORE, test file only (stride-before)
+   command: cd /vllm-workspace && timeout --kill-after=10 150 python3 -m pytest tests/kernels/fla/test_state_index_stride.py -rA -p no:cacheprovider --junitxml=/out/stride-before/test.xml
+   diff:    stride-test.diff sha256 8ff0e99c69e68cfc1dd0f1ed9006a97693f61d115a20f0c244342be0dc36b1e9 (the pinned one)
+   exit:    1
+   summary: ======================== 2 failed, 3 warnings in 3.79s =========================
+   cases:   2 in junit
+     failed   test_state_index_table_stride_does_not_change_results[recurrent]
+     failed   test_state_index_table_stride_does_not_change_results[sigmoid_gating]
+
+== #68416 AFTER, full diff (stride-after)
+   command: cd /vllm-workspace && timeout --kill-after=10 150 python3 -m pytest tests/kernels/fla/test_state_index_stride.py -rA -p no:cacheprovider --junitxml=/out/stride-after/test.xml
+   diff:    stride-fix.diff sha256 7f872cff76664724bd2767ede70490f05bda0a65d475ceb5fdcd4bc6a141488d (the pinned one)
+   exit:    0
+   summary: ======================== 2 passed, 3 warnings in 3.62s =========================
+   cases:   2 in junit
+     passed   test_state_index_table_stride_does_not_change_results[recurrent]
+     passed   test_state_index_table_stride_does_not_change_results[sigmoid_gating]
+
+== #68415 BEFORE, test file only, 64-32 case only (kda-before)
+   command: cd /vllm-workspace && timeout --kill-after=10 150 python3 -m pytest 'tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[64-32]' -k 64-32 -rA -p no:cacheprovider --junitxml=/out/kda-before/test.xml
+   diff:    kda-test.diff sha256 f3a103fc20f66dafb99574efbab273ea265888935536245499bd423a34f47827 (the pinned one)
+   exit:    1
+   summary: ======================== 1 failed, 3 warnings in 1.80s =========================
+   cases:   1 in junit
+     failed   test_fused_recurrent_kda_output_has_value_shape[64-32]
+
+== #68415 AFTER, full diff (kda-after)
+   command: cd /vllm-workspace && timeout --kill-after=10 150 python3 -m pytest tests/kernels/fla/test_fused_recurrent_kda.py -rA -p no:cacheprovider --junitxml=/out/kda-after/test.xml
+   diff:    kda-fix.diff sha256 f896c4800c2494e1c0bd9ab0be44d56709886568599d664e5fb81909290d0ada (the pinned one)
+   exit:    0
+   summary: ======================== 3 passed, 3 warnings in 2.81s =========================
+   cases:   3 in junit
+     passed   test_fused_recurrent_kda_output_has_value_shape[64-32]
+     passed   test_fused_recurrent_kda_output_has_value_shape[64-64]
+     passed   test_fused_recurrent_kda_output_has_value_shape[32-64]
