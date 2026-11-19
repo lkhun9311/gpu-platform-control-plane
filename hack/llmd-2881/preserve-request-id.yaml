@@ -1,0 +1,27 @@
+# The gateway regenerates x-request-id for external requests, so a client's 503 cannot be joined to the EPP log line
+# that produced it.
+# Envoy's preserve_external_request_id keeps the client's id, which the EPP then logs as x-request-id.
+# Only id propagation changes; routing, ext_proc and timeouts are untouched.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: preserve-request-id
+  namespace: default
+spec:
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: inference-gateway
+  configPatches:
+  - applyTo: NETWORK_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        filterChain:
+          filter:
+            name: envoy.filters.network.http_connection_manager
+    patch:
+      operation: MERGE
+      value:
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          preserve_external_request_id: true
