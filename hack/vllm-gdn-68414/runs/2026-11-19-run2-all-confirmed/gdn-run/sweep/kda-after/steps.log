@@ -1,0 +1,3 @@
+2026-11-19T04:42:48Z kda-after: kda.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/kda.py; fix line: 56:    o = k.new_empty(v.shape) ; bug line: 
+2026-11-19T04:42:48Z kda-after: pytest test: tests/kernels/fla/test_fused_recurrent_kda.py
+2026-11-19T04:43:06Z kda-after: pytest test exited 0: ======================== 3 passed, 3 warnings in 2.81s =========================

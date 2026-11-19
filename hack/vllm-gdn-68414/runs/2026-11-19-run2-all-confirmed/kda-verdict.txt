@@ -1,0 +1,9 @@
+kda_import_check=ok
+kda_image=ok
+kda_before_identity=ok
+kda_after_identity=ok
+kda_order=ok
+kda_before_args=tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[64-32] -k 64-32
+kda_before_test=bug-shown
+kda_after_test=passed
+kda_verdict=confirmed

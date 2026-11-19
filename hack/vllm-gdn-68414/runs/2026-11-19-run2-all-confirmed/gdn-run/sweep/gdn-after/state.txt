@@ -1,0 +1,20 @@
+started=1795063116
+checkout_head=8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd
+repro_sha256=766ccd795b2e1f71ba9c48dc99e22deec8f17047467b70866acf7378310af3af
+diff_sha256=761dc3ef1b95c451463fd5eb017e8e98123ef6f3e274c72891dca9cbefe58dc1
+base_identity=ok
+apply=ok
+applied_identity=ok
+index_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py
+fix_grep_rc=0
+outsize_grep_rc=0
+bug_grep_rc=1
+repro_cuda_rc=0
+repro_mode=cuda-default
+repro_index_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py
+repro_line=unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True
+pytest_args=tests/kernels/fla/test_chunk_indices.py
+unit_cmd=cd /vllm-workspace && timeout --kill-after=10 120 python3 -m pytest tests/kernels/fla/test_chunk_indices.py -rA -p no:cacheprovider --junitxml=/out/gdn-after/unit.xml
+unit_rc=0
+unit_summary========================= 12 passed, 3 warnings in 4.00s ========================
+ended=1795063271

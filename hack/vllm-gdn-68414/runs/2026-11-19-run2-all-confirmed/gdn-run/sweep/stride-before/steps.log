@@ -1,0 +1,4 @@
+2026-11-19T04:41:18Z stride-before: fused_recurrent.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py; 'i_t * stride_indices_tok' occurs 0 time(s)
+2026-11-19T04:41:22Z stride-before: fused_sigmoid_gating.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py; 'i_t * stride_indices_tok' occurs 0 time(s)
+2026-11-19T04:41:22Z stride-before: pytest test: tests/kernels/fla/test_state_index_stride.py
+2026-11-19T04:41:41Z stride-before: pytest test exited 1: ======================== 2 failed, 3 warnings in 3.79s =========================

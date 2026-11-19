@@ -1,0 +1,2 @@
+PASSED tests/kernels/fla/test_state_index_stride.py::test_state_index_table_stride_does_not_change_results[recurrent]
+PASSED tests/kernels/fla/test_state_index_stride.py::test_state_index_table_stride_does_not_change_results[sigmoid_gating]

@@ -1,0 +1,76 @@
+/usr/local/lib/python3.12/dist-packages/pytest_asyncio/plugin.py:299: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0
+rootdir: /vllm-workspace
+configfile: pyproject.toml
+plugins: cov-6.3.0, asyncio-1.4.0, buildkite-test-collector-0.1.9, forked-1.6.0, mock-3.14.0, schemathesis-4.26.2, timeout-2.3.1, anyio-4.14.2, rerunfailures-14.0, shard-0.1.2, hypothesis-6.131.0, platformdirs-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1 item
+Running 1 items in this shard
+
+tests/kernels/fla/test_fused_recurrent_kda.py F                          [100%]
+
+=================================== FAILURES ===================================
+____________ test_fused_recurrent_kda_output_has_value_shape[64-32] ____________
+
+head_k_dim = 64, head_v_dim = 32
+
+    @pytest.mark.parametrize("head_k_dim, head_v_dim", [(64, 32), (64, 64), (32, 64)])
+    def test_fused_recurrent_kda_output_has_value_shape(head_k_dim, head_v_dim):
+        """The output must be allocated from v, not k (#68415).
+        The kernel writes HV heads of width V.
+        Zero queries make every output value zero."""
+        device = "cuda"
+        num_tokens = 4
+        q = torch.zeros(1, num_tokens, 1, head_k_dim, dtype=torch.float16, device=device)
+        k = torch.ones_like(q)
+        v = torch.ones(1, num_tokens, 1, head_v_dim, dtype=torch.float16, device=device)
+        g = -torch.ones_like(q, dtype=torch.float32)
+        beta = torch.ones(1, num_tokens, 1, dtype=torch.float16, device=device)
+        state = torch.zeros(
+            num_tokens + 1, 1, head_v_dim, head_k_dim, dtype=torch.float32, device=device
+        )
+    
+        out, _ = fused_recurrent_kda(
+            q,
+            k,
+            v,
+            g,
+            beta,
+            initial_state=state,
+            cu_seqlens=torch.arange(num_tokens + 1, dtype=torch.int32, device=device),
+            ssm_state_indices=torch.arange(
+                1, num_tokens + 1, dtype=torch.int32, device=device
+            ),
+        )
+    
+>       assert out.shape == v.shape
+E       assert torch.Size([1, 4, 1, 64]) == torch.Size([1, 4, 1, 32])
+E         
+E         At index 3 diff: 64 != 32
+E         Use -v to get more diff
+
+tests/kernels/fla/test_fused_recurrent_kda.py:44: AssertionError
+=============================== warnings summary ===============================
+../usr/local/lib/python3.12/dist-packages/anyio/pytest_plugin.py:14
+  /usr/local/lib/python3.12/dist-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+----------------- generated xml file: /out/kda-before/test.xml -----------------
+=========================== short test summary info ============================
+FAILED tests/kernels/fla/test_fused_recurrent_kda.py::test_fused_recurrent_kda_output_has_value_shape[64-32]
+======================== 1 failed, 3 warnings in 1.80s =========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

@@ -1,0 +1,149 @@
+/usr/local/lib/python3.12/dist-packages/pytest_asyncio/plugin.py:299: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0
+rootdir: /vllm-workspace
+configfile: pyproject.toml
+plugins: cov-6.3.0, asyncio-1.4.0, buildkite-test-collector-0.1.9, forked-1.6.0, mock-3.14.0, schemathesis-4.26.2, timeout-2.3.1, anyio-4.14.2, rerunfailures-14.0, shard-0.1.2, hypothesis-6.131.0, platformdirs-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 2 items
+Running 2 items in this shard
+
+tests/kernels/fla/test_state_index_stride.py FF                          [100%]
+
+=================================== FAILURES ===================================
+_______ test_state_index_table_stride_does_not_change_results[recurrent] _______
+
+kernel = 'recurrent'
+
+    @pytest.mark.parametrize("kernel", ["recurrent", "sigmoid_gating"])
+    def test_state_index_table_stride_does_not_change_results(kernel: str):
+        """Equal index values must select the same states whatever the table's strides.
+        The kernels must step through a 2D table with stride_indices_tok (#68416).
+        A column-major copy of the table makes that stride differ from one."""
+        device = "cuda"
+        torch.manual_seed(0)
+        q, k = (torch.randn(1, 6, 1, 64, device=device).half() for _ in range(2))
+        v = torch.randn(1, 6, 2, 64, device=device).half()
+        a, b = (torch.randn(6, 2, device=device).half() for _ in range(2))
+        A_log = torch.log(torch.empty(2, device=device).uniform_(1, 16))
+        dt_bias = torch.randn(2, device=device)
+        cu_seqlens = torch.tensor([0, 3, 6], dtype=torch.int32, device=device)
+        accepted = torch.tensor([1, 2], dtype=torch.int32, device=device)
+        row_major = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.int32, device=device)
+        column_major = row_major.T.contiguous().T
+        assert column_major.stride() != row_major.stride()
+        initial = 0.5 * torch.randn(8, 2, 64, 64, device=device)
+    
+        results = []
+        for indices in (row_major, column_major):
+            state = initial.clone()
+            common = dict(
+                q=q,
+                k=k,
+                v=v,
+                initial_state=state,
+                cu_seqlens=cu_seqlens,
+                inplace_final_state=True,
+                ssm_state_indices=indices,
+                num_accepted_tokens=accepted,
+                use_qk_l2norm_in_kernel=True,
+            )
+            if kernel == "recurrent":
+                g = (-A_log.exp() * F.softplus(a.float() + dt_bias))[None]
+                out, _ = fused_recurrent_gated_delta_rule(
+                    g=g, beta=b.float().sigmoid()[None], **common
+                )
+            else:
+                out, _ = fused_sigmoid_gating_delta_rule_update(
+                    A_log=A_log, a=a, b=b, dt_bias=dt_bias, **common
+                )
+            results.append((out.clone(), state))
+    
+>       torch.testing.assert_close(results[0][0], results[1][0], rtol=0, atol=0)
+E       AssertionError: Tensor-likes are not equal!
+E       
+E       Mismatched elements: 192 / 768 (25.0%)
+E       Greatest absolute difference: 0.027801513671875 at index (0, 3, 0, 61)
+E       Greatest relative difference: 24.640625 at index (0, 4, 0, 34)
+
+tests/kernels/fla/test_state_index_stride.py:65: AssertionError
+____ test_state_index_table_stride_does_not_change_results[sigmoid_gating] _____
+
+kernel = 'sigmoid_gating'
+
+    @pytest.mark.parametrize("kernel", ["recurrent", "sigmoid_gating"])
+    def test_state_index_table_stride_does_not_change_results(kernel: str):
+        """Equal index values must select the same states whatever the table's strides.
+        The kernels must step through a 2D table with stride_indices_tok (#68416).
+        A column-major copy of the table makes that stride differ from one."""
+        device = "cuda"
+        torch.manual_seed(0)
+        q, k = (torch.randn(1, 6, 1, 64, device=device).half() for _ in range(2))
+        v = torch.randn(1, 6, 2, 64, device=device).half()
+        a, b = (torch.randn(6, 2, device=device).half() for _ in range(2))
+        A_log = torch.log(torch.empty(2, device=device).uniform_(1, 16))
+        dt_bias = torch.randn(2, device=device)
+        cu_seqlens = torch.tensor([0, 3, 6], dtype=torch.int32, device=device)
+        accepted = torch.tensor([1, 2], dtype=torch.int32, device=device)
+        row_major = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.int32, device=device)
+        column_major = row_major.T.contiguous().T
+        assert column_major.stride() != row_major.stride()
+        initial = 0.5 * torch.randn(8, 2, 64, 64, device=device)
+    
+        results = []
+        for indices in (row_major, column_major):
+            state = initial.clone()
+            common = dict(
+                q=q,
+                k=k,
+                v=v,
+                initial_state=state,
+                cu_seqlens=cu_seqlens,
+                inplace_final_state=True,
+                ssm_state_indices=indices,
+                num_accepted_tokens=accepted,
+                use_qk_l2norm_in_kernel=True,
+            )
+            if kernel == "recurrent":
+                g = (-A_log.exp() * F.softplus(a.float() + dt_bias))[None]
+                out, _ = fused_recurrent_gated_delta_rule(
+                    g=g, beta=b.float().sigmoid()[None], **common
+                )
+            else:
+                out, _ = fused_sigmoid_gating_delta_rule_update(
+                    A_log=A_log, a=a, b=b, dt_bias=dt_bias, **common
+                )
+            results.append((out.clone(), state))
+    
+>       torch.testing.assert_close(results[0][0], results[1][0], rtol=0, atol=0)
+E       AssertionError: Tensor-likes are not equal!
+E       
+E       Mismatched elements: 192 / 768 (25.0%)
+E       Greatest absolute difference: 0.027801513671875 at index (0, 3, 0, 61)
+E       Greatest relative difference: 24.640625 at index (0, 4, 0, 34)
+
+tests/kernels/fla/test_state_index_stride.py:65: AssertionError
+=============================== warnings summary ===============================
+../usr/local/lib/python3.12/dist-packages/anyio/pytest_plugin.py:14
+  /usr/local/lib/python3.12/dist-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+--------------- generated xml file: /out/stride-before/test.xml ----------------
+=========================== short test summary info ============================
+FAILED tests/kernels/fla/test_state_index_stride.py::test_state_index_table_stride_does_not_change_results[recurrent]
+FAILED tests/kernels/fla/test_state_index_stride.py::test_state_index_table_stride_does_not_change_results[sigmoid_gating]
+======================== 2 failed, 3 warnings in 3.79s =========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

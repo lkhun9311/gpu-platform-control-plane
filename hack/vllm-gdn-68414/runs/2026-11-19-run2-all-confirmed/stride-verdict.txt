@@ -1,0 +1,8 @@
+stride_import_check=ok
+stride_image=ok
+stride_before_identity=ok
+stride_after_identity=ok
+stride_order=ok
+stride_before_test=bug-shown
+stride_after_test=passed
+stride_verdict=confirmed

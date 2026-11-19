@@ -1,0 +1,6 @@
+REPRO_SHA256=766ccd795b2e1f71ba9c48dc99e22deec8f17047467b70866acf7378310af3af
+W1119 04:39:12.313000 190 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1119 04:39:12.313000 190 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1119 04:39:12.314000 190 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True
+REPRO_INDEX_FILE=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py

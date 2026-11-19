@@ -1,0 +1,7 @@
+2b4605a08532fe579bcd2744dbe9721679bab39dafcbb6ace5ddc53d5c88ddc5  /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py
+5f2faa92e84dbd518e0dcc66e4a8966a423e369c65cea4a3d3c3b0e7ebc69b9c  /vllm-workspace/tests/kernels/fla/test_chunk_indices.py
+64079bb4f2225db34868c55f1bb506f8beb2a48be0654bda2c884faeead9bdff  /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/kda.py
+absent  /vllm-workspace/tests/kernels/fla/test_fused_recurrent_kda.py
+9915fb0fe69f3b1205eff1532cb51c4cb640badd4e1bdf8dddced89de6e2ed69  /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+000ab8996af9788fdb8843a6a3b91833e7a14c8acc0e1ea073a536330f64cb6f  /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+absent  /vllm-workspace/tests/kernels/fla/test_state_index_stride.py
