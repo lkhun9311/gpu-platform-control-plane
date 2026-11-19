@@ -290,3 +290,6 @@ infra/aws/bootstrap/.build/
 # The vLLM #58420 session's working directory, so a refused attempt does not leave the tree dirty for the next one.
 # A run's evidence is committed under a directory of its own name, as the readiness preflight's are.
 /hack/vllm-58420-[0-9]*T[0-9]*Z/
+# The llm-d-router #2881 lab: its write-up of the measured runs, and the design record those runs feed.
+!/hack/llmd-2881/README.md
+!/hack/llmd-2881/DESIGN-RECORD.md
