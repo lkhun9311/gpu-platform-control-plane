@@ -137,6 +137,20 @@ hack/llmd-2881/lab.sh down
 The committed runs keep `epp-scored.log.gz`, the log lines the scoring reads; `analyze.py` re-scores them to the same `summary.json` as the full logs did.
 `python3 hack/llmd-2881/test_analyze.py` and `go test ./hack/llmd-2881/loadgen/` check the per-attempt scoring, the percentile and the stream-completion rules.
 
+## Deterministic design tests
+
+`phase2/` holds a local test harness for llm-d-router main `e922a7ae` that compares baseline, a model of #3173, a bounded re-queue and a rank-then-reserve design around main's real detector, plus two tests of the inflight-load producer with duplicate request ids.
+Apply and run it on a checkout of `e922a7ae`:
+
+```
+git apply hack/llmd-2881/phase2/lab2881-harness.patch   # in the llm-d-router checkout
+LAB2881_OUT=results.json go test ./pkg/epp/framework/plugins/flowcontrol/saturationdetector/concurrency/ -run Lab2881 -v
+go test ./pkg/epp/framework/plugins/requesthandling/dataproducer/inflightload/ -run Lab2881 -v
+python3 hack/llmd-2881/phase2/table_p2.py results.json
+```
+
+What it found, and its limits, are in `DESIGN-RECORD.md` section 3.
+
 ## Re-scoring against `685ddf02`
 
 The current `analyze.py` was run over all 36 committed runs and compared field by field with the summaries committed at `685ddf02`.

@@ -1,0 +1,2597 @@
+[
+ {
+  "scenario": "race-window-4000us",
+  "arm": "baseline",
+  "outcomes": {},
+  "attempts_per_request": null,
+  "queue_age_ms": null,
+  "overshoot_max": 500,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": null,
+  "gate_evals": 0,
+  "filter_evals": 0,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 0,
+  "notes": "{\"r2=200 attempts=1 overshoot=false\":30,\"r2=200 attempts=1 overshoot=true\":11,\"r2=503 attempts=1 overshoot=false\":80}"
+ },
+ {
+  "scenario": "race-window-4000us",
+  "arm": "pr3173-model",
+  "outcomes": {},
+  "attempts_per_request": null,
+  "queue_age_ms": null,
+  "overshoot_max": 500,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": null,
+  "gate_evals": 0,
+  "filter_evals": 0,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 0,
+  "notes": "{\"r2=200 attempts=1 overshoot=false\":30,\"r2=200 attempts=1 overshoot=true\":11,\"r2=503 attempts=1 overshoot=false\":80}"
+ },
+ {
+  "scenario": "race-window-4000us",
+  "arm": "requeue",
+  "outcomes": {},
+  "attempts_per_request": null,
+  "queue_age_ms": null,
+  "overshoot_max": 500,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": null,
+  "gate_evals": 0,
+  "filter_evals": 0,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 0,
+  "notes": "{\"r2=200 attempts=1 overshoot=false\":30,\"r2=200 attempts=1 overshoot=true\":11,\"r2=200 attempts=2 overshoot=false\":80}"
+ },
+ {
+  "scenario": "race-window-4000us",
+  "arm": "tryreserve",
+  "outcomes": {},
+  "attempts_per_request": null,
+  "queue_age_ms": null,
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": null,
+  "gate_evals": 0,
+  "filter_evals": 0,
+  "reserve_conflicts": 2,
+  "harness_wall_us": 0,
+  "notes": "{\"r2=200 attempts=1 overshoot=false\":39,\"r2=200 attempts=2 overshoot=false\":82}"
+ },
+ {
+  "scenario": "race-window-100us",
+  "arm": "baseline",
+  "outcomes": {},
+  "attempts_per_request": null,
+  "queue_age_ms": null,
+  "overshoot_max": 500,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": null,
+  "gate_evals": 0,
+  "filter_evals": 0,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 0,
+  "notes": "{\"r2=200 attempts=1 overshoot=false\":108,\"r2=200 attempts=1 overshoot=true\":10,\"r2=503 attempts=1 overshoot=false\":3}"
+ },
+ {
+  "scenario": "race-window-100us",
+  "arm": "pr3173-model",
+  "outcomes": {},
+  "attempts_per_request": null,
+  "queue_age_ms": null,
+  "overshoot_max": 500,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": null,
+  "gate_evals": 0,
+  "filter_evals": 0,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 0,
+  "notes": "{\"r2=200 attempts=1 overshoot=false\":108,\"r2=200 attempts=1 overshoot=true\":10,\"r2=503 attempts=1 overshoot=false\":3}"
+ },
+ {
+  "scenario": "race-window-100us",
+  "arm": "requeue",
+  "outcomes": {},
+  "attempts_per_request": null,
+  "queue_age_ms": null,
+  "overshoot_max": 500,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": null,
+  "gate_evals": 0,
+  "filter_evals": 0,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 0,
+  "notes": "{\"r2=200 attempts=1 overshoot=false\":108,\"r2=200 attempts=1 overshoot=true\":10,\"r2=200 attempts=2 overshoot=false\":3}"
+ },
+ {
+  "scenario": "race-window-100us",
+  "arm": "tryreserve",
+  "outcomes": {},
+  "attempts_per_request": null,
+  "queue_age_ms": null,
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": null,
+  "gate_evals": 0,
+  "filter_evals": 0,
+  "reserve_conflicts": 2,
+  "harness_wall_us": 0,
+  "notes": "{\"r2=200 attempts=1 overshoot=false\":117,\"r2=200 attempts=2 overshoot=false\":4}"
+ },
+ {
+  "scenario": "fragmentation",
+  "arm": "baseline",
+  "outcomes": {
+   "503": 1
+  },
+  "attempts_per_request": {
+   "1": 1
+  },
+  "queue_age_ms": {
+   "max": 4,
+   "p50": 4,
+   "p99": 4
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 1,
+   "dispatch_reserved": 1,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 1,
+  "filter_evals": 1,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 31
+ },
+ {
+  "scenario": "fragmentation",
+  "arm": "pr3173-model",
+  "outcomes": {
+   "200": 1
+  },
+  "attempts_per_request": {
+   "1": 1
+  },
+  "queue_age_ms": {
+   "max": 1000,
+   "p50": 1000,
+   "p99": 1000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 1,
+   "dispatch_reserved": 1,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 1001,
+  "filter_evals": 998,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 659
+ },
+ {
+  "scenario": "fragmentation [capacity-change, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "429": 1
+  },
+  "attempts_per_request": {
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 820,
+   "p50": 820,
+   "p99": 820
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 5,
+   "dispatch_reserved": 5,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 5,
+  "filter_evals": 5,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 32
+ },
+ {
+  "scenario": "fragmentation [capacity-change, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "429": 1
+  },
+  "attempts_per_request": {
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 820,
+   "p50": 820,
+   "p99": 820
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 5,
+   "dispatch_reserved": 5,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 5,
+  "filter_evals": 5,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 29
+ },
+ {
+  "scenario": "fragmentation [capacity-change-oldest-only, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "429": 1
+  },
+  "attempts_per_request": {
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 820,
+   "p50": 820,
+   "p99": 820
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 5,
+   "dispatch_reserved": 5,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 5,
+  "filter_evals": 5,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 33
+ },
+ {
+  "scenario": "fragmentation [capacity-change-oldest-only, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "429": 1
+  },
+  "attempts_per_request": {
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 820,
+   "p50": 820,
+   "p99": 820
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 5,
+   "dispatch_reserved": 5,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 5,
+  "filter_evals": 5,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 36
+ },
+ {
+  "scenario": "fragmentation [next-sample, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "429": 1
+  },
+  "attempts_per_request": {
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 404,
+   "p50": 404,
+   "p99": 404
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 5,
+   "dispatch_reserved": 5,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 5,
+  "filter_evals": 5,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 36
+ },
+ {
+  "scenario": "fragmentation [next-sample, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "429": 1
+  },
+  "attempts_per_request": {
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 404,
+   "p50": 404,
+   "p99": 404
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 5,
+   "dispatch_reserved": 5,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 5,
+  "filter_evals": 5,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 36
+ },
+ {
+  "scenario": "fragmentation [capacity-change-oldest-only, 20 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 1
+  },
+  "attempts_per_request": {
+   "6": 1
+  },
+  "queue_age_ms": {
+   "max": 1000,
+   "p50": 1000,
+   "p99": 1000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 6,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 47
+ },
+ {
+  "scenario": "fragmentation [capacity-change-oldest-only, 20 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 1
+  },
+  "attempts_per_request": {
+   "6": 1
+  },
+  "queue_age_ms": {
+   "max": 1000,
+   "p50": 1000,
+   "p99": 1000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 6,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 44
+ },
+ {
+  "scenario": "saturated-subset",
+  "arm": "baseline",
+  "outcomes": {
+   "200": 1,
+   "503": 1
+  },
+  "attempts_per_request": {
+   "1": 2
+  },
+  "queue_age_ms": {
+   "max": 4,
+   "p50": 0,
+   "p99": 4
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 2,
+   "dispatch_reserved": 2,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2,
+  "filter_evals": 2,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 32
+ },
+ {
+  "scenario": "saturated-subset",
+  "arm": "pr3173-model",
+  "outcomes": {
+   "200": 2
+  },
+  "attempts_per_request": {
+   "1": 2
+  },
+  "queue_age_ms": {
+   "max": 1000,
+   "p50": 991,
+   "p99": 1000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 2,
+   "dispatch_reserved": 2,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 1003,
+  "filter_evals": 1001,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 311
+ },
+ {
+  "scenario": "saturated-subset [capacity-change, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 1,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 1,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 727,
+   "p50": 0,
+   "p99": 727
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 6,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 30
+ },
+ {
+  "scenario": "saturated-subset [capacity-change, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 1,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 1,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 727,
+   "p50": 0,
+   "p99": 727
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 6,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 31
+ },
+ {
+  "scenario": "saturated-subset [capacity-change-oldest-only, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 1,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 1,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 727,
+   "p50": 0,
+   "p99": 727
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 6,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 29
+ },
+ {
+  "scenario": "saturated-subset [capacity-change-oldest-only, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 1,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 1,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 727,
+   "p50": 0,
+   "p99": 727
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 6,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 29
+ },
+ {
+  "scenario": "saturated-subset [next-sample, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 1,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 1,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 404,
+   "p50": 0,
+   "p99": 404
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 6,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 30
+ },
+ {
+  "scenario": "saturated-subset [next-sample, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 1,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 1,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 404,
+   "p50": 0,
+   "p99": 404
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 6,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 34
+ },
+ {
+  "scenario": "saturated-subset [capacity-change-oldest-only, 20 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 2
+  },
+  "attempts_per_request": {
+   "1": 1,
+   "7": 1
+  },
+  "queue_age_ms": {
+   "max": 1000,
+   "p50": 0,
+   "p99": 1000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 8,
+   "dispatch_reserved": 8,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 8,
+  "filter_evals": 8,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 40
+ },
+ {
+  "scenario": "saturated-subset [capacity-change-oldest-only, 20 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 2
+  },
+  "attempts_per_request": {
+   "1": 1,
+   "7": 1
+  },
+  "queue_age_ms": {
+   "max": 1000,
+   "p50": 0,
+   "p99": 1000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 8,
+   "dispatch_reserved": 8,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 8,
+  "filter_evals": 8,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 39
+ },
+ {
+  "scenario": "long-saturation",
+  "arm": "baseline",
+  "outcomes": {
+   "200": 10,
+   "503": 20
+  },
+  "attempts_per_request": {
+   "1": 30
+  },
+  "queue_age_ms": {
+   "max": 4,
+   "p50": 4,
+   "p99": 4
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 30,
+   "dispatch_reserved": 30,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 30,
+  "filter_evals": 30,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 341
+ },
+ {
+  "scenario": "long-saturation",
+  "arm": "pr3173-model",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 30
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 702,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 30,
+   "dispatch_reserved": 30,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2369,
+  "filter_evals": 2365,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 2137
+ },
+ {
+  "scenario": "long-saturation [capacity-change, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 18,
+   "429": 12
+  },
+  "attempts_per_request": {
+   "1": 10,
+   "2": 2,
+   "3": 2,
+   "4": 2,
+   "5": 14
+  },
+  "queue_age_ms": {
+   "max": 820,
+   "p50": 502,
+   "p99": 820
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 98,
+   "dispatch_reserved": 98,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 98,
+  "filter_evals": 98,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 289
+ },
+ {
+  "scenario": "long-saturation [capacity-change, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 18,
+   "429": 12
+  },
+  "attempts_per_request": {
+   "1": 10,
+   "2": 2,
+   "3": 2,
+   "4": 2,
+   "5": 14
+  },
+  "queue_age_ms": {
+   "max": 820,
+   "p50": 502,
+   "p99": 820
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 98,
+   "dispatch_reserved": 98,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 98,
+  "filter_evals": 98,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 255
+ },
+ {
+  "scenario": "long-saturation [capacity-change-oldest-only, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 18,
+   "429": 12
+  },
+  "attempts_per_request": {
+   "1": 10,
+   "2": 2,
+   "3": 2,
+   "4": 2,
+   "5": 14
+  },
+  "queue_age_ms": {
+   "max": 820,
+   "p50": 601,
+   "p99": 820
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 98,
+   "dispatch_reserved": 98,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 98,
+  "filter_evals": 98,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 242
+ },
+ {
+  "scenario": "long-saturation [capacity-change-oldest-only, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 18,
+   "429": 12
+  },
+  "attempts_per_request": {
+   "1": 10,
+   "2": 2,
+   "3": 2,
+   "4": 2,
+   "5": 14
+  },
+  "queue_age_ms": {
+   "max": 820,
+   "p50": 601,
+   "p99": 820
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 98,
+   "dispatch_reserved": 98,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 98,
+  "filter_evals": 98,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 243
+ },
+ {
+  "scenario": "long-saturation [next-sample, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 14,
+   "429": 16
+  },
+  "attempts_per_request": {
+   "1": 10,
+   "2": 1,
+   "3": 1,
+   "4": 1,
+   "5": 17
+  },
+  "queue_age_ms": {
+   "max": 404,
+   "p50": 404,
+   "p99": 404
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 104,
+   "dispatch_reserved": 104,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 104,
+  "filter_evals": 104,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 243
+ },
+ {
+  "scenario": "long-saturation [next-sample, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 14,
+   "429": 16
+  },
+  "attempts_per_request": {
+   "1": 10,
+   "2": 1,
+   "3": 1,
+   "4": 1,
+   "5": 17
+  },
+  "queue_age_ms": {
+   "max": 404,
+   "p50": 404,
+   "p99": 404
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 104,
+   "dispatch_reserved": 104,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 104,
+  "filter_evals": 104,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 598
+ },
+ {
+  "scenario": "long-saturation [capacity-change-oldest-only, 20 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 8,
+   "10": 2,
+   "11": 3,
+   "2": 4,
+   "3": 2,
+   "4": 1,
+   "5": 2,
+   "6": 2,
+   "7": 2,
+   "8": 2,
+   "9": 2
+  },
+  "queue_age_ms": {
+   "max": 2005,
+   "p50": 612,
+   "p99": 2005
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 149,
+   "dispatch_reserved": 149,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 149,
+  "filter_evals": 149,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 338
+ },
+ {
+  "scenario": "long-saturation [capacity-change-oldest-only, 20 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 8,
+   "10": 2,
+   "11": 3,
+   "2": 4,
+   "3": 2,
+   "4": 1,
+   "5": 2,
+   "6": 2,
+   "7": 2,
+   "8": 2,
+   "9": 2
+  },
+  "queue_age_ms": {
+   "max": 2005,
+   "p50": 612,
+   "p99": 2005
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 149,
+   "dispatch_reserved": 149,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 149,
+  "filter_evals": 149,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 339
+ },
+ {
+  "scenario": "long-saturation-gate-closed",
+  "arm": "baseline",
+  "outcomes": {
+   "200": 21,
+   "503": 9
+  },
+  "attempts_per_request": {
+   "1": 30
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 518,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 30,
+   "dispatch_reserved": 30,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2049,
+  "filter_evals": 30,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 896
+ },
+ {
+  "scenario": "long-saturation-gate-closed",
+  "arm": "pr3173-model",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 30
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 702,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 30,
+   "dispatch_reserved": 30,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2369,
+  "filter_evals": 350,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 699
+ },
+ {
+  "scenario": "long-saturation-gate-closed [capacity-change, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 21,
+   "2": 3,
+   "3": 6
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 706,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2064,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 939
+ },
+ {
+  "scenario": "long-saturation-gate-closed [capacity-change, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 21,
+   "2": 3,
+   "3": 6
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 706,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2064,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 932
+ },
+ {
+  "scenario": "long-saturation-gate-closed [capacity-change-oldest-only, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 21,
+   "2": 3,
+   "3": 6
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 706,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2064,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 645
+ },
+ {
+  "scenario": "long-saturation-gate-closed [capacity-change-oldest-only, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 21,
+   "2": 3,
+   "3": 6
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 706,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2064,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 963
+ },
+ {
+  "scenario": "long-saturation-gate-closed [next-sample, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 21,
+   "2": 2,
+   "3": 1,
+   "4": 5,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 701,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 53,
+   "dispatch_reserved": 53,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2072,
+  "filter_evals": 53,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 606
+ },
+ {
+  "scenario": "long-saturation-gate-closed [next-sample, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 21,
+   "2": 2,
+   "3": 1,
+   "4": 5,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 701,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 53,
+   "dispatch_reserved": 53,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2072,
+  "filter_evals": 53,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 936
+ },
+ {
+  "scenario": "long-saturation-gate-closed [capacity-change-oldest-only, 20 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 21,
+   "2": 3,
+   "3": 6
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 706,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2064,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 581
+ },
+ {
+  "scenario": "long-saturation-gate-closed [capacity-change-oldest-only, 20 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 30
+  },
+  "attempts_per_request": {
+   "1": 21,
+   "2": 3,
+   "3": 6
+  },
+  "queue_age_ms": {
+   "max": 2000,
+   "p50": 706,
+   "p99": 2000
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 2064,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 933
+ },
+ {
+  "scenario": "oversized-under-steady-small-load",
+  "arm": "baseline",
+  "outcomes": {
+   "200": 40,
+   "503": 1
+  },
+  "attempts_per_request": {
+   "1": 41
+  },
+  "queue_age_ms": {
+   "max": 4,
+   "p50": 0,
+   "p99": 4
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "503": 1
+    },
+    "queue_age_ms_max": 4,
+    "queue_age_ms_p50": 4
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 41,
+   "dispatch_reserved": 41,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 41,
+  "filter_evals": 41,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 291
+ },
+ {
+  "scenario": "oversized-under-steady-small-load",
+  "arm": "pr3173-model",
+  "outcomes": {
+   "200": 41
+  },
+  "attempts_per_request": {
+   "1": 41
+  },
+  "queue_age_ms": {
+   "max": 756,
+   "p50": 311,
+   "p99": 756
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 1
+    },
+    "queue_age_ms_max": 305,
+    "queue_age_ms_p50": 305
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 756,
+    "queue_age_ms_p50": 311
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 41,
+   "dispatch_reserved": 41,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 4649,
+  "filter_evals": 4127,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 1379
+ },
+ {
+  "scenario": "oversized-under-steady-small-load [capacity-change, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 40,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 40,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 459,
+   "p50": 0,
+   "p99": 459
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "429": 1
+    },
+    "queue_age_ms_max": 459,
+    "queue_age_ms_p50": 459
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 45,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 350
+ },
+ {
+  "scenario": "oversized-under-steady-small-load [capacity-change, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 40,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 40,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 459,
+   "p50": 0,
+   "p99": 459
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "429": 1
+    },
+    "queue_age_ms_max": 459,
+    "queue_age_ms_p50": 459
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 45,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 342
+ },
+ {
+  "scenario": "oversized-under-steady-small-load [capacity-change-oldest-only, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 40,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 40,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 459,
+   "p50": 0,
+   "p99": 459
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "429": 1
+    },
+    "queue_age_ms_max": 459,
+    "queue_age_ms_p50": 459
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 45,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 339
+ },
+ {
+  "scenario": "oversized-under-steady-small-load [capacity-change-oldest-only, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 40,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 40,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 459,
+   "p50": 0,
+   "p99": 459
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "429": 1
+    },
+    "queue_age_ms_max": 459,
+    "queue_age_ms_p50": 459
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 45,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 568
+ },
+ {
+  "scenario": "oversized-under-steady-small-load [next-sample, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 40,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 40,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 404,
+   "p50": 0,
+   "p99": 404
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "429": 1
+    },
+    "queue_age_ms_max": 404,
+    "queue_age_ms_p50": 404
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 45,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 347
+ },
+ {
+  "scenario": "oversized-under-steady-small-load [next-sample, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 40,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 40,
+   "5": 1
+  },
+  "queue_age_ms": {
+   "max": 404,
+   "p50": 0,
+   "p99": 404
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "429": 1
+    },
+    "queue_age_ms_max": 404,
+    "queue_age_ms_p50": 404
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 45,
+   "dispatch_reserved": 45,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 45,
+  "filter_evals": 45,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 348
+ },
+ {
+  "scenario": "oversized-under-steady-small-load [capacity-change-oldest-only, 20 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 40,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 40,
+   "20": 1
+  },
+  "queue_age_ms": {
+   "max": 2709,
+   "p50": 0,
+   "p99": 2709
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "429": 1
+    },
+    "queue_age_ms_max": 2709,
+    "queue_age_ms_p50": 2709
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 60,
+   "dispatch_reserved": 60,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 60,
+  "filter_evals": 60,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 352
+ },
+ {
+  "scenario": "oversized-under-steady-small-load [capacity-change-oldest-only, 20 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 40,
+   "429": 1
+  },
+  "attempts_per_request": {
+   "1": 40,
+   "20": 1
+  },
+  "queue_age_ms": {
+   "max": 2709,
+   "p50": 0,
+   "p99": 2709
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "429": 1
+    },
+    "queue_age_ms_max": 2709,
+    "queue_age_ms_p50": 2709
+   },
+   "small": {
+    "outcomes": {
+     "200": 40
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 60,
+   "dispatch_reserved": 60,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 60,
+  "filter_evals": 60,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 363
+ },
+ {
+  "scenario": "oversized-empty-pod",
+  "arm": "baseline",
+  "outcomes": {
+   "200": 1
+  },
+  "attempts_per_request": {
+   "1": 1
+  },
+  "queue_age_ms": {
+   "max": 0,
+   "p50": 0,
+   "p99": 0
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 1
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 1,
+   "dispatch_reserved": 1,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 1,
+  "filter_evals": 1,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 10
+ },
+ {
+  "scenario": "oversized-empty-pod",
+  "arm": "pr3173-model",
+  "outcomes": {
+   "200": 1
+  },
+  "attempts_per_request": {
+   "1": 1
+  },
+  "queue_age_ms": {
+   "max": 4,
+   "p50": 4,
+   "p99": 4
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 1
+    },
+    "queue_age_ms_max": 4,
+    "queue_age_ms_p50": 4
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 1,
+   "dispatch_reserved": 1,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 5,
+  "filter_evals": 2,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 10
+ },
+ {
+  "scenario": "oversized-empty-pod",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 1
+  },
+  "attempts_per_request": {
+   "1": 1
+  },
+  "queue_age_ms": {
+   "max": 0,
+   "p50": 0,
+   "p99": 0
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 1
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 1,
+   "dispatch_reserved": 1,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 1,
+  "filter_evals": 1,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 12
+ },
+ {
+  "scenario": "oversized-empty-pod",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 1
+  },
+  "attempts_per_request": {
+   "1": 1
+  },
+  "queue_age_ms": {
+   "max": 0,
+   "p50": 0,
+   "p99": 0
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 1
+    },
+    "queue_age_ms_max": 0,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 1,
+   "dispatch_reserved": 1,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 1,
+  "filter_evals": 1,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 14
+ },
+ {
+  "scenario": "cancellation",
+  "arm": "baseline",
+  "outcomes": {
+   "499": 3,
+   "503": 1
+  },
+  "attempts_per_request": {
+   "1": 4
+  },
+  "queue_age_ms": {
+   "max": 100,
+   "p50": 4,
+   "p99": 100
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 4,
+   "dispatch_reserved": 4,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 4,
+  "filter_evals": 3,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 43
+ },
+ {
+  "scenario": "cancellation",
+  "arm": "pr3173-model",
+  "outcomes": {
+   "499": 4
+  },
+  "attempts_per_request": {
+   "0": 2,
+   "1": 2
+  },
+  "queue_age_ms": {
+   "max": 500,
+   "p50": 4.1,
+   "p99": 500
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 2,
+   "dispatch_reserved": 2,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 513,
+  "filter_evals": 499,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 113
+ },
+ {
+  "scenario": "cancellation",
+  "arm": "requeue",
+  "outcomes": {
+   "499": 4
+  },
+  "attempts_per_request": {
+   "1": 3,
+   "3": 1
+  },
+  "queue_age_ms": {
+   "max": 500,
+   "p50": 4.1,
+   "p99": 500
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 5,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 42
+ },
+ {
+  "scenario": "cancellation",
+  "arm": "tryreserve",
+  "outcomes": {
+   "499": 4
+  },
+  "attempts_per_request": {
+   "1": 3,
+   "3": 1
+  },
+  "queue_age_ms": {
+   "max": 500,
+   "p50": 4.1,
+   "p99": 500
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 6,
+   "dispatch_reserved": 6,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 6,
+  "filter_evals": 5,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 41
+ },
+ {
+  "scenario": "duplicate-id-dispatch-reservation",
+  "arm": "baseline",
+  "outcomes": null,
+  "attempts_per_request": null,
+  "queue_age_ms": null,
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": null,
+  "gate_evals": 0,
+  "filter_evals": 0,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 0,
+  "notes": "second ReserveDispatch=false, pending while both in flight=1, release first=true second=false"
+ },
+ {
+  "scenario": "two-replicas-50ms-sync",
+  "arm": "baseline",
+  "outcomes": {
+   "200": 110,
+   "503": 10
+  },
+  "attempts_per_request": {
+   "1": 120
+  },
+  "queue_age_ms": {
+   "max": 4,
+   "p50": 0,
+   "p99": 4
+  },
+  "overshoot_max": 932,
+  "overshoot_duration_ms": 4478,
+  "reservation_balance": {
+   "dispatch_released": 120,
+   "dispatch_reserved": 120,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 120,
+  "filter_evals": 120,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 939
+ },
+ {
+  "scenario": "two-replicas-50ms-sync",
+  "arm": "pr3173-model",
+  "outcomes": {
+   "200": 120
+  },
+  "attempts_per_request": {
+   "1": 120
+  },
+  "queue_age_ms": {
+   "max": 331,
+   "p50": 4,
+   "p99": 331
+  },
+  "overshoot_max": 903,
+  "overshoot_duration_ms": 4445,
+  "reservation_balance": {
+   "dispatch_released": 120,
+   "dispatch_reserved": 120,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 3639,
+  "filter_evals": 825,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 1858
+ },
+ {
+  "scenario": "two-replicas-50ms-sync",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 120
+  },
+  "attempts_per_request": {
+   "1": 110,
+   "3": 10
+  },
+  "queue_age_ms": {
+   "max": 511,
+   "p50": 0,
+   "p99": 511
+  },
+  "overshoot_max": 932,
+  "overshoot_duration_ms": 4495,
+  "reservation_balance": {
+   "dispatch_released": 140,
+   "dispatch_reserved": 140,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 1150,
+  "filter_evals": 140,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 965
+ },
+ {
+  "scenario": "two-replicas-50ms-sync",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 120
+  },
+  "attempts_per_request": {
+   "1": 110,
+   "3": 10
+  },
+  "queue_age_ms": {
+   "max": 511,
+   "p50": 0,
+   "p99": 511
+  },
+  "overshoot_max": 932,
+  "overshoot_duration_ms": 4502.5,
+  "reservation_balance": {
+   "dispatch_released": 140,
+   "dispatch_reserved": 140,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 1150,
+  "filter_evals": 140,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 1291
+ },
+ {
+  "scenario": "burst-10x24",
+  "arm": "baseline",
+  "outcomes": {
+   "200": 118,
+   "503": 122
+  },
+  "attempts_per_request": {
+   "1": 240
+  },
+  "queue_age_ms": {
+   "max": 4,
+   "p50": 4,
+   "p99": 4
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 35,
+     "503": 55
+    },
+    "queue_age_ms_max": 4,
+    "queue_age_ms_p50": 4
+   },
+   "small": {
+    "outcomes": {
+     "200": 83,
+     "503": 67
+    },
+    "queue_age_ms_max": 4,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 240,
+   "dispatch_reserved": 240,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 240,
+  "filter_evals": 240,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 1396
+ },
+ {
+  "scenario": "burst-10x24",
+  "arm": "pr3173-model",
+  "outcomes": {
+   "200": 240
+  },
+  "attempts_per_request": {
+   "1": 240
+  },
+  "queue_age_ms": {
+   "max": 967.91,
+   "p50": 336.04,
+   "p99": 913.91
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 90
+    },
+    "queue_age_ms_max": 888.57,
+    "queue_age_ms_p50": 336.53
+   },
+   "small": {
+    "outcomes": {
+     "200": 150
+    },
+    "queue_age_ms_max": 967.91,
+    "queue_age_ms_p50": 329.87
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 240,
+   "dispatch_reserved": 240,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 9349,
+  "filter_evals": 9415,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 7180
+ },
+ {
+  "scenario": "burst-10x24 [capacity-change, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 148,
+   "429": 92
+  },
+  "attempts_per_request": {
+   "1": 118,
+   "3": 8,
+   "4": 11,
+   "5": 103
+  },
+  "queue_age_ms": {
+   "max": 361.55,
+   "p50": 270.04,
+   "p99": 361.21
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 40,
+     "429": 50
+    },
+    "queue_age_ms_max": 361.55,
+    "queue_age_ms_p50": 325.74
+   },
+   "small": {
+    "outcomes": {
+     "200": 108,
+     "429": 42
+    },
+    "queue_age_ms_max": 360.06,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 701,
+   "dispatch_reserved": 701,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 701,
+  "filter_evals": 701,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 2418
+ },
+ {
+  "scenario": "burst-10x24 [capacity-change, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 148,
+   "429": 92
+  },
+  "attempts_per_request": {
+   "1": 118,
+   "3": 8,
+   "4": 11,
+   "5": 103
+  },
+  "queue_age_ms": {
+   "max": 361.55,
+   "p50": 270.04,
+   "p99": 361.21
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 40,
+     "429": 50
+    },
+    "queue_age_ms_max": 361.55,
+    "queue_age_ms_p50": 325.74
+   },
+   "small": {
+    "outcomes": {
+     "200": 108,
+     "429": 42
+    },
+    "queue_age_ms_max": 360.06,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 701,
+   "dispatch_reserved": 701,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 701,
+  "filter_evals": 701,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 2412
+ },
+ {
+  "scenario": "burst-10x24 [capacity-change-oldest-only, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 220,
+   "429": 20
+  },
+  "attempts_per_request": {
+   "1": 118,
+   "3": 49,
+   "4": 38,
+   "5": 35
+  },
+  "queue_age_ms": {
+   "max": 821.57,
+   "p50": 291.21,
+   "p99": 820.91
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 74,
+     "429": 16
+    },
+    "queue_age_ms_max": 821.57,
+    "queue_age_ms_p50": 359.53
+   },
+   "small": {
+    "outcomes": {
+     "200": 146,
+     "429": 4
+    },
+    "queue_age_ms_max": 820.91,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 592,
+   "dispatch_reserved": 592,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 592,
+  "filter_evals": 592,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 2125
+ },
+ {
+  "scenario": "burst-10x24 [capacity-change-oldest-only, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 220,
+   "429": 20
+  },
+  "attempts_per_request": {
+   "1": 118,
+   "3": 49,
+   "4": 38,
+   "5": 35
+  },
+  "queue_age_ms": {
+   "max": 821.57,
+   "p50": 291.21,
+   "p99": 820.91
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 74,
+     "429": 16
+    },
+    "queue_age_ms_max": 821.57,
+    "queue_age_ms_p50": 359.53
+   },
+   "small": {
+    "outcomes": {
+     "200": 146,
+     "429": 4
+    },
+    "queue_age_ms_max": 820.91,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 592,
+   "dispatch_reserved": 592,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 592,
+  "filter_evals": 592,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 2459
+ },
+ {
+  "scenario": "burst-10x24 [next-sample, 5 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 169,
+   "429": 71
+  },
+  "attempts_per_request": {
+   "1": 118,
+   "4": 14,
+   "5": 108
+  },
+  "queue_age_ms": {
+   "max": 396.4,
+   "p50": 290.38,
+   "p99": 396.38
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 48,
+     "429": 42
+    },
+    "queue_age_ms_max": 396.4,
+    "queue_age_ms_p50": 392.53
+   },
+   "small": {
+    "outcomes": {
+     "200": 121,
+     "429": 29
+    },
+    "queue_age_ms_max": 396.06,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 714,
+   "dispatch_reserved": 714,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 714,
+  "filter_evals": 714,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 2442
+ },
+ {
+  "scenario": "burst-10x24 [next-sample, 5 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 169,
+   "429": 71
+  },
+  "attempts_per_request": {
+   "1": 118,
+   "4": 14,
+   "5": 108
+  },
+  "queue_age_ms": {
+   "max": 396.4,
+   "p50": 290.38,
+   "p99": 396.38
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 48,
+     "429": 42
+    },
+    "queue_age_ms_max": 396.4,
+    "queue_age_ms_p50": 392.53
+   },
+   "small": {
+    "outcomes": {
+     "200": 121,
+     "429": 29
+    },
+    "queue_age_ms_max": 396.06,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 714,
+   "dispatch_reserved": 714,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 714,
+  "filter_evals": 714,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 2129
+ },
+ {
+  "scenario": "burst-10x24 [capacity-change-oldest-only, 20 attempts]",
+  "arm": "requeue",
+  "outcomes": {
+   "200": 240
+  },
+  "attempts_per_request": {
+   "1": 118,
+   "3": 43,
+   "4": 36,
+   "5": 12,
+   "6": 19,
+   "7": 10,
+   "8": 2
+  },
+  "queue_age_ms": {
+   "max": 948.91,
+   "p50": 291.21,
+   "p99": 939.4
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 90
+    },
+    "queue_age_ms_max": 947.57,
+    "queue_age_ms_p50": 374.87
+   },
+   "small": {
+    "outcomes": {
+     "200": 150
+    },
+    "queue_age_ms_max": 948.91,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 651,
+   "dispatch_reserved": 651,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 651,
+  "filter_evals": 651,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 2452
+ },
+ {
+  "scenario": "burst-10x24 [capacity-change-oldest-only, 20 attempts]",
+  "arm": "tryreserve",
+  "outcomes": {
+   "200": 240
+  },
+  "attempts_per_request": {
+   "1": 118,
+   "3": 43,
+   "4": 36,
+   "5": 12,
+   "6": 19,
+   "7": 10,
+   "8": 2
+  },
+  "queue_age_ms": {
+   "max": 948.91,
+   "p50": 291.21,
+   "p99": 939.4
+  },
+  "by_size": {
+   "large": {
+    "outcomes": {
+     "200": 90
+    },
+    "queue_age_ms_max": 948.57,
+    "queue_age_ms_p50": 374.87
+   },
+   "small": {
+    "outcomes": {
+     "200": 150
+    },
+    "queue_age_ms_max": 948.91,
+    "queue_age_ms_p50": 0
+   }
+  },
+  "overshoot_max": 0,
+  "overshoot_duration_ms": 0,
+  "reservation_balance": {
+   "dispatch_released": 651,
+   "dispatch_reserved": 651,
+   "load_left_at_end": null,
+   "pending_dispatches_at_end": 0
+  },
+  "gate_evals": 651,
+  "filter_evals": 651,
+  "reserve_conflicts": 0,
+  "harness_wall_us": 2473
+ }
+]

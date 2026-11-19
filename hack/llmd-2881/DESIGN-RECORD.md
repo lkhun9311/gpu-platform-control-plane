@@ -1,8 +1,8 @@
 # Design record: release-then-reject in llm-d-router (#2881)
 
 Status: baseline and two alternatives measured on kind with a simulator.
-The re-queue and endpoint-reservation designs are not implemented or measured yet; section 3 is where deterministic
-tests of them will go.
+The re-queue and endpoint-reservation designs exist only as models in a deterministic test harness around main's real
+detector (section 3); they are not implemented in the EPP and not measured on kind or a real engine.
 Every number here comes from `runs/` and is reproduced by `analyze.py` and `table.py`; README.md has the setup and the
 counting rule.
 
@@ -176,7 +176,7 @@ Like B, it keeps the filter's limit, unlike A.
 It cannot claim a hard bound on per-pod load: the filter-to-PreRequest race that lets two requests pass against the
 same room survives it.
 Its costs are repeated producer work on each retry, extra queue time, and retry churn when saturation outlasts the
-cap; none of these is measured yet.
+cap; section 3 models them.
 
 ### D. Rank, then atomically reserve the selected endpoint
 
@@ -187,8 +187,153 @@ endpoint, a reservation released exactly once, and, across EPP replicas, coordin
 
 ## 3. Comparison in deterministic tests
 
-TODO: filled by the Phase 2 tests (races, fragmentation, subset saturation, long saturation, oversized request,
-cancellation and duplicate ids, two EPP replicas).
+### What was run, and what it is not
+
+`phase2/lab2881-harness.patch` adds two test files to llm-d-router main `e922a7ae` (`git apply --check` clean on the
+pinned checkout); they stay local and are not proposed upstream.
+
+- `lab2881_sim_test.go` drives main's real concurrency detector (`Saturation`, `Filter`, `admits`, `ReserveDispatch`,
+  `ReleaseDispatch`) through a discrete-event simulation in virtual microseconds.
+  Flow control is modelled as main runs it: one dispatch cycle on each arrival and on a 1 ms ticker, at most one release
+  per cycle, head-of-line within one flow (`processor.go:237`, `:278`-`:280`), and the gate reads saturation over the
+  whole pool (`processor.go:490`).
+  Endpoint choice is least estimated tokens with equal loads rotated, as the max-score picker rotates ties
+  (`picker/maxscore/picker.go:108`).
+  Release to filter is 4 ms (main tokenizes after release) and filter to PreRequest 0.5 ms.
+- The four arms are models, written in the test file, around that real detector:
+  - **baseline**: main, `failOpen: false`; an empty filter result is a 503.
+  - **#3173 model**: the pool gate, then a request is released only once its preparation (charged 3.9 ms while
+    queued) is done and some candidate its metadata selects passes the detector's filter with its projected cost;
+    release to filter is then 0.1 ms.
+    It models the PR's gate; it is not the PR's processor code, which the kind runs in section 2 measured.
+  - **re-queue**: an empty filter result releases the dispatch reservation and puts the request back with its
+    original enqueue time, held until a wake rule fires; 429 when it reaches its attempt cap or 5 s since enqueue.
+    Wake rules: every held request on any load drop (`capacity-change`), only the oldest held request on a load drop
+    (`capacity-change-oldest-only`), or the next 100 ms saturation sample (`next-sample`); a 200 ms backoff also wakes
+    a held request under the first two.
+  - **try-reserve**: as re-queue, and after ranking, a check-and-add of the request's cost on the selected endpoint
+    with the detector's own `admits` test; a lost check re-queues.
+    The reservation is the load from then on, and PreRequest consumes it.
+- Virtual time makes every interleaving deterministic; the barriers around filter evaluation and PreRequest are those
+  delays, and the race case sweeps the second request across them.
+- Overshoot is tokens above the 1024 limit on a pod running more than one request, so the detector's own exception
+  for one oversized request on an empty pod is not counted.
+- Gate and filter evaluation counts stand in for EPP CPU; no CPU time was measured.
+- Not run on kind: the prototypes exist only in this harness, so a kind run would measure the harness, not the EPP.
+  The loadgen's new stream fields were checked against the pinned simulator binary run locally (8 requests: content
+  events, `usage.completion_tokens` and `max_tokens` equal, `[DONE]` seen on every stream).
+
+Results: `phase2/results.json`, `phase2/run.log`; tables: `python3 hack/llmd-2881/phase2/table_p2.py
+hack/llmd-2881/phase2/results.json`.
+Every arm in every case ended with dispatch reservations taken equal to released, zero pending, and no load left on
+any pod, including all cancellation paths; the harness fails a case otherwise.
+
+### Results
+
+**Two requests racing for the last room** (one pod at 524 of 1024 tokens, two requests of 500, the second's arrival
+swept over 121 offsets from 0 to 6 ms):
+
+| release to filter | arm | second request over 121 offsets | worst overshoot |
+|---|---|---|---|
+| 4 ms | baseline | 80 rejected (503), 11 served over the limit, 30 served | 500 |
+| 4 ms | #3173 model, same window | identical to baseline | 500 |
+| 4 ms | re-queue | 80 served on a 2nd attempt, 11 served over the limit, 30 served | 500 |
+| 4 ms | try-reserve | 82 served on a 2nd attempt, 39 served, none over the limit | 0 |
+| 0.1 ms | baseline | 3 rejected, 10 served over the limit, 108 served | 500 |
+| 0.1 ms | re-queue | 3 served on a 2nd attempt, 10 served over the limit, 108 served | 500 |
+| 0.1 ms | try-reserve | 4 served on a 2nd attempt, 117 served, none over the limit | 0 |
+
+A check without a reservation cannot help when both requests pass it before either is counted, so the #3173 model
+matches baseline here.
+Re-queue turns every rejection into a wait but keeps every overshoot; only try-reserve removes both.
+A shorter window (what #3173 gets by tokenizing early) shrinks the race from 91 to 13 of 121 offsets for every arm
+without a reservation.
+
+**Request-specific capacity** (outcome 200 / 429 / 503; attempts; queue age max):
+
+| case | baseline | #3173 model | re-queue, 5 attempts (all three wake rules) | re-queue, 20 attempts, oldest-only wake |
+|---|---|---|---|---|
+| fragmentation: 2 pods at 600, cost 500, room frees at 1 s | 503 | 200 after 1000 ms | 429 after 5 attempts (404 to 820 ms) | 200 after 6 attempts, 1000 ms |
+| subset: metadata selects a saturated pod, two idle pods | 503 | 200 after 1000 ms | 429 after 5 attempts | 200 after 7 attempts, 1000 ms |
+
+Try-reserve gave the same results as re-queue in both.
+Both cases need waiting longer than the retry budget lasts; #3173 waits as long as it must, and pays with a gate
+evaluation on every 1 ms cycle while it waits (about 1000 here, against 5 to 8 for re-queue).
+
+**Saturation lasting 2 s, 30 requests at 10 per second**:
+
+| case | baseline | #3173 model | re-queue, 5 attempts | re-queue, 20 attempts, oldest-only |
+|---|---|---|---|---|
+| pool gate open (pods at 1000 of 1024), filter rejects | 10 / 0 / 20 | 30 / 0 / 0, queue p50 702 ms, max 2000 ms | 18 / 12 / 0 (capacity-change), 14 / 16 / 0 (next-sample); 14 to 17 requests used all 5 attempts | 30 / 0 / 0, p50 612 ms, max 2005 ms, up to 11 attempts |
+| pool gate closed (pods at 1024) | 21 / 0 / 9 | 30 / 0 / 0 | 30 / 0 / 0, 1 to 5 attempts | 30 / 0 / 0 |
+
+When the pool gate itself is closed, flow control holds everyone and every waiting design serves all 30; the retry
+designs only churn when the gate is open but the filter rejects, which is the case #2881 is about.
+
+**Burst** (10 bursts of 24 on three pods, costs 120 to 419 tokens, 1.5 s apart):
+
+| arm | 200 / 429 / 503 | attempts | queue age p50 / max ms | large (cost 300 or more): 200 / 429 |
+|---|---|---|---|---|
+| baseline | 118 / 0 / 122 | 1 | 4 / 4 | 35 / 0 (55 rejected) |
+| #3173 model | 240 / 0 / 0 | 1 | 336 / 968 | 90 / 0 |
+| re-queue, 5 attempts, capacity-change | 148 / 92 / 0 | up to 5; 103 used all 5 | 270 / 362 | 40 / 50 |
+| re-queue, 5 attempts, oldest-only | 220 / 20 / 0 | up to 5 | 291 / 822 | 74 / 16 |
+| re-queue, 5 attempts, next-sample | 169 / 71 / 0 | up to 5 | 290 / 396 | 48 / 42 |
+| re-queue, 20 attempts, oldest-only | 240 / 0 / 0 | up to 8 | 291 / 949 | 90 / 0 |
+
+Try-reserve matched re-queue row for row: with releases 1 ms apart and 0.5 ms from filter to PreRequest, no two
+rankings collided, so it never had a conflict to resolve.
+Waking every held request on each completion is a thundering herd: they all retry, most fail, and the attempt cap
+turns that into 429s, larger requests first.
+Neither single-replica waiting arm overshot in this case.
+
+**Oversized request** (cost 1500 against a 1024 limit):
+
+- On an empty pod every arm serves it: the detector's exception (`detector.go:294`) is preserved, and try-reserve
+  applies the same `admits` test.
+- Under a steady stream of small requests that keeps the only pod busy, baseline rejects it (503), the #3173 model
+  serves it after 305 ms by blocking the head of the queue (the small requests behind it wait up to 756 ms), and
+  re-queue and try-reserve starve it: 429 after 5 attempts at 404 to 459 ms, and still 429 after 20 attempts at
+  2709 ms, while the small requests pass with no wait.
+  This is a case where the retry designs lose to #3173: a held request that lets others pass is never the one that
+  finds an empty pod.
+
+**Cancellation** while queued, while held after a re-queue, between reservation and PreRequest, and while running:
+every arm released each dispatch reservation exactly once and rolled back the try-reserve reservation, with no load
+left.
+
+**Duplicate request ids**, against main's real code:
+
+- `ReserveDispatch` refuses the second reservation under the same id, so while both are in flight only one is
+  counted, and the second release is a no-op: balanced, but under-counted.
+- The inflight-load producer (`inflightload/producer.go`, `PluginState.Write` at `plugin_state.go:127`) replaces the
+  first request's entry without evicting it when both go to one endpoint, so after both complete the pod keeps 1
+  request and 1004 tokens counted for good.
+  When they go to different endpoints, the first completion evicts both entries while the second is still running.
+  Whether a client can make two in-flight requests share an id depends on the gateway: this lab needed an
+  EnvoyFilter to keep the client's `x-request-id`.
+  Any re-queue design that keys retries by request id inherits this.
+
+**Two EPP replicas** that learn each other's load every 50 ms (requests alternate between them): every arm overshot,
+by 903 to 932 tokens, for about 4.5 s in total over 120 requests, try-reserve included.
+A per-replica reservation does not bound load across replicas; that needs shared or partitioned capacity.
+
+### What this says about the designs
+
+- **Re-queue alone** removes release-then-reject 503s and keeps the limit, but its value depends on its bounds.
+  With a small attempt cap, or a wake rule that wakes every held request, it converts 503s into 429s under exactly the
+  sustained, request-specific saturation #2881 describes, and it starves oversized requests that #3173 serves.
+  With a time bound and a one-at-a-time wake it served everything here that #3173 served except the oversized
+  request, at about one evaluation per retry instead of one per millisecond.
+- **#3173** served every request in every single-replica case except the race, and in the oversized case it is the
+  only design that served the large request, at the cost of head-of-line delay for everything behind it.
+  It does not close the race: same outcomes as baseline when both requests pass the check before either is counted.
+- **Try-reserve** is the only arm that closed the local race (no overshoot, no 503), and it was indistinguishable from
+  re-queue everywhere else under main's 1 ms dispatch pacing; its added value is that race, not throughput.
+- **Across replicas** nothing here bounds load.
+- So the cheapest change that addresses what #3173 leaves is narrow: a reservation on the selected endpoint for the
+  sub-millisecond race, on top of #3173's waiting, rather than a retry loop that has to be tuned against starvation.
+  That is a reading of a model; the kind and real-engine runs that would test it are not done.
 
 ## 4. Cost
 

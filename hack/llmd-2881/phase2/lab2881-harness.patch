@@ -1,0 +1,1019 @@
+diff --git a/pkg/epp/framework/plugins/flowcontrol/saturationdetector/concurrency/lab2881_sim_test.go b/pkg/epp/framework/plugins/flowcontrol/saturationdetector/concurrency/lab2881_sim_test.go
+new file mode 100644
+index 00000000..2bbea776
+--- /dev/null
++++ b/pkg/epp/framework/plugins/flowcontrol/saturationdetector/concurrency/lab2881_sim_test.go
+@@ -0,0 +1,949 @@
++package concurrency
++
++// Lab harness for llm-d-router#2881 Phase 2: local, for a design decision, not for upstream.
++//
++// It drives main's real detector (Saturation, Filter, admits, ReserveDispatch, ReleaseDispatch) through a
++// discrete-event simulation in virtual microseconds.
++// The flow-control gate, the release-to-filter and filter-to-PreRequest delays, re-queue and endpoint reservation are
++// modelled here, in this file; none of them is the EPP's own code path.
++// Virtual time makes every interleaving deterministic: an event at the same instant runs in insertion order.
++// Flow control is modelled as main runs it: one dispatch cycle on each arrival and on a 1 ms ticker, and at most one
++// release per cycle (processor.go:237 and :278).
++// The barriers around filter evaluation and PreRequest are those delays: moving a second request's arrival across
++// them selects which of the two runs first.
++
++import (
++	"container/heap"
++	"context"
++	"encoding/json"
++	"fmt"
++	"math"
++	"os"
++	"sort"
++	"testing"
++	"time"
++
++	"github.com/go-logr/logr"
++
++	"github.com/llm-d/llm-d-router/pkg/epp/framework/interface/datalayer"
++	fwksched "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/scheduling"
++	attrconcurrency "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/concurrency"
++)
++
++type arm string
++
++const (
++	armBaseline   arm = "baseline"
++	arm3173       arm = "pr3173-model"
++	armRequeue    arm = "requeue"
++	armTryReserve arm = "tryreserve"
++)
++
++var allArms = []arm{armBaseline, arm3173, armRequeue, armTryReserve}
++
++const ms = int64(1000)
++
++type wake string
++
++const (
++	// wakeOnCapacity holds a re-queued request until some endpoint's load drops, or the backoff passes.
++	wakeOnCapacity wake = "capacity-change"
++	// wakeOnSample holds it until the next saturation sample, whether or not anything changed.
++	wakeOnSample wake = "next-sample"
++	// wakeOneOnCapacity hands each drop in load to the oldest held request only, so held requests do not all retry.
++	wakeOneOnCapacity wake = "capacity-change-oldest-only"
++)
++
++type simConfig struct {
++	mode          concurrencyMode
++	maxReq        int64
++	maxTok        int64
++	pods          []string
++	releaseToFilt int64 // release to filter evaluation: on main this includes tokenization.
++	filtToPreReq  int64 // filter evaluation to the PreRequest that counts the load.
++	rankToReserve int64 // tryreserve only: ranking to the reservation attempt.
++	maxAttempts   int
++	maxAge        int64 // re-queue bound on time since the original enqueue.
++	backoff       int64 // re-queue fallback wake when no capacity change arrives.
++	wake          wake
++	samplePeriod  int64
++	replicas      int   // EPP replicas; above 1 each sees the others' load only at sync ticks.
++	syncPeriod    int64 // interval at which a replica learns the other replicas' load.
++	// sameWindow keeps the #3173 model on the configured release-to-filter delay with no preparation time.
++	// Otherwise the PR's preparation is charged before the request becomes eligible, and release to filter is 100 us,
++	// because the PR tokenizes while the request is queued.
++	sameWindow bool
++}
++
++type simReq struct {
++	id       string
++	arrive   int64
++	cost     int64 // tokens charged by the detector's policy: prompt plus max_tokens.
++	dur      int64
++	cands    []string // endpoints the request's metadata selects; nil means every pod.
++	cancelAt int64
++	pinPod   string // a pinned request starts already running on this pod, at time 0.
++	replica  int
++
++	// State.
++	enq              int64
++	attempts         int
++	held             bool
++	heldAt           int64
++	queued           bool
++	dispatchReserved bool
++	tokReserved      bool
++	pod              string
++	running          bool
++	done             bool
++	outcome          int
++	finalRelease     int64
++	doneAt           int64
++	preparedAt       int64
++}
++
++type event struct {
++	at   int64
++	seq  int
++	kind string
++	r    *simReq
++}
++
++type eventQ []*event
++
++func (q eventQ) Len() int { return len(q) }
++func (q eventQ) Less(i, j int) bool {
++	if q[i].at != q[j].at {
++		return q[i].at < q[j].at
++	}
++	return q[i].seq < q[j].seq
++}
++func (q eventQ) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
++func (q *eventQ) Push(x any)   { *q = append(*q, x.(*event)) }
++func (q *eventQ) Pop() any {
++	old := *q
++	e := old[len(old)-1]
++	*q = old[:len(old)-1]
++	return e
++}
++
++type replica struct {
++	// Each replica has its own flow-control queue and dispatch loop, as separate EPP instances do.
++	queue []*simReq
++	det   *detector
++	reg   *localRegistry
++	own   map[string]*attrconcurrency.InFlightLoad
++	snap  map[string]*attrconcurrency.InFlightLoad
++}
++
++type sim struct {
++	t       *testing.T
++	cfg     simConfig
++	arm     arm
++	now     int64
++	seq     int
++	events  eventQ
++	rr      int // round-robin counter for equal-load ties, as the max-score picker rotates them (picker.go:108).
++	reqs    []*simReq
++	reps    []*replica
++	truth   map[string]*attrconcurrency.InFlightLoad
++	ctx     context.Context
++	reserve int // ReserveDispatch calls that returned true
++	release int // ReleaseDispatch calls that returned true
++	// Overshoot on the true load: tokens above the limit on a pod running more than one request.
++	overMax      int64
++	overSince    map[string]int64
++	overDuration int64
++	gateEvals    int
++	filterEvals  int
++	conflicts    int
++}
++
++func newSim(t *testing.T, cfg simConfig, a arm, reqs []*simReq) *sim {
++	if cfg.replicas == 0 {
++		cfg.replicas = 1
++	}
++	s := &sim{t: t, cfg: cfg, arm: a, reqs: reqs, truth: map[string]*attrconcurrency.InFlightLoad{},
++		overSince: map[string]int64{}, ctx: context.Background()}
++	for i := 0; i < cfg.replicas; i++ {
++		c := config{mode: cfg.mode, maxConcurrency: cfg.maxReq, maxTokenConcurrency: cfg.maxTok, failClosed: true}
++		rp := &replica{det: newDetector(fmt.Sprintf("lab-%d", i), c, logr.Discard()), reg: newLocalRegistry(),
++			own: map[string]*attrconcurrency.InFlightLoad{}, snap: map[string]*attrconcurrency.InFlightLoad{}}
++		for _, p := range cfg.pods {
++			rp.own[p], rp.snap[p] = &attrconcurrency.InFlightLoad{}, &attrconcurrency.InFlightLoad{}
++		}
++		s.reps = append(s.reps, rp)
++	}
++	for _, p := range cfg.pods {
++		s.truth[p] = &attrconcurrency.InFlightLoad{}
++	}
++	return s
++}
++
++func (s *sim) push(at int64, kind string, r *simReq) {
++	s.seq++
++	heap.Push(&s.events, &event{at: at, seq: s.seq, kind: kind, r: r})
++}
++
++func (s *sim) rep(r *simReq) *replica { return s.reps[r.replica%len(s.reps)] }
++
++// sync rewrites one replica's registry as its own load plus its last snapshot of the others.
++func (s *sim) sync(rp *replica) {
++	for _, p := range s.cfg.pods {
++		o, sn := rp.own[p], rp.snap[p]
++		rp.reg.update(fullEndpointName(p), func(l *attrconcurrency.InFlightLoad) {
++			l.Requests, l.Tokens = o.Requests+sn.Requests, o.Tokens+sn.Tokens
++		})
++	}
++}
++
++func (s *sim) snapshotAll() {
++	for i, rp := range s.reps {
++		for _, p := range s.cfg.pods {
++			var n, k int64
++			for j, other := range s.reps {
++				if j != i {
++					n += other.own[p].Requests
++					k += other.own[p].Tokens
++				}
++			}
++			rp.snap[p].Requests, rp.snap[p].Tokens = n, k
++		}
++		s.sync(rp)
++	}
++}
++
++// addLoad changes one replica's own count on a pod and the true load, then re-checks overshoot.
++func (s *sim) addLoad(rp *replica, pod string, dn, dk int64) {
++	rp.own[pod].Requests += dn
++	rp.own[pod].Tokens += dk
++	s.truth[pod].Requests += dn
++	s.truth[pod].Tokens += dk
++	s.sync(rp)
++	s.trackOvershoot(pod)
++}
++
++func (s *sim) trackOvershoot(pod string) {
++	l := s.truth[pod]
++	var over int64
++	if (s.cfg.mode == modeTokens || s.cfg.mode == modeHybrid) && l.Requests > 1 && l.Tokens > s.cfg.maxTok {
++		over = l.Tokens - s.cfg.maxTok
++	}
++	if (s.cfg.mode == modeRequests || s.cfg.mode == modeHybrid) && l.Requests > s.cfg.maxReq {
++		over = max(over, l.Requests-s.cfg.maxReq)
++	}
++	since, was := s.overSince[pod]
++	switch {
++	case over > 0 && !was:
++		s.overSince[pod] = s.now
++	case over == 0 && was:
++		s.overDuration += s.now - since
++		delete(s.overSince, pod)
++	}
++	s.overMax = max(s.overMax, over)
++}
++
++func (s *sim) cands(r *simReq) []string {
++	if r.cands != nil {
++		return r.cands
++	}
++	return s.cfg.pods
++}
++
++func (s *sim) poolEndpoints(rp *replica) []datalayer.Endpoint {
++	var out []datalayer.Endpoint
++	for _, p := range s.cfg.pods {
++		out = append(out, newFakeEndpoint(rp.reg, p))
++	}
++	return out
++}
++
++func (s *sim) schedEndpoints(rp *replica, r *simReq) []fwksched.Endpoint {
++	var out []fwksched.Endpoint
++	for _, p := range s.cands(r) {
++		e := newStubSchedulingEndpoint(rp.reg, p)
++		e.incomingTokens = r.cost
++		out = append(out, e)
++	}
++	return out
++}
++
++func (s *sim) filter(rp *replica, r *simReq) []string {
++	s.filterEvals++
++	var out []string
++	for _, e := range rp.det.Filter(s.ctx, nil, s.schedEndpoints(rp, r)) {
++		out = append(out, e.GetMetadata().ID.Name)
++	}
++	return out
++}
++
++// gate is the flow-control release decision for the request at the head of the queue.
++func (s *sim) gate(r *simReq) bool {
++	s.gateEvals++
++	rp := s.rep(r)
++	// Main's dispatch cycle measures saturation over the whole pool, not the request's candidates (processor.go:490).
++	if rp.det.Saturation(s.ctx, s.poolEndpoints(rp)) >= 1 {
++		return false
++	}
++	// The #3173 model refuses release until preparation is done (processor.go requestFits in the PR).
++	if s.arm == arm3173 && s.now < r.preparedAt {
++		return false
++	}
++	// It then asks whether some candidate the request's metadata selects admits its projected cost.
++	if s.arm == arm3173 && len(s.filter(rp, r)) == 0 {
++		return false
++	}
++	return true
++}
++
++func (s *sim) finish(r *simReq, code int) {
++	if r.done {
++		s.t.Fatalf("%s finished twice", r.id)
++	}
++	r.done, r.outcome, r.doneAt = true, code, s.now
++	s.removeFromQueue(r)
++}
++
++func (s *sim) removeFromQueue(r *simReq) {
++	if !r.queued {
++		return
++	}
++	r.queued = false
++	rp := s.rep(r)
++	for i, q := range rp.queue {
++		if q == r {
++			rp.queue = append(rp.queue[:i], rp.queue[i+1:]...)
++			return
++		}
++	}
++}
++
++func (s *sim) releaseDispatch(r *simReq) {
++	if !r.dispatchReserved {
++		return
++	}
++	r.dispatchReserved = false
++	if s.rep(r).det.ReleaseDispatch(r.id) {
++		s.release++
++	}
++}
++
++func (s *sim) enqueue(r *simReq) {
++	r.queued = true
++	rp := s.rep(r)
++	rp.queue = append(rp.queue, r)
++	// Re-queued requests keep their original enqueue time, so the queue stays ordered by first arrival.
++	sort.SliceStable(rp.queue, func(i, j int) bool { return rp.queue[i].enq < rp.queue[j].enq })
++}
++
++func (s *sim) requeueArm() bool { return s.arm == armRequeue || s.arm == armTryReserve }
++
++// dispatchCycle releases at most the head of one replica's single flow, if the gate admits it.
++// A held request is skipped, so the requests behind it can pass while it waits.
++func (s *sim) dispatchCycle(rp *replica) {
++	var head *simReq
++	for _, q := range rp.queue {
++		if !q.held {
++			head = q
++			break
++		}
++	}
++	if head == nil {
++		return
++	}
++	// The re-queue designs bound waiting by time as well as attempts, whether or not the request was ever rejected.
++	if s.requeueArm() && s.now-head.enq >= s.cfg.maxAge {
++		s.finish(head, 429)
++		return
++	}
++	if !s.gate(head) {
++		return
++	}
++	{
++		s.removeFromQueue(head)
++		head.attempts++
++		head.finalRelease = s.now
++		if s.rep(head).det.ReserveDispatch(head.id) {
++			head.dispatchReserved = true
++			s.reserve++
++		}
++		window := s.cfg.releaseToFilt
++		if s.arm == arm3173 && !s.cfg.sameWindow {
++			window = min(window, ms/10)
++		}
++		s.push(s.now+window, "filter", head)
++	}
++}
++
++// reject handles an attempt whose endpoint set came back empty, or whose reservation lost a race.
++func (s *sim) reject(r *simReq) {
++	s.releaseDispatch(r)
++	if s.arm == armBaseline || s.arm == arm3173 {
++		s.finish(r, 503)
++		return
++	}
++	if r.attempts >= s.cfg.maxAttempts || s.now-r.enq >= s.cfg.maxAge {
++		s.finish(r, 429)
++		return
++	}
++	r.held, r.heldAt = true, s.now
++	s.enqueue(r)
++	if (s.cfg.wake == wakeOnCapacity || s.cfg.wake == wakeOneOnCapacity) && s.cfg.backoff > 0 {
++		s.push(s.now+s.cfg.backoff, "backoff", r)
++	}
++}
++
++// wakeHeld acts on the replica whose own view of capacity changed.
++func (s *sim) wakeHeld(rp *replica, reason wake) {
++	if reason == wakeOnCapacity && s.cfg.wake == wakeOneOnCapacity {
++		// The queue is ordered by original enqueue time, so the first held request is the oldest.
++		for _, q := range rp.queue {
++			if q.held {
++				q.held = false
++				return
++			}
++		}
++		return
++	}
++	if s.cfg.wake != reason {
++		return
++	}
++	for _, q := range rp.queue {
++		q.held = false
++	}
++}
++
++// leastLoaded picks the least-loaded passing pod, rotating among ties rather than always taking the first name.
++func (s *sim) leastLoaded(rp *replica, pods []string) string {
++	var bestTok int64 = math.MaxInt64
++	var tied []string
++	for _, p := range pods {
++		l := rp.reg.get(fullEndpointName(p))
++		switch {
++		case l.Tokens < bestTok:
++			bestTok, tied = l.Tokens, []string{p}
++		case l.Tokens == bestTok:
++			tied = append(tied, p)
++		}
++	}
++	sort.Strings(tied)
++	s.rr++
++	return tied[s.rr%len(tied)]
++}
++
++func (s *sim) handle(e *event) {
++	r := e.r
++	switch e.kind {
++	case "arrive":
++		r.enq = s.now
++		r.preparedAt = s.now
++		if s.arm == arm3173 && !s.cfg.sameWindow {
++			// The PR's preparation, tokenization included, runs while queued and is charged before release.
++			r.preparedAt = s.now + s.cfg.releaseToFilt - ms/10
++		}
++		s.enqueue(r)
++		s.dispatchCycle(s.rep(r))
++	case "tick":
++		for _, rp := range s.reps {
++			s.dispatchCycle(rp)
++		}
++		if s.pending() {
++			s.push(s.now+ms, "tick", nil)
++		}
++	case "deadline":
++		if !r.done && r.queued {
++			s.finish(r, 429)
++		}
++	case "filter":
++		if r.done {
++			return
++		}
++		rp := s.rep(r)
++		passed := s.filter(rp, r)
++		if len(passed) == 0 {
++			s.reject(r)
++			break
++		}
++		r.pod = s.leastLoaded(rp, passed)
++		if s.arm == armTryReserve {
++			s.push(s.now+s.cfg.rankToReserve, "reserve", r)
++		} else {
++			s.push(s.now+s.cfg.filtToPreReq, "prerequest", r)
++		}
++	case "reserve":
++		if r.done {
++			return
++		}
++		rp := s.rep(r)
++		// The reservation is a check-and-add on the selected endpoint with the filter's own test (detector.go admits).
++		// Single-threaded virtual time makes it atomic; a conflict means another request reserved since ranking.
++		if !rp.det.admits(rp.reg.get(fullEndpointName(r.pod)), r.cost, s.limitReq(), s.cfg.maxTok) {
++			s.conflicts++
++			s.reject(r)
++			break
++		}
++		s.addLoad(rp, r.pod, 1, r.cost)
++		r.tokReserved = true
++		s.push(s.now+s.cfg.filtToPreReq, "prerequest", r)
++	case "prerequest":
++		if r.done {
++			return
++		}
++		if !r.tokReserved {
++			s.addLoad(s.rep(r), r.pod, 1, r.cost)
++		}
++		// PreRequest consumes the endpoint reservation: from here the load counter holds the request.
++		r.tokReserved = false
++		s.releaseDispatch(r)
++		r.running = true
++		s.push(s.now+r.dur, "complete", r)
++	case "complete":
++		if r.done || !r.running {
++			return
++		}
++		r.running = false
++		s.addLoad(s.rep(r), r.pod, -1, -r.cost)
++		s.finish(r, 200)
++		s.wakeHeld(s.rep(r), wakeOnCapacity)
++	case "backoff":
++		if !r.done && r.held && r.heldAt+s.cfg.backoff <= s.now {
++			r.held = false
++		}
++	case "sample":
++		for _, rp := range s.reps {
++			s.wakeHeld(rp, wakeOnSample)
++		}
++		if s.pending() {
++			s.push(s.now+s.cfg.samplePeriod, "sample", nil)
++		}
++	case "sync":
++		s.snapshotAll()
++		if s.pending() {
++			s.push(s.now+s.cfg.syncPeriod, "sync", nil)
++		}
++	case "cancel":
++		if r.done {
++			return
++		}
++		s.releaseDispatch(r)
++		switch {
++		case r.running:
++			r.running = false
++			s.addLoad(s.rep(r), r.pod, -1, -r.cost)
++			s.wakeHeld(s.rep(r), wakeOnCapacity)
++		case r.tokReserved:
++			// A reservation taken but not yet consumed by PreRequest is rolled back exactly once.
++			r.tokReserved = false
++			s.addLoad(s.rep(r), r.pod, -1, -r.cost)
++			s.wakeHeld(s.rep(r), wakeOnCapacity)
++		}
++		s.finish(r, 499)
++	}
++}
++
++func (s *sim) limitReq() int64 {
++	if s.cfg.mode == modeTokens {
++		return math.MaxInt64
++	}
++	return s.cfg.maxReq
++}
++
++func (s *sim) pending() bool {
++	for _, r := range s.reqs {
++		if !r.done {
++			return true
++		}
++	}
++	return false
++}
++
++type result struct {
++	Scenario    string         `json:"scenario"`
++	Arm         arm            `json:"arm"`
++	Outcomes    map[string]int `json:"outcomes"`
++	Attempts    map[string]int `json:"attempts_per_request"`
++	QueueAgeMs  map[string]any `json:"queue_age_ms"`
++	BySize      map[string]any `json:"by_size,omitempty"`
++	OvershootTk int64          `json:"overshoot_max"`
++	OverMs      float64        `json:"overshoot_duration_ms"`
++	Balance     map[string]any `json:"reservation_balance"`
++	GateEvals   int            `json:"gate_evals"`
++	FilterEvals int            `json:"filter_evals"`
++	Conflicts   int            `json:"reserve_conflicts"`
++	WallUs      float64        `json:"harness_wall_us"`
++	Notes       string         `json:"notes,omitempty"`
++}
++
++func nearestRank(xs []float64, p float64) float64 {
++	if len(xs) == 0 {
++		return math.NaN()
++	}
++	sort.Float64s(xs)
++	return xs[max(1, int(math.Ceil(p/100*float64(len(xs)))))-1]
++}
++
++func (s *sim) run(scenario string, sizeSplit int64) result {
++	start := time.Now()
++	for _, r := range s.reqs {
++		if r.pinPod != "" {
++			r.pod, r.running, r.attempts = r.pinPod, true, 1
++			s.addLoad(s.rep(r), r.pinPod, 1, r.cost)
++			s.push(r.dur, "complete", r)
++			continue
++		}
++		s.push(r.arrive, "arrive", r)
++		if s.requeueArm() {
++			s.push(r.arrive+s.cfg.maxAge, "deadline", r)
++		}
++		if r.cancelAt > 0 {
++			s.push(r.cancelAt, "cancel", r)
++		}
++	}
++	if s.cfg.wake == wakeOnSample && s.cfg.samplePeriod > 0 {
++		s.push(s.cfg.samplePeriod, "sample", nil)
++	}
++	if len(s.reps) > 1 {
++		s.snapshotAll()
++		s.push(s.cfg.syncPeriod, "sync", nil)
++	}
++	s.push(ms, "tick", nil)
++	for s.events.Len() > 0 {
++		e := heap.Pop(&s.events).(*event)
++		s.now = e.at
++		s.handle(e)
++		if s.now > 600_000*ms {
++			s.t.Fatalf("%s/%s did not drain", scenario, s.arm)
++		}
++	}
++	for pod, since := range s.overSince {
++		s.overDuration += s.now - since
++		delete(s.overSince, pod)
++	}
++	wall := time.Since(start)
++
++	res := result{Scenario: scenario, Arm: s.arm, Outcomes: map[string]int{}, Attempts: map[string]int{},
++		OvershootTk: s.overMax, OverMs: float64(s.overDuration) / float64(ms), GateEvals: s.gateEvals,
++		FilterEvals: s.filterEvals, Conflicts: s.conflicts, WallUs: float64(wall.Microseconds())}
++	var ages []float64
++	bySize := map[string][]float64{}
++	bySizeOut := map[string]map[string]int{}
++	for _, r := range s.reqs {
++		if !r.done {
++			s.t.Fatalf("%s/%s: %s never finished", scenario, s.arm, r.id)
++		}
++		if r.pinPod != "" {
++			continue
++		}
++		res.Outcomes[fmt.Sprint(r.outcome)]++
++		res.Attempts[fmt.Sprint(r.attempts)]++
++		// Queue age runs from the first enqueue to the release that was served.
++		// For a request that was not served it runs to its final outcome: rejection, exhaustion or cancellation.
++		end := r.doneAt
++		if r.outcome == 200 {
++			end = r.finalRelease
++		}
++		age := float64(end-r.enq) / float64(ms)
++		ages = append(ages, age)
++		size := "small"
++		if sizeSplit > 0 && r.cost >= sizeSplit {
++			size = "large"
++		}
++		bySize[size] = append(bySize[size], age)
++		if bySizeOut[size] == nil {
++			bySizeOut[size] = map[string]int{}
++		}
++		bySizeOut[size][fmt.Sprint(r.outcome)]++
++	}
++	res.QueueAgeMs = map[string]any{"p50": nearestRank(append([]float64{}, ages...), 50),
++		"p99": nearestRank(append([]float64{}, ages...), 99), "max": nearestRank(append([]float64{}, ages...), 100)}
++	if sizeSplit > 0 {
++		res.BySize = map[string]any{}
++		for k, v := range bySize {
++			res.BySize[k] = map[string]any{"outcomes": bySizeOut[k], "queue_age_ms_p50": nearestRank(append([]float64{}, v...), 50),
++				"queue_age_ms_max": nearestRank(append([]float64{}, v...), 100)}
++		}
++	}
++	var pending int64
++	var leftover []string
++	for i, rp := range s.reps {
++		pending += rp.det.pendingDispatches.Load()
++		for _, p := range s.cfg.pods {
++			if l := rp.own[p]; l.Requests != 0 || l.Tokens != 0 {
++				leftover = append(leftover, fmt.Sprintf("replica %d %s: %d requests, %d tokens", i, p, l.Requests, l.Tokens))
++			}
++		}
++	}
++	res.Balance = map[string]any{"dispatch_reserved": s.reserve, "dispatch_released": s.release,
++		"pending_dispatches_at_end": pending, "load_left_at_end": leftover}
++	return res
++}
++
++func ptr2[T any](v T) *T { return &v }
++
++// --- scenarios ------------------------------------------------------------------------------------------------------
++
++func baseCfg() simConfig {
++	return simConfig{mode: modeTokens, maxReq: 100, maxTok: 1024, pods: []string{"a", "b", "c"},
++		releaseToFilt: 4 * ms, filtToPreReq: ms / 2, rankToReserve: ms / 20, maxAttempts: 5, maxAge: 5000 * ms,
++		backoff: 200 * ms, wake: wakeOnCapacity, samplePeriod: 100 * ms}
++}
++
++var labResults []result
++
++func record(t *testing.T, r result) {
++	t.Helper()
++	b, _ := json.Marshal(r)
++	t.Logf("%s", b)
++	labResults = append(labResults, r)
++	if r.Balance["pending_dispatches_at_end"].(int64) != 0 || len(r.Balance["load_left_at_end"].([]string)) != 0 {
++		t.Errorf("%s/%s leaked a reservation or load: %v", r.Scenario, r.Arm, r.Balance)
++	}
++}
++
++// S1: two requests race for the last room on one pod, swept over the second request's arrival offset.
++// The sweep crosses the first request's filter and PreRequest, so it covers both orders around each barrier.
++func TestLab2881RaceForLastSlot(t *testing.T) {
++	for _, window := range []int64{4 * ms, ms / 10} {
++		for _, a := range allArms {
++			outcome := map[string]int{}
++			var worst int64
++			var conflicts int
++			for off := int64(0); off <= 6*ms; off += ms / 20 {
++				cfg := baseCfg()
++				cfg.pods = []string{"a"}
++				cfg.releaseToFilt = window
++				cfg.sameWindow = true
++				reqs := []*simReq{
++					{id: "bg", cost: 524, dur: 10_000 * ms, pinPod: "a"},
++					{id: "r1", arrive: 0, cost: 500, dur: 300 * ms},
++					{id: "r2", arrive: off, cost: 500, dur: 300 * ms},
++				}
++				s := newSim(t, cfg, a, reqs)
++				res := s.run("race", 0)
++				if res.Balance["pending_dispatches_at_end"].(int64) != 0 {
++					t.Fatalf("leak: %v", res.Balance)
++				}
++				key := fmt.Sprintf("r2=%d attempts=%d overshoot=%v", reqs[2].outcome, reqs[2].attempts, res.OvershootTk > 0)
++				outcome[key]++
++				worst = max(worst, res.OvershootTk)
++				conflicts += res.Conflicts
++			}
++			b, _ := json.Marshal(outcome)
++			t.Logf("race window=%dus arm=%s offsets=121 %s worst_overshoot=%d", window, a, b, worst)
++			labResults = append(labResults, result{Scenario: fmt.Sprintf("race-window-%dus", window), Arm: a,
++				Outcomes: map[string]int{}, Notes: string(b), OvershootTk: worst, Conflicts: conflicts})
++		}
++	}
++}
++
++// S2: two pods each at 600 of 1024 tokens and an incoming cost of 500: the pool has room, no pod does.
++func TestLab2881Fragmentation(t *testing.T) {
++	for _, v := range variants() {
++		for _, a := range allArms {
++			if !v.applies(a) {
++				continue
++			}
++			cfg := v.apply(baseCfg())
++			cfg.pods = []string{"a", "b"}
++			reqs := []*simReq{
++				{id: "bg-a", cost: 600, dur: 1000 * ms, pinPod: "a"},
++				{id: "bg-b", cost: 600, dur: 1000 * ms, pinPod: "b"},
++				{id: "r", arrive: 0, cost: 500, dur: 300 * ms},
++			}
++			res := newSim(t, cfg, a, reqs).run("fragmentation"+v.suffix(a), 0)
++			record(t, res)
++		}
++	}
++}
++
++// S3: the request's metadata selects pod a, which is saturated, while b and c are idle.
++func TestLab2881SaturatedSubset(t *testing.T) {
++	for _, v := range variants() {
++		for _, a := range allArms {
++			if !v.applies(a) {
++				continue
++			}
++			cfg := v.apply(baseCfg())
++			reqs := []*simReq{
++				{id: "bg", cost: 1000, dur: 1000 * ms, pinPod: "a"},
++				{id: "subset", arrive: 0, cost: 200, dur: 300 * ms, cands: []string{"a"}},
++				{id: "any", arrive: 10 * ms, cost: 200, dur: 300 * ms},
++			}
++			record(t, newSim(t, cfg, a, reqs).run("saturated-subset"+v.suffix(a), 0))
++		}
++	}
++}
++
++// S4: every pod stays saturated for 2 s, longer than several 100 ms samples, while requests keep arriving.
++func TestLab2881LongSaturation(t *testing.T) {
++	for _, v := range variants() {
++		for _, a := range allArms {
++			if !v.applies(a) {
++				continue
++			}
++			cfg := v.apply(baseCfg())
++			reqs := []*simReq{
++				{id: "bg-a", cost: 1000, dur: 2000 * ms, pinPod: "a"},
++				{id: "bg-b", cost: 1000, dur: 2000 * ms, pinPod: "b"},
++				{id: "bg-c", cost: 1000, dur: 2000 * ms, pinPod: "c"},
++			}
++			for i := 0; i < 30; i++ {
++				reqs = append(reqs, &simReq{id: fmt.Sprintf("r%02d", i), arrive: int64(i) * 100 * ms, cost: 200, dur: 300 * ms})
++			}
++			record(t, newSim(t, cfg, a, reqs).run("long-saturation"+v.suffix(a), 0))
++		}
++	}
++}
++
++// S4b: every pod at its full 1024 tokens for 2 s, so the pool gate itself stays closed, not only the filter.
++func TestLab2881LongSaturationGateClosed(t *testing.T) {
++	for _, v := range variants() {
++		for _, a := range allArms {
++			if !v.applies(a) {
++				continue
++			}
++			cfg := v.apply(baseCfg())
++			var reqs []*simReq
++			for _, p := range cfg.pods {
++				reqs = append(reqs, &simReq{id: "bg1-" + p, cost: 512, dur: 2000 * ms, pinPod: p},
++					&simReq{id: "bg2-" + p, cost: 512, dur: 2000 * ms, pinPod: p})
++			}
++			for i := 0; i < 30; i++ {
++				reqs = append(reqs, &simReq{id: fmt.Sprintf("r%02d", i), arrive: int64(i) * 100 * ms, cost: 200, dur: 300 * ms})
++			}
++			record(t, newSim(t, cfg, a, reqs).run("long-saturation-gate-closed"+v.suffix(a), 0))
++		}
++	}
++}
++
++// S5a: one request larger than the limit on an empty pod; the detector admits it as the best placement available.
++// S5b: the same request arrives while a steady stream of small requests keeps the only pod busy.
++func TestLab2881Oversized(t *testing.T) {
++	for _, v := range variants() {
++		for _, a := range allArms {
++			if !v.applies(a) {
++				continue
++			}
++			cfg := v.apply(baseCfg())
++			cfg.pods = []string{"a"}
++			var reqs []*simReq
++			for i := 0; i < 40; i++ {
++				reqs = append(reqs, &simReq{id: fmt.Sprintf("s%02d", i), arrive: int64(i) * 150 * ms, cost: 300, dur: 400 * ms})
++			}
++			reqs = append(reqs, &simReq{id: "big", arrive: 1000 * ms, cost: 1500, dur: 500 * ms})
++			record(t, newSim(t, cfg, a, reqs).run("oversized-under-steady-small-load"+v.suffix(a), 1024))
++		}
++	}
++	for _, a := range allArms {
++		cfg := baseCfg()
++		cfg.pods = []string{"a"}
++		reqs := []*simReq{{id: "big", arrive: 0, cost: 1500, dur: 500 * ms}}
++		record(t, newSim(t, cfg, a, reqs).run("oversized-empty-pod", 1024))
++	}
++}
++
++// S6: cancellations while queued, held after a re-queue, between reservation and PreRequest, and while running.
++// Duplicate ids are covered by the producer test in inflightload and by the detector check below.
++func TestLab2881Cancellation(t *testing.T) {
++	for _, a := range allArms {
++		cfg := baseCfg()
++		cfg.pods = []string{"a"}
++		reqs := []*simReq{
++			{id: "bg", cost: 900, dur: 1000 * ms, pinPod: "a"},
++			{id: "held", arrive: 0, cost: 300, dur: 300 * ms, cancelAt: 500 * ms},
++			{id: "queued", arrive: 1 * ms, cost: 300, dur: 300 * ms, cancelAt: 2 * ms},
++			{id: "inwindow", arrive: 1100 * ms, cost: 100, dur: 300 * ms, cancelAt: 1100*ms + 4*ms + ms/10},
++			{id: "running", arrive: 1200 * ms, cost: 100, dur: 300 * ms, cancelAt: 1300 * ms},
++		}
++		record(t, newSim(t, cfg, a, reqs).run("cancellation", 0))
++	}
++}
++
++// Two releases under one request id: main's detector reserves once and releases once, so the second is not counted.
++func TestLab2881DuplicateIDReservation(t *testing.T) {
++	d := newDetector("dup", config{mode: modeRequests, maxConcurrency: 4, failClosed: true}, logr.Discard())
++	first, second := d.ReserveDispatch("dup"), d.ReserveDispatch("dup")
++	t.Logf("reserve first=%v second=%v pending=%d", first, second, d.pendingDispatches.Load())
++	if !first || second || d.pendingDispatches.Load() != 1 {
++		t.Fatalf("unexpected reservation behaviour")
++	}
++	r1, r2 := d.ReleaseDispatch("dup"), d.ReleaseDispatch("dup")
++	t.Logf("release first=%v second=%v pending=%d", r1, r2, d.pendingDispatches.Load())
++	labResults = append(labResults, result{Scenario: "duplicate-id-dispatch-reservation", Arm: armBaseline,
++		Notes: fmt.Sprintf("second ReserveDispatch=%v, pending while both in flight=1, release first=%v second=%v", second, r1, r2)})
++}
++
++// S7: two EPP replicas over the same three pods, each learning the other's load every 50 ms.
++// Requests alternate between replicas, as a load balancer in front of two EPPs would send them.
++func TestLab2881TwoReplicas(t *testing.T) {
++	for _, a := range allArms {
++		cfg := baseCfg()
++		cfg.replicas = 2
++		cfg.syncPeriod = 50 * ms
++		var reqs []*simReq
++		for b := 0; b < 5; b++ {
++			for i := 0; i < 24; i++ {
++				reqs = append(reqs, &simReq{id: fmt.Sprintf("b%d-%02d", b, i), arrive: int64(b)*1500*ms + int64(i)*ms,
++					cost: 150 + int64((i*37)%250), dur: 300 * ms, replica: i % 2})
++			}
++		}
++		record(t, newSim(t, cfg, a, reqs).run("two-replicas-50ms-sync", 0))
++	}
++}
++
++// A burst like the kind runs' (24 requests in about 20 ms on three pods), to compare the arms on one shape of load.
++func TestLab2881Burst(t *testing.T) {
++	for _, v := range variants() {
++		for _, a := range allArms {
++			if !v.applies(a) {
++				continue
++			}
++			cfg := v.apply(baseCfg())
++			var reqs []*simReq
++			for b := 0; b < 10; b++ {
++				for i := 0; i < 24; i++ {
++					reqs = append(reqs, &simReq{id: fmt.Sprintf("b%d-%02d", b, i), arrive: int64(b)*1500*ms + int64(i*830),
++						cost: 120 + int64((i*53+b*17)%300), dur: int64(260+((i*29+b*7)%480)) * ms})
++				}
++			}
++			record(t, newSim(t, cfg, a, reqs).run("burst-10x24"+v.suffix(a), 300))
++		}
++	}
++}
++
++// variant is one setting of the re-queue bounds and wake rule; baseline and #3173 run only under the first.
++type variant struct {
++	wake        wake
++	maxAttempts int
++}
++
++func variants() []variant {
++	return []variant{
++		{wakeOnCapacity, 5}, {wakeOneOnCapacity, 5}, {wakeOnSample, 5}, {wakeOneOnCapacity, 20},
++	}
++}
++
++func (v variant) applies(a arm) bool {
++	return a == armRequeue || a == armTryReserve || v == variants()[0]
++}
++
++func (v variant) apply(c simConfig) simConfig {
++	c.wake, c.maxAttempts = v.wake, v.maxAttempts
++	return c
++}
++
++func (v variant) suffix(a arm) string {
++	if a == armBaseline || a == arm3173 {
++		return ""
++	}
++	return fmt.Sprintf(" [%s, %d attempts]", v.wake, v.maxAttempts)
++}
++
++func TestMain(m *testing.M) {
++	code := m.Run()
++	if out := os.Getenv("LAB2881_OUT"); out != "" && len(labResults) > 0 {
++		b, _ := json.MarshalIndent(labResults, "", " ")
++		_ = os.WriteFile(out, b, 0o644)
++	}
++	os.Exit(code)
++}
+diff --git a/pkg/epp/framework/plugins/requesthandling/dataproducer/inflightload/lab2881_duplicate_id_test.go b/pkg/epp/framework/plugins/requesthandling/dataproducer/inflightload/lab2881_duplicate_id_test.go
+new file mode 100644
+index 00000000..98f3c060
+--- /dev/null
++++ b/pkg/epp/framework/plugins/requesthandling/dataproducer/inflightload/lab2881_duplicate_id_test.go
+@@ -0,0 +1,58 @@
++package inflightload
++
++import (
++	"context"
++	"testing"
++
++	"github.com/stretchr/testify/require"
++
++	fwkrh "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/requesthandling"
++)
++
++// Lab test for llm-d-router#2881 Phase 2, not for upstream.
++// Two concurrent requests that share one request id, both routed to the same endpoint.
++// PluginState is keyed by request id, and Write replaces an entry without evicting it, so the first entry's
++// counters are never rolled back.
++func TestLab2881DuplicateRequestIDSameEndpoint(t *testing.T) {
++	producer := newTestProducer(t)
++	ctx := context.Background()
++	endpointName := "dup-endpoint"
++	endpointID := fullEndpointName(endpointName)
++
++	first := makeTokenRequest("dup", 4)
++	second := makeTokenRequest("dup", 4)
++	res1, res2 := makeSchedulingResult(endpointName), makeSchedulingResult(endpointName)
++	require.NoError(t, producer.PreRequest(ctx, first, res1))
++	require.NoError(t, producer.PreRequest(ctx, second, res2))
++	require.Equal(t, int64(2), producer.requestTracker.get(endpointID))
++
++	first.SchedulingResult, second.SchedulingResult = res1, res2
++	producer.ResponseBody(ctx, first, &fwkrh.Response{EndOfStream: true}, nil)
++	producer.ResponseBody(ctx, second, &fwkrh.Response{EndOfStream: true}, nil)
++
++	t.Logf("after both completed: requests=%d tokens=%d",
++		producer.requestTracker.get(endpointID), producer.tokenTracker.get(endpointID))
++	// Recorded outcome, asserted so a change in behaviour is noticed: one request and its tokens stay counted.
++	require.Equal(t, int64(1), producer.requestTracker.get(endpointID))
++	require.Equal(t, int64(4)+UnknownOutputTokens, producer.tokenTracker.get(endpointID))
++}
++
++// The same with the two requests on different endpoints: the state keys differ, so nothing is replaced, but the
++// first completion's Delete evicts both entries while the second request is still running.
++func TestLab2881DuplicateRequestIDDifferentEndpoints(t *testing.T) {
++	producer := newTestProducer(t)
++	ctx := context.Background()
++	a, b := "dup-a", "dup-b"
++
++	first := makeTokenRequest("dup", 4)
++	second := makeTokenRequest("dup", 4)
++	res1, res2 := makeSchedulingResult(a), makeSchedulingResult(b)
++	require.NoError(t, producer.PreRequest(ctx, first, res1))
++	require.NoError(t, producer.PreRequest(ctx, second, res2))
++
++	first.SchedulingResult = res1
++	producer.ResponseBody(ctx, first, &fwkrh.Response{EndOfStream: true}, nil)
++	t.Logf("after the first completed, the second still running: b requests=%d", producer.requestTracker.get(fullEndpointName(b)))
++	// Recorded outcome: the still-running second request is no longer counted on b.
++	require.Equal(t, int64(0), producer.requestTracker.get(fullEndpointName(b)))
++}
