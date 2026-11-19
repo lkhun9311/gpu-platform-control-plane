@@ -27,7 +27,7 @@ TEST = "tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py"
 CASE = "test_state_index_table_stride_does_not_change_results"
 CASES = {f"{CASE}[recurrent]", f"{CASE}[sigmoid_gating]", f"{CASE}[kda]"}
 ARGS = f"{TEST} -k stride"
-# 3 x 2 non_spec cases, 3 x 2 x 2 spec cases and the three new ones, counted from the file at efdbec4e2d.
+# 3 x 2 non_spec cases, 3 x 2 x 2 spec cases and the three new ones, counted from the file at 541d8b9771.
 # Each function's count is held on its own, so 21 unrelated names cannot stand in for the file.
 FILE_SHAPE = {
     "test_fused_sigmoid_gating_delta_rule_update_non_spec[": 6,

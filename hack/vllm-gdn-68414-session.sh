@@ -20,7 +20,7 @@
 # Its test has five cases: k64-v32, k64-v64, k32-v64, k64-v32-hv2 and v-bf16.
 # BEFORE runs every case but k32-v64, named by node id and excluded by -k, because with V above K the unfixed kernel writes past its output.
 # k64-v32 and k64-v32-hv2 must fail on the shape assert, k64-v64 and v-bf16 must pass, and AFTER must pass all five.
-# #68416: stride-fix.diff is commit efdbec4e2d on 545ef08189, and stride-test.diff is its test-file part alone.
+# #68416: stride-fix.diff is commit 541d8b9771 on 545ef08189, and stride-test.diff is its test-file part alone.
 # The test is test_state_index_table_stride_does_not_change_results in tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py, with cases recurrent, sigmoid_gating and kda.
 # BEFORE runs `-k stride` and all three must fail; AFTER runs `-k stride`, all three must pass, and then the whole file, all 21 of whose cases must pass.
 #
@@ -70,11 +70,12 @@
 # At $1.237/h it is $1.3162/h all in, and $1.1846; any compute rate above $1.5874/h puts the worst case at $1.50 or more, and the session refuses it.
 # The script refuses to run if the constants below stop giving a worst case under $1.50 for either option.
 #
-# NOT FIT TO BUY YET.
-# An adversarial pass on 2026-11-19 found that #68416's diffs, 6bf23529 and abbfbaf3, are not fit for a paid run, so the session refuses them.
+# REFUSED DIFFS.
+# An adversarial pass on 2026-11-19 found #68416's first run-3 diffs, 6bf23529 and abbfbaf3 from commit efdbec4e2d, unfit for a paid run, and the session still refuses them by hash.
 # Their kda case gives q and k one head and v two, and both stride states keep the unfixed kda.py, so the output holds 1 x 6 x 1 x 64 = 384 elements while the kernel writes 6 x 2 x 64 = 768.
 # The same case draws gk inside the layout loop, so the two layouts get different gates, and AFTER cannot pass the exact comparison whatever the stride fix does.
-# A corrected diff gets new pins, which this refusal does not name.
+# Commit 541d8b9771 replaced them: its kda case gives q2 and k2 two heads as v has, so H x K = HV x V = 128 and the unfixed allocation is the size the kernel writes.
+# It also draws gk once, before the layout loop, so both layouts get the same inputs.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the diffs, the bounds and the stop are constants, and a caller who sets one is refused rather than ignored.
 set -uo pipefail
@@ -117,9 +118,9 @@ STRIDE_PINS=hack/vllm-gdn-68414/stride-pins.txt
 STRIDE_DIFFERS=hack/vllm-gdn-68414/stride-differs.txt
 STRIDE_VERDICT=hack/vllm-gdn-68414/stride-verdict.py
 STRIDE_FIX_DIFF=hack/vllm-gdn-68414/stride-fix.diff
-STRIDE_FIX_DIFF_SHA256=6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9
+STRIDE_FIX_DIFF_SHA256=0eaef549b2b6919272666660626e70734fb3b07b25ec13d29f52e1d3c178b60a
 STRIDE_TEST_DIFF=hack/vllm-gdn-68414/stride-test.diff
-STRIDE_TEST_DIFF_SHA256=abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4
+STRIDE_TEST_DIFF_SHA256=21d8bbecee8dae26df7b75630d3f059513dda2cf022787f8edea28cc04bc5e94
 # The step bounds, each the runner's own; hack/vllm-gdn-68414-session-test.sh holds the two equal.
 BRINGUP_S=300
 PULL_BOUND_S=1200
@@ -416,7 +417,7 @@ fi
 # A diff known unfit for a run is refused before any AWS call, since running it would buy a result that cannot be used, and the header says why.
 for unfit in 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4; do
   case " $STRIDE_FIX_DIFF_SHA256 $STRIDE_TEST_DIFF_SHA256 $KDA_FIX_DIFF_SHA256 $KDA_TEST_DIFF_SHA256 " in
-    *" $unfit "*) fail "the pinned diff $unfit is not fit for a paid run: #68416's kda case writes 768 output elements into 384 and draws a new gk per layout (see NOT FIT TO BUY YET); replace the diff and its pins first" ;;
+    *" $unfit "*) fail "the pinned diff $unfit is not fit for a paid run: #68416's kda case writes 768 output elements into 384 and draws a new gk per layout (see REFUSED DIFFS); replace the diff and its pins first" ;;
   esac
 done
 for tool in aws python3 git tar sha256sum; do command -v "$tool" >/dev/null || fail "$tool is not installed"; done

@@ -177,13 +177,20 @@ check "without SESSION_CONFIRM=yes the session is refused and calls no AWS API" 
 fake_session "$WORK/refusal.out" env PURCHASE=on-demand SESSION_CONFIRM=yes bash "$S"
 check "without a pinned AMI ID the session is refused and calls no AWS API" \
   "grep -q 'VLLMGDN_AMI_ID is unset' '$WORK/refusal.out' && [ ! -s '$AWS_CALLS' ]"
-fake_session "$WORK/unfit.out" env PURCHASE=spot SESSION_CONFIRM=yes VLLMGDN_AMI_ID=ami-0123456789abcdef0 bash "$S"
-check "a confirmed session is refused before any AWS call while #68416's pinned diffs are the ones found unfit for a paid run" \
-  "grep -qF 'SESSION REFUSED: the pinned diff 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 is not fit for a paid run' '$WORK/unfit.out' && [ ! -s '$AWS_CALLS' ] && [ ! -e '$WORK/never' ] && grep -qF 'so the output holds 1 x 6 x 1 x 64 = 384 elements while the kernel writes 6 x 2 x 64 = 768.' '$S'"
-# The refusal is by the pins, so a session whose #68416 pins are a corrected diff's goes past it.
-sed -e 's/^STRIDE_FIX_DIFF_SHA256=.*/STRIDE_FIX_DIFF_SHA256=00/' -e 's/^STRIDE_TEST_DIFF_SHA256=.*/STRIDE_TEST_DIFF_SHA256=11/' "$S" > "$WORK/fit.sh"
-: > "$AWS_CALLS"; env -u PURCHASE PATH="$WORK/awsbin:$PATH" OUT="$WORK/never" PURCHASE=spot SESSION_CONFIRM=yes VLLMGDN_AMI_ID=ami-0123456789abcdef0 bash "$WORK/fit.sh" > "$WORK/fit.out" 2>&1
-check "with other #68416 pins the session goes past that refusal to its next check" "! grep -q 'not fit for a paid run' '$WORK/fit.out' && grep -q 'SESSION REFUSED' '$WORK/fit.out'"
+# pinned_to NAME FIX TEST: the session with #68416's two pins set, run confirmed with an AMI against the fake aws.
+pinned_to() {
+  sed -e "s/^STRIDE_FIX_DIFF_SHA256=.*/STRIDE_FIX_DIFF_SHA256=$2/" -e "s/^STRIDE_TEST_DIFF_SHA256=.*/STRIDE_TEST_DIFF_SHA256=$3/" "$S" > "$WORK/$1.sh"
+  : > "$AWS_CALLS"
+  env -u PURCHASE PATH="$WORK/awsbin:$PATH" OUT="$WORK/never" PURCHASE=spot SESSION_CONFIRM=yes VLLMGDN_AMI_ID=ami-0123456789abcdef0 bash "$WORK/$1.sh" > "$WORK/$1.out" 2>&1
+}
+pinned_to unfitfix 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 "$(sv STRIDE_TEST_DIFF_SHA256)"
+check "a session pinned to efdbec4e2d's unfit fix diff is refused before any AWS call" \
+  "grep -qF 'SESSION REFUSED: the pinned diff 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 is not fit for a paid run' '$WORK/unfitfix.out' && [ ! -s '$AWS_CALLS' ] && [ ! -e '$WORK/never' ]"
+pinned_to unfittest "$(sv STRIDE_FIX_DIFF_SHA256)" abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4
+check "a session pinned to efdbec4e2d's unfit test diff is refused before any AWS call, and the header says why" \
+  "grep -qF 'SESSION REFUSED: the pinned diff abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4 is not fit for a paid run' '$WORK/unfittest.out' && [ ! -s '$AWS_CALLS' ] && grep -qF 'so the output holds 1 x 6 x 1 x 64 = 384 elements while the kernel writes 6 x 2 x 64 = 768.' '$S'"
+fake_session "$WORK/fit.out" env PURCHASE=spot SESSION_CONFIRM=yes VLLMGDN_AMI_ID=ami-0123456789abcdef0 bash "$S"
+check "the session as pinned, 541d8b9771's diffs, goes past that refusal to its next check" "! grep -q 'not fit for a paid run' '$WORK/fit.out' && grep -q 'SESSION REFUSED' '$WORK/fit.out'"
 fake_session "$WORK/refusal.out" env PURCHASE=spot SESSION_CONFIRM=yes VLLMGDN_AMI_ID=ami-0123456789abcdef0 VLLM_COMMIT=0000000 bash "$S"
 check "a caller who sets one of the session's own values is refused" \
   "grep -q 'VLLM_COMMIT is set' '$WORK/refusal.out' && [ ! -s '$AWS_CALLS' ]"
@@ -214,8 +221,8 @@ check "the runner and the two verdicts name the same image digest and commit" \
 dsha() { sha256sum "$1" | cut -d' ' -f1; }
 check "the session pins every diff at its own sha256" \
   "[ \"\$(dsha '$DIR/kda-fix.diff')\" = \"\$(sv KDA_FIX_DIFF_SHA256)\" ] && [ \"\$(dsha '$DIR/kda-test.diff')\" = \"\$(sv KDA_TEST_DIFF_SHA256)\" ] && [ \"\$(dsha '$DIR/stride-fix.diff')\" = \"\$(sv STRIDE_FIX_DIFF_SHA256)\" ] && [ \"\$(dsha '$DIR/stride-test.diff')\" = \"\$(sv STRIDE_TEST_DIFF_SHA256)\" ]"
-check "the diffs are the ones storage pushed in 4a38c4fb, by their sha256" \
-  "[ \"\$(sv KDA_FIX_DIFF_SHA256)\" = 5f98c5d6b71f8c299d1087697cd696ceca4b64ca2c38db469a86b474e86d1f84 ] && [ \"\$(sv KDA_TEST_DIFF_SHA256)\" = b56b698ca429b680cbd1526166ba40b60ff525506658238a64428e013724868a ] && [ \"\$(sv STRIDE_FIX_DIFF_SHA256)\" = 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 ] && [ \"\$(sv STRIDE_TEST_DIFF_SHA256)\" = abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4 ]"
+check "the diffs are the ones storage pushed, #68415's in 4a38c4fb and #68416's in f11148fc, by their sha256" \
+  "[ \"\$(sv KDA_FIX_DIFF_SHA256)\" = 5f98c5d6b71f8c299d1087697cd696ceca4b64ca2c38db469a86b474e86d1f84 ] && [ \"\$(sv KDA_TEST_DIFF_SHA256)\" = b56b698ca429b680cbd1526166ba40b60ff525506658238a64428e013724868a ] && [ \"\$(sv STRIDE_FIX_DIFF_SHA256)\" = 0eaef549b2b6919272666660626e70734fb3b07b25ec13d29f52e1d3c178b60a ] && [ \"\$(sv STRIDE_TEST_DIFF_SHA256)\" = 21d8bbecee8dae26df7b75630d3f059513dda2cf022787f8edea28cc04bc5e94 ]"
 if [ -d "$STORAGE" ]; then
   check "each diff is the storage copy byte for byte" \
     "cmp -s '$STORAGE/kda-output-shape-68415/fix.diff' '$DIR/kda-fix.diff' && cmp -s '$STORAGE/kda-output-shape-68415/test-only.diff' '$DIR/kda-test.diff' && cmp -s '$STORAGE/state-index-stride-68416/fix.diff' '$DIR/stride-fix.diff' && cmp -s '$STORAGE/state-index-stride-68416/test-only.diff' '$DIR/stride-test.diff'"
@@ -242,7 +249,7 @@ check "#68414 is not shipped, run or judged, and derive-pins.sh refuses it" \
 pinf() { echo "$DIR/$1-pins.txt"; }
 # pin ITEM STATE PATH: the pinned value.
 pin() { awk -v s="$2" -v p="$3" '$1 == s && $3 == p {print $2}' "$(pinf "$1")"; }
-refs_of() { case $1 in kda) echo "diffbase-428c371b32 fixcommit-841cd50ff0" ;; stride) echo "diffbase-545ef08189 fixcommit-efdbec4e2d" ;; esac; }
+refs_of() { case $1 in kda) echo "diffbase-428c371b32 fixcommit-841cd50ff0" ;; stride) echo "diffbase-545ef08189 fixcommit-541d8b9771" ;; esac; }
 own_of() { case $1 in kda) echo "$KDA $KT" ;; stride) echo "$FR $FSG $SGT" ;; esac; }
 pins_shape() {
   local item st want
@@ -306,16 +313,16 @@ if [ -n "${VLLM_SRC:-}" ]; then
       "diff <(bash '$DIR/derive-pins.sh' $item '$VLLM_SRC') '$(pinf $item)' > /dev/null && diff <(bash '$DIR/derive-pins.sh' $item-differs '$VLLM_SRC') '$DIR/$item-differs.txt' > /dev/null"
   done
   check "each fix diff is its commit's diff from its base byte for byte, and each test diff that commit's test-file part" \
-    "[ \"\$(g rev-parse 841cd50ff0^)\" = $IMAGE_COMMIT ] && cmp -s <(g diff $IMAGE_COMMIT 841cd50ff0) '$DIR/kda-fix.diff' && cmp -s <(g diff $IMAGE_COMMIT 841cd50ff0 -- $KT) '$DIR/kda-test.diff' && [ \"\$(g rev-parse efdbec4e2d^)\" = 545ef081895681ba4c2aa3c6699326e3a2f3cbf7 ] && cmp -s <(g diff 545ef08189 efdbec4e2d) '$DIR/stride-fix.diff' && cmp -s <(g diff 545ef08189 efdbec4e2d -- $SGT) '$DIR/stride-test.diff'"
+    "[ \"\$(g rev-parse 841cd50ff0^)\" = $IMAGE_COMMIT ] && cmp -s <(g diff $IMAGE_COMMIT 841cd50ff0) '$DIR/kda-fix.diff' && cmp -s <(g diff $IMAGE_COMMIT 841cd50ff0 -- $KT) '$DIR/kda-test.diff' && [ \"\$(g rev-parse 541d8b9771^)\" = 545ef081895681ba4c2aa3c6699326e3a2f3cbf7 ] && cmp -s <(g diff 545ef08189 541d8b9771) '$DIR/stride-fix.diff' && cmp -s <(g diff 545ef08189 541d8b9771 -- $SGT) '$DIR/stride-test.diff'"
   # closure FIXCOMMIT TEST: the import-time closure of TEST at FIXCOMMIT with the conftest files pytest loads for it.
   closure() { python3 "$DIR/import-closure.py" "$VLLM_SRC" "$1" "$2" tests/conftest.py tests/kernels/conftest.py | LC_ALL=C sort; }
-  closure 841cd50ff0 "$KT" > "$WORK/closure-kda"; closure efdbec4e2d "$SGT" > "$WORK/closure-stride"
+  closure 841cd50ff0 "$KT" > "$WORK/closure-kda"; closure 541d8b9771 "$SGT" > "$WORK/closure-stride"
   check "base proof, why run 3 left 8700cc9ba0: torch_utils.py differs between it and both diff bases, and both tests import it" \
-    "[ \"\$(g diff --name-only $OLD_IMAGE_COMMIT $IMAGE_COMMIT)\" = $TU ] && g diff --name-only $OLD_IMAGE_COMMIT 545ef08189 | grep -qx $TU && grep -qx $TU '$WORK/closure-kda' && grep -qx $TU '$WORK/closure-stride' && grep -q '^from vllm.utils.torch_utils import set_random_seed\$' <(g show efdbec4e2d:$SGT)"
+    "[ \"\$(g diff --name-only $OLD_IMAGE_COMMIT $IMAGE_COMMIT)\" = $TU ] && g diff --name-only $OLD_IMAGE_COMMIT 545ef08189 | grep -qx $TU && grep -qx $TU '$WORK/closure-kda' && grep -qx $TU '$WORK/closure-stride' && grep -q '^from vllm.utils.torch_utils import set_random_seed\$' <(g show 541d8b9771:$SGT)"
   check "base proof: no file in either test's import-time closure, conftest files included, differs between the image's commit and its diff base" \
     "[ \"\$(wc -l < '$WORK/closure-kda')\" -gt 100 ] && [ -z \"\$(LC_ALL=C comm -12 '$WORK/closure-kda' <(g diff --name-only $IMAGE_COMMIT $IMAGE_COMMIT | LC_ALL=C sort))\" ] && [ -z \"\$(LC_ALL=C comm -12 '$WORK/closure-stride' <(g diff --name-only $IMAGE_COMMIT 545ef08189 | LC_ALL=C sort))\" ] && grep -qx $FR '$WORK/closure-stride' && grep -qx $KDA '$WORK/closure-stride'"
   check "base proof: every file each diff changes is the same at the image's commit and at its diff base" \
-    "( for p in \$(g diff --name-only 545ef08189 efdbec4e2d) \$(g diff --name-only $IMAGE_COMMIT 841cd50ff0); do [ \"\$(g rev-parse --verify -q $IMAGE_COMMIT:\$p || echo absent)\" = \"\$(g rev-parse --verify -q 545ef08189:\$p || echo absent)\" ] || exit 1; done )"
+    "( for p in \$(g diff --name-only 545ef08189 541d8b9771) \$(g diff --name-only $IMAGE_COMMIT 841cd50ff0); do [ \"\$(g rev-parse --verify -q $IMAGE_COMMIT:\$p || echo absent)\" = \"\$(g rev-parse --verify -q 545ef08189:\$p || echo absent)\" ] || exit 1; done )"
 else
   echo "skip the pins and the base proof against a vLLM clone (set VLLM_SRC to re-derive them)"
 fi

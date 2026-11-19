@@ -24,8 +24,8 @@ PATHS="$OPS/index.py tests/kernels/fla/test_chunk_indices.py $OPS/kda.py tests/k
 case $ITEM in
   # #68415's diff is commit 841cd50ff0 on 428c371b32, the image's own commit.
   kda | kda-differs) STATES="base: before:kda-test.diff after:kda-fix.diff"; DIFFBASE=428c371b32c18a788def35abea1cb9f579278381; FIXCOMMIT=841cd50ff065f983c49f0cbd3cb63ac662de4ed7 ;;
-  # #68416's diff is commit efdbec4e2d on 545ef08189, six commits after the image's, for which CI published no image.
-  stride | stride-differs) STATES="base: before:stride-test.diff after:stride-fix.diff"; DIFFBASE=545ef081895681ba4c2aa3c6699326e3a2f3cbf7; FIXCOMMIT=efdbec4e2d161d8a9e5daa87f0fd75181889cf61 ;;
+  # #68416's diff is commit 541d8b9771 on 545ef08189, six commits after the image's, for which CI published no image.
+  stride | stride-differs) STATES="base: before:stride-test.diff after:stride-fix.diff"; DIFFBASE=545ef081895681ba4c2aa3c6699326e3a2f3cbf7; FIXCOMMIT=541d8b97713b42540deff2f124fc75c0409292d2 ;;
   gdn) echo "#68414 is not part of run 3; pins.txt is run 2's, derived on 8700cc9ba0" >&2; exit 2 ;;
   *) echo "unknown item $ITEM" >&2; exit 2 ;;
 esac

@@ -90,7 +90,8 @@ mutate "the verdicts ignore what the collection loaded" "$D/kda-verdict.py" 's| 
 mutate "the pins drop torch_utils.py" "$D/lib.sh" 's|^PINNED_PATHS=8|PINNED_PATHS=7|'
 
 # What codex's adversarial pass of 2026-11-19 added: the unfit #68416 diffs, the quoted provenance, and the whole file's shape.
-mutate "the session buys with #68416's unfit diffs" "hack/vllm-gdn-68414-session.sh" 's|^for unfit in 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 |for unfit in |'
+mutate "the session buys with #68416's unfit fix diff" "hack/vllm-gdn-68414-session.sh" 's|^for unfit in 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 |for unfit in |'
+mutate "the session buys with #68416's unfit test diff" "hack/vllm-gdn-68414-session.sh" 's| abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4; do$|; do|'
 mutate "the stride verdict ignores the recorded provenance" "$D/stride-verdict.py" 's|    elif ev != "ok":|    elif False:|'
 mutate "the kda verdict ignores the recorded GPU" "$D/kda-verdict.py" 's|    if "A10G" not in st.get("gpu_name", ""):|    if False:|'
 mutate "the stride verdict ignores the whole file's shape" "$D/stride-verdict.py" 's| and shape == FILE_SHAPE and not bad:| and not bad:|'
