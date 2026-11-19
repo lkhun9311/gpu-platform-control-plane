@@ -26,7 +26,7 @@ def load():
         with open(MODEL) as f:
             return json.load(f)
     return {"claims": {}, "cp": {}, "down": False, "restarts": 0, "releases": ["dra-driver-nvidia-gpu-batssuite"],
-            "terminated": False, "applied": 0}
+            "terminated": False, "applied": 0, "s5": {}, "unprepared": [], "kubelet_unprep": []}
 
 
 def save(m):
@@ -87,7 +87,81 @@ def daemonsets(m):
             for r in m["releases"]]
 
 
+def s5_leaked(m):
+    """The S5 claim UIDs the checkpoint still holds although the API no longer has their claim."""
+    return [u for u in m["cp"] if u.startswith("uid-s5-") and u not in m["claims"].values()]
+
+
+def kubectl_s5(m, ns):
+    """S5's namespaces: a template-generated claim, force deletion, and a delete-protection finalizer.
+
+    A normal delete leaves both objects in the API, as attempt 5's S1 saw them while the plugin was down.
+    A forced pod delete removes the pod at once, unless FAKE_S5_STAYS keeps it.
+    A forced claim delete leaves the claim held by its finalizer until the finalizers are patched away.
+    FAKE_S5_CLAIM_GC has the garbage collector remove the claim with its pod, before the claim's own delete is sent.
+    FAKE_S5_CLAIM_STAYS keeps the claim whatever is done to it, as a finalizer something else re-adds would.
+    A delete of an object the API does not have fails unless it carries --ignore-not-found, as kubectl's does.
+    """
+    st = m["s5"].get(ns)
+    forced = "--force" in A and "--grace-period=0" in A
+    if "wait" in A:
+        if "pod/pod-b" in A and s5_leaked(m):
+            sys.exit(1)
+        out()
+    if env("FAKE_GET_FAIL") and "get" in A and arg("-o") == "name":
+        sys.stderr.write("Unable to connect to the server\n")
+        sys.exit(1)
+    if "delete" in A and st:
+        ckey = ns + "/" + st["claim"]
+        if "pod/pod" in A:
+            if forced and not env("FAKE_S5_STAYS"):
+                m["claims"].pop(ns + "/pod", None)
+                m["kubelet_unprep"].append(st["pod_uid"])
+                if env("FAKE_S5_CLAIM_GC"):
+                    m["claims"].pop(ckey, None)
+        if "resourceclaim/" + st["claim"] in A:
+            if ckey not in m["claims"] and "--ignore-not-found" not in A:
+                sys.stderr.write('Error from server (NotFound): resourceclaims "%s" not found\n' % st["claim"])
+                sys.exit(1)
+            st["deleting"] = True
+        save(m)
+        out()
+    if "patch" in A and st and "resourceclaim/" + st["claim"] in A:
+        if st["deleting"] and '{"metadata":{"finalizers":null}}' in A and not env("FAKE_S5_CLAIM_STAYS"):
+            m["claims"].pop(ns + "/" + st["claim"], None)
+        save(m)
+        out()
+    if "get" in A and "events" in A:
+        if not (st and st.get("pod_b")):
+            out()
+        out("\n".join("Warning FailedPrepareDynamicResources pod/pod-b requested device gpu-0 is already allocated to "
+                      "different claim %s" % u for u in s5_leaked(m)))
+    if "get" in A and st:
+        q = arg("-o", "")
+        if "--ignore-not-found" in A:
+            obj = [a for a in A if "/" in a][0]
+            kind, name = obj.split("/", 1)
+            key = ns + "/" + ("pod" if kind == "pod" else name)
+            out(obj if key in m["claims"] else "")
+        if "pod/pod" in A and "resourceClaimStatuses[" in q:
+            out("" if env("FAKE_S5_NO_STATUS") else st["claim"])
+        if "pod/pod" in A and q == "jsonpath={.metadata.uid}":
+            if ns + "/pod" not in m["claims"]:
+                sys.exit(1)
+            out(st["pod_uid"])
+        if "resourceclaim/" + st["claim"] in A and q == "jsonpath={.metadata.uid}":
+            key = ns + "/" + st["claim"]
+            if key not in m["claims"]:
+                sys.exit(1)
+            out(m["claims"][key])
+        out("stub " + " ".join(A))
+    out()
+
+
 def kubectl(m):
+    ns0 = arg("-n", "") or ""
+    if ns0.startswith("s5-"):
+        kubectl_s5(m, ns0)
     if "apply" in A:
         path = arg("-f")
         text = open(path).read()
@@ -105,6 +179,16 @@ def kubectl(m):
             if not env("FAKE_MPS_NEVER"):
                 m["cp"]["uid-mps"] = "PrepareStarted"
                 m["mps_at"] = time.time() + 1.0
+        for ns in re.findall(r"kind: Pod\nmetadata:\n  namespace: (s5-r\d+)\n  name: pod-b\n", text):
+            m["s5"][ns]["pod_b"] = True
+        for ns in re.findall(r"kind: Pod\nmetadata:\n  namespace: (s5-r\d+)\n  name: pod\n", text):
+            uid = "uid-" + ns
+            claim = "pod-gpu-x7k2q"
+            m["s5"][ns] = {"claim": claim, "pod_uid": "poduid-" + ns, "deleting": False}
+            m["claims"][ns + "/" + claim] = uid
+            m["claims"][ns + "/pod"] = "pod"
+            if not env("FAKE_S5_NOT_PREPARED"):
+                m["cp"][uid] = "PrepareCompleted"
         for name in re.findall(r"kind: ResourceClaim\nmetadata:\n  namespace: s3-shares\n  name: (mem-\d)", text):
             m["claims"]["s3-shares/" + name] = "uid-" + name
         save(m)
@@ -123,6 +207,11 @@ def kubectl(m):
         if not m["down"] and not env("FAKE_S1_LEAK"):
             for uid in [u for u in m["cp"] if u.startswith("uid-s1-") and not any(v == u for v in m["claims"].values())]:
                 del m["cp"][uid]
+        # S5's entries leak only when the test asks, which is #1278's finding.
+        if not m["down"] and not env("FAKE_S5_LEAK"):
+            for uid in s5_leaked(m):
+                del m["cp"][uid]
+                m["unprepared"].append(uid)
         save(m)
         out()
     if "delete" in A:
@@ -141,7 +230,11 @@ def kubectl(m):
     if "create" in A or "describe" in A:
         out()
     if "logs" in A:
-        out("\n".join(["I1118 driver.go] plugin started"] + ["I1118 driver.go] Unprepare: claim %s" % u for u in m["cp"]]))
+        reg = [] if env("FAKE_S5_UNREGISTERED") else [
+            'I1118 nonblockinggrpcserver.go:150] "handling request" logger="registrar" requestID=2 '
+            'method="/pluginregistration.Registration/NotifyRegistrationStatus" request="plugin_registered:true"']
+        out("\n".join(["I1118 driver.go] plugin started"] + reg + ["I1118 driver.go] Unprepare: claim %s" % u for u in m["cp"]] +
+                       ["I1118 driver.go:392] Unprepare called for: [ns/claim:%s]" % u for u in m["unprepared"]]))
     if "get" in A:
         ns = arg("-n", "")
         q = arg("-o", "")
@@ -179,6 +272,11 @@ def kubectl(m):
             out()
         if "resourceslices" in A and q == "name":
             out("resourceslice.resource.k8s.io/worker-gpu.nvidia.com-x")
+        # A listing of the plugin pods that fails, which must not read as no plugin pod.
+        if env("FAKE_PLUGIN_LIST_FAIL") and "pods" in A and arg("-l") == "dra-driver-nvidia-gpu-component=kubelet-plugin" \
+                and arg("-o") == "name":
+            sys.stderr.write("Unable to connect to the server\n")
+            sys.exit(1)
         if "pods" in A and "-l" in A:
             if m["down"]:
                 out()
@@ -227,7 +325,9 @@ def docker(m):
             save(m)
             out()
         if rest[:1] == ["journalctl"]:
-            out("\n".join(["kubelet started"] + ["kubelet dra manager: UnprepareResources claim %s" % u for u in m["cp"]]))
+            out("\n".join(["kubelet started"] + ["kubelet dra manager: UnprepareResources claim %s" % u for u in m["cp"]] +
+                           ['E1118 pod_workers.go] "Error syncing pod" err="unprepare dynamic resources: DRA driver gpu.nvidia.com '
+                            'is not registered" podUID="%s"' % u for u in m["kubelet_unprep"]]))
         if rest[:1] == ["grep"]:
             out("0")
         out()
@@ -287,7 +387,7 @@ def instance_writes(prefix):
     """What the instance would leave in S3: the DONE marker and an evidence archive whose summary has the test's statuses."""
     root = os.path.join(ST, "instance", "dra-run")
     os.makedirs(os.path.join(root, "run"), exist_ok=True)
-    rcs = dict(kv.split("=") for kv in env("FAKE_PHASE_RCS", "cluster=0 build=0 s4=0 s1=0 s2=0 s3=0").split())
+    rcs = dict(kv.split("=") for kv in env("FAKE_PHASE_RCS", "cluster=0 build=0 s1=0 s5=0").split())
     with open(os.path.join(root, "run", "summary.tsv"), "w") as f:
         f.write("phase\texit\tseconds\tbound\n")
         for p, rc in rcs.items():
@@ -317,7 +417,7 @@ def aws(m):
     if sub == "service-quotas get-service-quota":
         out("64.0")
     if sub == "lambda get-function":
-        out("Active")
+        out(env("FAKE_SWEEPER_STATE", "Active"))
     if sub == "events describe-rule":
         out("ENABLED\trate(5 minutes)")
     if sub == "events list-targets-by-rule":
