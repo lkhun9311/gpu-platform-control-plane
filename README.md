@@ -10,6 +10,7 @@ Most GPU setups stop at running a single workload. This project treats the GPU a
 
 The benchmark harness and the paid GPU session tooling in this repository are also used to measure changes proposed to upstream open-source projects.
 Each result below was posted on the upstream thread, and its raw rows are committed here.
+Every case, with its environment, baseline, result, reproduction command, cost and upstream status, is in [`docs/16_OSS_VALIDATION_CASE_STUDIES.md`](docs/16_OSS_VALIDATION_CASE_STUDIES.md).
 
 ### vLLM #58420: SRPF scheduling and its starvation threshold
 
@@ -89,7 +90,7 @@ Repeating the paid run needs an AWS account that allows g5 instances, and the se
 |---|---|---|
 | [vllm-project/vllm#67811](https://github.com/vllm-project/vllm/pull/67811) (adaptive prefill time budget, open) | The PR's `serve.py` baseline against its opt-in mode on one A10G, then a traced re-run that located a stall. [1](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967453629), [2](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967700360), [3](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6968495394) | [`hack/vllm-67811/`](hack/vllm-67811/) |
 | [vllm-project/aibrix#3439](https://github.com/vllm-project/aibrix/issues/3439) (a failed metric source lets the rest scale down, open) | Replayed on a kind lab with an autoscaled InferenceDeployment | [`docs/15_AIBRIX_AUTOSCALING_LAB.md`](docs/15_AIBRIX_AUTOSCALING_LAB.md), [`hack/aibrix-lane2/`](hack/aibrix-lane2/) |
-| vLLM single-token TPOT metric fix (upstream PR not yet opened) | vLLM's own metrics pytest before and after the fix, in the CI image on one A10G: before failed as expected, after passed 3 of 3 | [`hack/vllm-tpot/runs/2026-11-18-run1/`](hack/vllm-tpot/runs/2026-11-18-run1/) |
+| [vllm-project/vllm#68548](https://github.com/vllm-project/vllm/pull/68548) (single-token TPOT metric fix, open) | vLLM's own metrics pytest before and after the fix, in the CI image on one A10G: before failed as expected, after passed 3 of 3 | [`hack/vllm-tpot/runs/2026-11-18-run1/`](hack/vllm-tpot/runs/2026-11-18-run1/) |
 
 ## Latest results (2026-10-27 to 2026-11-08)
 
