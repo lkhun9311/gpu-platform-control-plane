@@ -108,10 +108,14 @@ ud_ok() {
     command grep -qF 'echo "b9980552309f09c15172b8be828555e375097f16deb459795ce7bfd200380f0b  uv.tgz" | sha256sum -c -' "$WORK/ud.sh" &&
     command grep -qF 'uv python find --no-project --managed-python cpython-3.12.15-linux-x86_64-gnu' "$WORK/ud.sh" &&
     command grep -qF 'bash /opt/kit/in/kit/run.sh > "$R/run-output.log"' "$WORK/ud.sh" &&
+    command grep -qxF 'ln -sf /opt/kit/uv-x86_64-unknown-linux-gnu/uv /opt/kit/bin/uv' "$WORK/ud.sh" &&
+    command grep -qF 'env HOME=/root PATH="/opt/kit/bin:$PATH" UV_PYTHON_INSTALL_DIR=/opt/kit/python OUT="$R/results"' "$WORK/ud.sh" &&
     command grep -qF 'mem > "$R/memory-before-kit.txt"' "$WORK/ud.sh" &&
     command grep -qF "grep -q '^test-files-fix ' \"\$R/results/status.txt\" 2>/dev/null; then mem > \"\$R/memory-before-loads.txt\"" "$WORK/ud.sh"
 }
 check "the user-data renders, parses, fits 16 KB, stops itself at 3,720 s twice, and pins uv and Python" "ud_ok '$S'"
+m=$(mutant nouv '/^ln -sf \/opt\/kit\/uv-x86_64-unknown-linux-gnu\/uv \/opt\/kit\/bin\/uv$/d')
+mcheck "mutant: a user-data that leaves uv off the kit's PATH is caught" "! ud_ok '$m'"
 m=$(mutant backstop '/^( sleep STOP_FROM_LAUNCH_S_PLACEHOLDER; shutdown -h now ) &$/d')
 mcheck "mutant: a user-data without its first backstop is caught" "! ud_ok '$m'"
 m=$(mutant precise 's/^( sleep \$(( L + STOP_FROM_LAUNCH_S_PLACEHOLDER/( sleep $(( L + 99999/')

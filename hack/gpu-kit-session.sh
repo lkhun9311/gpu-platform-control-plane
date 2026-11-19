@@ -11,7 +11,8 @@
 # WHAT RUNS WHERE.
 # The kit is shipped as the kit repository's committed tree at HEAD, and the session refuses a kit with uncommitted or untracked files.
 # The instance gets Python 3.12 from a pinned uv release (sha256-checked) as a standalone build under /opt/kit, so the AMI's own Python is untouched.
-# It puts only `python` and `python3.12` for that build on PATH, and runs `bash run.sh` as root with HOME=/root and OUT=/opt/kit/run/results.
+# It puts only `python` and `python3.12` for that build, and the pinned `uv`, on PATH, and runs `bash run.sh` as root with HOME=/root and OUT=/opt/kit/run/results.
+# UV_PYTHON_INSTALL_DIR points uv at that build, so a kit's `uv venv --python 3.12` finds it rather than downloading another.
 # The EC2 lifecycle is hack/lib/spot-run.sh's, and the clock, the sweeper checks and the evidence path follow hack/llmd-prefix-hunt-session.sh.
 #
 # THE CLOCK.
@@ -150,6 +151,8 @@ export UV_PYTHON_INSTALL_DIR=/opt/kit/python
 py=$(./uv-x86_64-unknown-linux-gnu/uv python find --no-project --managed-python PYTHON_PIN_PLACEHOLDER)
 ln -sf "$py" /opt/kit/bin/python
 ln -sf "$py" /opt/kit/bin/python3.12
+# A kit may build its own venv with uv, so the pinned uv is on its PATH too.
+ln -sf /opt/kit/uv-x86_64-unknown-linux-gnu/uv /opt/kit/bin/uv
 { echo "uv=$(./uv-x86_64-unknown-linux-gnu/uv --version)"; echo "python=$py"; /opt/kit/bin/python --version; } > /opt/kit/run/python-provenance.txt 2>&1
 PY
 bringup_left=$(( P1 - $(date +%s) ))
@@ -183,7 +186,7 @@ if [ "$bringup_rc" = 0 ]; then
   date -u +%Y-%m-%dT%H:%M:%SZ > "$R/kit-start.txt"
   cd /opt/kit/work
   # The kit runs unmodified; the timeout only stops one that overran its phase from eating the upload.
-  env HOME=/root PATH="/opt/kit/bin:$PATH" OUT="$R/results" \
+  env HOME=/root PATH="/opt/kit/bin:$PATH" UV_PYTHON_INSTALL_DIR=/opt/kit/python OUT="$R/results" \
     timeout --kill-after=15 $(( HE - $(date +%s) > 5 ? HE - $(date +%s) : 5 )) bash /opt/kit/in/kit/run.sh > "$R/run-output.log" 2>&1
   kit_rc=$?
   date -u +%Y-%m-%dT%H:%M:%SZ > "$R/kit-end.txt"
