@@ -1,9 +1,9 @@
-diff --git a/tests/kernels/mamba/test_fla_fused_recurrent_kda.py b/tests/kernels/mamba/test_fla_fused_recurrent_kda.py
+diff --git a/tests/kernels/fla/test_fused_recurrent_kda.py b/tests/kernels/fla/test_fused_recurrent_kda.py
 new file mode 100644
-index 0000000000..6b34984247
+index 0000000000..8e6e7fb2c2
 --- /dev/null
-+++ b/tests/kernels/mamba/test_fla_fused_recurrent_kda.py
-@@ -0,0 +1,45 @@
++++ b/tests/kernels/fla/test_fused_recurrent_kda.py
+@@ -0,0 +1,46 @@
 +# SPDX-License-Identifier: Apache-2.0
 +# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 +
@@ -20,8 +20,9 @@ index 0000000000..6b34984247
 +
 +@pytest.mark.parametrize("head_k_dim, head_v_dim", [(64, 32), (64, 64), (32, 64)])
 +def test_fused_recurrent_kda_output_has_value_shape(head_k_dim, head_v_dim):
-+    """The kernel writes HV heads of width V, so the output must be allocated
-+    from v, not k (#68415). Zero queries make every output value zero."""
++    """The output must be allocated from v, not k (#68415).
++    The kernel writes HV heads of width V.
++    Zero queries make every output value zero."""
 +    device = "cuda"
 +    num_tokens = 4
 +    q = torch.zeros(1, num_tokens, 1, head_k_dim, dtype=torch.float16, device=device)

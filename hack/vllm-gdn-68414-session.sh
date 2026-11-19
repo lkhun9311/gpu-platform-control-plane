@@ -1,65 +1,62 @@
 #!/usr/bin/env bash
 #
-# vLLM #68414 (GDN prepare_chunk_indices), before and after the fix, then vLLM #68415 (KDA output shape) the same way: one g5.xlarge Spot instance, one attempt, stopped by itself 4,740 s after launch.
+# vLLM run 2 of the FLA fixes: one g5.xlarge, one attempt, stopped by itself 3,600 s after launch.
+# It runs three items: #68414 (GDN prepare_chunk_indices) AFTER only, #68416 (state-index token stride) BEFORE and AFTER, and #68415 (KDA output shape) BEFORE and AFTER.
 #
-#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh
+#   PURCHASE=spot SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh
+#   PURCHASE=on-demand SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh
 #
-# The runtime session's fix (storage/open-source/contributions/vllm/gdn-chunk-indices-68414) numbers each chunk by its sequence, so a zero-length sequence keeps its id and the chunks after it stop reading its bounds.
-# The reporter's kernel_repro.py shows the bug only on a GPU, and this session runs it twice.
-# BEFORE: vLLM main 8700cc9ba0 unpatched, where kernel_repro.py must print 70 unwritten rows; the reporter's state error was NaN, and the verdict records whether it is.
-# AFTER: the same commit with fix.diff, where it must print `unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True`.
-# AFTER then runs the diff's new test and the two existing GDN tests, which hack/vllm-gdn-68414/verdict.py expects to skip on sm_86 for their own stated reasons (SM10x only, ROCm only), and records those reasons.
-# fix.diff and kernel_repro.py are copies of the runtime session's, pinned below by sha256.
+# PURCHASE has no default: Spot is cheaper, and run 1 lost its last records to a Spot reclaim 16 minutes in, so the owner picks one each time.
 #
-# #68415, ON THE SAME INSTANCE.
-# The runtime session's second fix (storage/open-source/contributions/vllm/kda-output-shape-68415) allocates fused_recurrent_kda's output from v rather than k.
-# kda.py is the same blob (ff676ce) at the fix's base 428c371b32 and at 8700cc9ba0, so the image above serves it too; hack/vllm-gdn-68414/kda-pins.txt holds the hashes.
-# The two commits differ only in vllm/utils/torch_utils.py, whose change takes effect only on torch 2.14 and touches LayerName, not the KDA kernel.
-# Its two states run after #68414's AFTER, each in its own fresh container, through hack/vllm-gdn-68414/kda-state.sh.
-# KDA BEFORE: only the new test file, and only its 64-32 case, which must fail on `out.shape == v.shape` ([1, 4, 1, 64] against [1, 4, 1, 32]).
-# The 32-64 case is never run before the fix, because with V above K the unfixed kernel writes past the output and can crash the process.
-# KDA AFTER: the whole kda-fix.diff, where all three cases must pass.
-# hack/vllm-gdn-68414/kda-verdict.py judges them apart from verdict.py, so #68414's verdict and its exit status are what they were without #68415.
+# THE ITEMS.
+# The diffs are the runtime session's, re-saved in storage/open-source/contributions/vllm (its commit 70ebfea0), byte for byte and pinned below by sha256.
+# #68414: run 1 (hack/vllm-gdn-68414/runs/2026-11-19-run1-spot-reclaimed) showed BEFORE (70 unwritten rows, state error NaN) and AFTER (the fixed line) on this image.
+# The final diff is commit d713349e52 on 8700cc9ba0 and adds output_size to repeat_interleave, so only AFTER runs again, with kernel_repro.py through the same wrapper.
+# Its new test, tests/kernels/fla/test_chunk_indices.py, is CPU-only, so it runs after the repro and its result is recorded, never deciding the verdict.
+# #68416: fused_recurrent.py and fused_sigmoid_gating.py are byte-identical at the diff's base 545ef08189 and at 8700cc9ba0, which stride-pins.txt shows.
+# BEFORE adds only tests/kernels/fla/test_state_index_stride.py and runs both its cases, which must fail; AFTER applies the whole diff, and both must pass.
+# #68415: kda.py is the same blob at the diff's base 428c371b32 and at 8700cc9ba0, which kda-pins.txt shows.
+# BEFORE adds only tests/kernels/fla/test_fused_recurrent_kda.py and runs only its 64-32 case; 32-64 is never run before the fix, because the unfixed kernel writes past its output there.
+# AFTER applies the whole diff, and all three cases must pass.
 #
-# It is hack/vllm-tpot-session.sh with another runner, and shares its EC2 lifecycle (hack/lib/spot-run.sh).
+# ISOLATION.
+# Every state runs in its own fresh container, and every pins file names all three items' files.
+# So each state proves that no other item's fix or test reached it, and each item has its own verdict script, which reads only its own records.
+# The exit status is 0 only when all three verdicts are confirmed, and outcome.txt names each one.
+#
+# It shares its EC2 lifecycle with the other paid sessions (hack/lib/spot-run.sh).
 #
 # THE BUILD.
 # vLLM CI publishes a test image per main commit, and the one for 8700cc9ba0 is pinned by digest in the runner.
 # Its labels name the commit, and it carries the wheel's sha256, both recorded on the instance.
-# The image installs the wheel, copies the checkout's vllm/v1 over the installed package, and moves the checkout's vllm/ aside, so Python imports vllm from dist-packages and pytest runs the checkout's tests from /vllm-workspace.
-# hack/vllm-gdn-68414/state.sh therefore applies fix.diff in two parts: vllm/* to the installed package, the rest to the checkout, and it records the index.py Python imports and which of the bug and fix lines that file holds.
-# hack/vllm-gdn-68414/pins.txt holds the sha256 of every file the diff touches or the session runs, per state.
-# Each state runs in its own fresh container, which is the `git checkout .` between them.
-#
-# THE REPRO.
-# kernel_repro.py builds its tensors without .cuda(), and the Triton kernels it calls need CUDA tensors.
-# Each state first runs it as-is; only if that prints no result does it run the same file through hack/vllm-gdn-68414/run_repro.py, which checks the file's sha256, sets CUDA as torch's default device and executes it.
-# The state records which way gave the answer, and the verdict requires both states to have used the same way.
+# The image installs the wheel, copies the checkout's vllm/v1 over the installed package, and moves the checkout's vllm/ aside.
+# So hack/vllm-gdn-68414/lib.sh applies each diff in two parts, vllm/* to the installed package and the rest to the checkout.
 #
 # THE CLOCK.
 # Every deadline counts from EC2's LaunchTime, read right after the launch and written to the run's S3 prefix for the instance to read.
-# The work is bounded step by step, and the deadlines are their sum:
-#   bring-up (boot, cloud-init, downloads, toolkit)                         600 s -> 600
-#   image pull (the TPOT run 1 pull took 745 s, the 67811 run 2 pull 1,094 s) 1,500 s
-#   image identity                                                           300 s
-#   BEFORE: setup 120 + as-is 120 + CUDA default 360 + stop 30                630 s
-#   AFTER: setup, as-is and CUDA default 600 + new test 120 + 2 x 120 + 30  990 s
-#   KDA BEFORE: setup 120 + pytest 120 + stop 30                              270 s
-#   KDA AFTER: setup 120 + pytest 120 + stop 30                               270 s
-#   so the runner ends by 600 + 1,500 + 300 + 630 + 990 + 270 + 270       = 4,560 s
-#   evidence upload                                                          120 s -> 4,680
-# The launch carries the termination sweeper's study-deadline tag at the request plus 4,680 s, rewritten to LaunchTime plus 4,710 s once LaunchTime is known; the instance shuts itself down at 4,740 s; the termination is to be confirmed by 5,040 s, the sweeper's five-minute period after its tag plus 30 s.
-# The KDA states are expected to take about two minutes together, and their bounds are wider because each starts a fresh container and compiles its kernel.
-# The CUDA-default bound is 360 s because the FLA kernels autotune on first use, compiling about a hundred Triton configs in a fresh container.
-# The repro and pytest bounds therefore add up to 1,320 s, above the "about 15 minutes of run time" the request set, which is the expected time rather than the bound.
+# Run 1 measured: bring-up 121 s, pull 592 s, image identity 25 s, a state's setup about 30 s, the CUDA repro 72 s.
+# The bounds are those with room, and the deadlines are their sum:
+#   bring-up (boot, cloud-init, downloads, toolkit)                          480 s
+#   image pull (run 1 592 s, the TPOT run 745 s, the 67811 run 2 1,094 s)    1,200 s
+#   image identity                                                           120 s
+#   #68414 AFTER: setup 90 + repro 300 + new test 120 + stop 30              540 s
+#   #68416 BEFORE and AFTER: 2 x (setup 90 + pytest 150 + stop 30)          540 s
+#   #68415 BEFORE and AFTER: 2 x (setup 90 + pytest 150 + stop 30)          540 s
+#   so the runner ends by 480 + 1,200 + 120 + 540 + 540 + 540             = 3,420 s
+#   evidence upload                                                          120 s -> 3,540
+# The launch carries the termination sweeper's study-deadline tag at the request plus 3,540 s, rewritten to LaunchTime plus 3,570 s once LaunchTime is known.
+# The instance shuts itself down at 3,600 s, and the termination is to be confirmed by 3,900 s, the sweeper's five-minute period after its tag plus 30 s.
+# Both purchase options use the same clock, tags and sweeper, which terminates by the tag alone, whatever the instance's market.
 #
 # THE COST.
-# The worst case bills to the termination deadline: 5,040 s = 1.4 h.
-# The rate is the TPOT session's, from the same instance, volume and provisioning: the $0.70/h Spot cap, $0.0324/h for 200 GB gp3 and a public IPv4, and $0.0468/h for 500 MiB/s and 6,000 IOPS.
-# So it is $0.7792/h all in, and $1.0909, under $1.50.
-# The script refuses to run if the constants below stop giving a worst case under $1.50.
+# The worst case bills to the termination deadline: 3,900 s.
+# Both options add $0.0324/h for 200 GB gp3 and a public IPv4, and $0.0468/h for 500 MiB/s and 6,000 IOPS, as the TPOT session measured.
+# spot: the $0.70/h Spot cap, so $0.7792/h all in, and $0.8441.
+# on-demand: g5.xlarge in ap-northeast-2 is read from the AWS Price List API before anything is bought, and the pinned $1.237/h is used only when that read fails.
+# At $1.237/h it is $1.3162/h all in, and $1.4259; any compute rate above $1.3054/h puts the worst case at $1.50 or more, and the session refuses it.
+# The script refuses to run if the constants below stop giving a worst case under $1.50 for either option.
 #
-# NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the diff, the repro, the bounds and the stop are constants, and a caller who sets one is refused rather than ignored.
+# NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the diffs, the repro, the bounds and the stop are constants, and a caller who sets one is refused rather than ignored.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -68,44 +65,57 @@ ACCOUNT_WANT=007635145730
 INSTANCE_TYPE_FIXED=g5.xlarge
 # g5.xlarge Spot was $0.61-0.63/h in ap-northeast-2 on 2026-11-19, and a zone above the cap is not used.
 MAX_PRICE_FIXED=0.70
-# The cap, plus 200 GB gp3 and a public IPv4 ($0.0324/h), plus the provisioned throughput and IOPS ($0.0468/h).
-ALL_IN_RATE=0.7792
+# 200 GB gp3 and a public IPv4 ($0.0324/h), plus the provisioned throughput and IOPS ($0.0468/h), the same under both options.
+EBS_IP_RATE=0.0792
+# The Spot cap plus EBS_IP_RATE.
+SPOT_ALL_IN_RATE=0.7792
+# AWS Price List API, read 2026-11-19: get-products for AmazonEC2, instanceType g5.xlarge, regionCode ap-northeast-2, Linux, Shared, preInstalledSw NA, capacitystatus Used.
+# It answered usagetype APN2-BoxUsage:g5.xlarge, OnDemand 1.2370000000 USD per Hrs, effective 2026-11-01, published 2026-11-18T22:02:54Z.
+ON_DEMAND_RATE_PINNED=1.237
+ON_DEMAND_RATE_SOURCE_PINNED="pinned: AWS Price List API APN2-BoxUsage:g5.xlarge OnDemand 1.2370000000 USD/Hrs, effective 2026-11-01, read 2026-11-19"
 EBS_THROUGHPUT_MIBPS=500
 EBS_IOPS=6000
 COST_CAP_USD=1.50
-STUDY_ID=vllm-gdn-chunk-indices-68414-2026-11-19
+STUDY_ID=vllm-fla-68414-68415-68416-run2-2026-11-19
 STACK=gdn-gpu
-PURPOSE=vllm-gdn-68414-before-after
+PURPOSE=vllm-fla-three-items-run2
 RUNNER=hack/vllm-gdn-68414/runner.sh
+LIB=hack/vllm-gdn-68414/lib.sh
 STATE=hack/vllm-gdn-68414/state.sh
 PINS=hack/vllm-gdn-68414/pins.txt
 VERDICT=hack/vllm-gdn-68414/verdict.py
 RUN_REPRO=hack/vllm-gdn-68414/run_repro.py
+PYTEST_SUMMARY=hack/vllm-gdn-68414/pytest-summary.py
+# Each fix diff is the runtime session's byte for byte, and each test diff is its fix diff's first part, the new test file alone.
 FIX_DIFF=hack/vllm-gdn-68414/fix.diff
-FIX_DIFF_SHA256=c75343ff6066abb233398110147cb3410de75e39d034633bf409ea1233f6756c
+FIX_DIFF_SHA256=761dc3ef1b95c451463fd5eb017e8e98123ef6f3e274c72891dca9cbefe58dc1
 REPRO=hack/vllm-gdn-68414/kernel_repro.py
 REPRO_SHA256=766ccd795b2e1f71ba9c48dc99e22deec8f17047467b70866acf7378310af3af
 KDA_STATE=hack/vllm-gdn-68414/kda-state.sh
 KDA_PINS=hack/vllm-gdn-68414/kda-pins.txt
 KDA_VERDICT=hack/vllm-gdn-68414/kda-verdict.py
-# kda-fix.diff is the runtime session's #68415 diff byte for byte, and kda-test.diff is its first part, the new test file alone.
 KDA_FIX_DIFF=hack/vllm-gdn-68414/kda-fix.diff
-KDA_FIX_DIFF_SHA256=b2d388ec7d5139889f37374b77e42f69bf82a0d969fb7f9a7752852da79e9bfd
+KDA_FIX_DIFF_SHA256=f896c4800c2494e1c0bd9ab0be44d56709886568599d664e5fb81909290d0ada
 KDA_TEST_DIFF=hack/vllm-gdn-68414/kda-test.diff
-KDA_TEST_DIFF_SHA256=107e102ce35b8cbbebc09a9a3dfffc661a2c0eebe423f903d815f5a8944d359f
+KDA_TEST_DIFF_SHA256=f3a103fc20f66dafb99574efbab273ea265888935536245499bd423a34f47827
+STRIDE_STATE=hack/vllm-gdn-68414/stride-state.sh
+STRIDE_PINS=hack/vllm-gdn-68414/stride-pins.txt
+STRIDE_VERDICT=hack/vllm-gdn-68414/stride-verdict.py
+STRIDE_FIX_DIFF=hack/vllm-gdn-68414/stride-fix.diff
+STRIDE_FIX_DIFF_SHA256=7f872cff76664724bd2767ede70490f05bda0a65d475ceb5fdcd4bc6a141488d
+STRIDE_TEST_DIFF=hack/vllm-gdn-68414/stride-test.diff
+STRIDE_TEST_DIFF_SHA256=8ff0e99c69e68cfc1dd0f1ed9006a97693f61d115a20f0c244342be0dc36b1e9
 # The step bounds, each the runner's own; hack/vllm-gdn-68414-session-test.sh holds the two equal.
-BRINGUP_S=600
-PULL_BOUND_S=1500
-IMAGE_ID_S=300
-SETUP_S=120
-ASIS_S=120
-CUDA_S=360
+BRINGUP_S=480
+PULL_BOUND_S=1200
+IMAGE_ID_S=120
+SETUP_S=90
+REPRO_S=300
 UNIT_S=120
-EXIST_S=120
-KDA_S=120
+PYTEST_S=150
 STOP_S=30
 EVIDENCE_UPLOAD_S=120
-STATES_S=$(( (SETUP_S + ASIS_S + CUDA_S + STOP_S) + (SETUP_S + ASIS_S + CUDA_S + UNIT_S + 2 * EXIST_S + STOP_S) + 2 * (SETUP_S + KDA_S + STOP_S) ))
+STATES_S=$(( (SETUP_S + REPRO_S + UNIT_S + STOP_S) + 4 * (SETUP_S + PYTEST_S + STOP_S) ))
 HARNESS_END_S=$(( BRINGUP_S + PULL_BOUND_S + IMAGE_ID_S + STATES_S ))
 EVIDENCE_S=$(( HARNESS_END_S + EVIDENCE_UPLOAD_S ))
 TAG_AT_LAUNCH_S=$EVIDENCE_S
@@ -128,6 +138,76 @@ say() { echo "== $*" | { if [ -d "$OUT" ]; then tee -a "$OUT/session.log"; else 
 fail() { echo "SESSION REFUSED: $*" | { if [ -d "$OUT" ]; then tee -a "$OUT/session.log"; else cat; fi; } >&2; exit 1; }
 spot_say() { say "$@"; }
 spot_fail() { fail "$@"; }
+
+# under_cap RATE: whether the worst case, TERMINATION_S at RATE all in, is under COST_CAP_USD.
+under_cap() {
+  python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) / 3600 * float(sys.argv[2]) < float(sys.argv[3]) else 1)' \
+    "$TERMINATION_S" "$1" "$COST_CAP_USD"
+}
+worst_usd() { python3 -c 'import sys; print(f"{float(sys.argv[1]) / 3600 * float(sys.argv[2]):.4f}")' "$TERMINATION_S" "$1"; }
+
+# purchase_rate: sets COMPUTE_RATE, RATE_SOURCE and ALL_IN_RATE for PURCHASE, and refuses a worst case at or over the cap.
+# For on-demand it reads the price with one read-only Price List call, which is served from us-east-1 for every Region.
+# A failed or unreadable answer falls back to the pinned rate, and RATE_SOURCE says which was used.
+purchase_rate() {
+  local answer rate
+  if [ "$PURCHASE" = spot ]; then
+    COMPUTE_RATE=$MAX_PRICE_FIXED
+    RATE_SOURCE="the Spot cap MAX_PRICE_FIXED"
+    ALL_IN_RATE=$SPOT_ALL_IN_RATE
+  else
+    if answer=$(aws pricing get-products --region us-east-1 --service-code AmazonEC2 \
+      --filters "Type=TERM_MATCH,Field=instanceType,Value=$INSTANCE_TYPE_FIXED" "Type=TERM_MATCH,Field=regionCode,Value=$REGION" \
+      Type=TERM_MATCH,Field=operatingSystem,Value=Linux Type=TERM_MATCH,Field=tenancy,Value=Shared \
+      Type=TERM_MATCH,Field=preInstalledSw,Value=NA Type=TERM_MATCH,Field=capacitystatus,Value=Used \
+      --query PriceList --output json 2>&1) &&
+      # The highest hourly USD price among the answers, so an answer listing more than one cannot lower the worst case.
+      rate=$(python3 -c '
+import json, sys
+prices = [float(d["pricePerUnit"]["USD"])
+          for p in json.loads(sys.argv[1]) for t in json.loads(p)["terms"]["OnDemand"].values()
+          for d in t["priceDimensions"].values() if d["unit"] == "Hrs"]
+assert prices and all(x > 0 for x in prices)
+print(max(prices))' "$answer" 2>/dev/null); then
+      COMPUTE_RATE=$rate
+      RATE_SOURCE="AWS Price List API get-products, read $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    else
+      COMPUTE_RATE=$ON_DEMAND_RATE_PINNED
+      RATE_SOURCE="$ON_DEMAND_RATE_SOURCE_PINNED (the live read failed: $(printf '%s' "$answer" | head -c 200 | tr '\n' ' '))"
+    fi
+    ALL_IN_RATE=$(python3 -c 'import sys; print(round(float(sys.argv[1]) + float(sys.argv[2]), 6))' "$COMPUTE_RATE" "$EBS_IP_RATE")
+  fi
+  under_cap "$ALL_IN_RATE" ||
+    fail "the $PURCHASE worst case, $TERMINATION_S s at \$$ALL_IN_RATE/h all in (\$$COMPUTE_RATE/h from $RATE_SOURCE), is \$$(worst_usd "$ALL_IN_RATE"), not under \$$COST_CAP_USD"
+}
+
+# purchase_zones: sets ZONES, the zones to try in order, from read-only calls only.
+purchase_zones() {
+  local prices offers
+  if [ "$PURCHASE" = spot ]; then
+    prices=$(aws ec2 describe-spot-price-history --region "$REGION" --instance-types "$INSTANCE_TYPE_FIXED" \
+      --product-descriptions "Linux/UNIX" --start-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --query 'SpotPriceHistory[].[AvailabilityZone,SpotPrice]' --output text 2>&1) || fail "could not read the Spot price: $prices"
+    [ ! -d "$OUT" ] || printf '%s\n' "$prices" >"$OUT/spot-prices.txt"
+    ZONES=$(awk -v cap="$MAX_PRICE_FIXED" 'NF == 2 && $2 + 0 > 0 && $2 + 0 <= cap + 0 {print $1}' <<<"$prices" | sort -u | paste -sd' ')
+    [ -n "$ZONES" ] || fail "no zone offers $INSTANCE_TYPE_FIXED Spot at or under \$$MAX_PRICE_FIXED/h: $(paste -sd' ' <<<"$prices")"
+    # The #58420 study's run 7 was reclaimed in ap-northeast-2a for want of Spot capacity, 15 minutes in.
+    # A zone that reclaimed a study is tried after the others, and still tried if they have no capacity.
+    RECLAIMED_ZONES="ap-northeast-2a"
+    ZONES=$(for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) ;; *) echo "$z" ;; esac; done
+      for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) echo "$z" ;; esac; done)
+    ZONES=$(paste -sd' ' <<<"$ZONES")
+    ZONES_WHY="Spot $INSTANCE_TYPE_FIXED under \$$MAX_PRICE_FIXED/h in: $ZONES ($(paste -sd' ' <<<"$prices"))"
+  else
+    # On-demand has no market price to filter by, so every zone that offers the type is tried, in name order.
+    offers=$(aws ec2 describe-instance-type-offerings --region "$REGION" --location-type availability-zone \
+      --filters "Name=instance-type,Values=$INSTANCE_TYPE_FIXED" --query 'InstanceTypeOfferings[].Location' --output text 2>&1) ||
+      fail "could not read the zones offering $INSTANCE_TYPE_FIXED: $offers"
+    ZONES=$(tr -s '[:space:]' '\n' <<<"$offers" | grep -E "^$REGION[a-z]\$" | sort -u | paste -sd' ')
+    [ -n "$ZONES" ] || fail "no zone in $REGION offers $INSTANCE_TYPE_FIXED: $offers"
+    ZONES_WHY="on-demand $INSTANCE_TYPE_FIXED offered in: $ZONES"
+  fi
+}
 
 # render_user_data FILE BUCKET RUN_ID INPUTS_SHA COMMIT RUN_NONCE: the instance's script, from the constants above.
 # It is a function so the offline test renders the same text the purchase would send.
@@ -248,18 +328,65 @@ TAIL
   [ "$(wc -c <"$ud")" -lt 16384 ] || fail "the user-data is $(wc -c <"$ud") bytes, over EC2's 16 KB limit"
 }
 
+# judge SWEEP: the three verdicts and the pytest summary into OUT, and VERDICTS naming all three.
+# Each verdict reads only its own item's records, whatever came back, so a stopped run still says how far each item got and why it is not confirmed.
+# A verdict that crashed or printed nothing names its item empty, which is not "confirmed", so it fails the exit status like any other.
+# It is a function, and --judge runs it alone, so the offline test drives the same aggregation and exit status the purchase ends with.
+judge() {
+  local sweep=$1
+  python3 "$VERDICT" "$sweep" "$FIX_DIFF_SHA256" "$REPRO_SHA256" >"$OUT/gdn-verdict.txt" 2>>"$OUT/download-errors.txt"
+  python3 "$STRIDE_VERDICT" "$sweep" "$STRIDE_TEST_DIFF_SHA256" "$STRIDE_FIX_DIFF_SHA256" >"$OUT/stride-verdict.txt" 2>>"$OUT/download-errors.txt"
+  python3 "$KDA_VERDICT" "$sweep" "$KDA_TEST_DIFF_SHA256" "$KDA_FIX_DIFF_SHA256" >"$OUT/kda-verdict.txt" 2>>"$OUT/download-errors.txt"
+  # What the PRs quote, from the same records.
+  python3 "$PYTEST_SUMMARY" "$sweep" "$FIX_DIFF_SHA256" "$KDA_TEST_DIFF_SHA256" "$KDA_FIX_DIFF_SHA256" \
+    "$STRIDE_TEST_DIFF_SHA256" "$STRIDE_FIX_DIFF_SHA256" >"$OUT/pytest-summary.txt" 2>>"$OUT/download-errors.txt"
+  VERDICTS="gdn=$(verdict_of gdn) stride=$(verdict_of stride) kda=$(verdict_of kda)"
+}
+verdict_of() { grep -m1 "^$1_verdict=" "$OUT/$1-verdict.txt" 2>/dev/null | cut -d= -f2; }
+all_confirmed() { [ "$VERDICTS" = "gdn=confirmed stride=confirmed kda=confirmed" ]; }
+
 # ---------------------------------------------------------------- refusals, before anything is built or bought
+# The purchase option comes first, because every cost figure below depends on it.
+case "${PURCHASE:-}" in
+  spot | on-demand) ;;
+  "") fail "PURCHASE is unset; set PURCHASE=spot or PURCHASE=on-demand, since the session has no default purchase option" ;;
+  *) fail "PURCHASE is '$PURCHASE', not spot or on-demand" ;;
+esac
 # None of these names is one of the script's own variables, which the loop would otherwise read back as a caller's.
 for v in INSTANCE_TYPE MAX_SPOT_PRICE HARD_STOP_SECONDS BACKSTOP_SECONDS IMAGE VLLM_IMAGE VLLM_COMMIT \
-  DIFF PATCH PULL_BOUND REPRO_SCRIPT DEFAULT_DEVICE PYTEST_ARGS; do
+  DIFF PATCH PULL_BOUND REPRO_SCRIPT DEFAULT_DEVICE PYTEST_ARGS ON_DEMAND_RATE; do
   [ -z "${!v:-}" ] || fail "$v is set, and this session's value for it is its registration's; unset it"
 done
-python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) / 3600 * float(sys.argv[2]) < float(sys.argv[3]) else 1)' \
-  "$TERMINATION_S" "$ALL_IN_RATE" "$COST_CAP_USD" ||
-  fail "the worst case, $TERMINATION_S s at \$$ALL_IN_RATE/h, is not under \$$COST_CAP_USD"
+# Both options are held under the cap at their constants, whichever one this run buys.
+under_cap "$SPOT_ALL_IN_RATE" ||
+  fail "the spot worst case, $TERMINATION_S s at \$$SPOT_ALL_IN_RATE/h, is not under \$$COST_CAP_USD"
+OD_PINNED_ALL_IN=$(python3 -c 'import sys; print(round(float(sys.argv[1]) + float(sys.argv[2]), 6))' "$ON_DEMAND_RATE_PINNED" "$EBS_IP_RATE")
+under_cap "$OD_PINNED_ALL_IN" ||
+  fail "the on-demand worst case, $TERMINATION_S s at the pinned \$$OD_PINNED_ALL_IN/h, is not under \$$COST_CAP_USD"
 # The schedule alone, with nothing checked or bought, so the offline test can hold it to the runner's bounds.
 if [ "${1:-}" = --print-schedule ]; then
   echo "harness_end_s=$HARNESS_END_S evidence_s=$EVIDENCE_S stop_s=$STOP_FROM_LAUNCH_S termination_s=$TERMINATION_S"
+  exit 0
+fi
+# The rate and its refusal alone, from the same function the purchase uses, so the offline test can drive them with a fake aws.
+if [ "${1:-}" = --print-purchase ]; then
+  purchase_rate
+  echo "purchase=$PURCHASE compute_rate=$COMPUTE_RATE all_in_rate=$ALL_IN_RATE worst_case_usd=$(worst_usd "$ALL_IN_RATE")"
+  echo "rate_source=$RATE_SOURCE"
+  exit 0
+fi
+# The zones in the order the launch tries them, from read-only calls, for the same reason.
+if [ "${1:-}" = --print-zones ]; then
+  purchase_zones
+  echo "zones=$ZONES"
+  exit 0
+fi
+# The verdicts, the summary and the exit status alone, on a sweep already on disk, written into an existing OUT.
+if [ "${1:-}" = --judge ]; then
+  [ -d "${2:-}" ] && [ -d "$OUT" ] || fail "--judge needs a sweep directory and an existing OUT"
+  judge "$2"
+  echo "verdicts=$VERDICTS"
+  all_confirmed || exit 2
   exit 0
 fi
 # The user-data alone, rendered with stand-in values, so the offline test reads what a purchase would send.
@@ -279,19 +406,22 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>&1) || fai
 [ "$ACCOUNT" = "$ACCOUNT_WANT" ] || fail "the credentials are for account $ACCOUNT; paid sessions run only in gpu-lab ($ACCOUNT_WANT)"
 [ ! -e "$OUT" ] || fail "$OUT already exists; each session writes a new directory"
 mkdir -p "$OUT" || fail "cannot create $OUT"
-say "vLLM #68414 and #68415 before and after for $STUDY_ID, from $COMMIT, into $OUT"
-say "hard stop $STOP_FROM_LAUNCH_S s after LaunchTime; worst case $TERMINATION_S s at \$$ALL_IN_RATE/h"
+say "vLLM #68414 AFTER, #68416 and #68415 before and after for $STUDY_ID, from $COMMIT, into $OUT, bought $PURCHASE"
+purchase_rate
+say "$PURCHASE: \$$COMPUTE_RATE/h compute from $RATE_SOURCE, \$$ALL_IN_RATE/h all in"
+say "hard stop $STOP_FROM_LAUNCH_S s after LaunchTime; worst case $TERMINATION_S s at \$$ALL_IN_RATE/h, \$$(worst_usd "$ALL_IN_RATE") under \$$COST_CAP_USD"
 
-# The diff and the repro are the runtime session's, byte for byte, so a changed copy costs nothing.
-[ "$(sha256sum "$FIX_DIFF" | cut -d' ' -f1)" = "$FIX_DIFF_SHA256" ] || fail "$FIX_DIFF is not the pinned $FIX_DIFF_SHA256"
-[ "$(sha256sum "$REPRO" | cut -d' ' -f1)" = "$REPRO_SHA256" ] || fail "$REPRO is not the pinned $REPRO_SHA256"
+# The diffs and the repro are the runtime session's, byte for byte, so a changed copy costs nothing.
+for pair in "$FIX_DIFF:$FIX_DIFF_SHA256" "$REPRO:$REPRO_SHA256" "$KDA_FIX_DIFF:$KDA_FIX_DIFF_SHA256" "$KDA_TEST_DIFF:$KDA_TEST_DIFF_SHA256" \
+  "$STRIDE_FIX_DIFF:$STRIDE_FIX_DIFF_SHA256" "$STRIDE_TEST_DIFF:$STRIDE_TEST_DIFF_SHA256"; do
+  [ "$(sha256sum "${pair%%:*}" | cut -d' ' -f1)" = "${pair#*:}" ] || fail "${pair%%:*} is not the pinned ${pair#*:}"
+done
 mkdir -p "$OUT/in" || fail "cannot create $OUT/in"
-cp "$RUNNER" "$STATE" "$PINS" "$FIX_DIFF" "$REPRO" "$RUN_REPRO" "$OUT/in/" || fail "copy the inputs"
-[ "$(sha256sum "$KDA_FIX_DIFF" | cut -d' ' -f1)" = "$KDA_FIX_DIFF_SHA256" ] || fail "$KDA_FIX_DIFF is not the pinned $KDA_FIX_DIFF_SHA256"
-[ "$(sha256sum "$KDA_TEST_DIFF" | cut -d' ' -f1)" = "$KDA_TEST_DIFF_SHA256" ] || fail "$KDA_TEST_DIFF is not the pinned $KDA_TEST_DIFF_SHA256"
+cp "$RUNNER" "$LIB" "$STATE" "$PINS" "$FIX_DIFF" "$REPRO" "$RUN_REPRO" "$OUT/in/" || fail "copy the #68414 inputs"
 cp "$KDA_STATE" "$KDA_PINS" "$KDA_FIX_DIFF" "$KDA_TEST_DIFF" "$OUT/in/" || fail "copy the #68415 inputs"
+cp "$STRIDE_STATE" "$STRIDE_PINS" "$STRIDE_FIX_DIFF" "$STRIDE_TEST_DIFF" "$OUT/in/" || fail "copy the #68416 inputs"
 tar -czf "$OUT/inputs.tgz" -C "$OUT/in" . || fail "pack the inputs"
-say "fix.diff $FIX_DIFF_SHA256 and kernel_repro.py $REPRO_SHA256 match their pins"
+say "the five diffs and kernel_repro.py match their pins"
 
 # shellcheck source=hack/lib/spot-run.sh
 . hack/lib/spot-run.sh
@@ -304,24 +434,15 @@ case "$ami_name" in
 esac
 say "AMI $VLLMGDN_AMI_ID: $ami_name"
 
-prices=$(aws ec2 describe-spot-price-history --region "$REGION" --instance-types "$INSTANCE_TYPE_FIXED" \
-  --product-descriptions "Linux/UNIX" --start-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --query 'SpotPriceHistory[].[AvailabilityZone,SpotPrice]' --output text 2>&1) || fail "could not read the Spot price: $prices"
-printf '%s\n' "$prices" >"$OUT/spot-prices.txt"
-ZONES=$(awk -v cap="$MAX_PRICE_FIXED" 'NF == 2 && $2 + 0 > 0 && $2 + 0 <= cap + 0 {print $1}' <<<"$prices" | sort -u | paste -sd' ')
-[ -n "$ZONES" ] || fail "no zone offers $INSTANCE_TYPE_FIXED Spot at or under \$$MAX_PRICE_FIXED/h: $(paste -sd' ' <<<"$prices")"
-# The #58420 study's run 7 was reclaimed in ap-northeast-2a for want of Spot capacity, 15 minutes in.
-# A zone that reclaimed a study is tried after the others, and still tried if they have no capacity.
-RECLAIMED_ZONES="ap-northeast-2a"
-ZONES=$(for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) ;; *) echo "$z" ;; esac; done
-  for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) echo "$z" ;; esac; done)
-ZONES=$(paste -sd' ' <<<"$ZONES")
-say "Spot $INSTANCE_TYPE_FIXED under \$$MAX_PRICE_FIXED/h in: $ZONES ($(paste -sd' ' <<<"$prices"))"
+purchase_zones
+say "$ZONES_WHY"
 
-quota=$(aws service-quotas get-service-quota --region "$REGION" --service-code ec2 --quota-code L-3819A6DF \
-  --query 'Quota.Value' --output text 2>&1) || fail "could not read the G and VT Spot quota: $quota"
+# Spot and on-demand draw on different vCPU quotas.
+if [ "$PURCHASE" = spot ]; then QUOTA_CODE=L-3819A6DF; QUOTA_NAME="G and VT Spot"; else QUOTA_CODE=L-DB2E81BA; QUOTA_NAME="Running On-Demand G and VT"; fi
+quota=$(aws service-quotas get-service-quota --region "$REGION" --service-code ec2 --quota-code "$QUOTA_CODE" \
+  --query 'Quota.Value' --output text 2>&1) || fail "could not read the $QUOTA_NAME quota: $quota"
 python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= 4 else 1)' "$quota" ||
-  fail "the G and VT Spot quota is $quota vCPU and one $INSTANCE_TYPE_FIXED needs 4"
+  fail "the $QUOTA_NAME quota is $quota vCPU and one $INSTANCE_TYPE_FIXED needs 4"
 
 sw_state=$(aws lambda get-function --region "$REGION" --function-name gpu-platform-study-sweeper \
   --query 'Configuration.State' --output text 2>&1) || fail "the termination sweeper could not be read: $sw_state"
@@ -381,13 +502,19 @@ BUCKET="$STACK-$ACCOUNT"
   echo "ami_id=$VLLMGDN_AMI_ID"
   echo "ami_name=$ami_name"
   echo "instance_type=$INSTANCE_TYPE_FIXED"
-  echo "max_spot_price=$MAX_PRICE_FIXED"
+  echo "purchase=$PURCHASE"
+  [ "$PURCHASE" = spot ] && echo "max_spot_price=$MAX_PRICE_FIXED"
+  echo "compute_rate=$COMPUTE_RATE"
+  echo "compute_rate_source=$RATE_SOURCE"
   echo "all_in_rate=$ALL_IN_RATE"
+  echo "worst_case_usd=$(worst_usd "$ALL_IN_RATE")"
   echo "inputs_sha256=$INPUTS_SHA"
   echo "fix_diff_sha256=$FIX_DIFF_SHA256"
   echo "kernel_repro_sha256=$REPRO_SHA256"
   echo "kda_fix_diff_sha256=$KDA_FIX_DIFF_SHA256"
   echo "kda_test_diff_sha256=$KDA_TEST_DIFF_SHA256"
+  echo "stride_fix_diff_sha256=$STRIDE_FIX_DIFF_SHA256"
+  echo "stride_test_diff_sha256=$STRIDE_TEST_DIFF_SHA256"
   echo "image=$(grep -m1 '^IMG=' "$RUNNER" | cut -d'"' -f2)"
   echo "vllm_commit=$(grep -m1 '^VLLM_COMMIT=' "$RUNNER" | cut -d= -f2)"
   echo "harness_end_from_launch_s=$HARNESS_END_S"
@@ -441,20 +568,20 @@ cred_check "before the purchase"
 request_epoch=$(date +%s)
 TAG_DEADLINE=$(date -u -d "@$(( request_epoch + TAG_AT_LAUNCH_S ))" +%Y-%m-%dT%H:%M:%SZ)
 TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=$PURPOSE},{Key=run,Value=$RUN_NONCE},{Key=study-deadline,Value=$TAG_DEADLINE}]"
-say "launching $INSTANCE_TYPE_FIXED Spot (max \$$MAX_PRICE_FIXED/h compute, \$$ALL_IN_RATE/h all in), study-deadline $TAG_DEADLINE -- the instance bills from here"
+say "launching $INSTANCE_TYPE_FIXED $PURCHASE (\$$COMPUTE_RATE/h compute, \$$ALL_IN_RATE/h all in), study-deadline $TAG_DEADLINE -- the instance bills from here"
 for z in $ZONES; do
   SUBNET=$(spot_subnet_in_zone "$REGION" "$z") || continue
   token="gdn-$RUN_NONCE-$z"
   LAUNCH_UNCERTAIN="$token"; LAUNCH_UNCERTAIN_SUBNET="$SUBNET"
   IID=$(spot_launch "$REGION" "$VLLMGDN_AMI_ID" "$INSTANCE_TYPE_FIXED" "$SUBNET" "$STACK" "$MAX_PRICE_FIXED" "$VOLUME_GB" \
-    "$UD" "$TAGS" "$token" "" "" "$EBS_THROUGHPUT_MIBPS" "$EBS_IOPS" 2>"$OUT/launch-error-$z.txt") || IID=""
+    "$UD" "$TAGS" "$token" "" "" "$EBS_THROUGHPUT_MIBPS" "$EBS_IOPS" "$PURCHASE" 2>"$OUT/launch-error-$z.txt") || IID=""
   cat "$OUT/launch-error-$z.txt" >>"$OUT/launch-errors.txt"
   if [ -n "$IID" ] && [ "$IID" != None ]; then LAUNCH_UNCERTAIN=""; break; fi
   IID=""
   if grep -qiE 'InsufficientInstanceCapacity|capacity-not-available' "$OUT/launch-error-$z.txt"; then LAUNCH_UNCERTAIN=""; continue; fi
   fail "the launch in $z was refused for a reason that is not capacity; see $OUT/launch-errors.txt"
 done
-[ -n "$IID" ] || fail "no zone had $INSTANCE_TYPE_FIXED Spot capacity; nothing was launched"
+[ -n "$IID" ] || fail "no zone had $INSTANCE_TYPE_FIXED $PURCHASE capacity; nothing was launched"
 echo "$IID" >"$OUT/instance-id"
 say "launched $IID in $z"
 
@@ -507,7 +634,7 @@ fi
 SWEEP="$OUT/gdn-run/sweep"
 EVIDENCE=returned
 # An archive that broke after its last step is not the whole record, so it counts as returned only if it unpacked whole.
-if [ "$unpacked" != yes ] || ! grep -q "both states done" "$SWEEP/steps.log" 2>/dev/null; then
+if [ "$unpacked" != yes ] || ! grep -q "all items done" "$SWEEP/steps.log" 2>/dev/null; then
   # Without the final archive, the periodic copy is what a reclaim or a crash left; it is reported as partial.
   mkdir -p "$OUT/gdn-run-partial"
   { aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/partial.tgz" "$OUT/partial.tgz" &&
@@ -522,28 +649,25 @@ if [ "$unpacked" != yes ] || ! grep -q "both states done" "$SWEEP/steps.log" 2>/
     EVIDENCE=missing
   fi
 fi
-# The verdict reads whatever records came back, so a stopped run still says how far it got and why it is not confirmed.
-python3 "$VERDICT" "$SWEEP" "$FIX_DIFF_SHA256" "$REPRO_SHA256" >"$OUT/verdict.txt" 2>>"$OUT/download-errors.txt"
-# #68415's verdict is its own file and its own lines, and nothing below gates on it, so it cannot change #68414's outcome.
-python3 "$KDA_VERDICT" "$SWEEP" "$KDA_TEST_DIFF_SHA256" "$KDA_FIX_DIFF_SHA256" >"$OUT/kda-verdict.txt" 2>>"$OUT/download-errors.txt"
-# The #68415 records come after #68414's in the run, so a run that stopped between them returns #68414 whole and #68415 not.
-kda_evidence=missing
-[ "$EVIDENCE" = returned ] && grep -q "kda states done" "$SWEEP/steps.log" 2>/dev/null && kda_evidence=returned
-# A reclaim during #68415 returns only the periodic copy, so the evidence is partial and the exit status says so, as it always has.
-# That copy still holds #68414's records whole when it was taken after #68414's last step, and this line says whether it was.
-gdn_records=incomplete
-grep -q "both states done" "$SWEEP/steps.log" 2>/dev/null && gdn_records=complete
+judge "$SWEEP"
+# An item's records are whole once the runner logged its last state, which the periodic copy can hold even when the run was cut later.
+records() { grep -q "$1 states done" "$SWEEP/steps.log" 2>/dev/null && echo complete || echo incomplete; }
 {
   echo "evidence=$EVIDENCE"
   echo "termination=$TERMINATION"
-  echo "gdn_records=$gdn_records"
-  cat "$OUT/verdict.txt"
-  echo "kda_evidence=$kda_evidence"
+  echo "purchase=$PURCHASE"
+  echo "verdicts=$VERDICTS"
+  echo "gdn_records=$(records gdn)"
+  cat "$OUT/gdn-verdict.txt"
+  echo "stride_records=$(records stride)"
+  cat "$OUT/stride-verdict.txt"
+  echo "kda_records=$(records kda)"
   cat "$OUT/kda-verdict.txt"
 } >"$OUT/outcome.txt"
 [ ! -s "$OUT/gdn-run/summary.txt" ] || cat "$OUT/gdn-run/summary.txt"
 cat "$OUT/outcome.txt"
-say "evidence $EVIDENCE; termination $TERMINATION; $(grep '^verdict=' "$OUT/verdict.txt" || echo 'verdict=unread'); #68415 evidence $kda_evidence, $(grep '^kda_verdict=' "$OUT/kda-verdict.txt" || echo 'kda_verdict=unread')"
+cat "$OUT/pytest-summary.txt"
+say "evidence $EVIDENCE; termination $TERMINATION; $VERDICTS"
 [ "$TERMINATION" = confirmed ] || exit 1
 [ "$EVIDENCE" = returned ] || exit 1
-grep -qx 'verdict=confirmed' "$OUT/verdict.txt" || exit 2
+all_confirmed || exit 2

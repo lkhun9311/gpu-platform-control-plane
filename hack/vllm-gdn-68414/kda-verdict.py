@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""The #68415 verdict of hack/vllm-gdn-68414-session.sh, read from the records hack/vllm-gdn-68414/kda-state.sh leaves.
+"""The #68415 verdict of hack/vllm-gdn-68414-session.sh run 2, read from the records hack/vllm-gdn-68414/kda-state.sh leaves.
 
     kda-verdict.py <sweep dir> <kda-test.diff sha256> <kda-fix.diff sha256>
 
 Prints key=value lines prefixed kda_, the import check first, and exits 0 only when kda_verdict is "confirmed".
-It reads only the kda-before and kda-after records and the image identity, so #68414's verdict.py is untouched by it and #68415 cannot void #68414.
+It reads only the kda-before and kda-after records and the image identity, so no other item can change it, and it cannot change another item's.
 "confirmed" needs every one of these, on the pinned image and pinned trees:
   - BEFORE ran the 64-32 case alone, and it failed on `out.shape == v.shape` with [1, 4, 1, 64] against [1, 4, 1, 32];
   - AFTER ran the three cases 64-32, 64-64 and 32-64, and all three passed;
@@ -20,7 +20,7 @@ VLLM_COMMIT = "8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd"
 CASE = "test_fused_recurrent_kda_output_has_value_shape"
 BEFORE_CASES = {f"{CASE}[64-32]"}
 # BEFORE's whole selection as kda-state.sh records it, so a widened command line voids the run even when it crashed before writing junit.
-BEFORE_ARGS = f"tests/kernels/mamba/test_fla_fused_recurrent_kda.py::{CASE}[64-32] -k 64-32"
+BEFORE_ARGS = f"tests/kernels/fla/test_fused_recurrent_kda.py::{CASE}[64-32] -k 64-32"
 AFTER_CASES = {f"{CASE}[64-32]", f"{CASE}[64-64]", f"{CASE}[32-64]"}
 # The 64-32 case's output is allocated from k, so its shape has K=64 where v has V=32.
 BUG_TEXT = ("out.shape == v.shape", "[1, 4, 1, 64]", "[1, 4, 1, 32]")

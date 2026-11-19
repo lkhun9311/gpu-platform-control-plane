@@ -1,26 +1,25 @@
 #!/bin/bash
-# The on-instance part of hack/vllm-gdn-68414-session.sh: pull, image identity, BEFORE, then AFTER, then #68415's BEFORE and AFTER.
+# The on-instance part of hack/vllm-gdn-68414-session.sh: pull, image identity, then #68414 AFTER, #68416 BEFORE and AFTER, and #68415 BEFORE and AFTER.
 #
 #   runner.sh <dir with the fetched inputs> <out dir> <harness-end epoch>
 #
 # Each state runs in its own fresh container of the same pinned image.
-# A fresh container is the run's `git checkout .`: nothing BEFORE did can reach AFTER, and state.sh proves it by hashing every pinned file before applying anything.
+# A fresh container is the run's `git checkout .`: nothing an earlier state did can reach a later one, and each state script proves it by hashing all three items' files before applying anything.
+# One state's failure does not stop the next, because each item is judged on its own records and one item's failure must not cost another its run.
+# Only a failure that voids everything after it stops the run: a failed pull, an image that is not the pinned one, or a container whose removal cannot be shown.
 # The step bounds below are the session script's, which its offline test holds equal.
-# The run stops at an error that voids what follows, since a later state on a broken setup measures nothing.
 set -u
 IN=$1
 D=$2
 HE=$3
 IMG="public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed"
 VLLM_COMMIT=8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd
-PULL_S=1500
-IMAGE_ID_S=300
-SETUP_S=120
-ASIS_S=120
-CUDA_S=360
+PULL_S=1200
+IMAGE_ID_S=120
+SETUP_S=90
+REPRO_S=300
 UNIT_S=120
-EXIST_S=120
-KDA_S=120
+PYTEST_S=150
 STOP_S=30
 
 mkdir -p "$D"
@@ -43,41 +42,36 @@ timeout --kill-after=15 "$(left $IMAGE_ID_S)" docker run --rm --entrypoint cat "
   > "$D/wheel-sha256.txt" 2>&1 || { step "IMAGE IDENTITY FAILED: no wheel hash in the image"; exit 2; }
 step "image identity ok"
 
-# contained SCRIPT NAME BOUND ARGS...: one state in a fresh container named gdn-NAME, bounded here and again inside by the script's own timeouts.
-# No model or network is needed, so the container gets neither a cache mount nor a token.
+# contained SCRIPT NAME BOUND ARGS...: one state in a fresh container named fla-NAME, bounded here and again inside by the script's own timeouts.
+# NAME is ITEM-STATE, and the script is given STATE; no model or network is needed, so the container gets neither a cache mount nor a token.
+failed=0
 contained() {
-  local script=$1 name=$2 bound=$3 rc; shift 3
+  local script=$1 name=$2 bound=$3 rc
+  shift 3
   step "state $name: start"
-  timeout --kill-after=15 "$(left "$bound")" docker run --rm --name "gdn-$name" --gpus all --ipc host \
-    -v "$IN:/in:ro" -v "$D:/out" --entrypoint bash "$IMG" "/in/$script" "${name#kda-}" "$@" > "$D/$name.container.log" 2>&1
+  # BOUND ends with STOP_S, which the kill grace, the removal and its check share, so a state that hits every limit still ends within BOUND and takes no time from the next item.
+  timeout --kill-after=$(( STOP_S / 3 )) "$(left $(( bound - STOP_S )))" docker run --rm --name "fla-$name" --gpus all --ipc host \
+    -v "$IN:/in:ro" -v "$D:/out" --entrypoint bash "$IMG" "/in/$script" "${name#*-}" "$@" > "$D/$name.container.log" 2>&1
   rc=$?
   # A host-side timeout kills only the docker client, so the container is removed and its removal checked.
   # Absence is read from a listing that succeeded, because a failed inspect would look the same as a removed container.
-  timeout "$STOP_S" docker rm -f "gdn-$name" > /dev/null 2>&1
+  timeout $(( STOP_S / 3 )) docker rm -f "fla-$name" > /dev/null 2>&1
   local left_over
-  if ! left_over=$(timeout "$STOP_S" docker ps -aq --filter "name=^gdn-$name\$") || [ -n "$left_over" ]; then
+  if ! left_over=$(timeout $(( STOP_S / 3 )) docker ps -aq --filter "name=^fla-$name\$") || [ -n "$left_over" ]; then
     step "state $name: container was not shown removed; stopping the run"; exit 2
   fi
   step "state $name: exited $rc"
-  return "$rc"
+  [ "$rc" = 0 ] || failed=$(( failed + 1 ))
 }
-# state NAME BOUND ARGS...: a #68414 state, run by state.sh.
-state() { contained state.sh "$@"; }
-# kda_state NAME BOUND ARGS...: a #68415 state, run by kda-state.sh, whose records go to kda-NAME.
-kda_state() { local name=$1; shift; contained kda-state.sh "kda-$name" "$@"; }
-state before $(( SETUP_S + ASIS_S + CUDA_S + STOP_S )) "$ASIS_S" "$CUDA_S" ||
-  { step "BEFORE did not complete; AFTER is not run"; exit 2; }
-# A BEFORE that completed without showing the bug still goes on, because the AFTER tests answer the PR's question either way.
-# The verdict names that outcome; it never calls such a run confirmed.
-grep -q '^repro_line=unwritten ' "$D/before/state.txt" ||
-  step "BEFORE printed no repro result ($(grep '^repro_mode=' "$D/before/state.txt" || echo 'mode unread')); AFTER runs for its tests"
-state after $(( SETUP_S + ASIS_S + CUDA_S + UNIT_S + 2 * EXIST_S + STOP_S )) "$ASIS_S" "$CUDA_S" "$UNIT_S" "$EXIST_S" ||
-  { step "AFTER did not complete"; exit 2; }
-step "both states done"
-# #68415 runs only after #68414's records are complete, so a crash or hang here cannot cost #68414 its result.
-# Its own fresh containers start from the image, and kda-state.sh's pins show neither #68414's fix nor its test reached them.
-kda_state before $(( SETUP_S + KDA_S + STOP_S )) "$KDA_S" ||
-  { step "#68415 BEFORE did not complete; its AFTER is not run"; exit 3; }
-kda_state after $(( SETUP_S + KDA_S + STOP_S )) "$KDA_S" ||
-  { step "#68415 AFTER did not complete"; exit 3; }
+# #68414 first: one container, and the result run 1 lost to the Spot reclaim.
+contained state.sh gdn-after $(( SETUP_S + REPRO_S + UNIT_S + STOP_S )) "$REPRO_S" "$UNIT_S"
+step "gdn states done"
+# #68416 next, then #68415, whose BEFORE is the only state that runs an unfixed kernel near an out-of-bounds write, guarded to its safe case.
+contained stride-state.sh stride-before $(( SETUP_S + PYTEST_S + STOP_S )) "$PYTEST_S"
+contained stride-state.sh stride-after $(( SETUP_S + PYTEST_S + STOP_S )) "$PYTEST_S"
+step "stride states done"
+contained kda-state.sh kda-before $(( SETUP_S + PYTEST_S + STOP_S )) "$PYTEST_S"
+contained kda-state.sh kda-after $(( SETUP_S + PYTEST_S + STOP_S )) "$PYTEST_S"
 step "kda states done"
+step "all items done, $failed state(s) exited non-zero"
+[ "$failed" = 0 ] || exit 3

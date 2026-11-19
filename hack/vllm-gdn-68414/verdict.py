@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""The verdict of hack/vllm-gdn-68414-session.sh, read from the records hack/vllm-gdn-68414/state.sh leaves.
+"""The #68414 verdict of hack/vllm-gdn-68414-session.sh run 2, read from the records hack/vllm-gdn-68414/state.sh leaves.
 
     verdict.py <sweep dir> <fix.diff sha256> <kernel_repro.py sha256>
 
-Prints key=value lines, the import check first, and exits 0 only when the verdict is "confirmed".
-"confirmed" needs every one of these, on the pinned image and pinned trees:
-  - BEFORE's kernel_repro.py shows the bug, 70 unwritten rows and a final-state error that is not 0.0;
-  - AFTER's kernel_repro.py prints the reporter's fixed line exactly;
-  - AFTER's new test passes its five cases;
-  - each existing GDN test passes, or skips for the reason an sm_86 GPU is expected to give;
-  - the imported index.py holds the bug line and not the fix BEFORE, and the fix and not the bug line AFTER.
+Prints key=value lines prefixed gdn_, the import check first, and exits 0 only when gdn_verdict is "confirmed".
+It reads only the gdn-after record and the image identity, so no other item can change it.
+"confirmed" needs every one of these, on the pinned image and the pinned AFTER tree:
+  - kernel_repro.py, run through the wrapper as run 1 ran it, prints the reporter's fixed line exactly;
+  - the imported index.py holds the fix line and output_size, and not the bug line.
+Run 1's BEFORE on the same image is printed as a reference and is not required here.
+The new test is CPU-only, so its result is printed as gdn_unit and never decides the verdict.
 Every other combination is reported by name, because a run that cannot say why it is not confirmed is not evidence.
 """
 import math
@@ -21,17 +21,13 @@ INDEX = "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_a
 IMAGE_DIGEST = "sha256:45feec27226e1dc9d10e14272a45bcd7344555c85102be9ccbc0fbe9df2d99ed"
 VLLM_COMMIT = "8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd"
 LINE = re.compile(r"^unwritten (\d+) o_err (\S+) state_err (\S+) empty_keeps_h0 (True|False)$")
-# The reporter's numbers: the third sequence holds 70 tokens, all unwritten when its chunks read the empty sequence's bounds.
-BUG_UNWRITTEN = 70
 FIXED_LINE = "unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True"
+# Run 1's BEFORE, on this image and commit, which run 2 does not repeat.
+BEFORE_REFERENCE = ("hack/vllm-gdn-68414/runs/2026-11-19-run1-spot-reclaimed/verdict.txt: "
+                    "unwritten 70 o_err 1234.100830078125 state_err nan empty_keeps_h0 True")
 UNIT_CASE = re.compile(r"^test_chunk_indices_keep_ids_of_empty_sequences\[.+\]$")
-UNIT_CASES = 5
-# Neither existing GDN test can run on an A10G (sm_86): one needs SM10x for CuteDSL, the other needs ROCm.
-# A skip for any other reason, such as an import that failed, is not the expected one and is named.
-EXISTING = {
-    "core_split": "requires CUDA SM10x",
-    "rocm_layout": "ROCm-specific tests",
-}
+# Six sequence-length lists, each with int32 and int64.
+UNIT_CASES = 12
 
 
 def kv(path):
@@ -61,179 +57,103 @@ def cases(path):
     return out
 
 
+def image_identity(sweep):
+    try:
+        with open(f"{sweep}/image-identity.txt") as f:
+            ident = f.read()
+        with open(f"{sweep}/wheel-sha256.txt") as f:
+            wheel = f.read().strip()
+    except OSError:
+        return "missing"
+    return "ok" if IMAGE_DIGEST in ident and ident.rstrip().endswith(" " + VLLM_COMMIT) and wheel else "mismatch"
+
+
 def identity(st, want_diff, want_repro):
     if st is None:
         return "missing"
-    want_apply = "none" if want_diff == "none" else "ok"
-    for key, want in (("base_identity", "ok"), ("apply", want_apply), ("applied_identity", "ok"),
+    for key, want in (("base_identity", "ok"), ("apply", "ok"), ("applied_identity", "ok"),
                       ("diff_sha256", want_diff), ("repro_sha256", want_repro)):
         if st.get(key) != want:
             return f"{key}={st.get(key, 'unread')}"
     return "ok"
 
 
-def import_check(name, st, fix_rc, bug_rc):
-    """ok when Python imported the image's index.py, which held the fix and bug lines this state expects."""
+def import_check(st):
+    """ok when Python imported the image's index.py, holding the final fix and not the bug, in both the state and the wrapper."""
     if st is None:
-        return f"{name}-missing"
-    if st.get("index_file") != INDEX:
-        return f"wrong-file-{name}({st.get('index_file')})"
-    if st.get("fix_grep_rc") != fix_rc or st.get("bug_grep_rc") != bug_rc:
-        return f"lines-{name}(fix_grep_rc={st.get('fix_grep_rc')},bug_grep_rc={st.get('bug_grep_rc')})"
-    # The wrapper prints the file its own process imported, and the repro's answer speaks for that file only.
-    if st.get("repro_mode") == "cuda-default" and st.get("repro_index_file") != INDEX:
-        return f"repro-wrong-file-{name}({st.get('repro_index_file')})"
-    return "ok"
-
-
-def parse(line):
-    m = LINE.match(line or "")
-    if not m:
-        return None
-    return int(m.group(1)), float(m.group(2)), float(m.group(3)), m.group(4) == "True"
-
-
-def answer_rc(st):
-    """The exit status of the run whose line is the answer, so a run that printed and then crashed or hung is not one."""
-    return st.get("repro_asis_rc" if st.get("repro_mode") == "asis" else "repro_cuda_rc")
-
-
-def before_repro(st):
-    if st is None or "repro_line" not in st:
         return "missing"
-    p = parse(st["repro_line"])
-    if p is None:
-        return f"no-result(mode={st.get('repro_mode')})"
-    if answer_rc(st) != "0":
-        return f"exited-{answer_rc(st)}"
-    unwritten, _, state_err, _ = p
-    # The 70 unwritten rows are the bug itself.
-    # The state error is read from scratch buffers the buggy chunks never wrote (torch.empty in cumsum.py and wy_fast.py).
-    # So it is NaN in the reporter's run but may be finite garbage in another, and both show the bug; the name records which.
-    if unwritten == BUG_UNWRITTEN and math.isnan(state_err):
-        return "bug-shown"
-    if unwritten == BUG_UNWRITTEN and state_err != 0.0:
-        return "bug-shown-finite-state"
-    if unwritten == 0 and state_err == 0.0:
-        return "no-bug"
-    return "other"
+    if st.get("index_file") != INDEX:
+        return f"wrong-file({st.get('index_file')})"
+    rcs = {k: st.get(k) for k in ("fix_grep_rc", "outsize_grep_rc", "bug_grep_rc")}
+    if rcs != {"fix_grep_rc": "0", "outsize_grep_rc": "0", "bug_grep_rc": "1"}:
+        return "lines(" + ",".join(f"{k}={v}" for k, v in rcs.items()) + ")"
+    # The wrapper prints the file its own process imported, and the repro's answer speaks for that file only.
+    # A run that printed no answer imported nothing to speak for, and after_repro names it instead.
+    if st.get("repro_line") and st.get("repro_index_file") != INDEX:
+        return f"repro-wrong-file({st.get('repro_index_file')})"
+    return "ok"
 
 
 def after_repro(st):
     if st is None or "repro_line" not in st:
         return "missing"
     line = st["repro_line"]
-    p = parse(line)
-    if p is None:
-        return f"no-result(mode={st.get('repro_mode')})"
-    if answer_rc(st) != "0":
-        return f"exited-{answer_rc(st)}"
+    m = LINE.match(line)
+    if not m:
+        return f"no-result(rc={st.get('repro_cuda_rc')})"
+    # A run that printed and then crashed or hung is not an answer.
+    if st.get("repro_cuda_rc") != "0":
+        return f"exited-{st.get('repro_cuda_rc')}"
     if line == FIXED_LINE:
         return "fixed"
-    unwritten, o_err, state_err, keeps = p
+    unwritten, o_err, state_err, keeps = int(m.group(1)), float(m.group(2)), float(m.group(3)), m.group(4) == "True"
     if unwritten == 0 and keeps and math.isfinite(o_err) and math.isfinite(state_err):
         return "fixed-inexact"
     return "not-fixed"
 
 
 def unit_result(st, tc):
-    if st is None or tc is None or "unit_rc" not in st:
+    if st is None or "unit_rc" not in st:
         return "missing"
     rc = st["unit_rc"]
+    if tc is None:
+        return f"no-junit(rc={rc})"
     names = {n for n, _, _ in tc}
     if any(not UNIT_CASE.match(n) for n in names):
         return f"unexpected-cases(rc={rc})"
-    # Five distinct cases, so a repeated name cannot stand in for a case that never ran.
+    # Twelve distinct cases, so a repeated name cannot stand in for a case that never ran.
     if rc == "0" and len(names) == len(tc) == UNIT_CASES and all(o == "passed" for _, o, _ in tc):
         return "passed"
     outcomes = ",".join(o for _, o, _ in tc) or "none"
     return f"not-passed(rc={rc},cases={len(tc)},outcomes={outcomes})"
 
 
-def existing_result(name, st, tc):
-    if st is None or f"{name}_rc" not in st:
-        return "missing"
-    rc = st[f"{name}_rc"]
-    if rc == "absent":
-        return "absent"
-    if tc is None:
-        return f"no-junit(rc={rc})"
-    n = {o: sum(1 for _, x, _ in tc if x == o) for o in ("passed", "failure", "error", "skipped")}
-    all_skipped = bool(tc) and n["skipped"] == len(tc)
-    # A file skipped at module level collects no test, and pytest exits 5 for it while still reporting the skip.
-    rc_ok = rc == "0" or (rc == "5" and all_skipped)
-    if not rc_ok or n["failure"] or n["error"] or not tc:
-        return f"not-passed(rc={rc},{n['passed']}p,{n['failure']}f,{n['error']}e,{n['skipped']}s)"
-    if all_skipped:
-        # A module-level skip's junit message is only "collection skipped", and its reason is in the element's text.
-        if all(EXISTING[name] in m for _, _, m in tc):
-            return f"skipped({EXISTING[name]})"
-        why = "|".join(sorted({" ".join(m.split())[:160] for _, _, m in tc}))
-        return f"skipped-unexpectedly({why})"
-    return f"passed({n['passed']}p,{n['skipped']}s)"
-
-
 def main(sweep, fix_sha, repro_sha):
-    b, a = kv(f"{sweep}/before/state.txt"), kv(f"{sweep}/after/state.txt")
-    lines = []
-
-    # The import check comes first: a BEFORE without the bug is most likely one that imported a fixed index.py.
-    imp_b = import_check("before", b, fix_rc="1", bug_rc="0")
-    imp_a = import_check("after", a, fix_rc="0", bug_rc="1")
-    imp = imp_b if imp_b != "ok" else imp_a
-    lines.append(f"import_check={imp}")
-
-    # The image is the pinned one only if the runner's own record says so, and the wheel's hash came out of it.
-    try:
-        with open(f"{sweep}/image-identity.txt") as f:
-            ident = f.read()
-        with open(f"{sweep}/wheel-sha256.txt") as f:
-            wheel = f.read().strip()
-        image = "ok" if IMAGE_DIGEST in ident and ident.rstrip().endswith(" " + VLLM_COMMIT) and wheel else "mismatch"
-    except OSError:
-        image = "missing"
-    lines.append(f"image={image}")
-
-    bid, aid = identity(b, "none", repro_sha), identity(a, fix_sha, repro_sha)
-    lines += [f"before_identity={bid}", f"after_identity={aid}"]
-    # Recorded, not gated: the pinned file hashes already prove the tree, and HEAD only names where it came from.
-    lines.append(f"checkout_head={(a or b or {}).get('checkout_head', 'unread')}")
-    try:
-        order = "ok" if int(b["ended"]) <= int(a["started"]) else "after-started-before-before-ended"
-    except (TypeError, KeyError, ValueError):
-        order = "unread"
-    lines.append(f"order={order}")
-
-    mode_b, mode_a = (b or {}).get("repro_mode", "unread"), (a or {}).get("repro_mode", "unread")
-    lines.append(f"repro_mode={mode_b},{mode_a}")
-    rb, ra = before_repro(b), after_repro(a)
-    lines += [f"before_repro={rb}", f"before_line={(b or {}).get('repro_line', '')}",
-              f"after_repro={ra}", f"after_line={(a or {}).get('repro_line', '')}"]
-    unit = unit_result(a, cases(f"{sweep}/after/unit.xml"))
-    lines.append(f"after_unit={unit}")
-    existing = {n: existing_result(n, a, cases(f"{sweep}/after/{n}.xml")) for n in EXISTING}
-    lines += [f"after_{n}={r}" for n, r in existing.items()]
+    a = kv(f"{sweep}/gdn-after/state.txt")
+    imp = import_check(a)
+    image = image_identity(sweep)
+    aid = identity(a, fix_sha, repro_sha)
+    ra = after_repro(a)
+    lines = [f"gdn_import_check={imp}", f"gdn_image={image}", f"gdn_after_identity={aid}",
+             # Recorded, not gated: the pinned file hashes already prove the tree, and HEAD only names where it came from.
+             f"gdn_checkout_head={(a or {}).get('checkout_head', 'unread')}",
+             f"gdn_repro_mode={(a or {}).get('repro_mode', 'unread')}",
+             f"gdn_after_repro={ra}", f"gdn_after_line={(a or {}).get('repro_line', '')}",
+             f"gdn_before_reference={BEFORE_REFERENCE}",
+             f"gdn_unit={unit_result(a, cases(f'{sweep}/gdn-after/unit.xml'))}"]
 
     # The first failed condition names the verdict, in the order a reader must rule them out.
-    if image != "ok" or bid != "ok" or aid != "ok" or order != "ok":
+    if image != "ok" or aid != "ok":
         verdict = "void-identity"
     elif imp != "ok":
         verdict = "void-import-check"
-    elif mode_b != mode_a:
-        verdict = "repro-mode-differs"
-    elif rb not in ("bug-shown", "bug-shown-finite-state"):
-        verdict = "before-did-not-reproduce"
     elif ra == "fixed-inexact":
         verdict = "after-fixed-inexact"
     elif ra != "fixed":
         verdict = "after-not-fixed"
-    elif unit != "passed":
-        verdict = "after-unit-test-not-passed"
-    elif not all(r.startswith(("skipped(", "passed(")) for r in existing.values()):
-        verdict = "after-existing-tests-not-passed"
     else:
         verdict = "confirmed"
-    lines.append(f"verdict={verdict}")
+    lines.append(f"gdn_verdict={verdict}")
     print("\n".join(lines))
     return 0 if verdict == "confirmed" else 2
 

@@ -1,0 +1,124 @@
+diff --git a/tests/kernels/fla/test_state_index_stride.py b/tests/kernels/fla/test_state_index_stride.py
+new file mode 100644
+index 0000000000..1f00d4a6b2
+--- /dev/null
++++ b/tests/kernels/fla/test_state_index_stride.py
+@@ -0,0 +1,66 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++import pytest
++import torch
++import torch.nn.functional as F
++
++from vllm.platforms import current_platform
++from vllm.third_party.flash_linear_attention.ops.fused_recurrent import (
++    fused_recurrent_gated_delta_rule,
++)
++from vllm.third_party.flash_linear_attention.ops.fused_sigmoid_gating import (
++    fused_sigmoid_gating_delta_rule_update,
++)
++
++pytestmark = pytest.mark.skipif(
++    not current_platform.is_cuda_alike(), reason="Requires CUDA or ROCm"
++)
++
++
++@pytest.mark.parametrize("kernel", ["recurrent", "sigmoid_gating"])
++def test_state_index_table_stride_does_not_change_results(kernel: str):
++    """Equal index values must select the same states whatever the table's strides.
++    The kernels must step through a 2D table with stride_indices_tok (#68416).
++    A column-major copy of the table makes that stride differ from one."""
++    device = "cuda"
++    torch.manual_seed(0)
++    q, k = (torch.randn(1, 6, 1, 64, device=device).half() for _ in range(2))
++    v = torch.randn(1, 6, 2, 64, device=device).half()
++    a, b = (torch.randn(6, 2, device=device).half() for _ in range(2))
++    A_log = torch.log(torch.empty(2, device=device).uniform_(1, 16))
++    dt_bias = torch.randn(2, device=device)
++    cu_seqlens = torch.tensor([0, 3, 6], dtype=torch.int32, device=device)
++    accepted = torch.tensor([1, 2], dtype=torch.int32, device=device)
++    row_major = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.int32, device=device)
++    column_major = row_major.T.contiguous().T
++    assert column_major.stride() != row_major.stride()
++    initial = 0.5 * torch.randn(8, 2, 64, 64, device=device)
++
++    results = []
++    for indices in (row_major, column_major):
++        state = initial.clone()
++        common = dict(
++            q=q,
++            k=k,
++            v=v,
++            initial_state=state,
++            cu_seqlens=cu_seqlens,
++            inplace_final_state=True,
++            ssm_state_indices=indices,
++            num_accepted_tokens=accepted,
++            use_qk_l2norm_in_kernel=True,
++        )
++        if kernel == "recurrent":
++            g = (-A_log.exp() * F.softplus(a.float() + dt_bias))[None]
++            out, _ = fused_recurrent_gated_delta_rule(
++                g=g, beta=b.float().sigmoid()[None], **common
++            )
++        else:
++            out, _ = fused_sigmoid_gating_delta_rule_update(
++                A_log=A_log, a=a, b=b, dt_bias=dt_bias, **common
++            )
++        results.append((out.clone(), state))
++
++    torch.testing.assert_close(results[0][0], results[1][0], rtol=0, atol=0)
++    torch.testing.assert_close(results[0][1], results[1][1], rtol=0, atol=0)
+diff --git a/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py b/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+index 7de8e40c2f..579926abe5 100644
+--- a/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
++++ b/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+@@ -108,9 +108,9 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
+             else:
+                 i_t = 0
+             # Load state index and check for invalid entries
+-            state_idx = tl.load(ssm_state_indices + i_n * stride_indices_seq + i_t).to(
+-                tl.int64
+-            )
++            state_idx = tl.load(
++                ssm_state_indices + i_n * stride_indices_seq + i_t * stride_indices_tok
++            ).to(tl.int64)
+             # Skip if state index is invalid (NULL_BLOCK_ID=0)
+             if state_idx <= 0:
+                 return
+@@ -153,7 +153,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
+         if INPLACE_FINAL_STATE:
+             # Load state index and check for invalid entries
+             final_state_idx = tl.load(
+-                ssm_state_indices + i_n * stride_indices_seq + i_t
++                ssm_state_indices + i_n * stride_indices_seq + i_t * stride_indices_tok
+             ).to(tl.int64)
+             # Only store if state index is valid (not NULL_BLOCK_ID=0)
+             if final_state_idx > 0:
+diff --git a/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py b/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+index 7e0c7e05ca..8b4a68fd50 100644
+--- a/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
++++ b/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+@@ -107,9 +107,9 @@ def fused_sigmoid_gating_delta_rule_update_kernel(
+             else:
+                 i_t = 0
+             # Load state index and check for invalid entries
+-            state_idx = tl.load(ssm_state_indices + i_n * stride_indices_seq + i_t).to(
+-                tl.int64
+-            )
++            state_idx = tl.load(
++                ssm_state_indices + i_n * stride_indices_seq + i_t * stride_indices_tok
++            ).to(tl.int64)
+             # Skip if state index is invalid (NULL_BLOCK_ID=0)
+             if state_idx <= 0:
+                 return
+@@ -157,7 +157,7 @@ def fused_sigmoid_gating_delta_rule_update_kernel(
+         if INPLACE_FINAL_STATE:
+             # Load state index and check for invalid entries
+             final_state_idx = tl.load(
+-                ssm_state_indices + i_n * stride_indices_seq + i_t
++                ssm_state_indices + i_n * stride_indices_seq + i_t * stride_indices_tok
+             ).to(tl.int64)
+             # Only store if state index is valid (not NULL_BLOCK_ID=0)
+             if final_state_idx > 0:

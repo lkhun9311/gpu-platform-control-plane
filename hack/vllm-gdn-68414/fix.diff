@@ -1,9 +1,9 @@
-diff --git a/tests/kernels/mamba/test_fla_chunk_indices.py b/tests/kernels/mamba/test_fla_chunk_indices.py
+diff --git a/tests/kernels/fla/test_chunk_indices.py b/tests/kernels/fla/test_chunk_indices.py
 new file mode 100644
-index 0000000000..dc3e319928
+index 0000000000..3aa0964c63
 --- /dev/null
-+++ b/tests/kernels/mamba/test_fla_chunk_indices.py
-@@ -0,0 +1,41 @@
++++ b/tests/kernels/fla/test_chunk_indices.py
+@@ -0,0 +1,47 @@
 +# SPDX-License-Identifier: Apache-2.0
 +# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 +
@@ -18,6 +18,7 @@ index 0000000000..dc3e319928
 +CHUNK_SIZE = 64
 +
 +
++@pytest.mark.parametrize("dtype", [torch.int32, torch.int64])
 +@pytest.mark.parametrize(
 +    "seq_lens",
 +    [
@@ -26,37 +27,44 @@ index 0000000000..dc3e319928
 +        [64, 0, 0, 66],
 +        [70, 0],
 +        [1, 64, 65, 128],
++        [0, 0],
 +    ],
 +)
-+def test_chunk_indices_keep_ids_of_empty_sequences(seq_lens: list[int]):
-+    """A zero-length sequence owns no chunk but keeps its id, so the chunks
-+    of later sequences must not take it over (#68414). Each chunk row (s, i)
-+    must point at chunk i of sequence s in the chunk_offsets layout."""
-+    cu_seqlens = torch.tensor([0, *seq_lens], dtype=torch.int32).cumsum(0)
-+    cu_seqlens = cu_seqlens.to(torch.int32)
-+    chunk_indices = prepare_chunk_indices(cu_seqlens, CHUNK_SIZE).tolist()
-+    chunk_offsets = prepare_chunk_offsets(cu_seqlens, CHUNK_SIZE).tolist()
++def test_chunk_indices_keep_ids_of_empty_sequences(
++    seq_lens: list[int], dtype: torch.dtype
++):
++    """A zero-length sequence owns no chunk but keeps its id (#68414).
++    The chunks of later sequences must not take it over.
++    The row index of chunk i of sequence s must equal chunk_offsets[s] + i."""
++    cu_seqlens = torch.tensor([0, *seq_lens]).cumsum(0, dtype=dtype)
++    chunk_indices = prepare_chunk_indices(cu_seqlens, CHUNK_SIZE)
++    chunk_offsets = prepare_chunk_offsets(cu_seqlens, CHUNK_SIZE)
 +
 +    expected = [
 +        [seq, chunk]
 +        for seq, seq_len in enumerate(seq_lens)
 +        for chunk in range(-(-seq_len // CHUNK_SIZE))
 +    ]
-+    assert chunk_indices == expected
-+    for row, (seq, chunk) in enumerate(chunk_indices):
-+        assert chunk_offsets[seq] + chunk == row
++    assert chunk_indices.dtype == cu_seqlens.dtype
++    assert chunk_indices.device == cu_seqlens.device
++    assert chunk_indices.shape == (len(expected), 2)
++    assert chunk_indices.tolist() == expected
++    for row, (seq, chunk) in enumerate(expected):
++        assert chunk_offsets[seq].item() + chunk == row
 diff --git a/vllm/third_party/flash_linear_attention/ops/index.py b/vllm/third_party/flash_linear_attention/ops/index.py
-index 880be7747d..df2269f218 100644
+index 880be7747d..bfc01bba35 100644
 --- a/vllm/third_party/flash_linear_attention/ops/index.py
 +++ b/vllm/third_party/flash_linear_attention/ops/index.py
-@@ -27,7 +27,11 @@ def prepare_chunk_indices(cu_seqlens: torch.Tensor, chunk_size: int) -> torch.Te
+@@ -27,7 +27,13 @@ def prepare_chunk_indices(cu_seqlens: torch.Tensor, chunk_size: int) -> torch.Te
      with gpu_sync_allowed():
          chunk_counts = triton.cdiv(prepare_lens(cu_seqlens), chunk_size).tolist()
      indices = torch.cat([torch.arange(n) for n in chunk_counts])
 -    chunk_indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1)
 +    # Number chunks by sequence, so zero-length sequences keep their ids.
 +    seq_ids = torch.repeat_interleave(
-+        torch.arange(len(chunk_counts)), torch.tensor(chunk_counts, dtype=torch.long)
++        torch.arange(len(chunk_counts)),
++        torch.tensor(chunk_counts, dtype=torch.long),
++        output_size=indices.numel(),
 +    )
 +    chunk_indices = torch.stack([seq_ids, indices], 1)
      return async_tensor_h2d(
