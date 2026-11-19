@@ -1,0 +1,2 @@
+{"container": "app", "swap": {"time": "2026-11-19T12:32:10Z", "swapAvailableBytes": 0, "swapUsageBytes": 0}, "memory_time": "2026-11-19T12:32:10Z"}
+{"cgroup_swap_current_at_patch": 268431360, "at": "2026-11-19T12:32:10.647906869Z"}

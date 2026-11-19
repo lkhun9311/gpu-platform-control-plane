@@ -1,0 +1,175 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Pod","metadata":{"annotations":{},"name":"swap-explicit","namespace":"default"},"spec":{"containers":[{"args":["import time\nb = bytearray(320 \u003c\u003c 20)\nfor i in range(0, len(b), 4096):\n    b[i] = 1\nprint(\"READY\", flush=True)\nwhile True:\n    time.sleep(3600)\n"],"command":["python3","-u","-c"],"image":"python:3.12-alpine","name":"app","resources":{"limits":{"cpu":"500m","memory":"128Mi","swap":"512Mi"},"requests":{"cpu":"100m","memory":"64Mi"}}}],"restartPolicy":"Never"}}
+  creationTimestamp: "2026-11-19T12:25:12Z"
+  generation: 2
+  name: swap-explicit
+  namespace: default
+  resourceVersion: "358"
+  uid: 974f5b55-ccb5-4329-b987-e364bd65d784
+spec:
+  containers:
+  - args:
+    - |
+      import time
+      b = bytearray(320 << 20)
+      for i in range(0, len(b), 4096):
+          b[i] = 1
+      print("READY", flush=True)
+      while True:
+          time.sleep(3600)
+    command:
+    - python3
+    - -u
+    - -c
+    image: python:3.12-alpine
+    imagePullPolicy: IfNotPresent
+    name: app
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+        swap: 64Mi
+      requests:
+        cpu: 100m
+        memory: 64Mi
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-xpbv8
+      readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  nodeName: 127.0.0.1
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Never
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccount: default
+  serviceAccountName: default
+  terminationGracePeriodSeconds: 30
+  tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 300
+  volumes:
+  - name: kube-api-access-xpbv8
+    projected:
+      defaultMode: 420
+      sources:
+      - serviceAccountToken:
+          expirationSeconds: 3607
+          path: token
+      - configMap:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          name: kube-root-ca.crt
+      - downwardAPI:
+          items:
+          - fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+            path: namespace
+status:
+  allocatedResources:
+    cpu: 100m
+    memory: 64Mi
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: "2026-11-19T12:25:14Z"
+    observedGeneration: 2
+    status: "True"
+    type: PodReadyToStartContainers
+  - lastProbeTime: null
+    lastTransitionTime: "2026-11-19T12:25:12Z"
+    observedGeneration: 2
+    status: "True"
+    type: Initialized
+  - lastProbeTime: null
+    lastTransitionTime: "2026-11-19T12:25:18Z"
+    observedGeneration: 2
+    status: "True"
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: "2026-11-19T12:25:18Z"
+    observedGeneration: 2
+    status: "True"
+    type: ContainersReady
+  - lastProbeTime: null
+    lastTransitionTime: "2026-11-19T12:25:12Z"
+    observedGeneration: 2
+    status: "True"
+    type: PodScheduled
+  containerStatuses:
+  - allocatedResources:
+      cpu: 100m
+      memory: 64Mi
+    containerID: containerd://3ab3b53574bff1bc5e3ec6cc7fb3b0433dd8871035b7358cf0da2681e0b1385b
+    image: docker.io/library/python:3.12-alpine
+    imageID: docker.io/library/python@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89
+    lastState: {}
+    name: app
+    ready: true
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+        swap: 64Mi
+      requests:
+        cpu: 100m
+        memory: 64Mi
+    restartCount: 0
+    started: true
+    state:
+      running:
+        startedAt: "2026-11-19T12:25:18Z"
+    user:
+      linux:
+        gid: 0
+        supplementalGroups:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+        - 6
+        - 10
+        - 11
+        - 20
+        - 26
+        - 27
+        uid: 0
+    volumeMounts:
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-xpbv8
+      readOnly: true
+      recursiveReadOnly: Disabled
+  hostIP: 127.0.0.1
+  hostIPs:
+  - ip: 127.0.0.1
+  observedGeneration: 2
+  phase: Running
+  podIP: 10.88.0.3
+  podIPs:
+  - ip: 10.88.0.3
+  - ip: 2001:db8:4860::3
+  qosClass: Burstable
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+  startTime: "2026-11-19T12:25:12Z"

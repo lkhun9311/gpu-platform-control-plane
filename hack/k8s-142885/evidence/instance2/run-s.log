@@ -1,0 +1,15 @@
+Error from server (BadRequest): address not allowed
+done S1
+S1 rc=0
+Error from server (BadRequest): address not allowed
+done A4
+A4 rc=0
+Error from server (BadRequest): address not allowed
+done S2
+S2 rc=0
+done S3
+S3 rc=0
+done S4
+S4 rc=0
+done S5
+S5 rc=0

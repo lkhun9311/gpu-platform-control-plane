@@ -1,0 +1,39 @@
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+address: "127.0.0.1"
+cgroupDriver: ""
+cgroupRoot: ""
+cgroupsPerQOS: true
+containerRuntimeEndpoint: unix:///run/containerd/containerd.sock
+cpuCFSQuota: true
+enableControllerAttachDetach: true
+localStorageCapacityIsolation: true
+evictionPressureTransitionPeriod: "1m"
+failSwapOn: false
+port: 10250
+readOnlyPort: 0
+healthzPort: 10248
+healthzBindAddress: 127.0.0.1
+rotateCertificates: true
+serverTLSBootstrap: true
+runtimeRequestTimeout: "2m"
+staticPodPath: "/var/run/kubernetes/static-pods"
+resolvConf: "/etc/resolv.conf"
+memorySwap:
+  swapBehavior: LimitedSwap
+authentication:
+  webhook:
+    enabled: true
+  x509:
+    clientCAFile: "/var/run/kubernetes/client-ca.crt"
+authorization:
+  mode: Webhook
+clusterDNS: [ "10.0.0.10" ]
+clusterDomain: "cluster.local"
+evictionHard:
+  imagefs.available: "15%"
+  memory.available: "100Mi"
+  nodefs.available: "10%"
+  nodefs.inodesFree: "5%"
+featureGates:
+  WorkloadControlledSwap: true

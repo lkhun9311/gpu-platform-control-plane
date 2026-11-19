@@ -1,0 +1,24 @@
+# Burstable pod with an explicit container limits.swap.
+# The container writes 320 MiB once under a 128 MiB memory limit, so roughly 190 MiB goes to swap and is never touched again.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: swap-explicit
+spec:
+  restartPolicy: Never
+  containers:
+  - name: app
+    image: python:3.12-alpine
+    command: ["python3", "-u", "-c"]
+    args:
+    - |
+      import time
+      b = bytearray(320 << 20)
+      for i in range(0, len(b), 4096):
+          b[i] = 1
+      print("READY", flush=True)
+      while True:
+          time.sleep(3600)
+    resources:
+      requests: {cpu: 100m, memory: 64Mi}
+      limits: {cpu: 500m, memory: 128Mi, swap: 512Mi}

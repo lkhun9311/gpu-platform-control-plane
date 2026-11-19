@@ -1,0 +1,8 @@
+== K2 2026-11-19T11:22:43Z kernel 7.0.0-1017-aws
+before swap.max=max swap.current=206286848 memory.max=67108864 memory.current=66924544 oom_kill=0 alive=yes
+write 32M to memory.swap.max: rc=0
++0s swap.max=33554432 swap.current=206286848 memory.max=67108864 memory.current=66924544 oom_kill=0 alive=yes
++30s swap.max=33554432 swap.current=206286848 memory.max=67108864 memory.current=66924544 oom_kill=0 alive=yes
+kernel-swapmax.sh: line 72:  6841 Killed                  bash -c "echo \$\$ > $G/cgroup.procs; exec python3 -u $ALLOC 192" > "$OUT/$1.proc.log" 2>&1
++20s after retouch swap.max=33554432 swap.current=0 memory.max=67108864 memory.current=0 oom_kill=1 alive=no
+READY

@@ -1,0 +1,115 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Node
+  metadata:
+    annotations:
+      node.alpha.kubernetes.io/ttl: "0"
+      volumes.kubernetes.io/controller-managed-attach-detach: "true"
+    creationTimestamp: "2026-11-19T11:13:07Z"
+    labels:
+      beta.kubernetes.io/arch: amd64
+      beta.kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+      kubernetes.io/hostname: 127.0.0.1
+      kubernetes.io/os: linux
+    name: 127.0.0.1
+    resourceVersion: "1724"
+    uid: 744453aa-e4eb-407c-a878-46c25161bf47
+  spec: {}
+  status:
+    addresses:
+    - address: 127.0.0.1
+      type: InternalIP
+    - address: 127.0.0.1
+      type: Hostname
+    allocatable:
+      cpu: "2"
+      ephemeral-storage: "27075398816"
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 7901408Ki
+      pods: "110"
+    capacity:
+      cpu: "2"
+      ephemeral-storage: "30083776512"
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 8003808Ki
+      pods: "110"
+    conditions:
+    - lastHeartbeatTime: "2026-11-19T11:59:33Z"
+      lastTransitionTime: "2026-11-19T11:13:07Z"
+      message: kubelet has sufficient memory available
+      reason: KubeletHasSufficientMemory
+      status: "False"
+      type: MemoryPressure
+    - lastHeartbeatTime: "2026-11-19T11:59:33Z"
+      lastTransitionTime: "2026-11-19T11:13:07Z"
+      message: kubelet has no disk pressure
+      reason: KubeletHasNoDiskPressure
+      status: "False"
+      type: DiskPressure
+    - lastHeartbeatTime: "2026-11-19T11:59:33Z"
+      lastTransitionTime: "2026-11-19T11:13:07Z"
+      message: kubelet has sufficient PID available
+      reason: KubeletHasSufficientPID
+      status: "False"
+      type: PIDPressure
+    - lastHeartbeatTime: "2026-11-19T11:59:33Z"
+      lastTransitionTime: "2026-11-19T11:13:08Z"
+      message: kubelet is posting ready status
+      reason: KubeletReady
+      status: "True"
+      type: Ready
+    daemonEndpoints:
+      kubeletEndpoint:
+        Port: 10250
+    declaredFeatures:
+    - DRAOptionalNodeOperations
+    - ExtendWebSocketsToKubelet
+    - InPlacePodLevelResourcesVerticalScaling
+    - InPlacePodVerticalScalingInitContainers
+    - InPlacePodVerticalScalingMemoryBackedVolumes
+    - RestartAllContainersOnContainerExits
+    features:
+      supplementalGroupsPolicy: true
+    images:
+    - names:
+      - registry.k8s.io/coredns/coredns@sha256:0a9d8c8ddf34347eb59aad9a8784f0710de88d6d112726d11d271f9bc6daca26
+      - registry.k8s.io/coredns/coredns:v1.15.0
+      sizeBytes: 24863824
+    - names:
+      - docker.io/library/python@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89
+      - docker.io/library/python:3.12-alpine
+      sizeBytes: 18062755
+    - names:
+      - registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c
+      - registry.k8s.io/pause:3.10.1
+      sizeBytes: 320448
+    nodeInfo:
+      architecture: amd64
+      bootID: a031f34d-9205-4949-8993-5ae2c4d8679f
+      containerRuntimeVersion: containerd://2.2.1
+      kernelVersion: 7.0.0-1017-aws
+      kubeProxyVersion: ""
+      kubeletVersion: v1.38.0-beta.0.782+5a0b7d10d74c49
+      machineID: ec2d5d77159e025d2ec3af575ab59777
+      operatingSystem: linux
+      osImage: Ubuntu 24.04.5 LTS
+      runningInUserNamespace: false
+      swap:
+        capacity: 4294963200
+      systemUUID: ec2d5d77-159e-025d-2ec3-af575ab59777
+    runtimeHandlers:
+    - features:
+        recursiveReadOnlyMounts: true
+        userNamespaces: true
+      name: ""
+    - features:
+        recursiveReadOnlyMounts: true
+        userNamespaces: true
+      name: runc
+kind: List
+metadata:
+  resourceVersion: ""

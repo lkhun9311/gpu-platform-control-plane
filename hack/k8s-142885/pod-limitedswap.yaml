@@ -1,0 +1,24 @@
+# Burstable pod with no limits.swap on a LimitedSwap node, so the kubelet derives its swap limit from requests.memory.
+# The container writes 700 MiB once under a 600 MiB memory limit, so roughly 100 MiB or more goes to swap and stays cold.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: swap-derived
+spec:
+  restartPolicy: Never
+  containers:
+  - name: app
+    image: python:3.12-alpine
+    command: ["python3", "-u", "-c"]
+    args:
+    - |
+      import time
+      b = bytearray(700 << 20)
+      for i in range(0, len(b), 4096):
+          b[i] = 1
+      print("READY", flush=True)
+      while True:
+          time.sleep(3600)
+    resources:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits: {cpu: 500m, memory: 600Mi}

@@ -1,0 +1,7 @@
+== K2c 2026-11-19T12:02:08Z kernel 7.0.0-1017-aws
+before swap.max=max swap.current=206286848 memory.max=67108864 memory.current=67035136 oom_kill=0 alive=yes
++0s swap.max=max swap.current=206286848 memory.max=67108864 memory.current=67035136 oom_kill=0 alive=yes
++30s swap.max=max swap.current=206286848 memory.max=67108864 memory.current=67035136 oom_kill=0 alive=yes
++20s after retouch swap.max=max swap.current=206286848 memory.max=67108864 memory.current=67067904 oom_kill=0 alive=yes
+READY
+RETOUCHED

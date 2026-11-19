@@ -1,0 +1,16 @@
+== K2c 2026-11-19T11:20:20Z kernel 7.0.0-1017-aws
+before swap.max=max swap.current=206286848 memory.max=67108864 memory.current=66953216 oom_kill=0 alive=yes
++0s swap.max=max swap.current=206286848 memory.max=67108864 memory.current=66953216 oom_kill=0 alive=yes
++30s swap.max=max swap.current=206286848 memory.max=67108864 memory.current=66953216 oom_kill=0 alive=yes
++20s after retouch swap.max=max swap.current=206286848 memory.max=67108864 memory.current=67067904 oom_kill=0 alive=yes
+READY
+RETOUCHED
+== K1 2026-11-19T11:21:28Z kernel 7.0.0-1017-aws
+write 32M to memory.swap.max: rc=0
+== K2 2026-11-19T11:22:43Z kernel 7.0.0-1017-aws
+write 32M to memory.swap.max: rc=0
++20s after retouch swap.max=33554432 swap.current=0 memory.max=67108864 memory.current=0 oom_kill=1 alive=no
+== K3 2026-11-19T11:23:43Z kernel 7.0.0-1017-aws
+write 32M to memory.swap.max: rc=0
++10s after freeing 3/4 swap.max=33554432 swap.current=54648832 memory.max=67108864 memory.current=48455680 oom_kill=0 alive=yes
+

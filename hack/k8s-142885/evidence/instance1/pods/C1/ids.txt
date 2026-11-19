@@ -1,0 +1,1 @@
+pod=swap-derived uid=95a41c4f-1b6e-4c15-b226-58aec2b98ae8 container_cgroup=/sys/fs/cgroup/kubepods/burstable/pod95a41c4f-1b6e-4c15-b226-58aec2b98ae8/151012740fd9614360c6574f6f760e56efea92e848657e76d93b8d49bdf13dc3 pod_cgroup=/sys/fs/cgroup/kubepods/burstable/pod95a41c4f-1b6e-4c15-b226-58aec2b98ae8

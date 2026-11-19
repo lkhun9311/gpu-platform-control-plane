@@ -1,0 +1,3 @@
+	failSwapOn: false
+	  WorkloadControlledSwap: true
+	memorySwap:

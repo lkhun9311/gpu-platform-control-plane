@@ -1,0 +1,1 @@
+pod=swap-explicit uid=f206c544-8fc2-4c71-85bc-633f5c3346bc container_cgroup=/sys/fs/cgroup/kubepods/burstable/podf206c544-8fc2-4c71-85bc-633f5c3346bc/bacd1b346a0cda273cb06d2f3adb2732e86aeb1e83a36ddb4c9dd0c46e823b3c pod_cgroup=/sys/fs/cgroup/kubepods/burstable/podf206c544-8fc2-4c71-85bc-633f5c3346bc

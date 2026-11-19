@@ -1,0 +1,6 @@
+083683a0adb71c3427f91b1d9a1c40f25089ed7a163aee53a1f480b4433670b8  _output/local/bin/linux/amd64/kube-apiserver
+0dc65a68e2398bb2ca9460a893bb98afb9100afb7c71e9750dc36e9b6ac01beb  _output/local/bin/linux/amd64/kube-controller-manager
+9527332308309093668fcf03429afcd50d611cd45af4e4d1224f943bb03a19c6  _output/local/bin/linux/amd64/kubectl
+982d67a2d5fd2803fd09ff29e547d9bdc36c1f8d1b0b7d288c20c2b1d37704af  _output/local/bin/linux/amd64/kubelet
+d6f50566eb97fb345cf77ac9b485d3b4abbf4340b8cdf9e133ff9b8df7574b47  _output/local/bin/linux/amd64/kube-proxy
+646bb95ca47bda878608181fa5c874bea1491b897c370febe715e0ca0e500017  _output/local/bin/linux/amd64/kube-scheduler
