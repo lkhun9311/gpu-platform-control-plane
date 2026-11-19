@@ -1,0 +1,1 @@
+30:    chunk_indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1)

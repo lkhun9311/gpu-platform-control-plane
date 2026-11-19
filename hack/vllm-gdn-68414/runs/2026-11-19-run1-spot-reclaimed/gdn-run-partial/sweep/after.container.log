@@ -1,0 +1,5 @@
+2026-11-19T03:32:45Z after: index.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py; fix line: 31:    seq_ids = torch.repeat_interleave( ; bug line: 
+2026-11-19T03:32:45Z after: kernel_repro.py as-is
+2026-11-19T03:32:49Z after: kernel_repro.py printed no result as-is (ValueError: Pointer argument cannot be accessed from Triton (cpu tensor?)); running it with CUDA as the default device
+2026-11-19T03:34:01Z after: kernel_repro.py: unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True
+2026-11-19T03:34:01Z after: pytest unit: tests/kernels/mamba/test_fla_chunk_indices.py

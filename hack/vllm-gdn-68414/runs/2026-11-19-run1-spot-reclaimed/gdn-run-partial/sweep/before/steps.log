@@ -1,0 +1,4 @@
+2026-11-19T03:31:20Z before: index.py imported from /usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py; fix line: ; bug line: 30:    chunk_indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1) 
+2026-11-19T03:31:20Z before: kernel_repro.py as-is
+2026-11-19T03:31:26Z before: kernel_repro.py printed no result as-is (ValueError: Pointer argument cannot be accessed from Triton (cpu tensor?)); running it with CUDA as the default device
+2026-11-19T03:32:38Z before: kernel_repro.py: unwritten 70 o_err 1234.100830078125 state_err nan empty_keeps_h0 True

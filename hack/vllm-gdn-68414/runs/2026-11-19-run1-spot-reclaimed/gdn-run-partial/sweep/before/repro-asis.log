@@ -1,0 +1,62 @@
+W1119 03:31:23.271000 145 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1119 03:31:23.271000 145 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1119 03:31:23.272000 145 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+Traceback (most recent call last):
+  File "/in/kernel_repro.py", line 13, in <module>
+    o, ht = run(torch.tensor([0, 5, 5, 75], dtype=torch.int32), h0)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/in/kernel_repro.py", line 11, in run
+    o, ht = chunk_gated_delta_rule(q, k, v, g, beta, initial_state=s.clone(), output_final_state=True, cu_seqlens=cu, core_attn_out=out)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1548, in _fn
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/chunk.py", line 264, in chunk_gated_delta_rule
+    o, final_state = ChunkGatedDeltaRuleFunction.apply(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/utils.py", line 116, in wrapper
+    return fn(*contiguous_args, **contiguous_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/amp/autocast_mode.py", line 481, in decorate_fwd
+    return fwd(*args, **kwargs)  # pyrefly: ignore [not-callable]
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/chunk.py", line 119, in forward
+    g, o, A, final_state, w, h, v_new = chunk_gated_delta_rule_fwd(
+                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/chunk.py", line 39, in chunk_gated_delta_rule_fwd
+    g = chunk_local_cumsum(
+        ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/utils.py", line 116, in wrapper
+    return fn(*contiguous_args, **contiguous_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/cumsum.py", line 231, in chunk_local_cumsum
+    return chunk_local_cumsum_scalar(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/cumsum.py", line 155, in chunk_local_cumsum_scalar
+    chunk_local_cumsum_scalar_kernel[grid](
+  File "/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py", line 374, in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/triton/runtime/autotuner.py", line 483, in run
+    return self.fn.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/triton/runtime/autotuner.py", line 249, in run
+    used_cached_result = self.check_disk_cache(key, pruned_configs, benchmark)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/triton/runtime/autotuner.py", line 207, in check_disk_cache
+    bench_fn()
+  File "/usr/local/lib/python3.12/dist-packages/triton/runtime/autotuner.py", line 240, in benchmark
+    timings = {config: self._bench(*args, config=config, **kwargs) for config in pruned_configs}
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/triton/runtime/autotuner.py", line 169, in _bench
+    return self.do_bench(kernel_call, quantiles=(0.5, 0.2, 0.8))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/triton/testing.py", line 272, in do_bench
+    fn()
+  File "/usr/local/lib/python3.12/dist-packages/triton/runtime/autotuner.py", line 155, in kernel_call
+    self.fn.run(
+  File "/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py", line 779, in run
+    kernel.run(grid_0, grid_1, grid_2, stream, kernel.function, kernel.packed_metadata, launch_metadata,
+  File "/usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/driver.py", line 331, in __call__
+    self.launch(gridX, gridY, gridZ, stream, function, self.launch_cooperative_grid, self.launch_pdl,
+ValueError: Pointer argument cannot be accessed from Triton (cpu tensor?)

@@ -1,0 +1,9 @@
+kda_import_check=before-missing
+kda_image=ok
+kda_before_identity=missing
+kda_after_identity=missing
+kda_order=unread
+kda_before_args=
+kda_before_test=missing
+kda_after_test=missing
+kda_verdict=void-identity

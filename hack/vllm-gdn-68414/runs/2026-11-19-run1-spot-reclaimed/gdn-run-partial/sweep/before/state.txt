@@ -1,0 +1,16 @@
+started=1795059052
+checkout_head=8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd
+diff_sha256=none
+repro_sha256=766ccd795b2e1f71ba9c48dc99e22deec8f17047467b70866acf7378310af3af
+base_identity=ok
+apply=none
+applied_identity=ok
+index_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py
+fix_grep_rc=1
+bug_grep_rc=0
+repro_asis_rc=1
+repro_cuda_rc=0
+repro_mode=cuda-default
+repro_index_file=/usr/local/lib/python3.12/dist-packages/vllm/third_party/flash_linear_attention/ops/index.py
+repro_line=unwritten 70 o_err 1234.100830078125 state_err nan empty_keeps_h0 True
+ended=1795059158
