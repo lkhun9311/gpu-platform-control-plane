@@ -7,6 +7,10 @@
 # test holds equal.
 # The cluster, the build and S4 each gate everything after them: a rig that fails upstream's own baseline cannot support
 # a claim about S1-S3.
+# S4 also has to come first because it needs a fresh cluster: it runs with SKIP_CLEANUP=true, which skips upstream's
+# cleanup-from-previous-run.sh, and its setup_suite refuses any helm release of the chart.
+# After S1-S3 it could meet stale checkpoint entries and MPS state, the very leftovers they look for and that cleanup
+# exists to remove, so a failure could no longer be told apart from the rig's.
 # S1, S2 and S3 are independent, so one that fails is recorded and the next still runs.
 # They exit 4 when the experiment itself was not valid (a precondition never held), so the session can tell that apart
 # from a valid run, whatever it observed.

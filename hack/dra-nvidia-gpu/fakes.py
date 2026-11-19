@@ -63,6 +63,30 @@ def now_iso(offset=0):
 
 
 # ---------------------------------------------------------------- the cluster
+def selector_matches(labels, sel):
+    """True when every equality term of a -l selector holds in labels, as the API server reads it."""
+    return all(labels.get(k) == v for k, v in (t.split("=", 1) for t in sel.split(",") if t))
+
+
+def daemonsets(m):
+    """The kubelet-plugin DaemonSet of every installed release, shaped as the pinned chart renders it.
+
+    The component label is on the selector and the pod template only, not on the DaemonSet's own metadata
+    (deployments/helm/dra-driver-nvidia-gpu/templates/kubeletplugin.yaml at the pinned commit), so a fake that matched it
+    on metadata would hide the defect attempt 4 hit.
+    FAKE_DS_JSON replaces the model with a list rendered from the real chart.
+    """
+    if env("FAKE_DS_JSON"):
+        return json.load(open(env("FAKE_DS_JSON")))["items"]
+    if env("FAKE_NO_DS"):
+        return []
+    return [{"metadata": {"name": "dra-driver-nvidia-gpu-kubelet-plugin", "namespace": "dra-driver-nvidia-gpu",
+                          "labels": {"app.kubernetes.io/name": "dra-driver-nvidia-gpu", "app.kubernetes.io/instance": r,
+                                     "app.kubernetes.io/managed-by": "Helm"}},
+             "spec": {"selector": {"matchLabels": {"dra-driver-nvidia-gpu-component": "kubelet-plugin"}}}}
+            for r in m["releases"]]
+
+
 def kubectl(m):
     if "apply" in A:
         path = arg("-f")
@@ -136,8 +160,23 @@ def kubectl(m):
             if not env("FAKE_NO_POLICY"):
                 mem["requestPolicy"] = {"default": "0", "validRange": {"min": "0", "max": "23034Mi", "step": "1Mi"}}
             out(json.dumps({"items": [{"spec": {"devices": [{"name": "gpu-0", "capacity": {"memory": mem, "multiprocessors": {"value": "58"}}}]}}]}))
-        if "ds" in A:
-            out("dra-driver-nvidia-gpu-kubelet-plugin")
+        if "ds" in A and ns == "dra-driver-nvidia-gpu":
+            items = [d for d in daemonsets(m) if selector_matches(d["metadata"].get("labels", {}), arg("-l", ""))]
+            if q.startswith("jsonpath"):
+                if not items:
+                    sys.stderr.write("error: array index out of bounds: index 0, length 0\n")
+                    sys.exit(1)
+                out(items[0]["metadata"]["name"])
+            out(json.dumps({"apiVersion": "v1", "kind": "List", "items": items}))
+        if "ds,pods" in A:
+            out("NAMESPACE NAME LABELS\n" + "\n".join("dra-driver-nvidia-gpu daemonset.apps/%s %s" % (
+                d["metadata"]["name"], d["metadata"].get("labels")) for d in daemonsets(m)))
+        if "pods" in A and "app.kubernetes.io/instance!=" in (arg("-l", "") or ""):
+            # A pod of an uninstalled release that does not terminate, as one stuck on a finalizer would not.
+            out("pod/plugin-old" if env("FAKE_OLD_PODS_LINGER") else "")
+        inst = re.search(r"app\.kubernetes\.io/instance=([^,]+)", arg("-l", "") or "")
+        if "pods" in A and inst and inst.group(1) not in m["releases"]:
+            out()
         if "resourceslices" in A and q == "name":
             out("resourceslice.resource.k8s.io/worker-gpu.nvidia.com-x")
         if "pods" in A and "-l" in A:
@@ -197,7 +236,16 @@ def docker(m):
 
 def helm(m):
     if "list" in A:
+        if env("FAKE_HELM_LIST_FAIL"):
+            sys.stderr.write("Error: Kubernetes cluster unreachable\n")
+            sys.exit(1)
         out("\n".join(m["releases"]))
+    if "status" in A:
+        # A line on stderr, so a capture that drops stderr is caught.
+        sys.stderr.write("WARNING: fake helm status note on stderr\n")
+        out("NAME: %s\nSTATUS: deployed" % A[-1])
+    if "get" in A and "manifest" in A:
+        out("\n---\n".join("kind: DaemonSet\nmetadata:\n  name: %s" % d["metadata"]["name"] for d in daemonsets(m)))
     if "uninstall" in A:
         m["releases"] = [r for r in m["releases"] if r not in A]
         save(m)

@@ -166,9 +166,12 @@ sed -i 's/^WATCH_S=150$/WATCH_S=2/' "$IN/s1.sh"
 sed -i 's/^SETTLE_S=60$/SETTLE_S=1/' "$IN/s2.sh"
 sed -i 's/poll 120 3 in_state "\$uid" PrepareStarted/poll 4 3 in_state "$uid" PrepareStarted/' "$IN/s2.sh"
 sed -i -e 's/poll 60 3 gone pod\/pod/poll 2 3 gone pod\/pod/' -e 's/poll 15 3 gone resourceclaim/poll 1 3 gone resourceclaim/' "$IN/s1.sh"
-check "the shortened waits are the shipped 150 s, 60 s and 120 s" \
+sed -i -e 's/poll 30 3 found_plugin_ds/poll 2 3 found_plugin_ds/' -e 's/poll 90 3 foreign_plugin_gone/poll 2 3 foreign_plugin_gone/' "$IN/lib.sh"
+check "the shortened waits are the shipped 150 s, 60 s, 120 s, 30 s and 90 s" \
   "grep -qx 'WATCH_S=150' '$RD/s1.sh' && grep -qx 'SETTLE_S=60' '$RD/s2.sh' && grep -qx 'WATCH_S=2' '$IN/s1.sh' && grep -qx 'SETTLE_S=1' '$IN/s2.sh' &&
-   grep -q 'poll 120 3 in_state \"\$uid\" PrepareStarted' '$RD/s2.sh' && grep -q 'poll 4 3 in_state \"\$uid\" PrepareStarted' '$IN/s2.sh'"
+   grep -q 'poll 120 3 in_state \"\$uid\" PrepareStarted' '$RD/s2.sh' && grep -q 'poll 4 3 in_state \"\$uid\" PrepareStarted' '$IN/s2.sh' &&
+   grep -q 'poll 30 3 found_plugin_ds' '$RD/lib.sh' && grep -q 'poll 2 3 found_plugin_ds' '$IN/lib.sh' &&
+   grep -q 'poll 90 3 foreign_plugin_gone' '$RD/lib.sh' && grep -q 'poll 2 3 foreign_plugin_gone' '$IN/lib.sh'"
 runner() {
   local name=$1
   shift
@@ -295,6 +298,62 @@ check "S3 on a slice without requestPolicy (the Kubernetes gate off) is invalid:
 runner pending FAKE_S3_POD1_PENDING=1
 check "S3 records a second pod that never schedules, with the scheduler's reason" \
   "awk -F'\t' 'NR==2 && \$1==\"yes\" && \$3==\"yes\" && \$4==\"no\" && \$7 ~ /cannot allocate all claims/' '$WORK/rout-pending/s3/result.tsv' | grep -q ."
+# The kubelet-plugin DaemonSet, as attempt 4 met it: installed, but without the component label on its own metadata.
+check "S1 waits for the bats release's plugin pods to go before installing its own release" \
+  "u=\$(grep -n '^helm uninstall -n dra-driver-nvidia-gpu dra-driver-nvidia-gpu-batssuite' '$RC' | cut -d: -f1) &&
+   w=\$(grep -n '^kubectl get pods -n dra-driver-nvidia-gpu -l dra-driver-nvidia-gpu-component=kubelet-plugin,app.kubernetes.io/instance!=dra-gpu-session -o name' '$RC' | head -1 | cut -d: -f1) &&
+   i=\$(grep -n '^helm upgrade -i dra-gpu-session' '$RC' | head -1 | cut -d: -f1) && [ \"\$u\" -lt \"\$w\" ] && [ \"\$w\" -lt \"\$i\" ]"
+check "S2 reads the plugin pod of this release, and S1's plugin-down test counts the plugin pod of any release" \
+  "grep -q '^kubectl get pods -n dra-driver-nvidia-gpu -l dra-driver-nvidia-gpu-component=kubelet-plugin,app.kubernetes.io/instance=dra-gpu-session --field-selector=status.phase=Running' '$RC' &&
+   grep -q '^kubectl get pods -n dra-driver-nvidia-gpu -l dra-driver-nvidia-gpu-component=kubelet-plugin -o name' '$RC'"
+runner linger FAKE_OLD_PODS_LINGER=1
+check "a plugin pod of another release that outlives its uninstall stops every install before its helm upgrade" \
+  "[ \"\$(awk -F'\t' '\$1 ~ /^s[123]\$/ && \$2==2' '$WORK/rout-linger/summary.tsv' | wc -l)\" = 3 ] && ! grep -q '^helm upgrade' '$WORK/rst-linger/calls' &&
+   grep -q 'plugin pod of another release was still present' '$WORK/rout-linger/s3/steps.log' && [ -f '$WORK/rout-linger/s1/install-failure/helm-list.txt' ] && [ -s '$WORK/rout-linger/s1/install-failure/ds-pods.txt' ]"
+runner nods FAKE_NO_DS=1
+NC="$WORK/rst-nods/calls"
+nods_ok=1
+for s in s1 s2 s3; do
+  f="$WORK/rout-nods/$s/install-failure"
+  awk -F'\t' -v s=$s '$1==s && $2==2' "$WORK/rout-nods/summary.tsv" | grep -q . &&
+    grep -qx 'KUBECONFIG=.*/.kube/config' "$f/context.txt" && [ -s "$f/helm-list.txt" ] && [ -s "$f/helm-status.txt" ] &&
+    [ -f "$f/helm-manifest.yaml" ] && [ -s "$f/ds-pods.txt" ] && [ -s "$f/ns.txt" ] && [ -f "$f/ds.yaml" ] ||
+    { echo "  $s: $(ls "$f" 2>&1 | paste -sd' ')" >&2; nods_ok=0; }
+done
+check "an install whose DaemonSet never appears fails S1, S2 and S3 with the cluster's state written beside each" "[ $nods_ok = 1 ]"
+check "that state is the releases, what helm applied, the DaemonSets and pods with labels, the namespaces, and the context" \
+  "[ \"\$(grep -c '^helm list -A -a' '$NC')\" = 3 ] && [ \"\$(grep -c '^helm status -n dra-driver-nvidia-gpu dra-gpu-session' '$NC')\" = 3 ] &&
+   [ \"\$(grep -c '^helm get manifest -n dra-driver-nvidia-gpu dra-gpu-session' '$NC')\" = 3 ] &&
+   [ \"\$(grep -c '^kubectl get ds,pods -A --show-labels' '$NC')\" = 3 ] && [ \"\$(grep -c '^kubectl get ns\$' '$NC')\" = 3 ] &&
+   [ \"\$(grep -c '^kubectl config current-context' '$NC')\" = 3 ]"
+check "the state keeps each command's stderr" "grep -q 'fake helm status note on stderr' '$WORK/rout-nods/s1/install-failure/helm-status.txt'"
+check "the DaemonSet is looked up repeatedly before the install is given up, not once" \
+  "[ \"\$(grep -c '^kubectl get ds -n dra-driver-nvidia-gpu -l app.kubernetes.io/instance=dra-gpu-session -o json' '$NC')\" -ge 6 ]"
+check "the lookup's own error reaches the phase's log" "grep -q '0 kubelet-plugin DaemonSets in the release' '$WORK/rout-nods/s1/out.log'"
+runner listfail FAKE_HELM_LIST_FAIL=1
+check "a helm list that fails stops the install instead of reading as no release" \
+  "awk -F'\t' '\$1==\"s1\" && \$2==2' '$WORK/rout-listfail/summary.tsv' | grep -q . && ! grep -q '^helm upgrade' '$WORK/rst-listfail/calls' &&
+   grep -q 'helm list failed' '$WORK/rout-listfail/s1/steps.log' && grep -q 'cluster unreachable' '$WORK/rout-listfail/s1/out.log'"
+# Against the real chart, when a checkout and helm are at hand: the lookup finds the DaemonSet the chart renders, and the
+# component-label query attempt 4 used does not.
+if [ -d "$UPSTREAM_CLONE/deployments/helm/dra-driver-nvidia-gpu" ] && command -v helm >/dev/null && python3 -c 'import yaml' 2>/dev/null; then
+  helm template dra-gpu-session "$UPSTREAM_CLONE/deployments/helm/dra-driver-nvidia-gpu" -n dra-driver-nvidia-gpu \
+    --set nvidiaDriverRoot=/ --set gpuResourcesEnabledOverride=true --set resources.computeDomains.enabled=false \
+    --kube-version 1.34.3 --api-versions resource.k8s.io/v1 >"$WORK/chart.yaml" 2>"$WORK/chart.err" || cat "$WORK/chart.err" >&2
+  python3 -I -c 'import json, sys, yaml
+items = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d and d.get("kind") == "DaemonSet"]
+json.dump({"items": items}, open(sys.argv[2], "w"))' "$WORK/chart.yaml" "$WORK/chart-ds.json"
+  mkdir -p "$WORK/rst-chart"
+  chart_ds() { env PATH="$BIN:$PATH" FAKE_STATE="$WORK/rst-chart" FAKE_DS_JSON="$WORK/chart-ds.json" bash -c ". '$RD/lib.sh'; $1" 2>&1; }
+  check "with the real chart the lookup finds its one kubelet-plugin DaemonSet" \
+    "[ \"\$(chart_ds plugin_ds)\" = dra-driver-nvidia-gpu-kubelet-plugin ]"
+  # The query's failure is the expected outcome, so its output is read from a variable rather than a pipe pipefail would fail.
+  old_query=$(chart_ds 'kubectl get ds -n $NS -l $PLUGIN_SEL -o jsonpath={.items[0].metadata.name}')
+  check "with the real chart the component-label query attempt 4 used finds nothing" \
+    "grep -q 'index out of bounds' <<<'$old_query' && ! grep -q kubelet-plugin <<<'$old_query'"
+else
+  echo "skip the real-chart lookup: no upstream checkout, helm or PyYAML"
+fi
 check "each phase's evidence leaves the instance as the phase ends" \
   "[ \"\$(grep -c '^aws s3 cp --only-show-errors $WORK/tmp/phase-[a-z0-9]*.tgz s3://b/run/phase-' '$RC')\" = 6 ]"
 
