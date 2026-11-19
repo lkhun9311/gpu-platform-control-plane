@@ -56,9 +56,9 @@ None was written for an upstream project; each came from the platform's own paid
 | Before and after patch application | A pinned diff is split in two: `vllm/*` is applied to the installed package under `dist-packages`, the rest (tests, docs) to the source checkout. Every touched file's sha256 is pinned for base, before and after, and a mismatch stops the state | `hack/vllm-tpot/state.sh`, `hack/vllm-tpot/pins.txt`, `hack/vllm-gdn-68414/state.sh`, `hack/vllm-gdn-68414/*-pins.txt` |
 | Collection and import probes | The files the test collection actually loads are recorded on the instance and compared with the image; a loaded file that differs from the diff's base voids the case instead of passing it. For #58420 each engine core reports the threshold its scheduler holds after `Scheduler.__init__` | `hack/vllm-gdn-68414/fla_loaded_modules.py`, `hack/vllm-gdn-68414/import-closure.py`, `internal/bench/srpf_sweep.go` |
 | Spot launch, termination sweeper and cost cap | `spot_launch` tags every instance with a study deadline; the sweeper Lambda ends any instance past its deadline; each session computes its worst case before buying and refuses above its cap | `hack/lib/spot-run.sh`, `infra/aws/bootstrap/sweeper/sweeper.py`, `hack/sweeper-exercise.sh` |
-| Evidence archive | Each run gets a directory with `outcome.txt`, `session-provenance.txt`, `termination.txt` and the raw rows; large files left out are listed with their sha256 in `NOT-COMMITTED.sha256` | `hack/<study>/…/runs/<date>-<label>/` |
+| Evidence archive | Each run gets a directory with `outcome.txt`, `session-provenance.txt`, `termination.txt` and the raw rows; large files left out are listed with their sha256 in `NOT-COMMITTED.sha256` | One directory per run, named by date and label, under the study's `runs/` directory in `hack/`, for example `hack/vllm-gdn-68414/runs/` |
 | Offline tests and mutation runners | Each session script runs offline against fakes for AWS and the engine; the mutation runner breaks each guard and checks the offline test fails | `hack/vllm-58420-session-test.sh`, `hack/vllm-tpot-session-test.sh`, `hack/vllm-gdn-68414-session-test.sh`, `hack/vllm-gdn-68414-session-mutate.sh` |
-| kind labs | Pinned, free clusters that run upstream controllers against simulators, with a timeline sampled every 5 s and the controller's own log | `hack/aibrix-lane2.sh`, `hack/llmd-kv-lab.sh`, `hack/aibrix-pr3509.sh` (branch) |
+| kind labs | Pinned, free clusters that run upstream controllers against simulators, with a timeline sampled every 5 s and the controller's own log | `hack/aibrix-lane2.sh`, `hack/llmd-kv-lab.sh`, [hack/aibrix-pr3509.sh](https://github.com/lkhun9311/gpu-platform-control-plane/blob/ca5efa9ac4ce07b833e54af4f1e722ff2d6ac69c/hack/aibrix-pr3509.sh) (branch feat/aibrix-3509-verify) |
 
 Reuse across the cases:
 
@@ -129,7 +129,7 @@ Reused: pinned CI image, PR files overlaid, image identity check, Spot launch wi
    One g5.xlarge Spot (A10G), ap-northeast-2d.
    Image `vllm-ci-postmerge-repo@sha256:c0c20a4c…eac15`, Qwen2.5-3B-Instruct fp16, `max_num_batched_tokens` 8192 (`hack/vllm-67811/2026-11-18-run1/ap-run/summary.txt`, `ap-run/sweep/ap-*.args.txt`).
 3. **Baseline.**
-   `base` (`long_prefill_token_threshold` 1024, adaptive off), median of 5 scored runs: short TTFT p95 1,501 ms, decode token gap p99 549 ms, 351 output tokens/s (`ap-run/sweep/ap-1-base.r0.json` to `r4.json`; `ap-6-base` repeats it within 1 ms).
+   `base` (`long_prefill_token_threshold` 1024, adaptive off), median of 5 scored runs: short TTFT p95 1,501 ms, decode token gap p99 549 ms, 351 output tokens/s (`ap-run/sweep/ap-1-base.r0.json` to `ap-1-base.r4.json`; `ap-6-base` repeats it within 1 ms).
 4. **Result after the change.**
    Both adaptive engines stalled in the warm-up invocation and scored 0 of 5 runs (`ap-run/summary.txt`: "ap-2-adaptive: done, 0 of 5 scored runs").
    The comparison arm `t512` (threshold 512) scored 5 of 5: short TTFT p95 839 ms, decode gap p99 287 ms, 346 tokens/s.
@@ -195,7 +195,7 @@ Reused: pinned CI images, before and after application into `dist-packages`, col
 
    Sources: each run's `verdict.txt` or `*-verdict.txt`, `outcome.txt` and `pytest-summary.txt`.
    Run 3's void is the import probe doing its job: the tests passed, but the run could not show they ran against the base the diff was written for, so run 4 repeated #68416 on an image that differs from its diff base only in a recipe.
-   Run 5 is on branch `feat/vllm-gdn-run5`, commit `01234f03`, not pushed; its record is `hack/vllm-gdn-68414/runs/2026-11-19-run5-pr-68415-68416-confirmed/` there.
+   Run 5 is on branch `feat/vllm-gdn-run5`, commit `01234f03`, not pushed; on that branch its record is the directory 2026-11-19-run5-pr-68415-68416-confirmed under `hack/vllm-gdn-68414/runs/`, which has no public link until the branch is pushed.
    Run 6, run 5's two before commands on the full fix in one Spot state, is prepared on branch `feat/vllm-gdn-run6` (`553558c1`) and has not produced a record: **pending**.
 5. **Reproduction command.**
    `PURCHASE=spot SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh` (run 4's configuration on `dev`), offline check `bash hack/vllm-gdn-68414-session-test.sh`, mutants `bash hack/vllm-gdn-68414-session-mutate.sh` (34 killed for run 4, commit `12279fcc`; 48 for run 5, `854b5166`).
@@ -243,7 +243,7 @@ Reused: the #3439 kind lab, its simulator images and upstream's overlay.
    Does it hold scale-downs only, keep scale-ups and bounds, and say which source failed?
 2. **Experiment environment.**
    Same kind lab, base main `afdb4791527e` against PR head `cb1a2f3f05d6`, plain Deployment target, cooldown 0s, `maxReplicas` 6, eight phases with the queue source down from phase 2 to 8.
-   Branch `feat/aibrix-3509-verify` (pushed), commit `ca5efa9a`; runs under `hack/aibrix-pr3509/runs/`, results in its `docs/15_AIBRIX_AUTOSCALING_LAB.md`, "Verifying #3509".
+   Branch `feat/aibrix-3509-verify` (pushed), commit `ca5efa9a`; runs under [hack/aibrix-pr3509/runs/](https://github.com/lkhun9311/gpu-platform-control-plane/tree/ca5efa9ac4ce07b833e54af4f1e722ff2d6ac69c/hack/aibrix-pr3509/runs), results in its `docs/15_AIBRIX_AUTOSCALING_LAB.md`, "Verifying #3509".
 3. **Baseline.**
    main, KPA and APA: 4 → 2 on the first reconcile, 13 s (KPA) and 10 s (APA) after the first outage sample.
    PR with the annotation off matches main; APA's 15 rescales match main's one for one.
@@ -274,7 +274,7 @@ No GPU and no kind: the workstation has swap off and no root, so the cluster ran
 2. **Experiment environment.**
    EC2 t3.large on demand, Ubuntu 24.04.5, kernel `7.0.0-1017-aws`, cgroup v2, 4 GiB swapfile, containerd 2.2.1, runc 1.3.4.
    Binaries built at PR head `5a0b7d10d74c`; Kubernetes' own `hack/local-up-cluster.sh` with LimitedSwap and the gate on.
-   Branch `feat/k8s-142885-swap-drain` (pushed), commit `335653d9`; `hack/k8s-142885/README.md` and `evidence/` there.
+   Branch `feat/k8s-142885-swap-drain` (pushed), commit `335653d9`; [hack/k8s-142885/README.md](https://github.com/lkhun9311/gpu-platform-control-plane/blob/335653d9d051777bab71e9ec0229b55fae0fa6b9/hack/k8s-142885/README.md) and `evidence/` there.
 3. **Baseline.**
    Control case B, 512Mi → 384Mi (above usage): 3 of 3 `ResizeStarted` → `ResizeCompleted`, 46 to 76 ms apart; `memory.swap.max` 402653184.
 4. **Result after the change.**
@@ -283,7 +283,7 @@ No GPU and no kind: the workstation has swap off and no root, so the cluster ran
    Kernel cases without the kubelet: lowering `memory.swap.max` below usage returns rc 0 and moves nothing (K1, 3 of 3), and touching the pages then OOM-kills the process (K2, 3 of 3).
 5. **Reproduction command.**
    On the branch: `SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab bash hack/k8s-142885/ec2-up.sh <outdir>`, then on the node `sudo bash run-all.sh <out-root> <case>...`, then `bash hack/k8s-142885/ec2-down.sh`.
-   Cap per instance: 8,100 s at $0.1127/h all in, $0.26 (`ec2-up.sh`, the cost comment); two instances were used.
+   Cap per instance: 8,100 s at $0.1127/h all in, $0.26 ([hack/k8s-142885/ec2-up.sh](https://github.com/lkhun9311/gpu-platform-control-plane/blob/335653d9d051777bab71e9ec0229b55fae0fa6b9/hack/k8s-142885/ec2-up.sh), the cost comment); two instances were used.
 6. **Upstream status.**
    Open, not merged.
    [Reproduction comment](https://github.com/kubernetes/kubernetes/pull/142885#issuecomment-7009845573) posted 2026-11-19 13:00 UTC.
