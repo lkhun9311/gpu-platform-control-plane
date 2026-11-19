@@ -136,3 +136,9 @@ hack/m5c-2026*	a glob naming the untracked paid-run output directories the MPS s
 hack/m5c-20261001-*/log.txt:312	an untracked paid-run log the portfolio overview quotes inline; its checksum is in docs/evidence/m5c-20261001-023515-ten-cell-complete.SHA256SUMS
 internal/plugin/server.go:89-90	a file in the NVIDIA k8s-device-plugin v0.16.2 tag, not in this repository
 job_controller.go	a file in the Kueue v0.18.3 and v0.20.1 tags, not in this repository
+
+# --- upstream names the OSS validation case studies cite, 2026-11-19 -----------------------------------
+ResizeStarted	an upstream Kubernetes Pod event reason for in-place resize; docs/16 cites it from the kubernetes/kubernetes#142885 swap-drain runs, not code of this repository
+ResizeCompleted	the upstream Kubernetes Pod event reason that closes an in-place resize; cited beside ResizeStarted in docs/16 for the same #142885 runs
+PrepareCompleted	a checkpoint state of the kubernetes-sigs/dra-driver-nvidia-gpu kubelet plugin; docs/16 names it from issue #1278, not code of this repository
+hack/local-up-cluster.sh	a script in kubernetes/kubernetes, not in this repository; docs/16 says "Kubernetes' own" of it on the same line
