@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpcstream
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grpcstream
+  template:
+    metadata:
+      labels:
+        app: grpcstream
+    spec:
+      containers:
+      - name: backend
+        image: llmd3089-grpcstream:dev
+        imagePullPolicy: Never
+        args: ["-addr", ":50051"]
+        ports:
+        - containerPort: 50051
+          name: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpcstream-direct
+spec:
+  selector:
+    app: grpcstream
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: 50051
+    appProtocol: kubernetes.io/h2c
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+spec:
+  containers:
+  - name: client
+    image: llmd3089-grpcstream:dev
+    imagePullPolicy: Never
+    command: ["/usr/local/bin/backend", "-addr", "127.0.0.1:1"]

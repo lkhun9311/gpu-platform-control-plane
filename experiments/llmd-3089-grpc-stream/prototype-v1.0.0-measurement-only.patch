@@ -1,0 +1,32 @@
+diff --git a/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough.go b/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough.go
+index d252223f..26eb33db 100644
+--- a/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough.go
++++ b/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough.go
+@@ -20,6 +20,7 @@ package passthrough
+ import (
+ 	"context"
+ 	"encoding/json"
++	"strings"
+ 
+ 	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+ 
+@@ -75,6 +76,8 @@ func (p *PassthroughParser) ParseRequest(ctx context.Context, body []byte, heade
+ 	return &fwkrh.ParseResult{
+ 		Body: &fwkrh.InferenceRequestBody{
+ 			Payload: fwkrh.RawPayload(body),
++			// Backport of the main-branch prototype for measurement only.
++			Stream: isGRPC(headers["content-type"]),
+ 		},
+ 		SkipResponseProcessing: false,
+ 	}, nil
+@@ -84,3 +87,10 @@ func (p *PassthroughParser) ParseRequest(ctx context.Context, body []byte, heade
+ func (p *PassthroughParser) ParseResponse(ctx context.Context, body []byte, headers map[string]string, isEnd bool) (*fwkrh.ParsedResponse, error) {
+ 	return nil, nil //nolint:nilnil
+ }
++
++// isGRPC mirrors grpcframe.IsContentType on main.
++func isGRPC(contentType string) bool {
++	mediaType, _, _ := strings.Cut(contentType, ";")
++	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
++	return mediaType == "application/grpc" || strings.HasPrefix(mediaType, "application/grpc+")
++}

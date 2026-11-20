@@ -1,0 +1,63 @@
+# The issue's control: the same agentgateway v1.7.0 routing to a plain Service, with no EPP.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agw-plain
+data:
+  config.yaml: |-
+    config:
+      statsAddr: "0.0.0.0:15020"
+      readinessAddr: "0.0.0.0:15021"
+    binds:
+    - port: 8081
+      listeners:
+      - name: default
+        protocol: HTTP
+        routes:
+        - name: plain
+          matches:
+          - path:
+              pathPrefix: /
+          backends:
+          - host: grpcstream-direct.default.svc.cluster.local:50051
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agw-plain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agw-plain
+  template:
+    metadata:
+      labels:
+        app: agw-plain
+    spec:
+      containers:
+      - name: agentgateway
+        image: cr.agentgateway.dev/agentgateway:v1.7.0
+        imagePullPolicy: IfNotPresent
+        args: ["-f", "/config/config.yaml"]
+        ports:
+        - containerPort: 8081
+        volumeMounts:
+        - name: config
+          mountPath: /config
+      volumes:
+      - name: config
+        configMap:
+          name: agw-plain
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agw-plain
+spec:
+  selector:
+    app: agw-plain
+  ports:
+  - name: http
+    port: 8081
+    targetPort: 8081

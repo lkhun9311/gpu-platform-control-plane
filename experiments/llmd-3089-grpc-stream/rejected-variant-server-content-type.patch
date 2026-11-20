@@ -1,0 +1,20 @@
+diff --git a/pkg/epp/handlers/server.go b/pkg/epp/handlers/server.go
+index 1c9f76b3..a77d6b3b 100644
+--- a/pkg/epp/handlers/server.go
++++ b/pkg/epp/handlers/server.go
+@@ -864,7 +864,14 @@ func (s *StreamingServer) Process(srv extProcPb.ExternalProcessor_ProcessServer)
+ 						reqCtx.responseStatusCode = code
+ 					}
+ 				} else if header.Key == reqcommon.HeaderContentType {
+-					if !isEventStream(envoy.GetHeaderValue(header)) {
++					contentType := envoy.GetHeaderValue(header)
++					if grpcframe.IsContentType(contentType) {
++						// A server-streaming gRPC client decodes each frame on arrival.
++						// Buffering until the trailers would deliver every message at the end of the stream.
++						reqCtx.modelServerStreaming = true
++						continue
++					}
++					if !isEventStream(contentType) {
+ 						continue
+ 					}
+ 					reqCtx.modelServerStreaming = true

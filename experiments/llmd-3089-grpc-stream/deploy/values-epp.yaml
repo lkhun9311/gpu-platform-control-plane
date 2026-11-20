@@ -1,0 +1,31 @@
+# Standalone llm-d router v1.0.0 with the agentgateway sidecar, as in llm-d#3089.
+router:
+  modelServers:
+    type: vllm
+    protocol: http
+    matchLabels:
+      app: grpcstream
+    targetPorts:
+    - number: 50051
+  inferencePool:
+    create: false
+  epp:
+    image:
+      tag: v1.0.0
+      pullPolicy: IfNotPresent
+    parsers: ["passthrough-parser"]
+    flags:
+      secure-serving: false
+      v: 4
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  proxy:
+    proxyType: agentgateway
+    image: cr.agentgateway.dev/agentgateway:v1.7.0
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi

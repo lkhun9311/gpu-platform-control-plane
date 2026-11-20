@@ -1,0 +1,51 @@
+diff --git a/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough.go b/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough.go
+index fdec1d8f..387893ad 100644
+--- a/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough.go
++++ b/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough.go
+@@ -23,6 +23,8 @@ import (
+ 
+ 	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+ 
++	"github.com/llm-d/llm-d-router/pkg/common/grpc/grpcframe"
++	reqcommon "github.com/llm-d/llm-d-router/pkg/common/request"
+ 	fwkrequest "github.com/llm-d/llm-d-router/pkg/epp/framework/common/request"
+ 	fwkplugin "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/plugin"
+ 	fwkrh "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/requesthandling"
+@@ -76,6 +78,9 @@ func (p *PassthroughParser) ParseRequest(ctx context.Context, body []byte, heade
+ 	return &fwkrh.ParseResult{
+ 		Body: &fwkrequest.InferenceRequestBody{
+ 			Payload: fwkrequest.RawPayload(body),
++			// The parser cannot tell a unary gRPC method from a server-streaming one.
++			// Marking every gRPC request as streaming forwards each response chunk on arrival instead of holding the reply until the trailers.
++			Stream: grpcframe.IsContentType(headers[reqcommon.HeaderContentType]),
+ 		},
+ 		SkipResponseProcessing: false,
+ 	}, nil
+diff --git a/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough_test.go b/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough_test.go
+index cc4c3279..87fc6ea6 100644
+--- a/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough_test.go
++++ b/pkg/epp/framework/plugins/requesthandling/parsers/passthrough/passthrough_test.go
+@@ -54,6 +54,23 @@ func TestPassthroughParser_ParseRequest(t *testing.T) {
+ 				Payload: fwkrequest.RawPayload([]byte("hello world")),
+ 			},
+ 		},
++		{
++			name:    "gRPC request",
++			body:    []byte("hello world"),
++			headers: map[string]string{"content-type": "application/grpc+proto"},
++			wantBody: &fwkrequest.InferenceRequestBody{
++				Payload: fwkrequest.RawPayload([]byte("hello world")),
++				Stream:  true,
++			},
++		},
++		{
++			name:    "JSON request",
++			body:    []byte(`{"stream":true}`),
++			headers: map[string]string{"content-type": "application/json"},
++			wantBody: &fwkrequest.InferenceRequestBody{
++				Payload: fwkrequest.RawPayload([]byte(`{"stream":true}`)),
++			},
++		},
+ 	}
+ 
+ 	for _, tt := range tests {
