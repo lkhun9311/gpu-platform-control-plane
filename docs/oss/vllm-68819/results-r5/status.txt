@@ -1,0 +1,10 @@
+install-vllm exit=0
+install-test exit=0
+download exit=0
+test-base-expect-fail exit=1
+test-fix exit=0
+test-files-fix exit=0
+load-base-r1 exit=0
+load-fix-r1 exit=0
+load-fix-r2 exit=0
+load-base-r2 exit=0
