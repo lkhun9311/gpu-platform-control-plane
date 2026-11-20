@@ -35,7 +35,7 @@ Each run used the kit as it stood when it ran, so each kit is kept separately.
 | `kit-r6/run.sh` | `fbfbf99377b057926d011b64d39a50c425fe8d11312516f155f57a296a6c98ab` |
 | `kit-r6/measure.py` | `84a644eb69cf3e5bd9ae96ccd59ed186d332a37b929297dce0a0aa2f0843540b` |
 | `kit-r6/filler.py` | `0624322ff3d4fc31eea2459291c18054fd384a6c6fbf6fed1d783e46901da160` |
-| run 6's `fix.patch`: a later revision of the PR's commit, `adf1efbea37f`, with tests for 8-bit, a padded tile and Batched Marlin; not yet pushed to the PR | `126dab959cc922d7a32dc30ad3651831cb9c0227db1de2a39e6b6f9854f565f9` |
+| run 6's `fix.patch`: commit `adf1efbea37f`, a later revision of the PR's commit with tests for 8-bit, a padded tile and Batched Marlin; its tree matches the PR head `1cfa0d7f1ff8` (tree `e2eac9fa2022`), which adds the same change as a second commit on top of `0b64393e9dec` | `126dab959cc922d7a32dc30ad3651831cb9c0227db1de2a39e6b6f9854f565f9` |
 | `kit-r7/run.sh` | `a559b4fc44013dd6b761ab4cc525c23d832a8e01b0d1d09202725c7b1c44375f` |
 | `kit-r7/measure.py` | `b62a8d8aa86f988213120a3bd29474588a77415e926bd6adca362b9a4f7243fd` |
 | `kit-r7/filler.py` | `0624322ff3d4fc31eea2459291c18054fd384a6c6fbf6fed1d783e46901da160` |
