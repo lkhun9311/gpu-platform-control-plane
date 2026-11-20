@@ -1,0 +1,11 @@
+install-vllm exit=0
+install-test exit=0
+download exit=0
+oom-16.4-base exit=0
+oom-16.4-fix exit=0
+oom-16.6-fix exit=0
+oom-16.6-base exit=0
+oom-16.8-base exit=0
+oom-16.8-fix exit=0
+oom-17.0-fix exit=0
+oom-17.0-base exit=0
