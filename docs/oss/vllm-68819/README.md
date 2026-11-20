@@ -17,7 +17,7 @@ It then runs, on the same GPU:
 
 - the PR's unit tests on both sides, which must fail on the base and pass with the fix;
 - full model loads of `Qwen/Qwen3-30B-A3B-GPTQ-Int4` on each side, recording the GPU memory peak during the conversion, the conversion time and a SHA-256 over every converted tensor;
-- in run 6, an out-of-memory sweep: `filler.py` holds GPU memory so that only a set amount stays free, and each side tries to load and generate.
+- in runs 6 and 7, an out-of-memory sweep: `filler.py` holds GPU memory so that only a set amount stays free, and each side tries to load and generate.
 
 The SHA-256 over the converted tensors, and the unit tests that compare them with `torch.equal`, show that the fix changes how the conversion uses memory, not the weights it produces.
 The generated token ids are recorded but are not an equality check, because vLLM's greedy output is not batch-invariant.
@@ -36,6 +36,10 @@ Each run used the kit as it stood when it ran, so each kit is kept separately.
 | `kit-r6/measure.py` | `84a644eb69cf3e5bd9ae96ccd59ed186d332a37b929297dce0a0aa2f0843540b` |
 | `kit-r6/filler.py` | `0624322ff3d4fc31eea2459291c18054fd384a6c6fbf6fed1d783e46901da160` |
 | run 6's `fix.patch`: a later revision of the PR's commit, `adf1efbea37f`, with tests for 8-bit, a padded tile and Batched Marlin; not yet pushed to the PR | `126dab959cc922d7a32dc30ad3651831cb9c0227db1de2a39e6b6f9854f565f9` |
+| `kit-r7/run.sh` | `a559b4fc44013dd6b761ab4cc525c23d832a8e01b0d1d09202725c7b1c44375f` |
+| `kit-r7/measure.py` | `b62a8d8aa86f988213120a3bd29474588a77415e926bd6adca362b9a4f7243fd` |
+| `kit-r7/filler.py` | `0624322ff3d4fc31eea2459291c18054fd384a6c6fbf6fed1d783e46901da160` |
+| run 7's `fix.patch`: the same file as run 6's | `126dab959cc922d7a32dc30ad3651831cb9c0227db1de2a39e6b6f9854f565f9` |
 
 ## How to rerun
 
@@ -62,6 +66,7 @@ Each run's instance, LaunchTime, confirmed termination and cost bound are in [`r
 | 4 | g5.2xlarge | $0.2246 | Tests as expected; every load stopped in the kit's own weight hashing, which run 5's kit fixed. |
 | 5 | g5.2xlarge | $0.2619 | All steps passed; see below. |
 | 6 | g5.2xlarge | $0.4720 | All steps ran, including the sweep; see below. |
+| 7 | g5.2xlarge | $0.3439 | The sweep only, over a lower range and with `gpu_memory_utilization` left unset; see below. |
 
 ## Run 5 results (`results-r5/`, kit `kit-r5/`)
 
@@ -89,5 +94,19 @@ Each entry is the stage the load reached:
 
 The fix converts at every F tried, down to 16.4 GiB free, while the base runs out of memory in the conversion at 16.8 GiB and converts at 17.0 GiB.
 In this range the KV cache, not the conversion, decides whether either side can serve, so there is no F here where the base runs out of memory and the fix generates.
+
+## Run 7 results (`results-r7/`, kit `kit-r7/`)
+
+Run 6's kit passed vLLM a `gpu_memory_utilization` derived from the free memory, which caps the KV cache budget.
+Run 7 leaves it unset, as a user would, so vLLM sizes the KV cache from the memory it measures, and it sweeps a lower range.
+
+| F (GiB free) | Base | Fix |
+|---|---|---|
+| 16.2 | CUDA out of memory during the conversion | CUDA out of memory during the conversion |
+| 16.4, 16.6, 16.8 | CUDA out of memory during the conversion | Conversion completes; then no memory is left for the KV cache |
+| 17.0, 17.2 | Conversion completes; then no memory is left for the KV cache | Conversion completes; then no memory is left for the KV cache |
+
+The conversion boundary is now bracketed on both sides: the fix needs between 16.2 and 16.4 GiB free, the base between 16.8 and 17.0 GiB.
+Leaving the budget unset did not let either side serve within this range, so here too the KV cache, not the conversion, decides whether the model serves.
 
 Each results folder carries a `SHA256SUMS` file for its contents.

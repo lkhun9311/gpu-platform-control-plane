@@ -13,5 +13,8 @@ Spot billing at the market price, below the cap, makes the real charge lower.
 | 4 | g5.2xlarge, i-0a1146c3f2f768ddd | 2026-11-19T23:31:40Z | 2026-11-19T23:47:11Z | 931 s | $0.8683/h | $0.2246 | 0 |
 | 5 | g5.2xlarge, i-05ea90dacf4906907 | 2026-11-19T23:50:10Z | 2026-11-20T00:08:16Z | 1,086 s | $0.8683/h | $0.2619 | 0 |
 | 6 | g5.2xlarge, i-03bc122ed9fc79c47 | 2026-11-20T02:12:45Z | 2026-11-20T02:45:22Z | 1,957 s | $0.8683/h | $0.4720 | 0 |
+| 7 | g5.2xlarge, i-02cbd4e4fc805d93c | 2026-11-20T03:05:19Z | 2026-11-20T03:29:05Z | 1,426 s | $0.8683/h | $0.3439 | 0 |
+
+Run 7 ran the kit with `PHASES=3` and `SWEEP_FREE_GIB=16.2 16.4 16.6 16.8 17.0 17.2` in its environment, as its session record states.
 
 All instances ran in ap-northeast-2 with one NVIDIA A10G (24 GB).
