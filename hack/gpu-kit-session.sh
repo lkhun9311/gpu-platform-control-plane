@@ -268,6 +268,8 @@ esac
 # Names the session itself sets, and loader or interpreter variables, are refused so a kit setting cannot change how the session runs it.
 KIT_ENV_WORDS=""
 if [ -n "${KIT_ENV:-}" ]; then
+  # read takes only the first line, so a line break would drop the settings after it while provenance still recorded them.
+  case "$KIT_ENV" in *$'\n'* | *$'\r'*) fail "KIT_ENV holds a line break; separate settings with ';'" ;; esac
   IFS=';' read -r -a kit_env_pairs <<<"$KIT_ENV"
   for pair in "${kit_env_pairs[@]}"; do
     name=${pair%%=*}
@@ -275,7 +277,8 @@ if [ -n "${KIT_ENV:-}" ]; then
     [ "$pair" != "$name" ] || fail "KIT_ENV entry '$pair' is not NAME=value"
     [[ $name =~ ^[A-Z][A-Z0-9_]{0,31}$ ]] || fail "KIT_ENV name '$name' is not an upper-case variable name"
     case "$name" in
-      HOME | PATH | OUT | UV_* | PYTHON* | LD_* | BASH_* | ENV | IFS | SHELL | AWS_* | KIT_ENV)
+      # Bash imports SHELLOPTS and BASHOPTS, so SHELLOPTS=noexec would skip every command in run.sh and still exit 0.
+      HOME | PATH | OUT | UV_* | PYTHON* | LD_* | BASH_* | BASHOPTS | SHELLOPTS | ENV | IFS | SHELL | AWS_* | KIT_ENV)
         fail "KIT_ENV name '$name' is one the session or the shell relies on" ;;
     esac
     [[ $value =~ ^[A-Za-z0-9._\ -]{0,200}$ ]] || fail "KIT_ENV value for '$name' has characters outside letters, digits, spaces and . _ -"

@@ -138,7 +138,12 @@ check "a KIT_ENV value with a shell character is refused" "kit_env_refused '$S' 
 check "a KIT_ENV value with a quote is refused" "kit_env_refused '$S' \"A=x'y\" 'characters outside'"
 check "a KIT_ENV entry without = is refused" "kit_env_refused '$S' 'PHASES' 'is not NAME=value'"
 check "a lower-case KIT_ENV name is refused" "kit_env_refused '$S' 'phases=3' 'not an upper-case variable name'"
-m=$(mutant kitenvreserved 's/^      HOME | PATH | OUT | UV_\* | PYTHON\* | LD_\* | BASH_\* | ENV | IFS | SHELL | AWS_\* | KIT_ENV)$/      NEVER_MATCHES_ANYTHING)/')
+check "a KIT_ENV that sets SHELLOPTS is refused, since noexec would skip run.sh and exit 0" "kit_env_refused '$S' 'SHELLOPTS=noexec' 'one the session or the shell relies on'"
+check "a KIT_ENV that sets BASHOPTS is refused" "kit_env_refused '$S' 'BASHOPTS=extdebug' 'one the session or the shell relies on'"
+check "a KIT_ENV with a line break is refused rather than losing the settings after it" "kit_env_refused '$S' \"\$(printf 'PHASES=3;\nSWEEP_FREE_GIB=16.2')\" 'holds a line break'"
+m=$(mutant kitenvnewline '/\*\$.\\n.\* | \*\$.\\r.\*) fail "KIT_ENV holds a line break/d')
+mcheck "mutant: without the line-break guard, a dropped setting is caught" "! kit_env_refused '$m' \"\$(printf 'PHASES=3;\nSWEEP_FREE_GIB=16.2')\" 'holds a line break'"
+m=$(mutant kitenvreserved 's/^      HOME | PATH | OUT .*)$/      NEVER_MATCHES_ANYTHING)/')
 mcheck "mutant: without the reserved-name guard, a KIT_ENV that sets OUT is caught" "! kit_env_refused '$m' 'OUT=/tmp' 'one the session or the shell relies on'"
 m=$(mutant kitenvvalue 's/^    \[\[ \$value =~ .*$/    true/')
 mcheck "mutant: without the value guard, a shell character is caught" "! kit_env_refused '$m' 'A=\$(id)' 'characters outside'"
