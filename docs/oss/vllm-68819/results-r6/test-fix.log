@@ -1,0 +1,15 @@
+/opt/kit/work/vllm-ab/.venv/lib/python3.12/site-packages/pytest_asyncio/plugin.py:306: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session". Set it to "fixture-scope" to keep the current behavior.
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+....                                                                     [100%]
+==================================== PASSES ====================================
+_______ test_auto_gptq_moe_marlin_prep_skips_layout_copies[int4-padded] ________
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.model_executor.layers.quantization.utils.marlin_utils:marlin_utils.py:347 Marlin requires thread-tile padding for the MoE intermediate size of some layers in this model. Padded experts pad/slice activations on every forward; performance may be degraded.
+=========================== short test summary info ============================
+PASSED tests/quantization/test_auto_gptq.py::test_auto_gptq_moe_marlin_prep_skips_layout_copies[int4]
+PASSED tests/quantization/test_auto_gptq.py::test_auto_gptq_moe_marlin_prep_skips_layout_copies[int8]
+PASSED tests/quantization/test_auto_gptq.py::test_auto_gptq_moe_marlin_prep_skips_layout_copies[int4-padded]
+PASSED tests/quantization/test_auto_gptq.py::test_batched_marlin_converts_gptq_views_without_layout_copies
+4 passed, 13 deselected in 3.55s

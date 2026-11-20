@@ -1,0 +1,174 @@
+/opt/kit/work/vllm-ab/.venv/lib/python3.12/site-packages/pytest_asyncio/plugin.py:306: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session". Set it to "fixture-scope" to keep the current behavior.
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+FFF.                                                                     [100%]
+=================================== FAILURES ===================================
+___________ test_auto_gptq_moe_marlin_prep_skips_layout_copies[int4] ___________
+
+bits = 4, group_size = 128, intermediate_size = 1024
+default_vllm_config = VllmConfig(model_config=None, cache_config=CacheConfig(block_size=64, user_specified_block_size=False, kv_cache_layout..._transfer_config=None, watchdog_config=WatchdogConfig(timeout=300, check_interval=10, dump_dir=''), shutdown_timeout=0)
+
+    @pytest.mark.skipif(
+        not current_platform.is_cuda(), reason="Marlin MoE repack needs CUDA"
+    )
+    @pytest.mark.parametrize(
+        "bits, group_size, intermediate_size",
+        [(4, 128, 1024), (8, 128, 1024), (4, -1, 1056)],
+        ids=["int4", "int8", "int4-padded"],
+    )
+    def test_auto_gptq_moe_marlin_prep_skips_layout_copies(
+        bits, group_size, intermediate_size, default_vllm_config
+    ):
+        """Marlin prep converts GPTQ MoE weights without full-layer layout copies.
+    
+        The old path copied the K-first checkpoint weights to N-first and Marlin
+        copied them straight back, so the layer briefly held two extra copies.
+        The result must match that path exactly, with and without tile padding.
+        """
+        layer = _gptq_marlin_moe_layer(bits, group_size, intermediate_size)
+        method = layer.quant_method
+        assert isinstance(method, AutoGPTQMoEMethod)
+        assert method.wna16_moe_backend == WNA16MoEBackend.MARLIN
+        padded = marlin_moe_padded_intermediate(intermediate_size, group_size)
+        assert (padded != intermediate_size) == (group_size == -1)
+    
+        expected, old_extra = _extra_peak_bytes(
+            lambda: _convert_for_marlin(layer, WNA16MoEBackend.MARLIN, _old_n_first)
+        )
+        assert expected is not None
+        _, new_extra = _extra_peak_bytes(
+            lambda: method.process_weights_after_loading(layer)
+        )
+    
+>       _assert_two_layout_copies_saved(layer, old_extra, new_extra)
+
+tests/quantization/test_auto_gptq.py:547: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+layer = RoutedExperts(), old_extra = 627442176, new_extra = 626917888
+
+    def _assert_two_layout_copies_saved(layer, old_extra: int, new_extra: int):
+        # The old path held N-first copies and K-first copies of the packed weights.
+        # One extra layout copy of w2 alone, the smallest regression, exceeds the bound.
+        w2_bytes = layer.w2_qweight.untyped_storage().nbytes()
+        packed_weight_bytes = layer.w13_qweight.untyped_storage().nbytes() + w2_bytes
+>       assert new_extra < old_extra - 2 * packed_weight_bytes + w2_bytes * 3 // 4
+E       assert 626917888 < ((627442176 - (2 * 201326592)) + ((67108864 * 3) // 4))
+
+tests/quantization/test_auto_gptq.py:512: AssertionError
+___________ test_auto_gptq_moe_marlin_prep_skips_layout_copies[int8] ___________
+
+bits = 8, group_size = 128, intermediate_size = 1024
+default_vllm_config = VllmConfig(model_config=None, cache_config=CacheConfig(block_size=64, user_specified_block_size=False, kv_cache_layout..._transfer_config=None, watchdog_config=WatchdogConfig(timeout=300, check_interval=10, dump_dir=''), shutdown_timeout=0)
+
+    @pytest.mark.skipif(
+        not current_platform.is_cuda(), reason="Marlin MoE repack needs CUDA"
+    )
+    @pytest.mark.parametrize(
+        "bits, group_size, intermediate_size",
+        [(4, 128, 1024), (8, 128, 1024), (4, -1, 1056)],
+        ids=["int4", "int8", "int4-padded"],
+    )
+    def test_auto_gptq_moe_marlin_prep_skips_layout_copies(
+        bits, group_size, intermediate_size, default_vllm_config
+    ):
+        """Marlin prep converts GPTQ MoE weights without full-layer layout copies.
+    
+        The old path copied the K-first checkpoint weights to N-first and Marlin
+        copied them straight back, so the layer briefly held two extra copies.
+        The result must match that path exactly, with and without tile padding.
+        """
+        layer = _gptq_marlin_moe_layer(bits, group_size, intermediate_size)
+        method = layer.quant_method
+        assert isinstance(method, AutoGPTQMoEMethod)
+        assert method.wna16_moe_backend == WNA16MoEBackend.MARLIN
+        padded = marlin_moe_padded_intermediate(intermediate_size, group_size)
+        assert (padded != intermediate_size) == (group_size == -1)
+    
+        expected, old_extra = _extra_peak_bytes(
+            lambda: _convert_for_marlin(layer, WNA16MoEBackend.MARLIN, _old_n_first)
+        )
+        assert expected is not None
+        _, new_extra = _extra_peak_bytes(
+            lambda: method.process_weights_after_loading(layer)
+        )
+    
+>       _assert_two_layout_copies_saved(layer, old_extra, new_extra)
+
+tests/quantization/test_auto_gptq.py:547: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+layer = RoutedExperts(), old_extra = 1235616256, new_extra = 1235091968
+
+    def _assert_two_layout_copies_saved(layer, old_extra: int, new_extra: int):
+        # The old path held N-first copies and K-first copies of the packed weights.
+        # One extra layout copy of w2 alone, the smallest regression, exceeds the bound.
+        w2_bytes = layer.w2_qweight.untyped_storage().nbytes()
+        packed_weight_bytes = layer.w13_qweight.untyped_storage().nbytes() + w2_bytes
+>       assert new_extra < old_extra - 2 * packed_weight_bytes + w2_bytes * 3 // 4
+E       assert 1235091968 < ((1235616256 - (2 * 402653184)) + ((134217728 * 3) // 4))
+
+tests/quantization/test_auto_gptq.py:512: AssertionError
+_______ test_auto_gptq_moe_marlin_prep_skips_layout_copies[int4-padded] ________
+
+bits = 4, group_size = -1, intermediate_size = 1056
+default_vllm_config = VllmConfig(model_config=None, cache_config=CacheConfig(block_size=64, user_specified_block_size=False, kv_cache_layout..._transfer_config=None, watchdog_config=WatchdogConfig(timeout=300, check_interval=10, dump_dir=''), shutdown_timeout=0)
+
+    @pytest.mark.skipif(
+        not current_platform.is_cuda(), reason="Marlin MoE repack needs CUDA"
+    )
+    @pytest.mark.parametrize(
+        "bits, group_size, intermediate_size",
+        [(4, 128, 1024), (8, 128, 1024), (4, -1, 1056)],
+        ids=["int4", "int8", "int4-padded"],
+    )
+    def test_auto_gptq_moe_marlin_prep_skips_layout_copies(
+        bits, group_size, intermediate_size, default_vllm_config
+    ):
+        """Marlin prep converts GPTQ MoE weights without full-layer layout copies.
+    
+        The old path copied the K-first checkpoint weights to N-first and Marlin
+        copied them straight back, so the layer briefly held two extra copies.
+        The result must match that path exactly, with and without tile padding.
+        """
+        layer = _gptq_marlin_moe_layer(bits, group_size, intermediate_size)
+        method = layer.quant_method
+        assert isinstance(method, AutoGPTQMoEMethod)
+        assert method.wna16_moe_backend == WNA16MoEBackend.MARLIN
+        padded = marlin_moe_padded_intermediate(intermediate_size, group_size)
+        assert (padded != intermediate_size) == (group_size == -1)
+    
+        expected, old_extra = _extra_peak_bytes(
+            lambda: _convert_for_marlin(layer, WNA16MoEBackend.MARLIN, _old_n_first)
+        )
+        assert expected is not None
+        _, new_extra = _extra_peak_bytes(
+            lambda: method.process_weights_after_loading(layer)
+        )
+    
+>       _assert_two_layout_copies_saved(layer, old_extra, new_extra)
+
+tests/quantization/test_auto_gptq.py:547: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+layer = RoutedExperts(), old_extra = 774328320, new_extra = 773795840
+
+    def _assert_two_layout_copies_saved(layer, old_extra: int, new_extra: int):
+        # The old path held N-first copies and K-first copies of the packed weights.
+        # One extra layout copy of w2 alone, the smallest regression, exceeds the bound.
+        w2_bytes = layer.w2_qweight.untyped_storage().nbytes()
+        packed_weight_bytes = layer.w13_qweight.untyped_storage().nbytes() + w2_bytes
+>       assert new_extra < old_extra - 2 * packed_weight_bytes + w2_bytes * 3 // 4
+E       assert 773795840 < ((774328320 - (2 * 213909504)) + ((71303168 * 3) // 4))
+
+tests/quantization/test_auto_gptq.py:512: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.model_executor.layers.quantization.utils.marlin_utils:marlin_utils.py:347 Marlin requires thread-tile padding for the MoE intermediate size of some layers in this model. Padded experts pad/slice activations on every forward; performance may be degraded.
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/quantization/test_auto_gptq.py::test_batched_marlin_converts_gptq_views_without_layout_copies
+FAILED tests/quantization/test_auto_gptq.py::test_auto_gptq_moe_marlin_prep_skips_layout_copies[int4]
+FAILED tests/quantization/test_auto_gptq.py::test_auto_gptq_moe_marlin_prep_skips_layout_copies[int8]
+FAILED tests/quantization/test_auto_gptq.py::test_auto_gptq_moe_marlin_prep_skips_layout_copies[int4-padded]
+3 failed, 1 passed, 13 deselected in 6.72s
