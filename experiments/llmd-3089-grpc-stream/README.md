@@ -48,3 +48,9 @@ Only that parser changes; OpenAI, vLLM HTTP/gRPC and SGLang parsers are untouche
 
 `rejected-variant-server-content-type.patch` treats every `application/grpc` response as streaming in the EPP server.
 It fixes this issue but fails `test/integration/epp` `TestFullDuplexStreamed_GRPC_KubeInferenceObjectiveRequest` cases `response buffering: multi-chunk` and `response with token usage`, which pin buffering for unary vLLM gRPC responses.
+
+## Comparison of main, option A and option B
+
+`design-note.md` describes the options, the chosen API (option B) and its tests, and holds the comparison results.
+`setup-cmp.sh` creates the cluster, `compare.sh` runs the streaming, unary and JSON phases per EPP image, and `summarize_cmp.py` turns `results/cmp/` into the tables there.
+`deploy/rendered-agw-openai.yaml` is `rendered-agw.yaml` with `openai-parser` ahead of `passthrough-parser`, for the JSON control.

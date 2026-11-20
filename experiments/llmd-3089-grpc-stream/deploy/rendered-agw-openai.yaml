@@ -1,0 +1,364 @@
+# Generated from rendered-agw.yaml by adding openai-parser ahead of passthrough-parser in default-plugins.yaml.
+# It is the JSON control's configuration: /v1/chat/completions goes to the OpenAI parser, which buffers the complete body.
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: epp-epp
+  namespace: default
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: epp-epp
+  namespace: default
+data:
+  default-plugins.yaml: |
+    apiVersion: llm-d.ai/v1
+    kind: EndpointPickerConfig
+    plugins:
+    - type: queue-scorer
+    - type: kv-cache-utilization-scorer
+    - type: prefix-cache-scorer
+    - type: metrics-data-source
+      parameters:
+        scheme: "http"
+        path: "/metrics"
+        insecureSkipVerify: true
+    - type: core-metrics-extractor
+    - type: openai-parser
+    - type: passthrough-parser
+    schedulingProfiles:
+    - name: default
+      plugins:
+      - pluginRef: queue-scorer
+        weight: 2
+      - pluginRef: kv-cache-utilization-scorer
+        weight: 2
+      - pluginRef: prefix-cache-scorer
+        weight: 3
+    requestHandler:
+      parsers:
+      - pluginRef: openai-parser
+      - pluginRef: passthrough-parser
+  payload-agnostic.yaml: |
+    # Request-format agnostic routing. Use this when the request format is
+    # unknown or unsupported, so the EPP cannot rely on scorers that read the
+    # request body (e.g. the prefix-cache scorer). The passthrough parser does
+    # not parse the body, and routing falls back to backend-state scorers:
+    #   - active-request-scorer  : prefers the least busy endpoint
+    #   - session-affinity-scorer: keeps a session pinned to the same endpoint
+    # Select it by setting router.epp.pluginsConfigFile: payload-agnostic.yaml
+    apiVersion: llm-d.ai/v1
+    kind: EndpointPickerConfig
+    plugins:
+    - type: passthrough-parser
+    - type: active-request-scorer
+    - type: session-affinity-scorer
+    requestHandler:
+      parsers:
+      - pluginRef: passthrough-parser
+    schedulingProfiles:
+    - name: default
+      plugins:
+      - pluginRef: active-request-scorer
+        weight: 1
+      - pluginRef: session-affinity-scorer
+        weight: 1
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentgateway
+  namespace: default
+data:
+  config.yaml: |-
+    config:
+      statsAddr: "0.0.0.0:15020"
+      readinessAddr: "0.0.0.0:15021"
+    binds:
+    - port: 8081
+      listeners:
+      - name: default
+        protocol: HTTP
+        routes:
+        - name: standalone-epp
+          matches:
+          - path:
+              pathPrefix: /
+          backends:
+          - service:
+              name: "default/grpcstream"
+              port: 50051
+            policies:
+              inferenceRouting:
+                endpointPicker:
+                  host: "127.0.0.1:9002"
+                destinationMode: passthrough
+    services:
+    - name: "grpcstream"
+      namespace: "default"
+      hostname: "grpcstream"
+      vips: []
+      ports:
+        50051: 50051
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "epp-default-epp"
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+rules:
+- apiGroups:
+    - authentication.k8s.io
+  resources:
+    - tokenreviews
+  verbs:
+    - create
+- apiGroups:
+    - authorization.k8s.io
+  resources:
+    - subjectaccessreviews
+  verbs:
+    - create
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "epp-default-epp"
+subjects:
+- kind: ServiceAccount
+  name: epp-epp
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: "epp-default-epp"
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: epp-epp-sa
+  namespace: default
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "watch", "list"]
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: epp-epp-sa
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: epp-epp
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: epp-epp-sa
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: epp-epp
+  namespace: default
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+spec:
+  selector:
+    llm-d-router-standalone: epp-epp
+  ports:
+    - name: grpc-ext-proc
+      protocol: TCP
+      port: 9002
+      appProtocol: kubernetes.io/h2c
+    - name: http-metrics
+      protocol: TCP
+      port: 9090
+    - name: http
+      port: 8081
+      protocol: TCP
+      targetPort: 8081
+  type: ClusterIP
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epp-epp
+  namespace: default
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+    llm-d.ai/igw-mode: llm-d-router-standalone
+spec:
+  replicas: 1
+  strategy:
+    # The current recommended EPP deployment pattern is to have a single active replica. This ensures
+    # optimal performance of the stateful operations such prefix cache aware scorer.
+    # The Recreate strategy the old replica is killed immediately, and allow the new replica(s) to
+    # quickly take over. This is particularly important in the high availability set up with leader
+    # election, as the rolling update strategy would prevent the old leader being killed because
+    # otherwise the maxUnavailable would be 100%.
+    #
+    # With replicas > 1 this also means the Deployment never reports Available=True,
+    # because standby replicas stay NotReady by design. Set router.epp.deploymentStrategy
+    # if that blocks your tooling; see "Multi-replica EPP and Helm --wait" in the chart README.
+    type: Recreate
+  selector:
+    matchLabels:
+      llm-d-router-standalone: epp-epp
+  template:
+    metadata:
+      labels:
+        llm-d-router-standalone: epp-epp
+        llm-d.ai/igw-mode: llm-d-router-standalone
+      annotations:
+        checksum/config: 4760316c682e3ce0ccd5199a1653ce706e9a4deb2f23b292a22712d779ff4c4c
+    spec:
+
+      serviceAccountName: epp-epp
+      # Conservatively, this timeout should mirror the longest grace period of the pods within the pool
+      terminationGracePeriodSeconds: 130
+      containers:
+        - name: agentgateway-proxy
+          image: cr.agentgateway.dev/agentgateway:v1.7.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-f"
+            - "/config/config.yaml"
+          ports:
+          - containerPort: 8081
+            name: http
+          - containerPort: 15020
+            name: metrics-15020
+          - containerPort: 15021
+            name: readiness-15021
+          readinessProbe:
+            failureThreshold: 1
+            httpGet:
+              path: /healthz/ready
+              port: 15021
+              scheme: HTTP
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          startupProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /healthz/ready
+              port: 15021
+              scheme: HTTP
+            periodSeconds: 1
+            successThreshold: 1
+            timeoutSeconds: 2
+          # Give endpoint removal time to propagate before SIGTERM.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          resources:
+            limits:
+              memory: 16Gi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: agentgateway-config-template
+              mountPath: /config
+              readOnly: true
+        - name: epp
+          image: ghcr.io/llm-d/llm-d-router-endpoint-picker:v1.0.0
+          imagePullPolicy: IfNotPresent
+          args:
+              - --endpoint-selector
+              - "app=grpcstream"
+              - --endpoint-target-ports
+              - "50051"
+              - --zap-encoder
+              - "json"
+              - --config-file
+              - "/config/default-plugins.yaml"
+              - --grpc-health-port
+              - "9003"
+              # Pass additional flags via the router.epp.flags field in values.yaml.
+              # Render them as --flag=value so boolean values are parsed correctly.
+              - "--secure-serving=false"
+              - "--v=2"
+              - --tracing=false
+          resources:
+            
+            limits:
+              memory: 16Gi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          ports:
+            - name: grpc
+              containerPort: 9002
+            - name: grpc-health
+              containerPort: 9003
+            - name: metrics
+              containerPort: 9090
+          livenessProbe:
+            grpc:
+              port: 9003
+              service: liveness
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            grpc:
+              port: 9003
+              service: readiness
+            periodSeconds: 2
+          # Give endpoint removal time to propagate before SIGTERM.
+          # Kubelet performs the delay without a shell in the distroless EPP image.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            
+          volumeMounts:
+            - name: plugins-config-volume
+              mountPath: "/config"
+        
+      volumes:
+        - name: agentgateway-config-template
+          configMap:
+            name: agentgateway
+            items:
+              - key: config.yaml
+                path: config.yaml
+        - name: plugins-config-volume
+          configMap:
+            name: epp-epp

@@ -1,0 +1,482 @@
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: epp-epp
+  namespace: default
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: epp-epp
+  namespace: default
+data:
+  default-plugins.yaml: |
+    apiVersion: llm-d.ai/v1
+    kind: EndpointPickerConfig
+    plugins:
+    - type: queue-scorer
+    - type: kv-cache-utilization-scorer
+    - type: prefix-cache-scorer
+    - type: metrics-data-source
+      parameters:
+        scheme: "http"
+        path: "/metrics"
+        insecureSkipVerify: true
+    - type: core-metrics-extractor
+    - type: passthrough-parser
+    schedulingProfiles:
+    - name: default
+      plugins:
+      - pluginRef: queue-scorer
+        weight: 2
+      - pluginRef: kv-cache-utilization-scorer
+        weight: 2
+      - pluginRef: prefix-cache-scorer
+        weight: 3
+    requestHandler:
+      parsers:
+      - pluginRef: passthrough-parser
+  payload-agnostic.yaml: |
+    # Request-format agnostic routing. Use this when the request format is
+    # unknown or unsupported, so the EPP cannot rely on scorers that read the
+    # request body (e.g. the prefix-cache scorer). The passthrough parser does
+    # not parse the body, and routing falls back to backend-state scorers:
+    #   - active-request-scorer  : prefers the least busy endpoint
+    #   - session-affinity-scorer: keeps a session pinned to the same endpoint
+    # Select it by setting router.epp.pluginsConfigFile: payload-agnostic.yaml
+    apiVersion: llm-d.ai/v1
+    kind: EndpointPickerConfig
+    plugins:
+    - type: passthrough-parser
+    - type: active-request-scorer
+    - type: session-affinity-scorer
+    requestHandler:
+      parsers:
+      - pluginRef: passthrough-parser
+    schedulingProfiles:
+    - name: default
+      plugins:
+      - pluginRef: active-request-scorer
+        weight: 1
+      - pluginRef: session-affinity-scorer
+        weight: 1
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy
+  namespace: default
+data:
+  envoy.yaml: "admin:\n  address:\n    socket_address:\n      address: 127.0.0.1\n      port_value:
+    19000\n  access_log:\n    - name: envoy.access_loggers.file\n      typed_config:\n
+    \       \"@type\": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog\n
+    \       path: /dev/null\nstatic_resources:\n  listeners:\n    - name: envoy-proxy-ready-0.0.0.0-19001\n
+    \     address:\n        socket_address:\n          address: 0.0.0.0\n          port_value:
+    19001\n      additional_addresses:\n      - address:\n          socket_address:\n
+    \           address: \"::\"\n            port_value: 19001\n      filter_chains:\n
+    \       - filters:\n            - name: envoy.filters.network.http_connection_manager\n
+    \             typed_config:\n                \"@type\": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager\n
+    \               stat_prefix: envoy-ready-http\n                route_config:\n                  name:
+    local_route\n                  virtual_hosts:\n                    - name: prometheus_stats\n
+    \                     domains: [\"*\"]\n                      routes:\n                        -
+    match:\n                            prefix: \"/stats/prometheus\"\n                          route:\n
+    \                           cluster: \"prometheus_stats\"\n                http_filters:\n
+    \                 - name: envoy.filters.http.health_check\n                    typed_config:\n
+    \                     \"@type\": type.googleapis.com/envoy.extensions.filters.http.health_check.v3.HealthCheck\n
+    \                     pass_through_mode: false\n                      headers:\n
+    \                       - name: \":path\"\n                          string_match:\n
+    \                           exact: \"/ready\"\n                  - name: envoy.filters.http.router\n
+    \                   typed_config:\n                      \"@type\": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router\n
+    \   - name: vllm\n      address:\n        socket_address:\n          address: 0.0.0.0\n
+    \         port_value: 8081\n      additional_addresses:\n      - address:\n          socket_address:\n
+    \           address: \"::\"\n            port_value: 8081\n      per_connection_buffer_limit_bytes:
+    32768\n      access_log:\n        - name: envoy.access_loggers.file\n          filter:\n
+    \           response_flag_filter:\n              flags: [\"NR\"]\n          typed_config:\n
+    \           \"@type\": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog\n
+    \           path: /dev/stdout\n            log_format:\n              text_format_source:\n
+    \               inline_string: \"{\\\"start_time\\\":\\\"%START_TIME%\\\",\\\"method\\\":\\\"%REQ(:METHOD)%\\\",...}\\n\"\n
+    \     filter_chains:\n        - name: vllm\n          filters:\n            - name:
+    envoy.filters.network.http_connection_manager\n              typed_config:\n                \"@type\":
+    type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager\n
+    \               stat_prefix: http-8081\n                # Only EPP may set the destination
+    header. Removing any client-supplied value\n                # before route selection
+    keeps clients from picking the backend themselves.\n                early_header_mutation_extensions:\n
+    \                 - name: envoy.http.early_header_mutation.header_mutation\n                    typed_config:\n
+    \                     \"@type\": type.googleapis.com/envoy.extensions.http.early_header_mutation.header_mutation.v3.HeaderMutation\n
+    \                     mutations:\n                        - remove: x-gateway-destination-endpoint\n
+    \               route_config:\n                  name: vllm\n                  virtual_hosts:\n
+    \                   - name: vllm-default\n                      domains: [\"*\"]\n
+    \                     routes:\n                        - match:\n                            prefix:
+    \"/\"\n                            # EPP sets this header and clears the route cache,
+    so requests it\n                            # scheduled re-match here and go to
+    the endpoint it picked.\n                            headers:\n                              -
+    name: x-gateway-destination-endpoint\n                                present_match:
+    true\n                          route:\n                            cluster: original_destination_cluster\n
+    \                           timeout: 86400s\n                            idle_timeout:
+    86400s\n                            upgrade_configs:\n                              -
+    upgrade_type: websocket\n                          typed_per_filter_config:\n                            envoy.filters.http.ext_proc:\n
+    \                             \"@type\": type.googleapis.com/envoy.config.route.v3.FilterConfig\n
+    \                             config: {}\n                        # Fail-open: EPP
+    was unreachable and set no destination, so load-balance\n                        #
+    across the model servers without endpoint picking.\n                        - match:\n
+    \                           prefix: \"/\"\n                          route:\n                            cluster:
+    inference_pool_fallback\n                            timeout: 86400s\n                            idle_timeout:
+    86400s\n                            upgrade_configs:\n                              -
+    upgrade_type: websocket\n                          # Internal routing and screening
+    headers (pkg/epp/util/request/headers.go).\n                          # EPP removes
+    client values on the scheduled route; this route skips EPP. The\n                          #
+    P/D sidecar connects to the worker addresses they carry. Removed here rather\n                          #
+    than before ext_proc because EPP screeners read x-llm-d-pin-host-port.\n                          request_headers_to_remove:\n
+    \                           - x-llm-d-prefiller-host-port\n                            -
+    x-prefiller-host-port\n                            - x-llm-d-encoder-hosts-ports\n
+    \                           - x-encoder-hosts-ports\n                            -
+    x-data-parallel-host-port\n                            - x-llm-d-kv-cache-source-host-port\n
+    \                           - x-kv-cache-source-host-port\n                            -
+    x-llm-d-pin-host-port\n                          typed_per_filter_config:\n                            envoy.filters.http.ext_proc:\n
+    \                             \"@type\": type.googleapis.com/envoy.config.route.v3.FilterConfig\n
+    \                             config: {}\n                http_filters:\n                  -
+    name: envoy.filters.http.ext_proc\n                    typed_config:\n                      \"@type\":
+    type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor\n
+    \                     failure_mode_allow: true\n                      grpc_service:\n
+    \                       envoy_grpc:\n                          cluster_name: ext_proc\n
+    \                         authority: localhost:9002\n                        timeout:
+    10s\n                      processing_mode:\n                        request_header_mode:
+    SEND\n                        response_header_mode: SEND\n                        request_body_mode:
+    FULL_DUPLEX_STREAMED\n                        response_body_mode: FULL_DUPLEX_STREAMED\n
+    \                       request_trailer_mode: SEND\n                        response_trailer_mode:
+    SEND\n                      message_timeout: 1000s\n                  - name: envoy.filters.http.router\n
+    \                   typed_config:\n                      \"@type\": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router\n
+    \                     suppress_envoy_headers: true\n                http2_protocol_options:\n
+    \                 max_concurrent_streams: 100\n                  initial_stream_window_size:
+    65536\n                  initial_connection_window_size: 1048576\n                use_remote_address:
+    true\n                normalize_path: true\n                merge_slashes: true\n
+    \               server_header_transformation: PASS_THROUGH\n                common_http_protocol_options:\n
+    \                 headers_with_underscores_action: REJECT_REQUEST\n                path_with_escaped_slashes_action:
+    UNESCAPE_AND_REDIRECT\n                access_log:\n                  - name: envoy.access_loggers.file\n
+    \                   typed_config:\n                      \"@type\": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog\n
+    \                     path: /dev/stdout\n                      log_format:\n                        text_format_source:\n
+    \                         inline_string: \"{\\\"start_time\\\":\\\"%START_TIME%\\\",\\\"method\\\":\\\"%REQ(:METHOD)%\\\",...}\\n\"\n
+    \ clusters:\n    - name: prometheus_stats\n      type: STATIC\n      connect_timeout:
+    0.250s\n      load_assignment:\n        cluster_name: prometheus_stats\n        endpoints:\n
+    \         - lb_endpoints:\n              - endpoint:\n                  address:\n
+    \                   socket_address:\n                      address: 127.0.0.1\n
+    \                     port_value: 19000\n    - name: original_destination_cluster\n
+    \     type: ORIGINAL_DST\n      connect_timeout: 1000s\n      lb_policy: CLUSTER_PROVIDED\n
+    \     circuit_breakers:\n        thresholds:\n          - max_connections: 40000\n
+    \           max_pending_requests: 40000\n            max_requests: 40000\n      original_dst_lb_config:\n
+    \       use_http_header: true\n        http_header_name: x-gateway-destination-endpoint\n
+    \   # Model servers behind the headless fallback Service, used only when fail-open\n
+    \   # skips EPP. STRICT_DNS resolves every ready pod IP (refreshed every 5s by default).\n
+    \   - name: inference_pool_fallback\n      type: STRICT_DNS\n      connect_timeout:
+    10s\n      lb_policy: LEAST_REQUEST\n      circuit_breakers:\n        thresholds:\n
+    \         - max_connections: 40000\n            max_pending_requests: 40000\n            max_requests:
+    40000\n      outlier_detection:\n        split_external_local_origin_errors: true\n
+    \       consecutive_local_origin_failure: 5\n        base_ejection_time: 30s\n        max_ejection_percent:
+    50\n      load_assignment:\n        cluster_name: inference_pool_fallback\n        endpoints:\n
+    \         - lb_endpoints:\n              - endpoint:\n                  address:\n
+    \                   socket_address:\n                      address: epp-epp-model-servers.default.svc.cluster.local\n
+    \                     port_value: 50051\n    - name: ext_proc\n      type: STATIC\n
+    \     connect_timeout: 86400s\n      lb_policy: LEAST_REQUEST\n      circuit_breakers:\n
+    \       thresholds:\n          - max_connections: 40000\n            max_pending_requests:
+    40000\n            max_requests: 40000\n            max_retries: 1024\n      health_checks:\n
+    \       # Active gRPC health checking for the ext_proc cluster.\n        - timeout:
+    2s\n          interval: 10s\n          unhealthy_threshold: 3\n          healthy_threshold:
+    2\n          reuse_connection: true\n          grpc_health_check:\n            service_name:
+    \"envoy.service.ext_proc.v3.ExternalProcessor\"\n          \n      \n      typed_extension_protocol_options:\n
+    \       envoy.extensions.upstreams.http.v3.HttpProtocolOptions:\n          \"@type\":
+    type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions\n          explicit_http_config:\n
+    \           http2_protocol_options:\n              initial_stream_window_size: 65536\n
+    \             initial_connection_window_size: 1048576\n      load_assignment:\n
+    \       cluster_name: ext_proc\n        endpoints:\n          - locality:\n              region:
+    ext_proc/e2e/0\n            lb_endpoints:\n              - endpoint:\n                  address:\n
+    \                   socket_address:\n                      address: 127.0.0.1\n
+    \                     port_value: 9002\n                load_balancing_weight: 1\n"
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "epp-default-epp"
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+rules:
+- apiGroups:
+    - authentication.k8s.io
+  resources:
+    - tokenreviews
+  verbs:
+    - create
+- apiGroups:
+    - authorization.k8s.io
+  resources:
+    - subjectaccessreviews
+  verbs:
+    - create
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "epp-default-epp"
+subjects:
+- kind: ServiceAccount
+  name: epp-epp
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: "epp-default-epp"
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: epp-epp-sa
+  namespace: default
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "watch", "list"]
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: epp-epp-sa
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: epp-epp
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: epp-epp-sa
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: epp-epp-model-servers
+  namespace: default
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+spec:
+  clusterIP: None
+  selector:
+    app: grpcstream
+  ports:
+    - name: http
+      port: 50051
+      targetPort: 50051
+      protocol: TCP
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: epp-epp
+  namespace: default
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+spec:
+  selector:
+    llm-d-router-standalone: epp-epp
+  ports:
+    - name: grpc-ext-proc
+      protocol: TCP
+      port: 9002
+      appProtocol: kubernetes.io/h2c
+    - name: http-metrics
+      protocol: TCP
+      port: 9090
+    - name: http
+      port: 8081
+      protocol: TCP
+      targetPort: 8081
+  type: ClusterIP
+---
+# Source: llm-d-router-standalone/templates/epp.yaml
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epp-epp
+  namespace: default
+  labels:
+    app.kubernetes.io/name: epp-epp
+    app.kubernetes.io/version: "0.0.0"
+    llm-d.ai/igw-mode: llm-d-router-standalone
+spec:
+  replicas: 1
+  strategy:
+    # The current recommended EPP deployment pattern is to have a single active replica. This ensures
+    # optimal performance of the stateful operations such prefix cache aware scorer.
+    # The Recreate strategy the old replica is killed immediately, and allow the new replica(s) to
+    # quickly take over. This is particularly important in the high availability set up with leader
+    # election, as the rolling update strategy would prevent the old leader being killed because
+    # otherwise the maxUnavailable would be 100%.
+    #
+    # With replicas > 1 this also means the Deployment never reports Available=True,
+    # because standby replicas stay NotReady by design. Set router.epp.deploymentStrategy
+    # if that blocks your tooling; see "Multi-replica EPP and Helm --wait" in the chart README.
+    type: Recreate
+  selector:
+    matchLabels:
+      llm-d-router-standalone: epp-epp
+  template:
+    metadata:
+      labels:
+        llm-d-router-standalone: epp-epp
+        llm-d.ai/igw-mode: llm-d-router-standalone
+      annotations:
+        checksum/config: 9c55c0558c17a8206e68ffa27a3ea32b887eacc4a4b7e134c474939edec6f113
+    spec:
+
+      serviceAccountName: epp-epp
+      # Conservatively, this timeout should mirror the longest grace period of the pods within the pool
+      terminationGracePeriodSeconds: 130
+      containers:
+        - name: envoy-proxy
+          image: docker.io/envoyproxy/envoy:distroless-v1.33.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - "envoy"
+          args:
+            - "--service-node"
+            - "envoy-proxy"
+            - "--log-level"
+            - "warn"
+            - "--cpuset-threads"
+            - "--drain-strategy"
+            - "immediate"
+            - "--drain-time-s"
+            - "60"
+            - "-c"
+            - "/etc/envoy/envoy.yaml"
+          env:
+          - name: NS_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          ports:
+          - containerPort: 8081
+            name: http-8081
+          - containerPort: 19001
+            name: metrics-19001
+          readinessProbe:
+            failureThreshold: 1
+            httpGet:
+              path: /ready
+              port: 19001
+              scheme: HTTP
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          # Give endpoint removal time to propagate before SIGTERM.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          resources:
+            limits:
+              memory: 16Gi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - mountPath: /etc/envoy
+              name: config
+              readOnly: true
+        - name: epp
+          image: ghcr.io/llm-d/llm-d-router-endpoint-picker:v1.0.0
+          imagePullPolicy: IfNotPresent
+          args:
+              - --endpoint-selector
+              - "app=grpcstream"
+              - --endpoint-target-ports
+              - "50051"
+              - --zap-encoder
+              - "json"
+              - --config-file
+              - "/config/default-plugins.yaml"
+              - --grpc-health-port
+              - "9003"
+              # Pass additional flags via the router.epp.flags field in values.yaml.
+              # Render them as --flag=value so boolean values are parsed correctly.
+              - "--secure-serving=false"
+              - "--v=2"
+              - --tracing=false
+          resources:
+            
+            limits:
+              memory: 16Gi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          ports:
+            - name: grpc
+              containerPort: 9002
+            - name: grpc-health
+              containerPort: 9003
+            - name: metrics
+              containerPort: 9090
+          livenessProbe:
+            grpc:
+              port: 9003
+              service: liveness
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            grpc:
+              port: 9003
+              service: readiness
+            periodSeconds: 2
+          # Give endpoint removal time to propagate before SIGTERM.
+          # Kubelet performs the delay without a shell in the distroless EPP image.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            
+          volumeMounts:
+            - name: plugins-config-volume
+              mountPath: "/config"
+        
+      volumes:
+        - configMap:
+            items:
+            - key: envoy.yaml
+              path: envoy.yaml
+            name: 'envoy'
+          name: config
+        - name: plugins-config-volume
+          configMap:
+            name: epp-epp
