@@ -3,7 +3,9 @@
 # Run one GPU kit directory, unmodified, on one g5 Spot instance (A10G 24 GB), and bring back what it wrote.
 # A kit is a directory committed in some git repository with a run.sh at its top, which writes its results to $OUT.
 #
-#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab OUT=hack/gpu-kit-runs/<name> [INSTANCE_TYPE=g5.2xlarge] bash hack/gpu-kit-session.sh <kit-dir>
+#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab OUT=hack/gpu-kit-runs/<name> [INSTANCE_TYPE=g5.2xlarge] [KIT_ENV='A=1;B=x y'] bash hack/gpu-kit-session.sh <kit-dir>
+#
+# KIT_ENV hands run.sh its own settings, the way a kit's README would tell a person to export them, and the session records it in session-provenance.txt.
 #
 # INSTANCE_TYPE is g5.xlarge (16 GiB RAM) unless set, and only the types in type_rates below are accepted.
 # g5.2xlarge has the same A10G with 32 GiB RAM, for a kit whose single checkpoint file cannot be mapped in 16 GiB.
@@ -186,7 +188,7 @@ if [ "$bringup_rc" = 0 ]; then
   date -u +%Y-%m-%dT%H:%M:%SZ > "$R/kit-start.txt"
   cd /opt/kit/work
   # The kit runs unmodified; the timeout only stops one that overran its phase from eating the upload.
-  env HOME=/root PATH="/opt/kit/bin:$PATH" UV_PYTHON_INSTALL_DIR=/opt/kit/python OUT="$R/results" \
+  env KIT_ENV_PLACEHOLDERHOME=/root PATH="/opt/kit/bin:$PATH" UV_PYTHON_INSTALL_DIR=/opt/kit/python OUT="$R/results" \
     timeout --kill-after=15 $(( HE - $(date +%s) > 5 ? HE - $(date +%s) : 5 )) bash /opt/kit/in/kit/run.sh > "$R/run-output.log" 2>&1
   kit_rc=$?
   date -u +%Y-%m-%dT%H:%M:%SZ > "$R/kit-end.txt"
@@ -221,6 +223,7 @@ UD
     -e "s|BRINGUP_S_PLACEHOLDER|$BRINGUP_S|" -e "s|HARNESS_END_S_PLACEHOLDER|$HARNESS_END_S|" -e "s|EVIDENCE_S_PLACEHOLDER|$EVIDENCE_S|" \
     -e "s|PARTIAL_SYNC_S_PLACEHOLDER|$PARTIAL_SYNC_S|" -e "s|MIN_FREE_GB_PLACEHOLDER|$MIN_FREE_GB|" \
     -e "s|UV_VERSION_PLACEHOLDER|$UV_VERSION|" -e "s|UV_SHA256_PLACEHOLDER|$UV_SHA256|" -e "s|PYTHON_PIN_PLACEHOLDER|$PYTHON_PIN|g" \
+    -e "s|KIT_ENV_PLACEHOLDER|$KIT_ENV_WORDS|" \
     "$ud.template" >"$ud" || fail "could not render the user-data"
   rm -f "$ud.template"
   ! command grep -q '_PLACEHOLDER' "$ud" || fail "the user-data still holds a placeholder"
@@ -260,6 +263,25 @@ case " $TYPES_LISTED " in
   *" $INSTANCE_TYPE_FIXED "*) ;;
   *) fail "INSTANCE_TYPE '$INSTANCE_TYPE_FIXED' is not one of the listed types ($TYPES_LISTED)" ;;
 esac
+# KIT_ENV passes a kit its own settings, as NAME=value pairs separated by ';'.
+# Values are limited to letters, digits, spaces and . _ - so that they need no quoting beyond single quotes.
+# Names the session itself sets, and loader or interpreter variables, are refused so a kit setting cannot change how the session runs it.
+KIT_ENV_WORDS=""
+if [ -n "${KIT_ENV:-}" ]; then
+  IFS=';' read -r -a kit_env_pairs <<<"$KIT_ENV"
+  for pair in "${kit_env_pairs[@]}"; do
+    name=${pair%%=*}
+    value=${pair#*=}
+    [ "$pair" != "$name" ] || fail "KIT_ENV entry '$pair' is not NAME=value"
+    [[ $name =~ ^[A-Z][A-Z0-9_]{0,31}$ ]] || fail "KIT_ENV name '$name' is not an upper-case variable name"
+    case "$name" in
+      HOME | PATH | OUT | UV_* | PYTHON* | LD_* | BASH_* | ENV | IFS | SHELL | AWS_* | KIT_ENV)
+        fail "KIT_ENV name '$name' is one the session or the shell relies on" ;;
+    esac
+    [[ $value =~ ^[A-Za-z0-9._\ -]{0,200}$ ]] || fail "KIT_ENV value for '$name' has characters outside letters, digits, spaces and . _ -"
+    KIT_ENV_WORDS="$KIT_ENV_WORDS$name='$value' "
+  done
+fi
 read -r MAX_PRICE_FIXED SPOT_ALL_IN_RATE TYPE_VCPUS <<<"$(type_rates "$INSTANCE_TYPE_FIXED")"
 [ -n "${TYPE_VCPUS:-}" ] || fail "INSTANCE_TYPE '$INSTANCE_TYPE_FIXED' has no rates"
 if [ "${1:-}" = --print-schedule ]; then
@@ -382,6 +404,7 @@ BUCKET="$STACK-$ACCOUNT"
   echo "stop_from_launch_s=$STOP_FROM_LAUNCH_S"
   echo "termination_from_launch_s=$TERMINATION_S"
   echo "run_id=$RUN_ID"
+  echo "kit_env=${KIT_ENV:-}"
 } >"$OUT/session-provenance.txt"
 UD="$OUT/user-data.sh"
 render_user_data "$UD" "$BUCKET" "$RUN_ID" "$INPUTS_SHA" "$COMMIT" "$RUN_NONCE"
