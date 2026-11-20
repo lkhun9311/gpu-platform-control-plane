@@ -122,6 +122,30 @@ m=$(mutant precise 's/^( sleep \$(( L + STOP_FROM_LAUNCH_S_PLACEHOLDER/( sleep $
 mcheck "mutant: a precise stop moved past the schedule is caught" "! ud_ok '$m'"
 m=$(mutant exittrap "s/^trap 'upload \/var\/log\/gpukit.log log.txt; shutdown -h now' EXIT/trap 'upload \/var\/log\/gpukit.log log.txt' EXIT/")
 mcheck "mutant: an exit trap that no longer shuts down is caught" "! ud_ok '$m'"
+# ---------------------------------------------------------------- KIT_ENV
+# kit_env_ud SCRIPT VALUE: the user-data SCRIPT renders with KIT_ENV=VALUE, or a failing status.
+kit_env_ud() { env KIT_ENV="$2" bash "$1" --print-user-data >"$WORK/kitenv.sh" 2>&1; }
+kit_env_line='env PHASES='"'"'3'"'"' SWEEP_FREE_GIB='"'"'16.2 16.4 16.6'"'"' HOME=/root PATH="/opt/kit/bin:$PATH"'
+check "KIT_ENV reaches run.sh's environment as quoted pairs, and the user-data still parses" \
+  "kit_env_ud '$S' 'PHASES=3;SWEEP_FREE_GIB=16.2 16.4 16.6' && bash -n '$WORK/kitenv.sh' && command grep -qF \"\$kit_env_line\" '$WORK/kitenv.sh'"
+check "without KIT_ENV run.sh's environment line is unchanged" \
+  "kit_env_ud '$S' '' && command grep -qF 'env HOME=/root PATH=\"/opt/kit/bin:\$PATH\"' '$WORK/kitenv.sh'"
+# kit_env_refused SCRIPT VALUE TEXT: whether SCRIPT refuses KIT_ENV=VALUE with TEXT in its message.
+kit_env_refused() { ! kit_env_ud "$1" "$2" && command grep -qF "$3" "$WORK/kitenv.sh"; }
+check "a KIT_ENV that sets OUT is refused" "kit_env_refused '$S' 'OUT=/tmp' 'one the session or the shell relies on'"
+check "a KIT_ENV that sets LD_PRELOAD is refused" "kit_env_refused '$S' 'LD_PRELOAD=x' 'one the session or the shell relies on'"
+check "a KIT_ENV value with a shell character is refused" "kit_env_refused '$S' 'A=\$(id)' 'characters outside'"
+check "a KIT_ENV value with a quote is refused" "kit_env_refused '$S' \"A=x'y\" 'characters outside'"
+check "a KIT_ENV entry without = is refused" "kit_env_refused '$S' 'PHASES' 'is not NAME=value'"
+check "a lower-case KIT_ENV name is refused" "kit_env_refused '$S' 'phases=3' 'not an upper-case variable name'"
+m=$(mutant kitenvreserved 's/^      HOME | PATH | OUT | UV_\* | PYTHON\* | LD_\* | BASH_\* | ENV | IFS | SHELL | AWS_\* | KIT_ENV)$/      NEVER_MATCHES_ANYTHING)/')
+mcheck "mutant: without the reserved-name guard, a KIT_ENV that sets OUT is caught" "! kit_env_refused '$m' 'OUT=/tmp' 'one the session or the shell relies on'"
+m=$(mutant kitenvvalue 's/^    \[\[ \$value =~ .*$/    true/')
+mcheck "mutant: without the value guard, a shell character is caught" "! kit_env_refused '$m' 'A=\$(id)' 'characters outside'"
+m=$(mutant kitenvrender 's/-e "s|KIT_ENV_PLACEHOLDER|\$KIT_ENV_WORDS|"/-e "s|KIT_ENV_PLACEHOLDER||"/')
+mcheck "mutant: a render that drops KIT_ENV is caught" "! { kit_env_ud '$m' 'PHASES=3;SWEEP_FREE_GIB=16.2 16.4 16.6' && command grep -qF \"\$kit_env_line\" '$WORK/kitenv.sh'; }"
+check "the session records KIT_ENV in session-provenance.txt" "command grep -qF 'echo \"kit_env=\${KIT_ENV:-}\"' '$S'"
+
 check "the launch asks EC2 to terminate, not stop, on the instance's own shutdown" \
   "command grep -qF -- '--instance-initiated-shutdown-behavior terminate' '$ROOT/hack/lib/spot-run.sh'"
 
