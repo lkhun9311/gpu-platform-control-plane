@@ -1,0 +1,75 @@
+events by reason: emitted / reached
+  AlgorithmRun: 14 / 12
+  FailedComputeScale: 4 / 0
+  FailedGetMetrics: 2 / 2
+  RecoveredMetrics: 2 / 0
+  SuccessfulRescale: 14 / 12
+  total: 36 / 26
+emitted events in order (excluding AlgorithmRun):
+  07:50:38.200515 FailedGetMetrics: metric sources vllm:num_requests_waiting could not be read; scaling on the remaining sources
+  07:50:38.210084 SuccessfulRescale: New size: 2; reason: Available metrics below target (vllm:num_requests_waiting could not be read)
+  07:50:45.246994 SuccessfulRescale: New size: 1; reason: Available metrics below target (vllm:num_requests_waiting could not be read)
+  07:50:59.300414 SuccessfulRescale: New size: 2; reason: apa above target
+  07:51:34.385940 SuccessfulRescale: New size: 4; reason: apa above target
+  07:52:16.490691 SuccessfulRescale: New size: 6; reason: apa above target
+  07:52:58.594594 SuccessfulRescale: New size: 3; reason: Available metrics below target (vllm:num_requests_waiting could not be read)
+  07:53:05.628455 SuccessfulRescale: New size: 1; reason: Available metrics below target (vllm:num_requests_waiting could not be read)
+  07:53:19.674332 SuccessfulRescale: New size: 2; reason: apa above target
+  07:53:40.755286 SuccessfulRescale: New size: 7; reason: apa above target
+  07:54:25.232138 SuccessfulRescale: New size: 3; reason: Available metrics below target (vllm:num_requests_waiting could not be read)
+  07:54:32.267352 SuccessfulRescale: New size: 1; reason: Available metrics below target (vllm:num_requests_waiting could not be read)
+  07:54:46.318207 SuccessfulRescale: New size: 2; reason: apa above target
+  07:54:53.342125 SuccessfulRescale: New size: 3; reason: apa above target
+  07:55:00.365887 RecoveredMetrics: metric sources vllm:num_requests_waiting can be read again
+  07:55:31.202745 SuccessfulRescale: New size: 2; reason: All metrics below target
+  07:55:41.239507 FailedGetMetrics: metric sources vllm:num_requests_waiting could not be read; scaling on the remaining sources
+  07:55:41.242797 RecoveredMetrics: metric sources vllm:num_requests_waiting can be read again
+  07:56:09.318360 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:56:19.319266 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:56:29.320481 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:56:39.321141 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+timeline transitions (phase, spec, desired, active, lastScaleTime, history, gauge failed, gauge held):
+  07:49:40 t=0 1-baseline | 4 |  |  | - | 0 | - | -
+  07:49:55 t=16 1-baseline | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  07:50:22 t=43 2-outage | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  07:50:43 t=64 2-outage | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:50:38Z | 1 | 1 | 0
+  07:50:48 t=69 2-outage | 1 | 1 | True/ReconcilingScaleDiff | 2026-11-20T07:50:45Z | 2 | 1 | 0
+  07:50:53 t=74 2-outage | 1 | 1 | False/Stable | 2026-11-20T07:50:38Z | 1 | 1 | 0
+  07:51:04 t=85 2-outage | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:50:59Z | 3 | 1 | 0
+  07:51:09 t=90 2-outage | 2 | 2 | False/PendingReplicas | 2026-11-20T07:50:38Z | 1 | 1 | 0
+  07:51:15 t=95 2-outage | 2 | 2 | False/Stable | 2026-11-20T07:50:59Z | 3 | 1 | 0
+  07:51:25 t=106 3-scaleup | 2 | 2 | False/Stable | 2026-11-20T07:50:38Z | 1 | 1 | 0
+  07:51:36 t=116 3-scaleup | 4 | 4 | True/ReconcilingScaleDiff | 2026-11-20T07:51:34Z | 2 | 1 | 0
+  07:51:46 t=127 3-scaleup | 4 | 4 | False/PendingReplicas | 2026-11-20T07:50:38Z | 1 | 1 | 0
+  07:51:51 t=132 3-scaleup | 4 | 4 | False/Stable | 2026-11-20T07:51:34Z | 2 | 1 | 0
+  07:51:57 t=137 3-scaleup | 4 | 4 | False/Stable | 2026-11-20T07:50:38Z | 1 | 1 | 0
+  07:52:07 t=148 4-capped | 4 | 4 | False/Stable | 2026-11-20T07:50:38Z | 1 | 1 | 0
+  07:52:18 t=159 4-capped | 6 | 6 | True/ReconcilingScaleDiff | 2026-11-20T07:52:16Z | 2 | 1 | 0
+  07:52:23 t=164 4-capped | 6 | 6 | True/ReconcilingScaleDiff | 2026-11-20T07:52:16Z | 1 | 1 | 0
+  07:52:28 t=169 4-capped | 6 | 6 | False/Stable | 2026-11-20T07:50:38Z | 1 | 1 | 0
+  07:52:49 t=190 5-down-again | 6 | 6 | False/Stable | 2026-11-20T07:50:38Z | 1 | 1 | 0
+  07:53:00 t=201 5-down-again | 3 | 3 | True/ReconcilingScaleDiff | 2026-11-20T07:52:58Z | 2 | 1 | 0
+  07:53:05 t=206 5-down-again | 3 | 3 | True/ReconcilingScaleDiff | 2026-11-20T07:53:05Z | 2 | 1 | 0
+  07:53:10 t=211 5-down-again | 1 | 1 | True/ReconcilingScaleDiff | 2026-11-20T07:53:05Z | 2 | 1 | 0
+  07:53:16 t=216 5-down-again | 1 | 1 | False/Stable | 2026-11-20T07:52:58Z | 2 | 1 | 0
+  07:53:21 t=222 5-down-again | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:53:19Z | 3 | 1 | 0
+  07:53:26 t=227 5-down-again | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:52:58Z | 2 | 1 | 0
+  07:53:32 t=232 6-min7 | 2 | 2 | False/PendingReplicas | 2026-11-20T07:52:58Z | 2 | 1 | 0
+  07:53:42 t=243 6-min7 | 7 | 7 | True/ReconcilingScaleDiff | 2026-11-20T07:53:40Z | 3 | 1 | 0
+  07:53:47 t=248 6-min7 | 7 | 7 | False/Stable | 2026-11-20T07:53:40Z | 3 | 1 | 0
+  07:54:14 t=274 7-max5 | 7 | 7 | False/Stable | 2026-11-20T07:53:40Z | 3 | 1 | 0
+  07:54:29 t=290 7-max5 | 3 | 3 | True/ReconcilingScaleDiff | 2026-11-20T07:54:25Z | 4 | 1 | 0
+  07:54:35 t=295 7-max5 | 1 | 1 | True/ReconcilingScaleDiff | 2026-11-20T07:54:32Z | 5 | 1 | 0
+  07:54:40 t=301 7-max5 | 1 | 1 | False/Stable | 2026-11-20T07:54:32Z | 5 | 1 | 0
+  07:54:51 t=311 7-max5 | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:54:46Z | 5 | 1 | 0
+  07:54:56 t=317 8-recovery | 3 | 3 | True/ReconcilingScaleDiff | 2026-11-20T07:54:53Z | 5 | 1 | 0
+  07:55:01 t=322 8-recovery | 3 | 3 | False/Stable | 2026-11-20T07:54:53Z | 5 | 0 | 0
+  07:55:33 t=353 8-recovery | 2 | 2 | False/Stable | 2026-11-20T07:55:31Z | 5 | 0 | 0
+  07:55:59 t=380 9-all-fail | 2 | 2 | False/Stable | 2026-11-20T07:55:31Z | 5 | 0 | 0
+final lastScaleTime 2026-11-20T07:55:31Z
+final scalingHistory:
+  2026-11-20T07:53:40Z 2->7 success=True reason=apa above target error=
+  2026-11-20T07:54:25Z 7->3 success=True reason=Available metrics below target (vllm:num_requests_waiting could not be read) error=
+  2026-11-20T07:54:32Z 3->1 success=True reason=Available metrics below target (vllm:num_requests_waiting could not be read) error=
+  2026-11-20T07:54:53Z 2->3 success=True reason=apa above target error=
+  2026-11-20T07:55:31Z 3->2 success=True reason=All metrics below target error=

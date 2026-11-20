@@ -1,0 +1,70 @@
+apiVersion: autoscaling.aibrix.ai/v1alpha1
+kind: PodAutoscaler
+metadata:
+  annotations:
+    autoscaling.aibrix.ai/scale-down-cooldown-window: 300s
+    autoscaling.aibrix.ai/scale-up-cooldown-window: 60s
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"autoscaling.aibrix.ai/v1alpha1","kind":"PodAutoscaler","metadata":{"annotations":{"autoscaling.aibrix.ai/scale-down-cooldown-window":"300s","autoscaling.aibrix.ai/scale-up-cooldown-window":"60s"},"name":"chat","namespace":"pr3509"},"spec":{"maxReplicas":6,"metricsSources":[{"metricSourceType":"pod","path":"metrics","port":"8080","protocolType":"http","targetMetric":"kv_cache_usage_perc","targetValue":"0.5"},{"endpoint":"queue-metrics.pr3509.svc.cluster.local:8000","metricSourceType":"external","path":"metrics","protocolType":"http","targetMetric":"vllm:num_requests_waiting","targetValue":"50"}],"minReplicas":1,"scaleTargetRef":{"apiVersion":"apps/v1","kind":"Deployment","name":"chat"},"scalingStrategy":"KPA"}}
+  creationTimestamp: "2026-11-20T08:04:59Z"
+  generation: 2
+  name: chat
+  namespace: pr3509
+  resourceVersion: "9828"
+  uid: 99528709-58f7-485f-bad7-6a09e6468e75
+spec:
+  maxReplicas: 6
+  metricsSources:
+  - metricSourceType: pod
+    path: metrics
+    port: "8080"
+    protocolType: http
+    targetMetric: kv_cache_usage_perc
+    targetValue: "0.15"
+  - endpoint: queue-metrics.pr3509.svc.cluster.local:8000
+    metricSourceType: external
+    path: metrics
+    protocolType: http
+    targetMetric: vllm:num_requests_waiting
+    targetValue: "50"
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chat
+  scalingStrategy: KPA
+status:
+  actualScale: 4
+  conditions:
+  - lastTransitionTime: "2026-11-20T08:05:03Z"
+    message: ""
+    observedGeneration: 2
+    reason: AsExpected
+    status: "True"
+    type: ValidSpec
+  - lastTransitionTime: "2026-11-20T08:08:20Z"
+    message: desired=6, actual=4; reason=kpa above target
+    reason: ReconcilingScaleDiff
+    status: "True"
+    type: ScalingActive
+  - lastTransitionTime: "2026-11-20T08:05:03Z"
+    message: successfully retrieved target scale
+    reason: SucceededGetScale
+    status: "True"
+    type: AbleToScale
+  - lastTransitionTime: "2026-11-20T08:08:20Z"
+    message: ""
+    reason: ReconcilingScaleDiff
+    status: "False"
+    type: Ready
+  desiredScale: 6
+  lastScaleTime: "2026-11-20T08:08:20Z"
+  scalingHistory:
+  - newScale: 6
+    previousScale: 4
+    reason: kpa above target
+    success: true
+    timestamp: "2026-11-20T08:08:20Z"
+  scheduledBounds:
+    effectiveMaxReplicas: 6
+    effectiveMinReplicas: 1

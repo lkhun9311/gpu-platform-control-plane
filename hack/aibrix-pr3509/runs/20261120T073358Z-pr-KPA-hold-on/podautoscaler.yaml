@@ -1,0 +1,90 @@
+apiVersion: autoscaling.aibrix.ai/v1alpha1
+kind: PodAutoscaler
+metadata:
+  annotations:
+    autoscaling.aibrix.ai/hold-scale-down-on-metric-failure: "true"
+    autoscaling.aibrix.ai/scale-down-cooldown-window: 0s
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"autoscaling.aibrix.ai/v1alpha1","kind":"PodAutoscaler","metadata":{"annotations":{"autoscaling.aibrix.ai/hold-scale-down-on-metric-failure":"true","autoscaling.aibrix.ai/scale-down-cooldown-window":"0s"},"name":"chat","namespace":"pr3509"},"spec":{"maxReplicas":6,"metricsSources":[{"metricSourceType":"pod","path":"metrics","port":"8080","protocolType":"http","targetMetric":"kv_cache_usage_perc","targetValue":"0.5"},{"endpoint":"queue-metrics.pr3509.svc.cluster.local:8000","metricSourceType":"external","path":"metrics","protocolType":"http","targetMetric":"vllm:num_requests_waiting","targetValue":"50"}],"minReplicas":1,"scaleTargetRef":{"apiVersion":"apps/v1","kind":"Deployment","name":"chat"},"scalingStrategy":"KPA"}}
+  creationTimestamp: "2026-11-20T07:34:22Z"
+  generation: 7
+  name: chat
+  namespace: pr3509
+  resourceVersion: "4438"
+  uid: 4e27fb9f-f452-4723-8b23-527b9ed32ecd
+spec:
+  maxReplicas: 5
+  metricsSources:
+  - metricSourceType: pod
+    path: metrics
+    port: "9"
+    protocolType: http
+    targetMetric: kv_cache_usage_perc
+    targetValue: "0.5"
+  - endpoint: queue-metrics.pr3509.svc.cluster.local:8000
+    metricSourceType: external
+    path: metrics
+    protocolType: http
+    targetMetric: vllm:num_requests_waiting
+    targetValue: "50"
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chat
+  scalingStrategy: KPA
+status:
+  actualScale: 3
+  conditions:
+  - lastTransitionTime: "2026-11-20T07:34:28Z"
+    message: ""
+    observedGeneration: 7
+    reason: AsExpected
+    status: "True"
+    type: ValidSpec
+  - lastTransitionTime: "2026-11-20T07:39:45Z"
+    message: desired=3, actual=3; reason=stable
+    reason: Stable
+    status: "False"
+    type: ScalingActive
+  - lastTransitionTime: "2026-11-20T07:34:28Z"
+    message: successfully retrieved target scale
+    reason: SucceededGetScale
+    status: "True"
+    type: AbleToScale
+  - lastTransitionTime: "2026-11-20T07:39:45Z"
+    message: ""
+    reason: AsExpected
+    status: "True"
+    type: Ready
+  desiredScale: 3
+  lastScaleTime: "2026-11-20T07:39:45Z"
+  scalingHistory:
+  - newScale: 5
+    previousScale: 4
+    reason: kpa above target
+    success: true
+    timestamp: "2026-11-20T07:36:22Z"
+  - newScale: 6
+    previousScale: 5
+    reason: kpa above target
+    success: true
+    timestamp: "2026-11-20T07:37:04Z"
+  - newScale: 7
+    previousScale: 6
+    reason: kpa above target
+    success: true
+    timestamp: "2026-11-20T07:38:22Z"
+  - newScale: 5
+    previousScale: 7
+    reason: current replicas above maximum
+    success: true
+    timestamp: "2026-11-20T07:39:05Z"
+  - newScale: 3
+    previousScale: 5
+    reason: All metrics below target
+    success: true
+    timestamp: "2026-11-20T07:39:45Z"
+  scheduledBounds:
+    effectiveMaxReplicas: 5
+    effectiveMinReplicas: 1

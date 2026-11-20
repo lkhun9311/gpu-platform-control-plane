@@ -1,0 +1,53 @@
+events by reason: emitted / reached
+  AlgorithmRun: 7 / 7
+  FailedComputeScale: 4 / 4
+  SuccessfulRescale: 7 / 7
+  total: 18 / 18
+emitted events in order (excluding AlgorithmRun):
+  07:19:52.056957 SuccessfulRescale: New size: 2; reason: All metrics below target
+  07:20:59.073408 SuccessfulRescale: New size: 4; reason: kpa above target
+  07:21:41.207228 SuccessfulRescale: New size: 6; reason: kpa above target
+  07:22:23.354198 SuccessfulRescale: New size: 3; reason: All metrics below target
+  07:22:30.407313 SuccessfulRescale: New size: 2; reason: All metrics below target
+  07:23:05.520462 SuccessfulRescale: New size: 7; reason: kpa above target
+  07:23:49.075745 SuccessfulRescale: New size: 3; reason: All metrics below target
+  07:25:31.965466 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:25:41.965799 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:25:51.966828 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:26:01.967399 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+timeline transitions (phase, spec, desired, active, lastScaleTime, history, gauge failed, gauge held):
+  07:19:00 t=0 1-baseline | 4 |  |  | - | 0 | - | -
+  07:19:16 t=16 1-baseline | 4 | 4 | False/Stable | - | 0 | - | -
+  07:19:43 t=42 2-outage | 4 | 4 | False/Stable | - | 0 | - | -
+  07:19:53 t=53 2-outage | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:19:52Z | 1 | - | -
+  07:20:04 t=63 2-outage | 2 | 2 | False/Stable | 2026-11-20T07:19:52Z | 1 | - | -
+  07:20:46 t=106 3-scaleup | 2 | 2 | False/Stable | 2026-11-20T07:19:52Z | 1 | - | -
+  07:21:02 t=121 3-scaleup | 4 | 4 | True/ReconcilingScaleDiff | 2026-11-20T07:20:59Z | 2 | - | -
+  07:21:07 t=127 3-scaleup | 4 | 4 | False/Stable | 2026-11-20T07:19:52Z | 1 | - | -
+  07:21:18 t=137 3-scaleup | 4 | 4 | False/Stable | 2026-11-20T07:20:59Z | 2 | - | -
+  07:21:28 t=148 4-capped | 4 | 4 | False/Stable | 2026-11-20T07:20:59Z | 2 | - | -
+  07:21:44 t=164 4-capped | 6 | 6 | True/ReconcilingScaleDiff | 2026-11-20T07:21:41Z | 3 | - | -
+  07:21:50 t=169 4-capped | 6 | 6 | False/Stable | 2026-11-20T07:20:59Z | 2 | - | -
+  07:21:55 t=175 4-capped | 6 | 6 | False/Stable | 2026-11-20T07:21:41Z | 3 | - | -
+  07:22:11 t=191 5-down-again | 6 | 6 | False/Stable | 2026-11-20T07:21:41Z | 3 | - | -
+  07:22:27 t=207 5-down-again | 3 | 3 | True/ReconcilingScaleDiff | 2026-11-20T07:22:23Z | 4 | - | -
+  07:22:33 t=212 5-down-again | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:22:30Z | 4 | - | -
+  07:22:38 t=218 5-down-again | 2 | 2 | False/Stable | 2026-11-20T07:22:23Z | 4 | - | -
+  07:22:49 t=228 5-down-again | 2 | 2 | False/Stable | 2026-11-20T07:22:30Z | 4 | - | -
+  07:22:54 t=234 6-min7 | 2 | 2 | False/Stable | 2026-11-20T07:22:30Z | 4 | - | -
+  07:23:10 t=250 6-min7 | 7 | 7 | True/ReconcilingScaleDiff | 2026-11-20T07:23:05Z | 5 | - | -
+  07:23:15 t=255 6-min7 | 7 | 7 | False/Stable | 2026-11-20T07:22:30Z | 4 | - | -
+  07:23:21 t=260 6-min7 | 7 | 7 | False/Stable | 2026-11-20T07:23:05Z | 5 | - | -
+  07:23:36 t=276 7-max5 | 7 | 7 | False/Stable | 2026-11-20T07:23:05Z | 5 | - | -
+  07:23:52 t=292 7-max5 | 3 | 3 | True/ReconcilingScaleDiff | 2026-11-20T07:23:49Z | 5 | - | -
+  07:23:57 t=297 7-max5 | 3 | 3 | False/Stable | 2026-11-20T07:23:05Z | 5 | - | -
+  07:24:08 t=308 7-max5 | 3 | 3 | False/Stable | 2026-11-20T07:23:49Z | 5 | - | -
+  07:24:19 t=318 8-recovery | 3 | 3 | False/Stable | 2026-11-20T07:23:49Z | 5 | - | -
+  07:25:22 t=381 9-all-fail | 3 | 3 | False/Stable | 2026-11-20T07:23:49Z | 5 | - | -
+final lastScaleTime 2026-11-20T07:23:49Z
+final scalingHistory:
+  2026-11-20T07:20:59Z 2->4 success=True reason=kpa above target error=
+  2026-11-20T07:21:41Z 4->6 success=True reason=kpa above target error=
+  2026-11-20T07:22:30Z 3->2 success=True reason=All metrics below target error=
+  2026-11-20T07:23:05Z 2->7 success=True reason=kpa above target error=
+  2026-11-20T07:23:49Z 7->3 success=True reason=All metrics below target error=

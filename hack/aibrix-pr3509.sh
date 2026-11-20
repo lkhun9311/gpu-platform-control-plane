@@ -25,7 +25,9 @@ LAB_DIR="$REPO/hack/aibrix-pr3509"
 # --- pins ---------------------------------------------------------------------------------------------------------
 # main is the base of #3509; pr is its head when this lab was run.
 MAIN_COMMIT=afdb4791527e6039df391cd8a811b6e6c682c975
-PR_COMMIT=cb1a2f3f05d6dbaebff27d036d22ee68609c28f0
+PR_COMMIT=43c27b35d81eadd51a5502c3d73f4437072ad528
+# The head of the first verification, 2026-11-19; the runs from that day were taken against it.
+PR_COMMIT_PREV=cb1a2f3f05d6dbaebff27d036d22ee68609c28f0
 # Worktrees of one AIBrix clone, checked out at the two commits above.
 MAIN_SRC=${MAIN_SRC:-$HOME/workspace/oss/aibrix-wt-main-afdb4791}
 PR_SRC=${PR_SRC:-$HOME/workspace/oss/aibrix-wt-pr3509}
@@ -62,6 +64,7 @@ cmd_pins() {
   cat <<EOF
 aibrix main       $MAIN_COMMIT -> $(image_for main)
 aibrix pr #3509   $PR_COMMIT -> $(image_for pr)
+aibrix pr before  $PR_COMMIT_PREV (the 2026-11-19 runs)
 simulator         $SIM_IMAGE
 serving image     $SHIM_IMAGE
 base              $BASE_IMAGE
@@ -110,9 +113,12 @@ cmd_up() {
   # The overlay is the same at both commits; the PR touches no file under config/.
   k kustomize "$MAIN_SRC/config/standalone/autoscaler-controller" \
     | sed -e "s#image: aibrix/controller-manager:v0.8.0#image: $(image_for main)#" \
-      -e 's#^\( *\)- --disable-webhook$#&\n\1- --v=2#' >"$LAB_HOME/aibrix-autoscaler.yaml"
+      -e 's#^\( *\)- --disable-webhook$#&\n\1- --v=2#' \
+      -e 's#- --metrics-bind-address=0$#- --metrics-bind-address=:8080#' >"$LAB_HOME/aibrix-autoscaler.yaml"
   grep -q "image: $(image_for main)" "$LAB_HOME/aibrix-autoscaler.yaml" || die "the overlay no longer names aibrix/controller-manager:v0.8.0"
   grep -q -- "- --v=2" "$LAB_HOME/aibrix-autoscaler.yaml" || die "the overlay no longer passes --disable-webhook"
+  # The overlay turns the metrics endpoint off; the gauges #3509 adds can only be read with it on.
+  grep -q -- "- --metrics-bind-address=:8080" "$LAB_HOME/aibrix-autoscaler.yaml" || die "the overlay no longer passes --metrics-bind-address=0"
   k create namespace aibrix-system --dry-run=client -o yaml | k apply -f - >/dev/null
   k apply --server-side -f "$LAB_HOME/aibrix-autoscaler.yaml" >/dev/null
   k -n aibrix-system rollout status "deploy/$CTRL" --timeout=180s
@@ -130,9 +136,23 @@ use_build() {
     || die "the controller is not running $img"
 }
 
+TL_HEADER='utc\tt_s\tphase\tdeploy_spec_replicas\tdeploy_ready\tpa_desired\tqueue_endpoints\tkv_target\tmin\tmax\tscaling_active\tlast_scale_time\thistory_len\tgauge_failed_sources\tgauge_scale_down_held\n'
+
+# scrape prints the controller's metrics through the API server's service proxy.
+scrape() {
+  k get --raw "/api/v1/namespaces/aibrix-system/services/$CTRL-metrics-service:http/proxy/metrics"
+}
+
+# gauge prints the value of one #3509 gauge for the lab's PodAutoscaler, or "-" when the series is absent.
+gauge() {
+  local v
+  v=$(printf '%s\n' "$2" | awk -v m="aibrix_$1" '$1 ~ "^"m"[{]" && $1 ~ /name="chat"/ && $1 ~ /namespace="pr3509"/ {print $2}')
+  echo "${v:--}"
+}
+
 # sample prints one timeline row.
 sample() {
-  local t0=$1 label=$2 now spec ready desired eps tgt min max active
+  local t0=$1 label=$2 now spec ready desired eps tgt min max active lst hist metrics
   now=$(date +%s)
   spec=$(k -n "$NS" get deploy chat -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "?")
   ready=$(k -n "$NS" get deploy chat -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "?")
@@ -144,8 +164,12 @@ sample() {
   max=$(k -n "$NS" get podautoscaler chat -o jsonpath='{.spec.maxReplicas}' 2>/dev/null || echo "?")
   active=$(k -n "$NS" get podautoscaler chat \
     -o jsonpath='{range .status.conditions[?(@.type=="ScalingActive")]}{.status}/{.reason}{end}' 2>/dev/null || echo "?")
-  printf '%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%H:%M:%S)" $((now - t0)) "$label" \
-    "$spec" "${ready:-0}" "$desired" "$eps" "$tgt" "$min" "$max" "$active"
+  lst=$(k -n "$NS" get podautoscaler chat -o jsonpath='{.status.lastScaleTime}' 2>/dev/null || echo "?")
+  hist=$(k -n "$NS" get podautoscaler chat -o jsonpath='{range .status.scalingHistory[*]}x{end}' 2>/dev/null || echo "?")
+  metrics=$(scrape 2>&1 || true)
+  printf '%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%H:%M:%S)" $((now - t0)) "$label" \
+    "$spec" "${ready:-0}" "$desired" "$eps" "$tgt" "$min" "$max" "$active" "${lst:--}" "${#hist}" \
+    "$(gauge autoscaler_failed_metric_sources "$metrics")" "$(gauge autoscaler_scale_down_held "$metrics")"
 }
 
 watch_for() {
@@ -172,15 +196,19 @@ collect() {
   k -n aibrix-system logs "deploy/$CTRL" --since-time="$since" >"$OUT/aibrix-controller.log" 2>&1 || true
   grep -E 'Failed to compute replicas for metric|Multi metric autoscaling computed result|Successfully rescaled|metric sources|Scaling adjustment|stays at|Reconciler error' \
     "$OUT/aibrix-controller.log" >"$OUT/aibrix-decisions.log" || true
+  # The recorder logs every event it is handed, before the client-go spam filter, so these are the emitted ones.
+  grep '"logger"="events"' "$OUT/aibrix-controller.log" | grep '"kind":"PodAutoscaler"' >"$OUT/events-emitted.log" || [ $? -eq 1 ]
+  scrape >"$OUT/metrics.txt" 2>&1 || true
   gzip -f "$OUT/aibrix-controller.log"
   cmd_pins >"$OUT/pins.txt"
   echo "controller image $(k -n aibrix-system get "deploy/$CTRL" -o jsonpath='{.spec.template.spec.containers[0].image}')" >>"$OUT/pins.txt"
   echo "gpuaas $(git -C "$REPO" rev-parse HEAD)" >>"$OUT/pins.txt"
 }
 
-# cmd_run is one replay: both sources readable, then the queue source down for the rest of the run except the end.
+# cmd_run is one replay: both sources readable, then the queue source down until phase 8 brings it back.
 # While it is down, the pod metric's target is moved so that the healthy source asks for a scale-up, a capped
 # scale-up and a scale-down, and the bounds are moved under and over the current count.
+# Phase 9 makes every source fail, the path #3509 leaves to the existing error handling, to see what the gauges say.
 cmd_run() {
   local build=$1 strategy=$2 mode=$3 t0 since
   owned || die "no lab cluster; run up first"
@@ -196,8 +224,7 @@ cmd_run() {
   k -n "$NS" rollout status deploy/chat --timeout=180s >/dev/null
   since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   render_pa "$strategy" "$mode" | tee "$OUT/podautoscaler-applied.yaml" | k apply -f - >/dev/null
-  printf 'utc\tt_s\tphase\tdeploy_spec_replicas\tdeploy_ready\tpa_desired\tqueue_endpoints\tkv_target\tmin\tmax\tscaling_active\n' \
-    | tee "$OUT/timeline.tsv"
+  printf "$TL_HEADER" | tee "$OUT/timeline.tsv"
   t0=$(date +%s)
   local pa=(-n "$NS" patch podautoscaler chat --type json -p)
 
@@ -226,9 +253,25 @@ cmd_run() {
     -p '[{"op":"replace","path":"/spec/template/spec/containers/0/args/5","value":"{\"waiting-requests\":100}"}]' >/dev/null
   k -n "$NS" scale deploy/queue-metrics --replicas=1 >/dev/null
   watch_for "$t0" 8-recovery $((PHASE + 20))
+  say "9 every source fails: queue down again and the pod metric pointed at a closed port"
+  k -n "$NS" scale deploy/queue-metrics --replicas=0 >/dev/null
+  k "${pa[@]}" '[{"op":"replace","path":"/spec/metricsSources/0/port","value":"9"}]' >/dev/null
+  watch_for "$t0" 9-all-fail "$PHASE"
 
   collect "$since"
+  forget_check
   say "recorded in $OUT"
+}
+
+# forget_check deletes the PodAutoscaler and records whether its exported series are gone.
+forget_check() {
+  k -n "$NS" delete podautoscaler chat --wait=true >/dev/null
+  sleep 15
+  scrape >"$OUT/metrics-after-delete.txt" 2>&1 || true
+  {
+    echo "series for pr3509/chat before delete: $(grep -c 'name="chat",namespace="pr3509"' "$OUT/metrics.txt" || true)"
+    echo "series for pr3509/chat 15 s after delete: $(grep -c 'name="chat",namespace="pr3509"' "$OUT/metrics-after-delete.txt" || true)"
+  } | tee "$OUT/forget-check.txt"
 }
 
 # cmd_upwindow checks whether a held scale-down changes what a scale-up cooldown sees, on the PR build with KPA.
@@ -251,8 +294,7 @@ cmd_upwindow() {
     | sed -e 's#^\( *\)autoscaling.aibrix.ai/scale-down-cooldown-window: 0s$#\1autoscaling.aibrix.ai/scale-down-cooldown-window: 300s\n\1autoscaling.aibrix.ai/scale-up-cooldown-window: 60s#' \
     | tee "$OUT/podautoscaler-applied.yaml" | k apply -f - >/dev/null
   grep -q 'scale-up-cooldown-window: 60s' "$OUT/podautoscaler-applied.yaml" || die "the scale-up window was not set"
-  printf 'utc\tt_s\tphase\tdeploy_spec_replicas\tdeploy_ready\tpa_desired\tqueue_endpoints\tkv_target\tmin\tmax\tscaling_active\n' \
-    | tee "$OUT/timeline.tsv"
+  printf "$TL_HEADER" | tee "$OUT/timeline.tsv"
   t0=$(date +%s)
   say "1 baseline: both sources readable, 4 held by the queue"
   watch_for "$t0" 1-baseline "$PHASE"
@@ -264,6 +306,7 @@ cmd_upwindow() {
     -p '[{"op":"replace","path":"/spec/metricsSources/0/targetValue","value":"0.15"}]' >/dev/null
   watch_for "$t0" 3-scaleup 80
   collect "$since"
+  forget_check
   say "recorded in $OUT"
 }
 

@@ -1,0 +1,2 @@
+series for pr3509/chat before delete: 3
+series for pr3509/chat 15 s after delete: 0

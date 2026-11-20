@@ -1,0 +1,57 @@
+events by reason: emitted / reached
+  AlgorithmRun: 5 / 5
+  FailedComputeScale: 4 / 4
+  FailedGetMetrics: 2 / 2
+  RecoveredMetrics: 2 / 2
+  ScaleDownHeld: 3 / 3
+  SuccessfulRescale: 5 / 5
+  total: 21 / 21
+emitted events in order (excluding AlgorithmRun):
+  07:35:15.260063 FailedGetMetrics: metric sources vllm:num_requests_waiting could not be read; scaling on the remaining sources
+  07:35:15.260072 ScaleDownHeld: holding 4 replicas: Scale-down held (vllm:num_requests_waiting could not be read)
+  07:36:22.287160 SuccessfulRescale: New size: 5; reason: kpa above target
+  07:37:04.379280 SuccessfulRescale: New size: 6; reason: kpa above target
+  07:37:46.477480 ScaleDownHeld: holding 6 replicas: Scale-down held (vllm:num_requests_waiting could not be read)
+  07:38:22.627283 SuccessfulRescale: New size: 7; reason: kpa above target
+  07:39:05.200069 SuccessfulRescale: New size: 5; reason: current replicas above maximum
+  07:39:15.215483 ScaleDownHeld: holding 5 replicas: Scale-down held (vllm:num_requests_waiting could not be read)
+  07:39:45.260005 RecoveredMetrics: metric sources vllm:num_requests_waiting can be read again
+  07:39:45.269834 SuccessfulRescale: New size: 3; reason: All metrics below target
+  07:39:55.308069 FailedGetMetrics: metric sources vllm:num_requests_waiting could not be read; scaling on the remaining sources
+  07:39:55.315635 RecoveredMetrics: metric sources vllm:num_requests_waiting can be read again
+  07:40:54.394922 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:41:04.395723 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:41:14.396534 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:41:24.396841 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+timeline transitions (phase, spec, desired, active, lastScaleTime, history, gauge failed, gauge held):
+  07:34:22 t=0 1-baseline | 4 |  |  | - | 0 | - | -
+  07:34:33 t=11 1-baseline | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  07:35:05 t=43 2-outage | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  07:35:16 t=53 2-outage | 4 | 4 | False/ScaleDownHeld | - | 0 | 1 | 1
+  07:36:09 t=106 3-scaleup | 4 | 4 | False/ScaleDownHeld | - | 0 | 1 | 1
+  07:36:25 t=122 3-scaleup | 5 | 5 | True/ReconcilingScaleDiff | 2026-11-20T07:36:22Z | 1 | 1 | 0
+  07:36:30 t=128 3-scaleup | 5 | 5 | False/Stable | - | 0 | 1 | 0
+  07:36:40 t=138 3-scaleup | 5 | 5 | False/Stable | 2026-11-20T07:36:22Z | 1 | 1 | 0
+  07:36:51 t=149 4-capped | 5 | 5 | False/Stable | 2026-11-20T07:36:22Z | 1 | 1 | 0
+  07:37:07 t=164 4-capped | 6 | 6 | True/ReconcilingScaleDiff | 2026-11-20T07:37:04Z | 2 | 1 | 0
+  07:37:12 t=170 4-capped | 6 | 6 | False/Stable | 2026-11-20T07:37:04Z | 2 | 1 | 0
+  07:37:33 t=191 5-down-again | 6 | 6 | False/Stable | 2026-11-20T07:37:04Z | 2 | 1 | 0
+  07:37:49 t=206 5-down-again | 6 | 6 | False/ScaleDownHeld | 2026-11-20T07:37:04Z | 2 | 1 | 1
+  07:38:15 t=233 6-min7 | 6 | 6 | False/ScaleDownHeld | 2026-11-20T07:37:04Z | 2 | 1 | 1
+  07:38:26 t=244 6-min7 | 7 | 7 | True/ReconcilingScaleDiff | 2026-11-20T07:38:22Z | 3 | 1 | 0
+  07:38:31 t=249 6-min7 | 7 | 7 | False/Stable | 2026-11-20T07:37:04Z | 2 | 1 | 0
+  07:38:37 t=254 6-min7 | 7 | 7 | False/Stable | 2026-11-20T07:38:22Z | 3 | 1 | 0
+  07:38:58 t=276 7-max5 | 7 | 7 | False/Stable | 2026-11-20T07:38:22Z | 3 | 1 | 0
+  07:39:09 t=286 7-max5 | 5 | 5 | True/ReconcilingScaleDiff | 2026-11-20T07:39:05Z | 4 | 1 | 0
+  07:39:19 t=297 7-max5 | 5 | 5 | True/ReconcilingScaleDiff | 2026-11-20T07:39:05Z | 4 | 1 | 1
+  07:39:25 t=302 7-max5 | 5 | 5 | False/ScaleDownHeld | 2026-11-20T07:39:05Z | 4 | 1 | 1
+  07:39:41 t=318 8-recovery | 5 | 5 | False/ScaleDownHeld | 2026-11-20T07:39:05Z | 4 | 1 | 1
+  07:39:46 t=324 8-recovery | 3 | 3 | False/Stable | 2026-11-20T07:39:45Z | 5 | 0 | 0
+  07:40:44 t=382 9-all-fail | 3 | 3 | False/Stable | 2026-11-20T07:39:45Z | 5 | 0 | 0
+final lastScaleTime 2026-11-20T07:39:45Z
+final scalingHistory:
+  2026-11-20T07:36:22Z 4->5 success=True reason=kpa above target error=
+  2026-11-20T07:37:04Z 5->6 success=True reason=kpa above target error=
+  2026-11-20T07:38:22Z 6->7 success=True reason=kpa above target error=
+  2026-11-20T07:39:05Z 7->5 success=True reason=current replicas above maximum error=
+  2026-11-20T07:39:45Z 5->3 success=True reason=All metrics below target error=

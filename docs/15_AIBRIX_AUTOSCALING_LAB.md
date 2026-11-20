@@ -307,3 +307,64 @@ The same copy with both timestamps equal passes.
   The bounds-warning, history, cooldown and test-clock findings were its points.
   Each was then checked here, by the runs above or by the pinned-timestamp test.
   The event budget finding came from these runs.
+
+### Recheck at 43c27b35 (2026-11-20)
+
+The author answered the five points with 1c344dd3 (code) and 43c27b35 (docs).
+The hold now sits in `computeScaleDecision`, events fire when the failed set changes, and two gauges were added: `aibrix_autoscaler_failed_metric_sources` and `aibrix_autoscaler_scale_down_held`.
+`PR_COMMIT` is now 43c27b35d81e, and `PR_COMMIT_PREV` keeps cb1a2f3f05d6 for the 2026-11-19 runs.
+main is still afdb4791527e, the PR's base.
+
+Three changes to the lab, none to phases 1 to 8:
+
+- The overlay's `--metrics-bind-address=0` becomes `:8080`, so the gauges can be read through the API server's service proxy.
+  The main build exports nothing under those names, so its gauge columns read `-`.
+- The timeline gains `last_scale_time`, `history_len` and the two gauges for `pr3509/chat`.
+- Phase 9 takes the queue down again and points the pod metric at port 9, so every source fails for 40 s.
+  Then the PodAutoscaler is deleted and `forget-check.txt` counts its exported series 15 s later.
+
+Each new run also has `events-emitted.log` (the recorder's log lines, before the client-go spam filter), `metrics.txt` (scraped in phase 9) and `summary.txt`.
+`runs/20261120-recheck-43c27b35` has the unit tests, the mutations and the reply drafts.
+
+| Point from 2026-11-19 | Before (cb1a2f3f) | Now (43c27b35) | Verdict |
+|---|---|---|---|
+| 1. Warning on every pass uses up the event budget | PodAutoscaler events emitted / reached: KPA off 54/27, KPA on 47/25, APA off 68/25, APA on 52/25 | KPA off 18/18, KPA on 21/21, APA off 36/26 (main 36/27), APA on 27/26. One `FailedGetMetrics` per outage, one `ScaleDownHeld` per held stretch | fixed |
+| 2. A bounds scale during a hold names no failed source | 7 → 5 with "current replicas above maximum", no warning that pass | the same: KPA 07:39:05 and APA 08:02:00, reason "current replicas above maximum", no event names the source. Only the gauge (1) shows that a source is down | partly |
+| 3. A hold is written as a failed scale | 3 of 5 history entries were holds, `lastScaleTime` on a held pass | KPA on, phase 2: held at 4 for 53 s with no `lastScaleTime` and an empty history. Phase 5: held at 6 for 33 s with both unchanged. Every history entry has success=true. ScalingActive is False/ScaleDownHeld | fixed |
+| 4. Held passes stay out of the scale-up window | off 73 s, on 8 s | off 70 s, on 7 s (first recommendation for 7 to the 4 → 6 scale). Unchanged by choice: the docs now say held recommendations are not recorded, and `TestHeldRecommendationsStayOutOfTheCooldownWindow` pins it | resolved by documentation and a test |
+| 5. Clock-dependent test | 5 instead of 8 across a second boundary | the old test is removed. `TestReconcileHoldsScaleDownEndToEnd` pins its clock and steps it 10 min. The five new tests pass 30 times in a row | fixed |
+
+Default behaviour against main: the APA rescale sequence over phases 1 to 8 is 4 2 1 2 4 6 3 1 2 7 3 1 2 3 2 on the PR and 4 2 1 2 4 5 6 3 1 2 7 3 1 2 3 2 on main.
+The one difference is an extra 5 on main during the scale to 6, a ready-pod timing difference.
+Both emitted 36 PodAutoscaler events.
+The KPA off run went into panic mode after the scale-up from 2, and main did not this time, so its phases 4 to 7 do not compare.
+Phases 1 to 3 match.
+The reason text and the two new events are the only intended differences.
+
+Bounds during a hold: maxReplicas 5 forces 7 → 5 through the held path in both strategies.
+For minReplicas 7, the KPA and APA recommendation was already 7 from 6 (`validDesiredReplicas=[7]`), so it scaled up as "kpa/apa above target" without reaching the hold.
+The "current replicas below minimum" reason on the held path shows up only in the unit test, whose fake autoscaler returns 2 under a minimum of 6.
+
+**New: the gauges keep their last value when every source fails.**
+With both sources failing in phase 9, the existing path returns from `computeScaleDecision` with an error before `reportMetricSourceHealth` runs.
+In all four PR runs, `aibrix_autoscaler_failed_metric_sources` read 0 and `aibrix_autoscaler_scale_down_held` 0 for the whole 40 s, while `FailedComputeScale` fired every 10 s.
+The metric help says "in its latest reconcile", and the docs suggest alerting on the gauges to catch an outage.
+A rule on `failed_metric_sources > 0` would miss the total outage.
+`FailedComputeScale` on every pass in that path is unchanged from main.
+
+Gauges otherwise: `failed_metric_sources` was 1 from the first failed pass until the recovery pass and 0 after it.
+`scale_down_held` was 1 only on held passes.
+Deleting the PodAutoscaler removed all three of its series within 15 s in every PR run.
+
+Unit tests at 43c27b35: `go test -race -count=1 ./pkg/controller/podautoscaler/...` passes (go1.25.7).
+Each mutation below was run alone, and each failed the tests named.
+
+| Mutation | Fails |
+|---|---|
+| `FailedGetMetrics` on every pass with a failed source | `TestReconcileReportsFailedMetricSourcesOnChange` |
+| a held pass also calls `stabilizeRecommendation` | `TestHeldRecommendationsStayOutOfTheCooldownWindow` (4, want 6) |
+| the hold condition is always false | `TestComputeScaleDecisionHoldsScaleDownWhileAMetricFails` (3 cases), `TestHeldRecommendationsStayOutOfTheCooldownWindow`, `TestReconcileHoldsScaleDownEndToEnd` (KPA, APA) |
+| `ForgetScaleAction` keeps the failed-sources series | `TestMonitor_RecordMetricSourceHealth` |
+
+Limits: one run per case on one kind node, as before.
+Every number above comes from these runs and these test runs, and no codex review was run for this recheck.

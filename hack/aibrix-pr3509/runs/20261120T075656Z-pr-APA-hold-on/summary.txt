@@ -1,0 +1,62 @@
+events by reason: emitted / reached
+  AlgorithmRun: 8 / 8
+  FailedComputeScale: 4 / 3
+  FailedGetMetrics: 2 / 2
+  FailedRescale: 1 / 1
+  RecoveredMetrics: 2 / 2
+  ScaleDownHeld: 3 / 3
+  SuccessfulRescale: 7 / 7
+  total: 27 / 26
+emitted events in order (excluding AlgorithmRun):
+  07:58:11.019765 FailedGetMetrics: metric sources vllm:num_requests_waiting could not be read; scaling on the remaining sources
+  07:58:11.019774 ScaleDownHeld: holding 4 replicas: Scale-down held (vllm:num_requests_waiting could not be read)
+  07:59:18.047641 SuccessfulRescale: New size: 5; reason: apa above target
+  08:00:00.144523 SuccessfulRescale: New size: 6; reason: apa above target
+  08:00:38.043653 ScaleDownHeld: holding 6 replicas: Scale-down held (vllm:num_requests_waiting could not be read)
+  08:01:18.175006 SuccessfulRescale: New size: 7; reason: apa above target
+  08:02:00.437000 SuccessfulRescale: New size: 5; reason: current replicas above maximum
+  08:02:07.470711 ScaleDownHeld: holding 5 replicas: Scale-down held (vllm:num_requests_waiting could not be read)
+  08:02:38.549659 RecoveredMetrics: metric sources vllm:num_requests_waiting can be read again
+  08:02:38.562958 SuccessfulRescale: New size: 3; reason: All metrics below target
+  08:02:38.609892 SuccessfulRescale: New size: 2; reason: All metrics below target
+  08:02:48.623089 FailedGetMetrics: metric sources vllm:num_requests_waiting could not be read; scaling on the remaining sources
+  08:02:48.623143 FailedRescale: client rate limiter Wait returned an error: context deadline exceeded
+  08:02:48.627140 RecoveredMetrics: metric sources vllm:num_requests_waiting can be read again
+  08:02:48.637963 SuccessfulRescale: New size: 3; reason: apa above target
+  08:03:49.268062 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  08:03:59.268549 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  08:04:09.269608 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  08:04:19.270163 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+timeline transitions (phase, spec, desired, active, lastScaleTime, history, gauge failed, gauge held):
+  07:57:19 t=0 1-baseline | 4 |  |  | - | 0 | - | -
+  07:57:25 t=5 1-baseline | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  07:58:01 t=42 2-outage | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  07:58:12 t=53 2-outage | 4 | 4 | False/ScaleDownHeld | - | 0 | 1 | 1
+  07:59:04 t=105 3-scaleup | 4 | 4 | False/ScaleDownHeld | - | 0 | 1 | 1
+  07:59:20 t=121 3-scaleup | 5 | 5 | True/ReconcilingScaleDiff | 2026-11-20T07:59:18Z | 1 | 1 | 0
+  07:59:26 t=126 3-scaleup | 5 | 5 | False/PendingReplicas | 2026-11-20T07:59:18Z | 1 | 1 | 0
+  07:59:36 t=137 3-scaleup | 5 | 5 | False/Stable | 2026-11-20T07:59:18Z | 1 | 1 | 0
+  07:59:47 t=147 4-capped | 5 | 5 | False/Stable | 2026-11-20T07:59:18Z | 1 | 1 | 0
+  08:00:02 t=163 4-capped | 6 | 6 | True/ReconcilingScaleDiff | 2026-11-20T08:00:00Z | 2 | 1 | 0
+  08:00:08 t=168 4-capped | 6 | 6 | False/Stable | 2026-11-20T07:59:18Z | 1 | 1 | 0
+  08:00:29 t=189 5-down-again | 6 | 6 | False/Stable | 2026-11-20T07:59:18Z | 1 | 1 | 0
+  08:00:39 t=200 5-down-again | 6 | 6 | False/ScaleDownHeld | 2026-11-20T07:59:18Z | 1 | 1 | 1
+  08:01:11 t=232 6-min7 | 6 | 6 | False/ScaleDownHeld | 2026-11-20T07:59:18Z | 1 | 1 | 1
+  08:01:21 t=242 6-min7 | 7 | 7 | True/ReconcilingScaleDiff | 2026-11-20T08:01:18Z | 2 | 1 | 0
+  08:01:27 t=247 6-min7 | 7 | 7 | False/Stable | 2026-11-20T07:59:18Z | 1 | 1 | 0
+  08:01:32 t=253 6-min7 | 7 | 7 | False/Stable | 2026-11-20T08:01:18Z | 2 | 1 | 0
+  08:01:53 t=274 7-max5 | 7 | 7 | False/Stable | 2026-11-20T08:01:18Z | 2 | 1 | 0
+  08:02:04 t=284 7-max5 | 5 | 5 | True/ReconcilingScaleDiff | 2026-11-20T08:02:00Z | 3 | 1 | 0
+  08:02:09 t=290 7-max5 | 5 | 5 | False/ScaleDownHeld | 2026-11-20T08:02:00Z | 3 | 1 | 1
+  08:02:36 t=316 8-recovery | 5 | 5 | False/ScaleDownHeld | 2026-11-20T08:02:00Z | 3 | 1 | 1
+  08:02:41 t=322 8-recovery | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T08:02:38Z | 5 | 0 | 0
+  08:02:51 t=332 8-recovery | 3 | 3 | False/PendingReplicas | 2026-11-20T08:02:48Z | 5 | 0 | 0
+  08:02:57 t=337 8-recovery | 3 | 3 | False/Stable | 2026-11-20T08:02:48Z | 5 | 0 | 0
+  08:03:39 t=380 9-all-fail | 3 | 3 | False/Stable | 2026-11-20T08:02:48Z | 5 | 0 | 0
+final lastScaleTime 2026-11-20T08:02:48Z
+final scalingHistory:
+  2026-11-20T08:01:18Z 6->7 success=True reason=apa above target error=
+  2026-11-20T08:02:00Z 7->5 success=True reason=current replicas above maximum error=
+  2026-11-20T08:02:38Z 5->3 success=True reason=All metrics below target error=
+  2026-11-20T08:02:38Z 3->2 success=True reason=All metrics below target error=
+  2026-11-20T08:02:48Z 2->3 success=True reason=apa above target error=

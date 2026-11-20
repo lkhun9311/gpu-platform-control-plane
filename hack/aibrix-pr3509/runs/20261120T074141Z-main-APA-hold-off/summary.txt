@@ -1,0 +1,69 @@
+events by reason: emitted / reached
+  AlgorithmRun: 16 / 15
+  FailedComputeScale: 4 / 0
+  FailedRescale: 1 / 0
+  SuccessfulRescale: 15 / 12
+  total: 36 / 27
+emitted events in order (excluding AlgorithmRun):
+  07:42:55.128299 SuccessfulRescale: New size: 2; reason: All metrics below target
+  07:43:02.162088 SuccessfulRescale: New size: 1; reason: All metrics below target
+  07:43:16.203461 SuccessfulRescale: New size: 2; reason: apa above target
+  07:43:58.297920 SuccessfulRescale: New size: 4; reason: apa above target
+  07:44:42.150481 SuccessfulRescale: New size: 5; reason: apa above target
+  07:44:49.185365 SuccessfulRescale: New size: 6; reason: apa above target
+  07:45:24.278750 SuccessfulRescale: New size: 3; reason: All metrics below target
+  07:45:31.305844 SuccessfulRescale: New size: 1; reason: All metrics below target
+  07:45:45.352762 SuccessfulRescale: New size: 2; reason: apa above target
+  07:46:06.417842 SuccessfulRescale: New size: 7; reason: apa above target
+  07:46:52.157099 SuccessfulRescale: New size: 3; reason: All metrics below target
+  07:46:59.186375 SuccessfulRescale: New size: 1; reason: All metrics below target
+  07:47:09.195939 FailedRescale: client rate limiter Wait returned an error: context deadline exceeded
+  07:47:16.210287 SuccessfulRescale: New size: 2; reason: apa above target
+  07:47:23.240807 SuccessfulRescale: New size: 3; reason: apa above target
+  07:47:58.123441 SuccessfulRescale: New size: 2; reason: All metrics below target
+  07:48:35.408266 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:48:45.409528 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:48:55.410345 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:49:05.411132 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+timeline transitions (phase, spec, desired, active, lastScaleTime, history, gauge failed, gauge held):
+  07:42:04 t=0 1-baseline | 4 |  |  | - | 0 | - | -
+  07:42:09 t=5 1-baseline | 4 | 4 | False/Stable | - | 0 | - | -
+  07:42:46 t=42 2-outage | 4 | 4 | False/Stable | - | 0 | - | -
+  07:42:57 t=53 2-outage | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:42:55Z | 1 | - | -
+  07:43:02 t=58 2-outage | 1 | 1 | True/ReconcilingScaleDiff | 2026-11-20T07:43:02Z | 2 | - | -
+  07:43:13 t=69 2-outage | 1 | 1 | False/Stable | 2026-11-20T07:43:02Z | 2 | - | -
+  07:43:18 t=74 2-outage | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:43:16Z | 3 | - | -
+  07:43:24 t=79 2-outage | 2 | 2 | False/PendingReplicas | 2026-11-20T07:43:02Z | 2 | - | -
+  07:43:34 t=90 2-outage | 2 | 2 | False/Stable | 2026-11-20T07:43:16Z | 3 | - | -
+  07:43:50 t=106 3-scaleup | 2 | 2 | False/Stable | 2026-11-20T07:43:16Z | 3 | - | -
+  07:44:01 t=117 3-scaleup | 4 | 4 | True/ReconcilingScaleDiff | 2026-11-20T07:43:58Z | 4 | - | -
+  07:44:06 t=122 3-scaleup | 4 | 4 | False/PendingReplicas | 2026-11-20T07:43:58Z | 4 | - | -
+  07:44:17 t=133 3-scaleup | 4 | 4 | False/Stable | 2026-11-20T07:43:58Z | 4 | - | -
+  07:44:33 t=148 4-capped | 4 | 4 | False/Stable | 2026-11-20T07:43:58Z | 4 | - | -
+  07:44:43 t=159 4-capped | 5 | 5 | True/ReconcilingScaleDiff | 2026-11-20T07:44:42Z | 5 | - | -
+  07:44:54 t=170 4-capped | 6 | 6 | True/ReconcilingScaleDiff | 2026-11-20T07:44:49Z | 5 | - | -
+  07:44:59 t=175 4-capped | 6 | 6 | False/Stable | 2026-11-20T07:44:49Z | 5 | - | -
+  07:45:15 t=191 5-down-again | 6 | 6 | False/Stable | 2026-11-20T07:44:49Z | 5 | - | -
+  07:45:25 t=201 5-down-again | 3 | 3 | True/ReconcilingScaleDiff | 2026-11-20T07:45:24Z | 5 | - | -
+  07:45:36 t=212 5-down-again | 1 | 1 | True/ReconcilingScaleDiff | 2026-11-20T07:45:31Z | 5 | - | -
+  07:45:41 t=217 5-down-again | 1 | 1 | False/Stable | 2026-11-20T07:45:24Z | 5 | - | -
+  07:45:46 t=222 5-down-again | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:45:45Z | 5 | - | -
+  07:45:57 t=233 6-min7 | 2 | 2 | False/PendingReplicas | 2026-11-20T07:45:24Z | 5 | - | -
+  07:46:02 t=238 6-min7 | 2 | 2 | False/Stable | 2026-11-20T07:45:45Z | 5 | - | -
+  07:46:08 t=243 6-min7 | 7 | 7 | True/ReconcilingScaleDiff | 2026-11-20T07:46:06Z | 5 | - | -
+  07:46:18 t=254 6-min7 | 7 | 7 | False/Stable | 2026-11-20T07:45:45Z | 5 | - | -
+  07:46:39 t=275 7-max5 | 7 | 7 | False/Stable | 2026-11-20T07:45:45Z | 5 | - | -
+  07:46:55 t=291 7-max5 | 3 | 3 | True/ReconcilingScaleDiff | 2026-11-20T07:46:52Z | 5 | - | -
+  07:47:01 t=296 7-max5 | 1 | 1 | True/ReconcilingScaleDiff | 2026-11-20T07:46:59Z | 5 | - | -
+  07:47:16 t=312 7-max5 | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:47:16Z | 5 | - | -
+  07:47:22 t=317 8-recovery | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:47:16Z | 5 | - | -
+  07:47:27 t=323 8-recovery | 3 | 3 | False/Stable | 2026-11-20T07:47:23Z | 5 | - | -
+  07:47:59 t=354 8-recovery | 2 | 2 | False/Stable | 2026-11-20T07:47:58Z | 5 | - | -
+  07:48:25 t=381 9-all-fail | 2 | 2 | False/Stable | 2026-11-20T07:47:58Z | 5 | - | -
+final lastScaleTime 2026-11-20T07:47:58Z
+final scalingHistory:
+  2026-11-20T07:45:24Z 6->3 success=True reason=All metrics below target error=
+  2026-11-20T07:45:45Z 1->2 success=True reason=apa above target error=
+  2026-11-20T07:46:59Z 3->1 success=True reason=All metrics below target error=
+  2026-11-20T07:47:23Z 2->3 success=True reason=apa above target error=
+  2026-11-20T07:47:58Z 3->2 success=True reason=All metrics below target error=

@@ -1,0 +1,12 @@
+# go test -race -count=1 ./pkg/controller/podautoscaler/... at 43c27b35d81eadd51a5502c3d73f4437072ad528 (go1.25.7, GOTOOLCHAIN=local)
+ok  	github.com/vllm-project/aibrix/pkg/controller/podautoscaler	1.607s
+?   	github.com/vllm-project/aibrix/pkg/controller/podautoscaler/aggregation	[no test files]
+ok  	github.com/vllm-project/aibrix/pkg/controller/podautoscaler/algorithm	1.012s
+ok  	github.com/vllm-project/aibrix/pkg/controller/podautoscaler/context	1.010s
+ok  	github.com/vllm-project/aibrix/pkg/controller/podautoscaler/metrics	1.216s
+ok  	github.com/vllm-project/aibrix/pkg/controller/podautoscaler/monitor	1.034s
+ok  	github.com/vllm-project/aibrix/pkg/controller/podautoscaler/types	1.009s
+exit=0
+
+# the five new tests in pkg/controller/podautoscaler, -count=30
+ok  	github.com/vllm-project/aibrix/pkg/controller/podautoscaler	0.343s

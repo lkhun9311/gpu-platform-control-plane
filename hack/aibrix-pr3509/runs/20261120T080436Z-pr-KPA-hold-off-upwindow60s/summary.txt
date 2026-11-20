@@ -1,0 +1,17 @@
+events by reason: emitted / reached
+  AlgorithmRun: 1 / 1
+  FailedGetMetrics: 1 / 1
+  SuccessfulRescale: 1 / 1
+  total: 3 / 3
+emitted events in order (excluding AlgorithmRun):
+  08:05:50.908543 FailedGetMetrics: metric sources vllm:num_requests_waiting could not be read; scaling on the remaining sources
+  08:08:20.911994 SuccessfulRescale: New size: 6; reason: kpa above target
+timeline transitions (phase, spec, desired, active, lastScaleTime, history, gauge failed, gauge held):
+  08:04:59 t=0 1-baseline | 4 |  |  | - | 0 | - | -
+  08:05:04 t=5 1-baseline | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  08:05:41 t=42 2-outage | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  08:05:52 t=53 2-outage | 4 | 4 | False/Stable | - | 0 | 1 | 0
+  08:07:06 t=126 3-scaleup | 4 | 4 | False/Stable | - | 0 | 1 | 0
+final lastScaleTime 2026-11-20T08:08:20Z
+final scalingHistory:
+  2026-11-20T08:08:20Z 4->6 success=True reason=kpa above target error=

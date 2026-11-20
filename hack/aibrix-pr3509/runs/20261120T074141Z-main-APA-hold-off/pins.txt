@@ -1,0 +1,10 @@
+aibrix main       afdb4791527e6039df391cd8a811b6e6c682c975 -> gpuaas-aibrix-pr3509/aibrix-controller:afdb4791527e
+aibrix pr #3509   43c27b35d81eadd51a5502c3d73f4437072ad528 -> gpuaas-aibrix-pr3509/aibrix-controller:43c27b35d81e
+aibrix pr before  cb1a2f3f05d6dbaebff27d036d22ee68609c28f0 (the 2026-11-19 runs)
+simulator         gpuaas-llmd-kv-lab/sim:6ab9d4b2367a
+serving image     gpuaas-aibrix-lane2/simshim:6ab9d4b2367a
+base              gcr.io/distroless/static:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
+kind node         kindest/node:v1.31.12@sha256:0f5cc49c5e73c0c2bb6e2df56e7df189240d83cf94edfa30946482eb08ec57d2
+cluster           aibrix-pr3509, kubeconfig tmp/aibrix-pr3509/kubeconfig
+controller image gpuaas-aibrix-pr3509/aibrix-controller:afdb4791527e
+gpuaas ca5efa9ac4ce07b833e54af4f1e722ff2d6ac69c

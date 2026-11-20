@@ -1,0 +1,40 @@
+# Mutations at 43c27b35, one at a time, go test -count=1 on the package named. Each must fail.
+
+## M1 reportMetricSourceHealth: 'if current.failed != previous.failed {' -> '... || current.failed != "" {' (FailedGetMetrics on every pass)
+--- FAIL: TestReconcileReportsFailedMetricSourcesOnChange (0.00s)
+    partial_metric_failure_test.go:86: after 3 reconciles with queue_length failing, want one Warning FailedGetMetrics naming it, got [Warning FailedGetMetrics metric sources queue_length could not be read; scaling on the remaining sources Warning FailedGetMetrics metric sources queue_length could not be read; scaling on the remaining sources Warning FailedGetMetrics metric sources queue_length could not be read; scaling on the remaining sources]
+FAIL
+FAIL	github.com/vllm-project/aibrix/pkg/controller/podautoscaler	0.163s
+FAIL
+exit=1
+
+## M2 computeScaleDecision: held pass also calls stabilizeRecommendation (held recommendation recorded)
+--- FAIL: TestHeldRecommendationsStayOutOfTheCooldownWindow (0.00s)
+    --- FAIL: TestHeldRecommendationsStayOutOfTheCooldownWindow/held_recommendations_are_not_recorded (0.00s)
+        partial_metric_failure_test.go:214: DesiredReplicas = 4, want 6
+FAIL
+FAIL	github.com/vllm-project/aibrix/pkg/controller/podautoscaler	0.253s
+FAIL
+exit=1
+
+## M3 computeScaleDecision: '&& false' appended to the hold condition (no hold)
+--- FAIL: TestComputeScaleDecisionHoldsScaleDownWhileAMetricFails (0.00s)
+    --- FAIL: TestComputeScaleDecisionHoldsScaleDownWhileAMetricFails/hold_keeps_the_replicas (0.00s)
+    --- FAIL: TestComputeScaleDecisionHoldsScaleDownWhileAMetricFails/hold_still_applies_maxReplicas (0.00s)
+    --- FAIL: TestComputeScaleDecisionHoldsScaleDownWhileAMetricFails/hold_still_applies_minReplicas (0.00s)
+--- FAIL: TestHeldRecommendationsStayOutOfTheCooldownWindow (0.00s)
+    --- FAIL: TestHeldRecommendationsStayOutOfTheCooldownWindow/held_recommendations_are_not_recorded (0.00s)
+--- FAIL: TestReconcileHoldsScaleDownEndToEnd (0.00s)
+    --- FAIL: TestReconcileHoldsScaleDownEndToEnd/KPA (0.00s)
+    --- FAIL: TestReconcileHoldsScaleDownEndToEnd/APA (0.00s)
+FAIL
+FAIL	github.com/vllm-project/aibrix/pkg/controller/podautoscaler	0.258s
+FAIL
+exit=1
+
+## M4 monitor.ForgetScaleAction: autoscalerFailedMetricSources.DeletePartialMatch removed (package monitor)
+--- FAIL: TestMonitor_RecordMetricSourceHealth (0.00s)
+FAIL
+FAIL	github.com/vllm-project/aibrix/pkg/controller/podautoscaler/monitor	0.007s
+FAIL
+exit=1

@@ -1,0 +1,52 @@
+events by reason: emitted / reached
+  AlgorithmRun: 6 / 6
+  FailedComputeScale: 4 / 4
+  FailedGetMetrics: 1 / 1
+  RecoveredMetrics: 1 / 1
+  SuccessfulRescale: 6 / 6
+  total: 18 / 18
+emitted events in order (excluding AlgorithmRun):
+  07:27:33.759144 FailedGetMetrics: metric sources vllm:num_requests_waiting could not be read; scaling on the remaining sources
+  07:27:33.771784 SuccessfulRescale: New size: 2; reason: Available metrics below target (vllm:num_requests_waiting could not be read)
+  07:28:32.153716 SuccessfulRescale: New size: 4; reason: kpa above target
+  07:29:21.267491 SuccessfulRescale: New size: 6; reason: kpa above target
+  07:30:40.786712 SuccessfulRescale: New size: 8; reason: kpa above target
+  07:31:21.868626 SuccessfulRescale: New size: 5; reason: Available metrics below target (vllm:num_requests_waiting could not be read)
+  07:31:35.926254 SuccessfulRescale: New size: 3; reason: Available metrics below target (vllm:num_requests_waiting could not be read)
+  07:31:59.986369 RecoveredMetrics: metric sources vllm:num_requests_waiting can be read again
+  07:33:11.161074 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:33:21.161751 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:33:31.162225 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+  07:33:41.162783 FailedComputeScale: failed to compute metric-based replicas: all 2 metric sources failed for PodAutoscaler pr3509/chat
+timeline transitions (phase, spec, desired, active, lastScaleTime, history, gauge failed, gauge held):
+  07:26:39 t=0 1-baseline | 4 |  |  | - | 0 | - | -
+  07:26:49 t=10 1-baseline | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  07:27:22 t=42 2-outage | 4 | 4 | False/Stable | - | 0 | 0 | 0
+  07:27:37 t=58 2-outage | 2 | 2 | True/ReconcilingScaleDiff | 2026-11-20T07:27:33Z | 1 | 1 | 0
+  07:27:43 t=63 2-outage | 2 | 2 | False/Stable | 2026-11-20T07:27:33Z | 1 | 1 | 0
+  07:28:25 t=106 3-scaleup | 2 | 2 | False/Stable | 2026-11-20T07:27:33Z | 1 | 1 | 0
+  07:28:35 t=116 3-scaleup | 4 | 4 | True/ReconcilingScaleDiff | 2026-11-20T07:28:32Z | 2 | 1 | 0
+  07:28:41 t=121 3-scaleup | 4 | 4 | False/Stable | 2026-11-20T07:28:32Z | 2 | 1 | 0
+  07:29:07 t=148 4-capped | 4 | 4 | False/Stable | 2026-11-20T07:28:32Z | 2 | 1 | 0
+  07:29:23 t=164 4-capped | 6 | 6 | True/ReconcilingScaleDiff | 2026-11-20T07:29:21Z | 3 | 1 | 0
+  07:29:28 t=169 4-capped | 6 | 6 | False/Stable | 2026-11-20T07:28:32Z | 2 | 1 | 0
+  07:29:49 t=190 5-down-again | 6 | 6 | False/Stable | 2026-11-20T07:28:32Z | 2 | 1 | 0
+  07:30:32 t=232 6-min7 | 6 | 6 | False/Stable | 2026-11-20T07:28:32Z | 2 | 1 | 0
+  07:30:43 t=243 6-min7 | 8 | 8 | True/ReconcilingScaleDiff | 2026-11-20T07:30:40Z | 3 | 1 | 0
+  07:30:48 t=249 6-min7 | 8 | 8 | False/Stable | 2026-11-20T07:30:40Z | 3 | 1 | 0
+  07:31:15 t=275 7-max5 | 8 | 8 | False/Stable | 2026-11-20T07:30:40Z | 3 | 1 | 0
+  07:31:26 t=286 7-max5 | 5 | 5 | True/ReconcilingScaleDiff | 2026-11-20T07:31:21Z | 4 | 1 | 0
+  07:31:31 t=292 7-max5 | 5 | 5 | False/Stable | 2026-11-20T07:30:40Z | 3 | 1 | 0
+  07:31:36 t=297 7-max5 | 3 | 3 | True/ReconcilingScaleDiff | 2026-11-20T07:31:35Z | 5 | 1 | 0
+  07:31:47 t=308 7-max5 | 3 | 3 | False/Stable | 2026-11-20T07:30:40Z | 3 | 1 | 0
+  07:31:52 t=313 7-max5 | 3 | 3 | False/Stable | 2026-11-20T07:31:35Z | 5 | 1 | 0
+  07:31:58 t=318 8-recovery | 3 | 3 | False/Stable | 2026-11-20T07:31:35Z | 5 | 1 | 0
+  07:32:03 t=324 8-recovery | 3 | 3 | False/Stable | 2026-11-20T07:31:35Z | 5 | 0 | 0
+  07:33:01 t=382 9-all-fail | 3 | 3 | False/Stable | 2026-11-20T07:31:35Z | 5 | 0 | 0
+final lastScaleTime 2026-11-20T07:31:35Z
+final scalingHistory:
+  2026-11-20T07:27:33Z 4->2 success=True reason=Available metrics below target (vllm:num_requests_waiting could not be read) error=
+  2026-11-20T07:28:32Z 2->4 success=True reason=kpa above target error=
+  2026-11-20T07:30:40Z 6->8 success=True reason=kpa above target error=
+  2026-11-20T07:31:21Z 8->5 success=True reason=Available metrics below target (vllm:num_requests_waiting could not be read) error=
+  2026-11-20T07:31:35Z 5->3 success=True reason=Available metrics below target (vllm:num_requests_waiting could not be read) error=
