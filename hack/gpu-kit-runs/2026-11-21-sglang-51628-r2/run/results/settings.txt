@@ -1,0 +1,7 @@
+image=lmsysorg/sglang@sha256:d7976d3a5963ea29eb34a3d94dd2304b3b9a8245da78add7ada9cb15bf77a641
+sglang_sha=03fde9cc392a5f84a54a365635ffed0061cdf1b8
+model=nvidia/Nemotron-H-4B-Instruct-128K@f3c0b6c3b7fcb39e132b6007386e33a586d6e6cb
+server=python -m sglang.launch_server --model-path <model> --trust-remote-code
+traffic=sglang.benchmark.serving random-ids 1024 in, 512 out, range ratio 1.0; warmup 64 at c32, then 3 runs each at c1 (4), c16 (32), c128 (128)
+control=on (--warmups prefill_shapes)
+budget_s=3150

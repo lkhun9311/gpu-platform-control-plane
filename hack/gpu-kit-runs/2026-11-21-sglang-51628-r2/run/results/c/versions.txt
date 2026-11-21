@@ -1,0 +1,11 @@
+sglang=0.0.0.dev1+g03fde9cc3
+sglang_dir=/sgl-workspace/sglang/python/sglang
+triton=3.8.0
+torch=2.14.1+cu130
+cuda=13.0
+gpu=NVIDIA A10G
+CUDA_VERSION=13.0.3
+SGLANG_BUILD_COMMIT=03fde9cc392a5f84a54a365635ffed0061cdf1b8
+SGLANG_BUILD_URL=https://github.com/sgl-project/sglang/actions/runs/44644189360
+SGLANG_IMAGE_TAG=lmsysorg/sglang:nightly-dev-20261120-03fde9cc
+SGLANG_RUST_BUILD_MODE=never

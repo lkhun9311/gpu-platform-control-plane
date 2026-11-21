@@ -1,0 +1,81 @@
+VERDICT: REPRODUCED
+REPRODUCED: 53 Mamba2 kernel compile(s) after ready, 33.32 s in all; _chunk_scan_fwd_kernel compiled 24 time(s), 23.97 s.
+GATE: pass: [2026-11-21 02:32:34 PID365] Disable prefill CUDA graph because some layers do not apply Standard GQA
+MAMBA2 KERNELS AFTER READY (main): 53
+  _state_passing_fwd_kernel 0.09 s in warmup (9.8 s after ready)
+  _state_passing_fwd_kernel 0.10 s in warmup (12.0 s after ready)
+  _state_passing_fwd_kernel 0.10 s in warmup (12.2 s after ready)
+  _state_passing_fwd_kernel 0.11 s in warmup (12.4 s after ready)
+  _state_passing_fwd_kernel 0.11 s in warmup (12.7 s after ready)
+  _state_passing_fwd_kernel 0.12 s in warmup (12.9 s after ready)
+  _state_passing_fwd_kernel 0.13 s in warmup (13.1 s after ready)
+  _chunk_scan_fwd_kernel 0.47 s in warmup (13.7 s after ready)
+  _chunk_scan_fwd_kernel 0.55 s in warmup (14.4 s after ready)
+  _chunk_scan_fwd_kernel 0.60 s in warmup (15.1 s after ready)
+  _chunk_scan_fwd_kernel 0.62 s in warmup (15.8 s after ready)
+  _chunk_scan_fwd_kernel 0.66 s in warmup (16.6 s after ready)
+  _chunk_scan_fwd_kernel 1.02 s in warmup (17.7 s after ready)
+  _chunk_scan_fwd_kernel 0.80 s in warmup (18.6 s after ready)
+  _chunk_scan_fwd_kernel 1.10 s in warmup (19.8 s after ready)
+  _chunk_scan_fwd_kernel 0.58 s in warmup (20.5 s after ready)
+  _chunk_scan_fwd_kernel 1.18 s in warmup (21.8 s after ready)
+  _chunk_scan_fwd_kernel 0.90 s in warmup (22.8 s after ready)
+  _chunk_scan_fwd_kernel 0.66 s in warmup (23.6 s after ready)
+  _chunk_scan_fwd_kernel 1.44 s in warmup (25.1 s after ready)
+  _chunk_scan_fwd_kernel 2.36 s in warmup (27.6 s after ready)
+  _chunk_scan_fwd_kernel 1.27 s in warmup (28.8 s after ready)
+  _chunk_scan_fwd_kernel 1.39 s in warmup (30.3 s after ready)
+  _chunk_scan_fwd_kernel 1.21 s in warmup (31.7 s after ready)
+  _chunk_scan_fwd_kernel 1.57 s in warmup (33.3 s after ready)
+  _chunk_state_varlen_kernel 0.38 s in warmup (33.8 s after ready)
+  _chunk_state_varlen_kernel 0.43 s in warmup (34.4 s after ready)
+  _chunk_state_varlen_kernel 0.41 s in warmup (34.9 s after ready)
+  _chunk_state_varlen_kernel 0.52 s in warmup (35.5 s after ready)
+  _chunk_state_varlen_kernel 0.76 s in warmup (36.4 s after ready)
+  _chunk_state_varlen_kernel 0.72 s in warmup (37.2 s after ready)
+  _chunk_state_varlen_kernel 0.62 s in warmup (37.9 s after ready)
+  _chunk_state_varlen_kernel 0.64 s in warmup (38.7 s after ready)
+  _chunk_state_varlen_kernel 0.75 s in warmup (39.5 s after ready)
+  _causal_conv1d_fwd_kernel 0.41 s in warmup (40.5 s after ready)
+  _chunk_cumsum_fwd_kernel 0.23 s in warmup (40.7 s after ready)
+  _chunk_state_fwd_kernel 0.53 s in warmup (41.2 s after ready)
+  _state_passing_fwd_kernel 0.10 s in warmup (41.3 s after ready)
+  _bmm_chunk_fwd_kernel 0.43 s in warmup (41.8 s after ready)
+  _chunk_scan_fwd_kernel 0.53 s in warmup (42.3 s after ready)
+  _chunk_state_varlen_kernel 0.51 s in warmup (42.8 s after ready)
+  _state_passing_fwd_kernel 0.16 s in warmup (43.8 s after ready)
+  _chunk_scan_fwd_kernel 1.01 s in warmup (44.8 s after ready)
+  _state_passing_fwd_kernel 0.13 s in warmup (57.3 s after ready)
+  _chunk_scan_fwd_kernel 1.03 s in warmup (58.3 s after ready)
+  _state_passing_fwd_kernel 0.09 s in c1-r1 (194.9 s after ready)
+  _state_passing_fwd_kernel 0.10 s in c16-r1 (323.7 s after ready)
+  _chunk_scan_fwd_kernel 1.01 s in c16-r1 (324.7 s after ready)
+  _chunk_state_varlen_kernel 0.44 s in c16-r1 (325.2 s after ready)
+  _state_passing_fwd_kernel 0.13 s in c16-r1 (326.1 s after ready)
+  _chunk_scan_fwd_kernel 1.00 s in c16-r1 (327.1 s after ready)
+  _state_passing_fwd_kernel 0.12 s in c16-r3 (491.6 s after ready)
+  _chunk_scan_fwd_kernel 1.01 s in c16-r3 (492.6 s after ready)
+OTHER KERNELS AFTER READY (main, not part of the verdict): 9
+  _layer_norm_fwd_1pass_kernel 0.29 s in warmup (10.1 s after ready)
+  write_req_to_token_pool_triton 0.11 s in warmup (39.8 s after ready)
+  _small_copy_kernel 0.21 s in warmup (40.0 s after ready)
+  _layer_norm_fwd_1pass_kernel 0.29 s in warmup (43.1 s after ready)
+  _small_copy_kernel 0.15 s in warmup (43.3 s after ready)
+  _small_copy_kernel 0.15 s in warmup (45.3 s after ready)
+  _small_copy_kernel 0.20 s in warmup (56.6 s after ready)
+  _small_copy_kernel 0.16 s in c1-r1 (194.8 s after ready)
+  _layer_norm_fwd_1pass_kernel 0.18 s in c16-r1 (325.3 s after ready)
+MAMBA2 KERNELS COMPILED BEFORE READY (main): _bmm_chunk_fwd_kernel, _causal_conv1d_fwd_kernel, _causal_conv1d_update_kernel, _chunk_cumsum_fwd_kernel, _chunk_scan_fwd_kernel, _chunk_state_fwd_kernel, _chunk_state_varlen_kernel, _selective_scan_update_kernel, _state_passing_fwd_kernel
+TTFT ms per burst (main): label mean median p99
+  warmup 50110.7 49119.5 82974.7
+  c1-r1 221.5 193.9 432.5
+  c1-r2 159.9 193.4 193.8
+  c1-r3 169.1 194.1 228.8
+  c16-r1 13937.1 13119.9 27683.9
+  c16-r2 12561.0 13134.0 24905.7
+  c16-r3 13114.2 13498.4 26284.5
+  c128-r1 106020.9 110006.0 215921.2
+  c128-r2 106018.6 110018.0 215909.7
+  c128-r3 106052.3 110078.1 215920.0
+FIRST-BURST TTFT HIT: INCOMPLETE: the CONTROL arm did not run: 831 s left; the main arm took 1411 s and the control's warmup adds about 300 s
+CONTROL: not run: 831 s left; the main arm took 1411 s and the control's warmup adds about 300 s

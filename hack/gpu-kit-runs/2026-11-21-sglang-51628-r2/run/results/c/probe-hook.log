@@ -1,0 +1,7 @@
+sglang_watch_installed=True
+2026-11-21 02:30:45,537 sglang.srt.utils.triton_load_watch WARNING Triton kernel '_sgl51628_probe_b' took 0.04 s to compile after serving started. Serving-time compilation can stall the engine; pre-compile it during engine init.
+probe sum=3072.0
+probe_hook_installed=True
+probe_a_recorded=True
+probe_b_recorded=True
+probe_hook=ok

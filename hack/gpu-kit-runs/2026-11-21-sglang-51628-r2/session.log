@@ -1,0 +1,70 @@
+== gpu kit docs/oss/sglang-51628/kit-r2 at 7f6cdc052abc085cfb3c42a18da1fbdcbbf3ea27, from 7f6cdc052abc085cfb3c42a18da1fbdcbbf3ea27, into hack/gpu-kit-runs/2026-11-21-sglang-51628-r2
+== hard stop 3720 s after LaunchTime; worst case 4020 s at $0.8683/h all in, $0.9696, under $1.00
+== Spot g5.2xlarge under $0.80/h, cheapest first: ap-northeast-2c ap-northeast-2a ap-northeast-2d (ap-northeast-2d	0.707400 ap-northeast-2a	0.684500 ap-northeast-2c	0.683600)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the purchase checks: credentials expire in 646 minutes
+== before the purchase: credentials expire in 646 minutes
+== launching g5.2xlarge Spot (cap $0.80/h, $0.8683/h all in), study-deadline 2026-11-21T03:17:20Z -- the instance bills from here
+== launched i-0ffef39cb34e4f7ba in ap-northeast-2c
+== LaunchTime 2026-11-21T02:16:23+00:00; the sweeper's deadline moved to 2026-11-21T03:17:53Z
+== the wait ended with status 0 ()
+== waiting up to 1689s for EC2 to report the instance terminated
+== terminating i-0ffef39cb34e4f7ba
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is shutting-down
+== i-0ffef39cb34e4f7ba is terminated
+== evidence returned; termination confirmed; run.sh exit 0

@@ -1,0 +1,9 @@
+triton_cache_entries_at_start=0
+launch_epoch=1795228293.264612983
+ready_line_epoch=1795228445.002952953
+health_epoch=1795228447.071317120
+ready_epoch=1795228447.072763832
+gate_line=[2026-11-21 02:32:34 PID365] Disable prefill CUDA graph because some layers do not apply Standard GQA
+capture_line=none
+gate=pass
+stopped_epoch=1795229704.256276976

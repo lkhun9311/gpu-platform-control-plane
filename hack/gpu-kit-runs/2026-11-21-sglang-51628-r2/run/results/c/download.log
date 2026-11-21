@@ -1,0 +1,3 @@
+Fetching 10 files:   0%|          | 0/10 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 10 files:  10%|█         | 1/10 [00:00<00:03,  2.44it/s]Fetching 10 files:  60%|██████    | 6/10 [00:00<00:00, 11.55it/s]Fetching 10 files:  80%|████████  | 8/10 [00:02<00:00,  2.64it/s]Fetching 10 files:  90%|█████████ | 9/10 [00:34<00:06,  6.52s/it]Fetching 10 files: 100%|██████████| 10/10 [00:39<00:00,  6.04s/it]Fetching 10 files: 100%|██████████| 10/10 [00:39<00:00,  3.91s/it]
+/models/nemotron-h-4b-instruct-128k
