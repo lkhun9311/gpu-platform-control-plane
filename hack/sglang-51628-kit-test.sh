@@ -17,8 +17,9 @@ FAKES="$ROOT/hack/sglang-51628-fake"
 CHECK="$ROOT/hack/sglang-51628-kit-check.py"
 # Scratch space lives on disk, since /tmp is RAM-backed on the development machine.
 SCRATCH="${SCRATCH:-$HOME/.cache/sglang-51628}"
-mkdir -p "$SCRATCH"
-WORK=$(mktemp -d -p "$SCRATCH")
+# An empty WORK would point every path at /, where a check can pass on files that were never written, so the run stops instead.
+mkdir -p "$SCRATCH" || { echo "FAIL cannot create the scratch directory $SCRATCH" >&2; exit 1; }
+WORK=$(mktemp -d -p "$SCRATCH") && [ -n "$WORK" ] && [ -d "$WORK" ] || { echo "FAIL cannot create a work directory under $SCRATCH" >&2; exit 1; }
 export SCRATCH
 # The kit is force-added past the docs ignore rule, so no bytecode may be left in it for a later git add -f to pick up.
 export PYTHONDONTWRITEBYTECODE=1
