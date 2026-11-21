@@ -67,7 +67,7 @@ That is what makes N replicas share one budget rather than N budgets: there is n
 The semantics match the memory store on purpose, so switching stores does not change what a tenant gets:
 
 - `rate` and `burst` arrive as arguments on every call, so an edited policy takes effect on the next request and keeps the tokens already accumulated, as `SetLimit`/`SetBurst` do in memory; a key is never rebuilt on a policy change, which would hand out a fresh burst.
-- The time before an edit is refilled at the policy that was in force over it, as `rate.Limiter.SetLimitAt` advances before it switches. The first version refilled the whole gap at the new rate, so raising a rate granted a burst the tenant never accrued; codex's review of `fb1de164` found it.
+- The time before an edit is refilled at the policy that was in force over it, as `rate.Limiter.SetLimitAt` advances before it switches. The first version refilled the whole gap at the new rate, so raising a rate granted a burst the tenant never accrued (`fb1de164`, fixed in `b5718338`).
 - A refusal spends nothing.
 - A nil `rateLimit` is unlimited and never reaches Redis.
 - The refusal's wait becomes `Retry-After` through the same `retryAfterSeconds` as today.
@@ -141,7 +141,7 @@ The first call after the second tries Redis again, so recovery takes at most a s
 | retries | 0 | a retried script whose reply was lost would spend a second token; a lost reply is a failure handled by the policy |
 | `--rate-limit-redis-password-file` | optional | read once at start; an empty or missing named file stops the gateway, as `--metrics-bearer-token-file` does |
 | pool | go-redis default size (10 per CPU), `PoolTimeout` = the timeout | one short script per request; waiting for a connection is bounded like everything else |
-| context deadline on the socket | on (`ContextTimeoutEnabled`) | go-redis otherwise bounds each read by the read timeout alone, so `EVALSHA`, `NOSCRIPT` and `EVAL` could take twice the timeout and still succeed; codex's review of `fb1de164` found it |
+| context deadline on the socket | on (`ContextTimeoutEnabled`) | go-redis otherwise bounds each read by the read timeout alone, so `EVALSHA`, `NOSCRIPT` and `EVAL` could take twice the timeout and still succeed (`fb1de164`, fixed in `b5718338`) |
 | dial attempts | 1 | go-redis redials five times with backoff by default, which the deadline would cut short anyway |
 
 Redis does not gate readiness.

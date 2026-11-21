@@ -7,7 +7,7 @@ Files here: `log.txt` (full run log), `arms.tsv`, one `<arm>-<rep>.tsv` per arm 
 ## Setup
 
 - Tree `33b6a75`; its `cmd/` and `internal/` are `f951fa8`'s, and the log records 0 uncommitted files under them.
-- After this run, codex's review of `fb1de164` led to `b571833`: the script now refills the gap before a policy edit at the stored old policy, and one context deadline bounds the whole Redis call. Under the constant policy every arm here used, the first change does not alter what is admitted, and the second only bounds a slow Redis; neither was re-measured on kind. The unit tests and the mutations below ran at `b571833`.
+- After this run, `b571833` changed two things: the script refills the gap before a policy edit at the stored old policy, and one context deadline bounds the whole Redis call. Under the constant policy every arm here used, the first change does not alter what is admitted. The second can change an outcome when `EVALSHA` plus `EVAL` exceeds the timeout, because the failure policy then decides. Neither was re-measured on kind. The unit tests and the mutations below ran at `b571833`.
 - A throwaway single-node kind cluster `gwshared` with its own kubeconfig in a temporary directory; `~/.kube/config` was not read or written (its checksum matched before and after), and the cluster was deleted at the end (`cluster gwshared deleted: yes` in the log).
 - The operator, the gateway and the stub backend (`benchharness stub-serve`) built from that tree; Redis `redis:7.4.7-alpine` (`sha256:02f2cc48…bfcf`, checked against the pulled image) as one Pod with no persistence.
 - One tenant, `rateLimit: {requestsPerMinute: 60, burst: 5}`: one token a second, a bucket of five.

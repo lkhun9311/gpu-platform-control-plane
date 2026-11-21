@@ -275,7 +275,7 @@ var _ = Describe("redisLimiter against a real Redis", Ordered, func() {
 
 	// A raised rate applies from the edit on, not to the time before it, as rate.Limiter's SetLimitAt does.
 	// 300 ms at one a minute accrues 0.005 tokens; refilled at the new 6000 a minute it would be 30, clamped to the burst.
-	// Mutation that turns this red: refill the gap at the new rate (the code codex reviewed in fb1de164).
+	// Mutation that turns this red: refill the gap at the new rate, as fb1de164 did.
 	It("does not refill the time before a policy edit at the new rate", func() {
 		l := newTestRedisLimiter(redisAddr, uniquePrefix(), RedisFailureClosed, time.Second)
 		slow := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 1, Burst: 3}

@@ -196,8 +196,7 @@ func (b *bucketRegistry) Reserve(tenant string, rl *platformv1.GPUQuotaRateLimit
 	//
 	// Allow decides, and the wait is read afterwards without taking anything.
 	// Reserving to learn the wait and cancelling on refusal was tried and put the bucket in debt: a reservation
-	// cancelled after a later one was taken restores nothing, so overlapping refusals spent tokens no request used
-	// (codex review of the branch).
+	// cancelled after a later one was taken restores nothing, so overlapping refusals spent tokens no request used.
 	if limiter.Allow() {
 		return true, 0
 	}

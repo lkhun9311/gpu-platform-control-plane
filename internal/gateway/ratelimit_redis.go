@@ -90,8 +90,7 @@ func (c RedisRateLimitConfig) Validate() error {
 // in the memory store.
 // The time since the last call is refilled at the rate and capped at the burst that were in force over it, stored with
 // the bucket, and only then is the new policy applied, as rate.Limiter's SetLimitAt advances before it switches.
-// Refilling the whole gap at the new rate would hand a tenant whose rate was raised a burst it never accrued (codex
-// review of fb1de164).
+// Refilling the whole gap at the new rate would hand a tenant whose rate was raised a burst it never accrued.
 // The key expires once the bucket would be full again, and a missing key reads as full, so expiry discards nothing.
 // Numbers are written with %.17g because Redis would otherwise format them with fewer digits, and ts in microseconds
 // has sixteen.
@@ -182,8 +181,8 @@ func newRedisLimiter(cfg RedisRateLimitConfig) (*redisLimiter, error) {
 		// The call's context bounds it as well, so this states the bound rather than relying on that.
 		PoolTimeout: cfg.Timeout,
 		// Without this go-redis ignores the call's deadline on the socket and bounds each read by ReadTimeout alone, so an
-		// EVALSHA answered NOSCRIPT and the EVAL after it could take twice the timeout and still succeed (codex review of
-		// fb1de164); with it the whole call shares one bound.
+		// EVALSHA answered NOSCRIPT and the EVAL after it could take twice the timeout and still succeed.
+		// With it the whole call shares one bound.
 		ContextTimeoutEnabled: true,
 	})
 	redisAvailable.Set(1)
