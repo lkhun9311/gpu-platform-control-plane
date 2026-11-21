@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
-# Offline checks for the vLLM #69058 kit in docs/oss/vllm-69058/kit-r1, run before any GPU is bought.
+# Offline checks for the vLLM #69058 kit r3 in docs/oss/vllm-69058/kit-r3, run before any GPU is bought.
 # No GPU, no network and no AWS: pytest, python, hf and nvidia-smi are the fakes in hack/vllm-69058-fake, and aws is a fake that records its calls.
 # The vLLM checkout is real, a detached worktree at the pinned commit of a local vLLM repository (VLLM_SRC), so the pinned diff is applied for real.
 # Each verdict rule and each run.sh guard is also run against a mutant that breaks it, and the mutant must be caught.
 # The runner checks need the kit committed, since the session ships a commit; they clone this tree's HEAD.
+# Kit r1, which runs r1 and r2 used, was checked by this script's earlier version at 2f31a67b.
 #
 #   VLLM_SRC=/path/to/vllm bash hack/vllm-69058-kit-test.sh
 set -uo pipefail
@@ -13,15 +14,17 @@ unset INSTANCE_TYPE KIT_ENV SESSION_CONFIRM AWS_PROFILE
 unset BUDGET_S PYTEST_CAP_S LLM_CAP_S KIT_DRY_RUN KIT_OFFLINE_TEST OFFLINE_VLLM_SRC OFFLINE_MODEL_BIN_SHA256 FAKE_MODE FAKE_CUDA FAKE_HF FAKE_HF_DIR \
   FAKE_EXPECT_OFFLINE HF_HUB_OFFLINE TRANSFORMERS_OFFLINE VLLM_ENABLE_V1_MULTIPROCESSING
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KIT="$ROOT/docs/oss/vllm-69058/kit-r1"
+KIT="$ROOT/docs/oss/vllm-69058/kit-r3"
 FAKES="$ROOT/hack/vllm-69058-fake"
 CHECK="$ROOT/hack/vllm-69058-kit-check.py"
 SRC="${VLLM_SRC:-$HOME/workspace/oss/vllm}"
 VLLM_SHA=2f170a0fed20fd84dfcf6da2a3a8188a32f67e4e
-DIFF_SHA256=210caa5fa2f391720dabba5445d297bc414c31ebf650358b8325009644ecf11d
-# The runtime session re-pinned the diff at storage commit b7dc8449, its round-4 draft, so the comparison reads that commit, not the file as it is now.
+DIFF_SHA256=0a8ca6235cbd59aeca25712c43efe391ae08d4c4fa7b14967cabe3d88bb3cdde
+# The runtime session's round-5 test fix is local-fix.diff at storage commit 4f9bd3e5, and its round-4 draft, whose source part run r2 tested, is at b7dc8449.
 STORAGE="$HOME/workspace/storage"
-STORAGE_REF=b7dc8449:open-source/contributions/vllm/hf3fs-load-errors-69058/local-fix.diff
+DIFF_PATH=open-source/contributions/vllm/hf3fs-load-errors-69058/local-fix.diff
+STORAGE_REF=4f9bd3e5:$DIFF_PATH
+ROUND4_REF=b7dc8449:$DIFF_PATH
 # The fake hf writes "fake pytorch_model.bin" plus a newline as the weights, and this is its sha256.
 FAKE_BIN_SHA256=702621c64b6d1269dfb348b9109f388ab469b74f394201717a1b1cd9cd1a5d8b
 # Scratch space lives on disk, since /tmp is RAM-backed on the development machine.
@@ -68,13 +71,19 @@ check "the kit's diff has the pinned sha256" "[ \"\$(sha256sum '$KIT/local-fix.d
 check "run.sh pins the same sha256 and commit" "command grep -qx 'DIFF_SHA256=$DIFF_SHA256' '$KIT/run.sh' && command grep -qx 'VLLM_SHA=$VLLM_SHA' '$KIT/run.sh'"
 check "run.sh pins opt-125m at 27dcfa74d3 with the hub's sha256 for pytorch_model.bin" \
   "command grep -qx 'MODEL_REV=27dcfa74d334bc871f3234de431e71c6eeba5dd6' '$KIT/run.sh' && command grep -qx 'MODEL_BIN_SHA256=2d74da6615135c58cf3cf9ad4cb11e7c613ff9e55fe658a47ab83b6c8d1174a9' '$KIT/run.sh'"
-if git -C "$STORAGE" show "$STORAGE_REF" >"$WORK/storage.diff" 2>"$WORK/storage.err"; then
+# srcpart FILE: the diff's sections for files outside tests/, the part the fix side adds on top of the base side.
+srcpart() { awk '/^diff --git /{keep = ($3 !~ /^a\/tests\//)} keep' "$1"; }
+if git -C "$STORAGE" show "$STORAGE_REF" >"$WORK/storage.diff" 2>"$WORK/storage.err" && git -C "$STORAGE" show "$ROUND4_REF" >"$WORK/round4.diff" 2>>"$WORK/storage.err"; then
   check "the kit's diff is byte for byte storage $STORAGE_REF" "cmp -s '$KIT/local-fix.diff' '$WORK/storage.diff'"
+  check "the diff's source part is byte for byte round 4's ($ROUND4_REF), which run r2 decided, so command (a) is not repeated" \
+    "srcpart '$KIT/local-fix.diff' > '$WORK/src5' && srcpart '$WORK/round4.diff' > '$WORK/src4' && [ -s '$WORK/src5' ] && cmp -s '$WORK/src5' '$WORK/src4' \
+     && [ \"\$(command grep -c '^diff --git a/vllm/' '$WORK/src5')\" = 2 ]"
+  check "the two drafts differ only in the test file" "! cmp -s '$KIT/local-fix.diff' '$WORK/round4.diff'"
   # A newer draft in storage is reported, not taken: the kit runs what the spec pinned.
-  cmp -s "$KIT/local-fix.diff" "$STORAGE/${STORAGE_REF#*:}" ||
-    echo "note storage's working copy of the diff differs from $STORAGE_REF (sha256 $(sha256sum "$STORAGE/${STORAGE_REF#*:}" | cut -d' ' -f1)); the kit keeps the pinned one"
+  cmp -s "$KIT/local-fix.diff" "$STORAGE/$DIFF_PATH" ||
+    echo "note storage's working copy of the diff differs from $STORAGE_REF (sha256 $(sha256sum "$STORAGE/$DIFF_PATH" | cut -d' ' -f1)); the kit keeps the pinned one"
 else
-  echo "skip storage $STORAGE_REF is not readable here: $(cat "$WORK/storage.err")"
+  check "storage $STORAGE_REF and $ROUND4_REF are readable ($(cat "$WORK/storage.err"))" "false"
 fi
 if git -C "$SRC" cat-file -e "$VLLM_SHA^{commit}" 2>"$WORK/src.err"; then
   git -C "$SRC" worktree add -q --detach "$WORK/apply" "$VLLM_SHA" >"$WORK/apply.log" 2>&1
@@ -87,7 +96,7 @@ else
 fi
 
 # ---------------------------------------------------------------- the Python units
-python3 -I "$CHECK" "$KIT" "$FAKES/cpu-logs" >"$WORK/units.log" 2>&1; rc=$?
+python3 -I "$CHECK" "$KIT" "$FAKES/cpu-logs" "$FAKES/gpu-r2-logs" >"$WORK/units.log" 2>&1; rc=$?
 check "the unit checks pass ($(command grep -c '^ok' "$WORK/units.log") ok, $(command grep -c '^FAIL' "$WORK/units.log") failed)" "[ $rc = 0 ]"
 command grep '^FAIL' "$WORK/units.log" >&2
 
@@ -101,30 +110,32 @@ dry() {
   rm -rf "$WORK/dry"
   env -i PATH="$PATH" HOME="$HOME" KIT_DRY_RUN=1 OUT="$WORK/dry" "$@" bash "$k/run.sh" "${args[@]}" >"$WORK/dry.out" 2>&1
 }
-check "the default settings are accepted and recorded, the three commands and (c)'s environment included" \
-  "dry '$KIT' && command grep -qx 'budget_s=3200' '$WORK/dry/settings.txt' && command grep -qx 'llm_cap_s=900' '$WORK/dry/settings.txt' \
-   && command grep -qx 'command_a=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -k TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure -rA' '$WORK/dry/settings.txt' \
+check "the default settings are accepted and recorded, the two commands, (c)'s environment and why (a) is not run included" \
+  "dry '$KIT' && command grep -qx 'budget_s=1500' '$WORK/dry/settings.txt' && command grep -qx 'llm_cap_s=600' '$WORK/dry/settings.txt' \
    && command grep -qx 'command_c=cd tests && pytest -v -s v1/kv_connector/unit/test_hf3fs_connector.py -k TestHF3FSLoadFailureEndToEnd -rA' '$WORK/dry/settings.txt' \
    && command grep -qx 'command_c_env=VLLM_ENABLE_V1_MULTIPROCESSING=0' '$WORK/dry/settings.txt' \
-   && command grep -qx 'command_b=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -rA' '$WORK/dry/settings.txt'"
+   && command grep -qx 'command_b=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -rA' '$WORK/dry/settings.txt' \
+   && command grep -qx 'command_a=not run; the source part of the diff is byte-identical to round 4, which run r2 decided' '$WORK/dry/settings.txt'"
 check "a positional argument is refused, and nothing is written" "! dry '$KIT' extra && command grep -qF 'takes no arguments' '$WORK/dry.out' && [ ! -e '$WORK/dry' ]"
-check "BUDGET_S=3201, past the session's 3,300 s for run.sh less a margin, is refused" "! dry '$KIT' -- BUDGET_S=3201 && command grep -qF 'at most 3200' '$WORK/dry.out'"
+check "BUDGET_S=1501, which would take the bill toward \$0.50, is refused" "! dry '$KIT' -- BUDGET_S=1501 && command grep -qF 'at most 1500' '$WORK/dry.out'"
 check "BUDGET_S that is not whole seconds is refused" "! dry '$KIT' -- BUDGET_S=10m"
 check "BUDGET_S at or below the verdict reserve is refused" "! dry '$KIT' -- BUDGET_S=60"
 check "BUDGET_S with a leading zero, which bash would read as octal, is refused" "! dry '$KIT' -- BUDGET_S=0900 && ! dry '$KIT' -- BUDGET_S=01500"
-check "PYTEST_CAP_S and LLM_CAP_S with a leading zero are refused" \
-  "! dry '$KIT' -- PYTEST_CAP_S=090 && command grep -qF 'without a leading zero' '$WORK/dry.out' && ! dry '$KIT' -- LLM_CAP_S=0900"
-check "PYTEST_CAP_S and LLM_CAP_S under 30 are refused" "! dry '$KIT' -- PYTEST_CAP_S=5 && command grep -qF 'at least 30' '$WORK/dry.out' && ! dry '$KIT' -- LLM_CAP_S=5"
+check "LLM_CAP_S with a leading zero or under 30 is refused" \
+  "! dry '$KIT' -- LLM_CAP_S=0600 && command grep -qF 'without a leading zero' '$WORK/dry.out' && ! dry '$KIT' -- LLM_CAP_S=5"
+check "kit r1's PYTEST_CAP_S is refused rather than ignored, since this kit runs no command (a)" "! dry '$KIT' -- PYTEST_CAP_S=300 && command grep -qF 'runs no command (a)' '$WORK/dry.out'"
 check "BUDGET_S=900 is accepted" "dry '$KIT' -- BUDGET_S=900 && command grep -qx 'budget_s=900' '$WORK/dry/settings.txt'"
-mkdir -p "$WORK/used" && echo old >"$WORK/used/base-a.log"
+mkdir -p "$WORK/used" && echo old >"$WORK/used/base-b.log"
 env -i PATH="$PATH" HOME="$HOME" KIT_DRY_RUN=1 OUT="$WORK/used" bash "$KIT/run.sh" >"$WORK/used.out" 2>&1; rc=$?
 check "an OUT that holds an earlier run is refused" "[ $rc != 0 ] && command grep -qF 'is not empty' '$WORK/used.out'"
-m=$(mutant budgetcap run.sh 's/^BUDGET_MAX_S=3200$/BUDGET_MAX_S=3300/')
-mcheck "mutant: a run.sh that takes BUDGET_S=3201 is caught" "! { ! dry '$m' -- BUDGET_S=3201 && command grep -qF 'at most' '$WORK/dry.out'; }"
+m=$(mutant budgetcap run.sh 's/^BUDGET_MAX_S=1500$/BUDGET_MAX_S=1600/')
+mcheck "mutant: a run.sh that takes BUDGET_S=1501 is caught" "! { ! dry '$m' -- BUDGET_S=1501 && command grep -qF 'at most' '$WORK/dry.out'; }"
 m=$(mutant octal run.sh 's/^\[\[ \$BUDGET_S =~ \^\[1-9\]\[0-9\]\*\$ \]\]/[[ $BUDGET_S =~ ^[0-9]+$ ]]/')
 mcheck "mutant: a run.sh that takes BUDGET_S=01500 is caught" "! { ! dry '$m' -- BUDGET_S=0900 && ! dry '$m' -- BUDGET_S=01500; }"
 m=$(mutant args run.sh 's/^\[ \$# = 0 \] ||/true ||/')
 mcheck "mutant: a run.sh that ignores an argument is caught" "! { ! dry '$m' extra && command grep -qF 'takes no arguments' '$WORK/dry.out'; }"
+m=$(mutant pytestcap run.sh 's/^\[ -z "\${PYTEST_CAP_S:-}" \] ||/true ||/')
+mcheck "mutant: a run.sh that silently ignores PYTEST_CAP_S is caught" "! { ! dry '$m' -- PYTEST_CAP_S=300 && command grep -qF 'runs no command (a)' '$WORK/dry.out'; }"
 
 # ---------------------------------------------------------------- the budget against the runner's rates
 # The bill runs to bring-up + BUDGET_S + evidence upload + the runner's 360 s from upload deadline to confirmed termination.
@@ -140,8 +151,8 @@ worst=$(python3 -I -c 'import sys; b,k,u,t,r = map(float, sys.argv[1:]); print(f
 check "the runner's g5.xlarge rate, phases, run.sh window and termination tail read as 0.7683, 300, 60, 3300, 360 ($rate, $bring, $upl, $kit_s, $tail_s)" \
   "[ '$rate $bring $upl $kit_s $tail_s' = '0.7683 300 60 3300 360' ]"
 check "BUDGET_S at its maximum, $kitmax s, stays inside the runner's $kit_s s for run.sh" "[ '${kitmax:-0}' -lt '${kit_s:-0}' ]"
-check "BUDGET_S at its maximum bills ${worst#* } s and \$${worst% *}, under the approved \$1.00" "python3 -I -c 'import sys; sys.exit(0 if ${worst% *} < 1.00 else 1)'"
-check "run.sh's header states that bill, 3,920 s and \$0.8366" "[ '$worst' = '0.8366 3920' ] && command grep -qF 'which is 3,920 s and \$0.8366 at the default 3,200 s' '$KIT/run.sh'"
+check "BUDGET_S at its maximum bills ${worst#* } s and \$${worst% *}, under the approved \$0.50" "python3 -I -c 'import sys; sys.exit(0 if ${worst% *} < 0.50 else 1)'"
+check "run.sh's header states that bill, 2,220 s and \$0.4738" "[ '$worst' = '0.4738 2220' ] && command grep -qF 'which is 2,220 s and \$0.4738 at the default 1,500 s' '$KIT/run.sh'"
 check "the runner's own backstop for g5.xlarge stays \$0.8579, as run.sh's header says" \
   "[ '$sched' = 'instance_type=g5.xlarge harness_end_s=3600 evidence_s=3660 stop_s=3720 termination_s=4020 worst_case_usd=0.8579' ] && command grep -qF 'session'\''s \$0.8579' '$KIT/run.sh'"
 
@@ -156,25 +167,25 @@ e2e() {
 }
 v() { command grep -qx "VERDICT: $2" "$WORK/e2e-$1/out/verdict.txt"; }
 vc() { command grep -qx "VERDICT (c): $2" "$WORK/e2e-$1/out/verdict.txt"; }
-vu() { command grep -qx "VERDICT (a,b): $2" "$WORK/e2e-$1/out/verdict.txt"; }
+vb() { command grep -qx "VERDICT (b): $2" "$WORK/e2e-$1/out/verdict.txt"; }
 order() { command grep -oE '^test-[a-z]+-[abc]' "$WORK/e2e-$1/out/status.txt" | paste -sd' '; }
 
 e2e "$KIT" pass FAKE_EXPECT_OFFLINE=1; rc=$?
-check "pass: base fails and the fix passes in (a), (c) and (b), so the kit reports AS EXPECTED twice and exits 0" "[ $rc = 0 ] && v pass 'AS EXPECTED' && vu pass 'AS EXPECTED' && vc pass 'AS EXPECTED'"
-check "pass: the six runs ran in the order a, c, b, base before fix, with the spec's commands and (c) in tests/ with its environment" \
-  "[ \"\$(order pass)\" = 'test-base-a test-fix-a test-base-c test-fix-c test-base-b test-fix-b' ]"
+check "pass: base fails and the fix passes in (c) and (b), so the kit reports AS EXPECTED twice and exits 0" "[ $rc = 0 ] && v pass 'AS EXPECTED' && vb pass 'AS EXPECTED' && vc pass 'AS EXPECTED'"
+check "pass: the four runs ran in the order c, b, base before fix, with (c) in tests/ with its environment, and no (a)" \
+  "[ \"\$(order pass)\" = 'test-base-c test-fix-c test-base-b test-fix-b' ] && ! [ -e '$WORK/e2e-pass/out/base-a.log' ]"
 check "pass: every pytest run had the hub offline after the checked download" "command grep -qx 'hub_offline=1 from the first test run on' '$WORK/e2e-pass/out/settings.txt'"
 check "pass: the model's revision and file hashes are recorded" \
   "command grep -qx 'model_rev=27dcfa74d334bc871f3234de431e71c6eeba5dd6' '$WORK/e2e-pass/out/versions.txt' && [ \"\$(wc -l < '$WORK/e2e-pass/out/model-files.sha256')\" = 7 ] \
    && command grep -qx '$FAKE_BIN_SHA256  pytorch_model.bin' '$WORK/e2e-pass/out/model-files.sha256'"
-check "pass: the CUDA-only test line says base FAILED, fix PASSED" \
+check "pass: the CUDA-only test line, read from (b), says base FAILED, fix PASSED" \
   "command grep -qx 'CUDA-only test test_failed_batch_reported_when_last_batch_succeeds: base FAILED, fix PASSED' '$WORK/e2e-pass/out/verdict.txt'"
 check "pass: the end-to-end lines say where base failed and that the fix passed" \
   "command grep -qxF 'end-to-end base test_failed_read_honors_policy[fail]: state=FAILED at=assert retry.finish_reason == \"error\"' '$WORK/e2e-pass/out/verdict.txt' \
    && command grep -qxF 'end-to-end base test_failed_read_honors_policy[recompute]: state=FAILED at=assert retry.token_ids == cold.token_ids' '$WORK/e2e-pass/out/verdict.txt' \
    && command grep -qxF 'end-to-end fix test_failed_read_honors_policy[recompute]: state=PASSED' '$WORK/e2e-pass/out/verdict.txt'"
 check "pass: the verdict keeps each summary line with its time and the failing assertion lines" \
-  "command grep -qE '^base-a \(exit 1\): =+ 8 failed, 18 deselected, 1 warning in [0-9.]+s =+$' '$WORK/e2e-pass/out/verdict.txt' && command grep -qF 'AssertionError: assert 10 == 8' '$WORK/e2e-pass/out/verdict.txt' \
+  "command grep -qE '^base-b \(exit 1\): =+ 10 failed, 16 passed, 1 warning in [0-9.]+s =+$' '$WORK/e2e-pass/out/verdict.txt' && command grep -qF 'AssertionError: assert 10 == 8' '$WORK/e2e-pass/out/verdict.txt' \
    && command grep -qE '^fix-c \(exit 0\): =+ 2 passed, 24 deselected' '$WORK/e2e-pass/out/verdict.txt' && command grep -qE '^fix-b \(exit 0\): =+ 26 passed' '$WORK/e2e-pass/out/verdict.txt'"
 check "pass: no finding outside the ten" "! command grep -q '^FINDING' '$WORK/e2e-pass/out/verdict.txt'"
 check "pass: the records hold the GPU, the versions, the checkout SHA and the diff's sha256" \
@@ -186,46 +197,54 @@ check "pass: the run leaves checksums of everything it wrote" "( cd '$WORK/e2e-p
 check "pass: the run removed its worktree of the local repository" "! git -C '$SRC' worktree list | command grep -qF '$WORK/e2e-pass/'"
 
 e2e "$KIT" fixfail FAKE_MODE=fixfail; rc=$?
-check "(a) fail: the CUDA-only test failing with the fix is NOT AS EXPECTED, exit 2" "[ $rc = 2 ] && vu fixfail 'NOT AS EXPECTED' && vc fixfail 'AS EXPECTED'"
+check "(b) fail: the CUDA-only test failing with the fix is NOT AS EXPECTED, exit 2" "[ $rc = 2 ] && vb fixfail 'NOT AS EXPECTED' && vc fixfail 'AS EXPECTED'"
 e2e "$KIT" basepass FAKE_MODE=basepass; rc=$?
-check "(a) fail: the CUDA-only test passing on base is NOT AS EXPECTED, exit 2" "[ $rc = 2 ] && vu basepass 'NOT AS EXPECTED'"
+check "(b) fail: the CUDA-only test passing on base is NOT AS EXPECTED, exit 2" "[ $rc = 2 ] && vb basepass 'NOT AS EXPECTED'"
 e2e "$KIT" skip FAKE_MODE=skip; rc=$?
-check "(a) skip: a skipped CUDA-only test is INCOMPLETE, exit 3, never a pass" "[ $rc = 3 ] && vu skip INCOMPLETE"
+check "(b) skip: a skipped CUDA-only test is INCOMPLETE, exit 3, never a pass" "[ $rc = 3 ] && vb skip INCOMPLETE"
 e2e "$KIT" nosummary FAKE_MODE=nosummary; rc=$?
 check "missing: pytest stopping before its summary is INCOMPLETE, exit 3" "[ $rc = 3 ] && v nosummary INCOMPLETE"
 e2e "$KIT" error FAKE_MODE=error; rc=$?
-check "(a) error: a setup error with the fix is INCOMPLETE, exit 3" "[ $rc = 3 ] && vu error INCOMPLETE"
+check "(b) error: a setup error with the fix is INCOMPLETE, exit 3" "[ $rc = 3 ] && vb error INCOMPLETE"
 e2e "$KIT" outside FAKE_MODE=outside; rc=$?
 check "(b) finding: an older test that only base fails is named as a FINDING and the kit exits 2, not AS EXPECTED" \
-  "[ $rc = 2 ] && vu outside 'NOT AS EXPECTED' && command grep -qx 'FINDING outside the ten: tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw: base FAILED, fix PASSED' '$WORK/e2e-outside/out/verdict.txt'"
+  "[ $rc = 2 ] && vb outside 'NOT AS EXPECTED' && command grep -qx 'FINDING outside the ten: tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw: base FAILED, fix PASSED' '$WORK/e2e-outside/out/verdict.txt'"
+e2e "$KIT" b_mask FAKE_MODE=b_mask; rc=$?
+check "(b) an end-to-end case failing on base for a harness reason in the whole file is INCOMPLETE, not an expected failure" \
+  "[ $rc = 3 ] && vb b_mask INCOMPLETE && vc b_mask 'AS EXPECTED' && command grep -qF 'base-b: test_failed_read_honors_policy[fail] failed for a harness reason, timeout' '$WORK/e2e-b_mask/out/verdict.txt'"
 e2e "$KIT" nocuda FAKE_CUDA=0; rc=$?
-check "no CUDA: torch seeing no GPU is INCOMPLETE for both, exit 3" "[ $rc = 3 ] && vu nocuda INCOMPLETE && vc nocuda INCOMPLETE"
+check "no CUDA: torch seeing no GPU is INCOMPLETE for both, exit 3" "[ $rc = 3 ] && vb nocuda INCOMPLETE && vc nocuda INCOMPLETE"
 
 # The (c) rules end to end.
 e2e "$KIT" c_basepass FAKE_MODE=c_basepass; rc=$?
-check "(c) fail: [fail] passing on base is NOT AS EXPECTED, exit 2" "[ $rc = 2 ] && vc c_basepass 'NOT AS EXPECTED' && vu c_basepass 'AS EXPECTED'"
+check "(c) fail: [fail] passing on base is NOT AS EXPECTED, exit 2" "[ $rc = 2 ] && vc c_basepass 'NOT AS EXPECTED'"
 e2e "$KIT" c_fixfail FAKE_MODE=c_fixfail; rc=$?
 check "(c) fail: [recompute] failing its token comparison with the fix is NOT AS EXPECTED, exit 2" "[ $rc = 2 ] && vc c_fixfail 'NOT AS EXPECTED'"
 e2e "$KIT" c_rbase FAKE_MODE=c_recompute_basepass; rc=$?
-check "(c) [recompute] passing on base is recorded and the kit still reports AS EXPECTED" \
-  "[ $rc = 0 ] && vc c_rbase 'AS EXPECTED' && command grep -qxF 'end-to-end base test_failed_read_honors_policy[recompute]: state=PASSED' '$WORK/e2e-c_rbase/out/verdict.txt'"
+check "(c) [recompute] passing on base is recorded and does not decide (c)" \
+  "vc c_rbase 'AS EXPECTED' && command grep -qxF 'end-to-end base test_failed_read_honors_policy[recompute]: state=PASSED' '$WORK/e2e-c_rbase/out/verdict.txt'"
+check "(b) the same [recompute] passing on base in the whole file is NOT AS EXPECTED, since (b) expects both cases to fail on base" \
+  "[ $rc = 2 ] && vb c_rbase 'NOT AS EXPECTED'"
 e2e "$KIT" c_skip FAKE_MODE=c_skip; rc=$?
 check "(c) skip: skipped end-to-end tests are INCOMPLETE, exit 3" "[ $rc = 3 ] && vc c_skip INCOMPLETE"
-for kind in timeout:'timeout in the 60 s wait for stored keys' oom:'OOM with two LLM instances' layout:'KV layout registration error' \
+# A harness failure also reaches the same test in (b), which then cannot decide it either, so the run is INCOMPLETE and (c) is NOT RUN.
+for kind in kvmem:'KV cache memory' timeout:'timeout in the 60 s wait for stored keys' oom:'GPU out of memory' layout:'KV layout registration error' \
   noread:'the failing read never reached HF3FS' error:'other harness failure (ERROR)'; do
   k=${kind%%:*} cause=${kind#*:}
   e2e "$KIT" "c_$k" FAKE_MODE="c_$k"; rc=$?
-  check "(c) NOT RUN: a $k failure is reported as NOT RUN with its cause, exit 4, never a verdict" \
-    "[ $rc = 4 ] && vc c_$k 'NOT RUN' && v c_$k 'NOT RUN' && command grep -qF 'NOT RUN (c): ' '$WORK/e2e-c_$k/out/verdict.txt' && command grep -qF ': $cause' '$WORK/e2e-c_$k/out/verdict.txt'"
+  check "(c) NOT RUN: a $k failure is reported as NOT RUN with its cause, never a verdict, and (b) is INCOMPLETE with it" \
+    "[ $rc = 3 ] && vc c_$k 'NOT RUN' && vb c_$k INCOMPLETE && command grep -qF 'NOT RUN (c): ' '$WORK/e2e-c_$k/out/verdict.txt' && command grep -qF ': $cause' '$WORK/e2e-c_$k/out/verdict.txt'"
 done
+check "(c) the KV memory error is not labelled a download failure, though its section holds the captured HF_HUB_OFFLINE line" \
+  "! command grep -q 'NOT RUN (c): .*model download' '$WORK/e2e-c_kvmem/out/verdict.txt' && command grep -qF 'HF_HUB_OFFLINE is True' '$WORK/e2e-c_kvmem/out/base-c.log'"
 
-# The model download's three ways to fail, each leaving (c) NOT RUN while (a) and (b) still run.
+# The model download's three ways to fail, each leaving (c) NOT RUN while (b) still runs without the end-to-end class.
 for kind in fail:'hf download facebook/opt-125m exited non-zero' badrev:'not the pinned 27dcfa74d334bc871f3234de431e71c6eeba5dd6' badsha:'is not the pinned sha256'; do
   k=${kind%%:*} cause=${kind#*:}
   e2e "$KIT" "hf_$k" FAKE_HF="$k"; rc=$?
-  check "model $k: (c) is NOT RUN with the cause, it never ran, the hub stayed online, and (a) and (b) still decided" \
-    "[ $rc = 4 ] && vc hf_$k 'NOT RUN' && vu hf_$k 'AS EXPECTED' && command grep -qF '$cause' '$WORK/e2e-hf_$k/out/c-not-run.txt' \
-     && [ \"\$(order hf_$k)\" = 'test-base-a test-fix-a test-base-b test-fix-b' ] && ! command grep -q '^hub_offline' '$WORK/e2e-hf_$k/out/settings.txt'"
+  check "model $k: (c) is NOT RUN with the cause, it never ran, the hub stayed online, and (b) still decided, exit 4" \
+    "[ $rc = 4 ] && vc hf_$k 'NOT RUN' && vb hf_$k 'AS EXPECTED' && command grep -qF '$cause' '$WORK/e2e-hf_$k/out/c-not-run.txt' \
+     && [ \"\$(order hf_$k)\" = 'test-base-b test-fix-b' ] && ! command grep -q '^hub_offline' '$WORK/e2e-hf_$k/out/settings.txt'"
   check "model $k: (b) ran with the end-to-end class deselected, on both sides" \
     "command grep -qx 'command_b_run=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -k not TestHF3FSLoadFailureEndToEnd -rA (the end-to-end class deselected, since (c) is not run)' '$WORK/e2e-hf_$k/out/settings.txt' \
      && ! command grep -q 'TestHF3FSLoadFailureEndToEnd' '$WORK/e2e-hf_$k/out/base-b.log' '$WORK/e2e-hf_$k/out/fix-b.log'"
@@ -235,12 +254,12 @@ m=$(mutant bkeepe2e run.sh 's/^  CMD_B=(pytest "\$TEST_FILE" -k "not TestHF3FSLo
 mcheck "mutant: a run.sh that still runs the end-to-end class in (b) after a failed download is caught" \
   "command grep -q 'TestHF3FSLoadFailureEndToEnd' '$WORK/e2e-m-bkeepe2e/out/base-b.log'"
 
-# A pytest that never returns is cut at PYTEST_CAP_S, and the budget then stops the run before (c).
-# With 100 s and a 60 s reserve, base-a gets its 30 s cap, fix-a the 10 s left, and base-c nothing.
-t0=$(date +%s); e2e "$KIT" hang FAKE_MODE=hang BUDGET_S=100 PYTEST_CAP_S=30; rc=$?; took=$(( $(date +%s) - t0 ))
+# A pytest that never returns is cut at LLM_CAP_S, and the budget then stops the run before (b).
+# With 100 s and a 60 s reserve, base-c gets its 30 s cap, fix-c the 10 s left, and base-b nothing.
+t0=$(date +%s); e2e "$KIT" hang FAKE_MODE=hang BUDGET_S=100 LLM_CAP_S=30; rc=$?; took=$(( $(date +%s) - t0 ))
 check "hang: each pytest is cut at its cap or the budget left, the budget stops the run, the verdict is INCOMPLETE, and run.sh ends inside BUDGET_S ($took s)" \
-  "[ $rc = 1 ] && command grep -qx 'test-base-a exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' && command grep -qx 'test-fix-a exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' \
-   && command grep -qF 'the budget ran out before test-base-c' '$WORK/e2e-hang/out/STOPPED' && v hang INCOMPLETE && [ $took -le 100 ]"
+  "[ $rc = 1 ] && command grep -qx 'test-base-c exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' && command grep -qx 'test-fix-c exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' \
+   && command grep -qF 'the budget ran out before test-base-b' '$WORK/e2e-hang/out/STOPPED' && v hang INCOMPLETE && [ $took -le 100 ]"
 
 cp -r "$KIT" "$WORK/tampered" && printf '\n' >>"$WORK/tampered/local-fix.diff"
 e2e "$WORK/tampered" tampered; rc=$?
@@ -266,18 +285,18 @@ m=$(mutant basecommon-oldguard run.sh "s/apply --include='tests\/\*' \"\$DIFF\"/
 [ -n "$m" ] && e2e "$m" m-basecommon-oldguard
 mcheck "mutant: a guard that checks only the connector lets that base side through, and is caught" \
   "! { [ -f '$WORK/e2e-m-basecommon-oldguard/out/STOPPED' ] && command grep -qF 'the base side changed code under vllm/' '$WORK/e2e-m-basecommon-oldguard/out/STOPPED'; }"
-m=$(mutant nora run.sh 's/^CMD_A=(pytest "\$TEST_FILE" -k "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure" -rA)$/CMD_A=(pytest "$TEST_FILE" -k "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure")/')
+m=$(mutant nora run.sh 's/^CMD_B=(pytest "\$TEST_FILE" -rA)$/CMD_B=(pytest "$TEST_FILE")/')
 [ -n "$m" ] && e2e "$m" m-nora
-mcheck "mutant: a command (a) without -rA does not report AS EXPECTED" "! v m-nora 'AS EXPECTED'"
+mcheck "mutant: a command (b) without -rA does not report AS EXPECTED" "! v m-nora 'AS EXPECTED'"
 m=$(mutant cenv run.sh 's/env -C vllm\/tests VLLM_ENABLE_V1_MULTIPROCESSING=0 "\${CMD_C\[@\]}"/env -C vllm\/tests "${CMD_C[@]}"/')
 [ -n "$m" ] && e2e "$m" m-cenv
 mcheck "mutant: a command (c) without VLLM_ENABLE_V1_MULTIPROCESSING=0 does not report AS EXPECTED" "! v m-cenv 'AS EXPECTED'"
 m=$(mutant ccwd run.sh 's/env -C vllm\/tests VLLM_ENABLE_V1_MULTIPROCESSING=0/env -C vllm VLLM_ENABLE_V1_MULTIPROCESSING=0/')
 [ -n "$m" ] && e2e "$m" m-ccwd
 mcheck "mutant: a command (c) run from the checkout root instead of tests/ does not report AS EXPECTED" "! v m-ccwd 'AS EXPECTED'"
-m=$(mutant order run.sh 's/^for cmd in a c b; do$/for cmd in a b c; do/')
+m=$(mutant order run.sh 's/^for cmd in c b; do$/for cmd in b c; do/')
 [ -n "$m" ] && e2e "$m" m-order
-mcheck "mutant: running (b) before (c) is caught by the order check" "[ \"\$(order m-order)\" != 'test-base-a test-fix-a test-base-c test-fix-c test-base-b test-fix-b' ]"
+mcheck "mutant: running (b) before (c) is caught by the order check" "[ \"\$(order m-order)\" != 'test-base-c test-fix-c test-base-b test-fix-b' ]"
 m=$(mutant offline run.sh 's/^    export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1$/    true/')
 [ -n "$m" ] && e2e "$m" m-offline FAKE_EXPECT_OFFLINE=1
 mcheck "mutant: a run.sh that leaves the hub online for the tests does not report AS EXPECTED" "! v m-offline 'AS EXPECTED'"
@@ -289,13 +308,13 @@ m=$(mutant shacheck run.sh 's/^  elif ! command grep -qx "\$MODEL_BIN_SHA256  py
 mcheck "mutant: a run.sh that takes other weights is caught" "! vc m-shacheck 'NOT RUN'"
 m=$(mutant cskip run.sh 's/^  \[ "\$cmd" = c \] && \[ -e "\$OUT\/c-not-run.txt" \] && {/  false \&\& {/')
 [ -n "$m" ] && e2e "$m" m-cskip FAKE_HF=fail
-mcheck "mutant: a run.sh that still runs (c) after a failed download is caught" "[ \"\$(order m-cskip)\" != 'test-base-a test-fix-a test-base-b test-fix-b' ]"
+mcheck "mutant: a run.sh that still runs (c) after a failed download is caught" "[ \"\$(order m-cskip)\" != 'test-base-b test-fix-b' ]"
 m=$(mutant notimeout run.sh 's/^  timeout --kill-after=10 "\$cap" "\$@" > "\$log" 2>&1$/  "$@" > "$log" 2>\&1/')
-[ -n "$m" ] && { E2E_CAP_S=90 e2e "$m" m-notimeout FAKE_MODE=hang BUDGET_S=100 PYTEST_CAP_S=30; rc=$?; }
+[ -n "$m" ] && { E2E_CAP_S=90 e2e "$m" m-notimeout FAKE_MODE=hang BUDGET_S=100 LLM_CAP_S=30; rc=$?; }
 mcheck "mutant: a step without its timeout overruns the budget and is caught" "[ \"\${rc:-0}\" = 124 ]"
 
 # ---------------------------------------------------------------- mutants of verdict.py, caught by the unit checks
-caught() { ! python3 -I "$CHECK" "$1" "$FAKES/cpu-logs" >"$WORK/mutant.log" 2>&1; }
+caught() { ! python3 -I "$CHECK" "$1" "$FAKES/cpu-logs" "$FAKES/gpu-r2-logs" >"$WORK/mutant.log" 2>&1; }
 while IFS='|' read -r name sedexpr; do
   [ -n "$name" ] || continue
   m=$(mutant "$name" verdict.py "$sedexpr")
@@ -307,27 +326,28 @@ ignores a missing log|s/^        return \[f"{name}: no log"\]$/        return []
 ignores pytest's exit code|s/^    elif rc not in (0, 1):$/    elif False:/
 ignores a missing exit code|s/^    if rc is None:$/    if False:/
 ignores an exit code that disagrees|s/^    if rc is not None and rc in (0, 1) and rc != (1 if failed or errored else 0):$/    if False:/
-ignores unit errors|s/^    if c.get("errors", 0) > len(own_errors):$/    if False:/
-counts an end-to-end error as a unit gap|s/^    own_errors = {t for t, o in run\["outcomes"\].items() if o == "ERROR" and t in EXPECTED_C}$/    own_errors = set()/
+ignores errors|s/^    if c.get("errors", 0) > len(own_errors):$/    if False:/
+lets an end-to-end error pass in (b)|s/ if o == "ERROR" and t in EXPECTED_C} if cmd == "c" else set()$/ if o == "ERROR" and t in EXPECTED_C}/
 ignores other outcomes|s/^    if others:$/    if False:/
 ignores xfail and xpass|s/^        if c.get(k, 0):$/        if False:/
 ignores a count mismatch|s/^    if (passed, failed, errored) != (c.get("passed", 0), c.get("failed", 0), c.get("errors", 0)):$/    if False:/
 ignores a run with no tests|s/^    if passed + failed + errored == 0:$/    if False:/
 ignores duplicates|s/^    if run\["duplicates"\]:$/    if False:/
-takes any (a) selection|s/^    if cmd == "a" and ids != EXPECTED_A:$/    if False:/
 takes a whole file without the new tests|s/^    if cmd == "b" and not b_needs <= ids:$/    if False:/
 takes any (c) selection|s/^    if cmd == "c" and ids != EXPECTED_C:$/    if False:/
-takes different tests on the two sides|s/^        if b is not None and f is not None and set(b\["outcomes"\]) != set(f\["outcomes"\]):$/        if False:/
+takes different tests on the two sides|s/^    if b is not None and f is not None and set(b\["outcomes"\]) != set(f\["outcomes"\]):$/    if False:/
 ignores no CUDA|s/^        if env.get("cuda_available") is not True:$/        if False:/
 ignores an unnamed device|s/^        if not env.get("device_name"):$/        if False:/
 ignores a missing env.json|s/^        common.append(f"env.json unreadable: {e}")$/        pass/
 ignores a stopped run|s/^    if os.path.exists(os.path.join(out, "STOPPED")):$/    if False:/
-decides the unit verdict despite gaps|s/^    if not rec\["gaps"\]:$/    if True:/
-does not require base to fail (a)|s/^    ("base", "a"): EXPECTED_A,$/    ("base", "a"): frozenset(),/
-does not require the fix to pass (b)|s/^    ("fix", "b"): frozenset(),$/    ("fix", "b"): EXPECTED_A,/
-brings back the by-design base pass|s/^    ("base", "\([ab]\)"): EXPECTED_A,$/    ("base", "\1"): EXPECTED_A - {SCHED + "test_failed_later_batch_keeps_prefix_and_saves_the_rest"},/
-judges end-to-end outcomes in the unit verdict|s/ if o == "FAILED" and t not in EXPECTED_C}$/ if o == "FAILED"}/
-reports every decided unit run AS EXPECTED|s/^        rec\["verdict"\] = "NOT AS EXPECTED" if rec\["deviations"\] or rec\["findings"\] else "AS EXPECTED"$/        rec["verdict"] = "AS EXPECTED"/
+decides (b) despite gaps|s/^    if not rec\["gaps"\]:$/    if True:/
+does not require base to fail in (b)|s/^EXPECTED_FAILED_B = {"base": JUDGED, "fix": frozenset()}$/EXPECTED_FAILED_B = {"base": frozenset(), "fix": frozenset()}/
+does not require the fix to pass in (b)|s/^EXPECTED_FAILED_B = {"base": JUDGED, "fix": frozenset()}$/EXPECTED_FAILED_B = {"base": JUDGED, "fix": JUDGED}/
+does not require base to fail the end-to-end cases in (b)|s/^EXPECTED_FAILED_B = {"base": JUDGED, "fix": frozenset()}$/EXPECTED_FAILED_B = {"base": EXPECTED_A, "fix": frozenset()}/
+brings back a by-design base pass|s/^EXPECTED_FAILED_B = {"base": JUDGED, /EXPECTED_FAILED_B = {"base": JUDGED - {SCHED + "test_failed_later_batch_keeps_prefix_and_saves_the_rest"}, /
+takes an end-to-end harness failure in (b) as a result|s/^                rec\["gaps"\].append(f"{side}-b: {t.rsplit('::', 1)\[1\]} failed for a harness reason, {st\['cause'\]}")$/                pass/
+judges (b) on the end-to-end class when (c) did not run|s/^    b_needs = EXPECTED_A if c_skipped else JUDGED$/    b_needs = JUDGED/
+reports every decided (b) run AS EXPECTED|s/^        rec\["verdict"\] = "NOT AS EXPECTED" if rec\["deviations"\] or rec\["findings"\] else "AS EXPECTED"$/        rec["verdict"] = "AS EXPECTED"/
 drops headers padded with fewer than three underscores|s/^HEADER_RE = re.compile(r"^_+ /HEADER_RE = re.compile(r"^_{3,} /
 reads a frame separator as a header|s/^HEADER_RE = re.compile(r"^_+ (\[^_\\s\]/HEADER_RE = re.compile(r"^_+ (\\S/
 hides a base and fix difference outside the ten|s/^            if ob != of:$/            if False:/
@@ -339,10 +359,11 @@ decides (c) despite a harness failure|s/^    if c_rec\["not_run"\]:$/    if Fals
 takes any failure as deciding|s/^    if outcome == "FAILED":$/    if outcome == "FAILED":\n        return {"state": "FAILED", "at": "any"}/
 takes a deciding line from any frame|s/^            if pattern.match(own) and asserted:$/            if any(pattern.match(x) for x in lines) and asserted:/
 takes a non-assertion error as deciding|s/^            if pattern.match(own) and asserted:$/            if pattern.match(own):/
-judges (b) on the end-to-end class when (c) did not run|s/^            b_needs = EXPECTED_A if os.path.exists(os.path.join(out, "c-not-run.txt")) else JUDGED$/            b_needs = JUDGED/
 does not require base [fail] to fail|s/^    if s\[f"base {name_f}"\] != {"state": "FAILED", "at": 'assert retry.finish_reason == "error"'}:$/    if False:/
 judges base [recompute] instead of base [fail]|s/^    if s\[f"base {name_f}"\] != /    if s[f"base {name_r}"] != /
 does not require the fix to pass (c)|s/^        if s\[f"fix {name}"\] != {"state": "PASSED"}:$/        if False:/
+misses the KV cache memory error of run r2|s/re.compile(r"KV cache is needed, which is larger than the available KV cache memory")/re.compile(r"NEVER MATCHES")/
+reads causes from captured logs too|s/^    text = "\\n".join(line for line in lines if line.startswith(("E ", ">")))$/    text = "\\n".join(lines)/
 misses the stored-keys timeout|s/re.compile(r"condition not met before the timeout")/re.compile(r"NEVER MATCHES")/
 misses an OOM|s/re.compile(r"OutOfMemoryError|CUDA out of memory|out of memory", re.I)/re.compile(r"NEVER MATCHES")/
 misses a model load failure|s/re.compile(r"LocalEntryNotFoundError|[^"]*")/re.compile(r"NEVER MATCHES")/
@@ -367,11 +388,11 @@ export AWS_CALLS="$WORK/aws-calls"
 session() {
   : >"$AWS_CALLS"
   ( cd "$1" && env PATH="$WORK/awsbin:$PATH" AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null SESSION_CONFIRM=yes OUT="$2" \
-    SCRATCH="$WORK" bash hack/gpu-kit-session.sh "${3-docs/oss/vllm-69058/kit-r1}" >"$WORK/session.out" 2>&1 )
+    SCRATCH="$WORK" bash hack/gpu-kit-session.sh "${3-docs/oss/vllm-69058/kit-r3}" >"$WORK/session.out" 2>&1 )
 }
 # A clone of a linked worktree checks out the main repository's HEAD, so this tree's own commit is checked out by its SHA.
 git clone -q "$ROOT" "$WORK/clone" 2>"$WORK/clone.err" && git -C "$WORK/clone" checkout -q "$(git -C "$ROOT" rev-parse HEAD)" 2>>"$WORK/clone.err"
-if [ -f "$WORK/clone/docs/oss/vllm-69058/kit-r1/run.sh" ] && [ -f "$WORK/clone/hack/gpu-kit-session.sh" ]; then
+if [ -f "$WORK/clone/docs/oss/vllm-69058/kit-r3/run.sh" ] && [ -f "$WORK/clone/hack/gpu-kit-session.sh" ]; then
   session "$WORK/clone" "$WORK/out-nokit" docs/oss/vllm-69058; rc=$?
   check "the runner refuses a kit path with no run.sh before any AWS call" "[ $rc != 0 ] && command grep -qF 'has no run.sh' '$WORK/session.out' && [ ! -s '$AWS_CALLS' ]"
   echo junk >"$WORK/clone/hack/untracked.txt"
@@ -379,11 +400,11 @@ if [ -f "$WORK/clone/docs/oss/vllm-69058/kit-r1/run.sh" ] && [ -f "$WORK/clone/h
   check "the runner refuses a tree with an untracked file before any AWS call" \
     "[ $rc != 0 ] && command grep -qF 'working tree is dirty' '$WORK/session.out' && [ ! -s '$AWS_CALLS' ]"
   rm "$WORK/clone/hack/untracked.txt"
-  echo '# edit' >>"$WORK/clone/docs/oss/vllm-69058/kit-r1/run.sh"
+  echo '# edit' >>"$WORK/clone/docs/oss/vllm-69058/kit-r3/run.sh"
   session "$WORK/clone" "$WORK/out-modified"; rc=$?
   check "the runner refuses the kit with an uncommitted edit before any AWS call" \
     "[ $rc != 0 ] && command grep -qE 'working tree is dirty|kit has uncommitted or untracked files' '$WORK/session.out' && [ ! -s '$AWS_CALLS' ]"
-  git -C "$WORK/clone" checkout -q -- docs/oss/vllm-69058/kit-r1/run.sh
+  git -C "$WORK/clone" checkout -q -- docs/oss/vllm-69058/kit-r3/run.sh
   session "$WORK/clone" "$WORK/out-clean"; rc=$?
   # The fake account is not the lab's, so the clean run stops at the account check, the first step after the tree checks.
   check "the same clone, clean, gets past the tree checks to the (fake) account check and buys nothing" \

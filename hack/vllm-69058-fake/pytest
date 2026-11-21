@@ -20,7 +20,9 @@ FAKE_MODE bends one outcome so the verdict's rules can be driven:
   c_oom       end-to-end [recompute] runs out of GPU memory on base;
   c_layout    end-to-end [fail] hits a KV layout registration error with the fix;
   c_noread    end-to-end [recompute] never reads from HF3FS with the fix;
-  c_error     end-to-end [fail] errors in its fixture's setup on base.
+  c_error     end-to-end [fail] errors in its fixture's setup on base;
+  c_kvmem     end-to-end [recompute] gets no KV cache memory on both sides, as in run r2;
+  b_mask      in the whole file only, end-to-end [fail] fails on base for a harness reason.
 """
 
 import os
@@ -77,6 +79,12 @@ E2E_FAILURES = {
             "E       torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 20.00 MiB."],
     "layout": [">           with (", "E       RuntimeError: HF3FS register_kv_caches: unsupported KV cache layout for OPTForCausalLM"],
     "noread": [">           assert faults.num_failed_reads > 0", "E           assert 0 > 0"],
+    # Run r2's second engine in one process, with the captured INFO line that once labelled it a download failure.
+    "kvmem": [">           llm = LLM(", "", "    def _check_enough_kv_cache_memory(", ">           raise ValueError(",
+              "E           ValueError: To serve at least one request with the model's max seq len (512), (0.02 GiB KV cache is needed, "
+              "which is larger than the available KV cache memory (0.01 GiB).",
+              "------------------------------ Captured log call -------------------------------",
+              "INFO     vllm.engine.arg_utils:arg_utils.py:928 HF_HUB_OFFLINE is True, replace model_id [facebook/opt-125m] to model_path"],
 }
 
 args = sys.argv[1:]
@@ -135,7 +143,11 @@ bends = {
     ("c_recompute_basepass", E2E_R, "base"): ("PASSED", None), ("c_timeout", E2E_F, "fix"): ("FAILED", "timeout"),
     ("c_oom", E2E_R, "base"): ("FAILED", "oom"), ("c_layout", E2E_F, "fix"): ("FAILED", "layout"),
     ("c_noread", E2E_R, "fix"): ("FAILED", "noread"), ("c_error", E2E_F, "base"): ("ERROR", None),
+    ("c_kvmem", E2E_R, "base"): ("FAILED", "kvmem"), ("c_kvmem", E2E_R, "fix"): ("FAILED", "kvmem"),
 }
+# b_mask: in the whole file only, base [fail] fails for a harness reason, which an expected base failure must not hide.
+if mode == "b_mask" and cmd == "b" and not fixed and E2E_F in tests:
+    bends[("b_mask", E2E_F, "base")] = ("FAILED", "timeout")
 for t in tests:
     if (mode, t, side) in bends:
         outcome[t], h = bends[(mode, t, side)]

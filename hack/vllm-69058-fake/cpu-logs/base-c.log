@@ -30,5 +30,5 @@ v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
-SKIPPED [2] v1/kv_connector/unit/test_hf3fs_connector.py:699: needs a CUDA GPU
-================= 2 skipped, 24 deselected, 1 warning in 0.06s =================
+SKIPPED [2] v1/kv_connector/unit/test_hf3fs_connector.py:702: needs a CUDA GPU
+================= 2 skipped, 24 deselected, 1 warning in 0.10s =================
