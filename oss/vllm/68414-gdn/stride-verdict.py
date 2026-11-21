@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The #68416 verdict of hack/vllm-gdn-68414-session.sh run 4, read from the records hack/vllm-gdn-68414/stride-state.sh leaves.
+"""The #68416 verdict of oss/vllm/68414-gdn/vllm-gdn-68414-session.sh run 4, read from the records oss/vllm/68414-gdn/stride-state.sh leaves.
 
     stride-verdict.py <sweep dir> <stride-test.diff sha256> <stride-fix.diff sha256>
 

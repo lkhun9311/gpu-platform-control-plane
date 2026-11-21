@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every pytest call of hack/vllm-gdn-68414-session.sh run 4 in one human-readable page, for the PRs to quote.
+"""Every pytest call of oss/vllm/68414-gdn/vllm-gdn-68414-session.sh run 4 in one human-readable page, for the PRs to quote.
 
     pytest-summary.py <sweep dir> <stride-test.diff sha256> <stride-fix.diff sha256>
 

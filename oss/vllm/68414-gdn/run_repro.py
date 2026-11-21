@@ -4,7 +4,7 @@
     run_repro.py <kernel_repro.py> <its pinned sha256>
 
 The script builds its tensors without .cuda(), and the Triton kernels it calls need CUDA tensors.
-hack/vllm-gdn-68414/state.sh runs it this way only when a plain `python3 kernel_repro.py` printed no result.
+oss/vllm/68414-gdn/state.sh runs it this way only when a plain `python3 kernel_repro.py` printed no result.
 It checks the file's sha256 first, so the text executed is the pinned one byte for byte.
 It then prints the file this process imported prepare_chunk_indices from, because the result speaks for that file.
 """

@@ -1,21 +1,21 @@
 #!/bin/bash
-# #68414's one state in run 2, run by hack/vllm-gdn-68414/runner.sh inside a fresh container of the pinned vLLM CI image.
+# #68414's one state in run 2, run by oss/vllm/68414-gdn/runner.sh inside a fresh container of the pinned vLLM CI image.
 # Run 3 neither ships nor runs it, and it stays as run 2 ran it.
 # lib.sh now pins eight files on run 3's image, so this state would refuse its seven-file pins.txt rather than run on a tree it was not pinned for.
 #
 #   state.sh after <repro seconds> <unit-test seconds>
 #
-# Run 1 (hack/vllm-gdn-68414/runs/2026-11-19-run1-spot-reclaimed) recorded BEFORE on this image: 70 unwritten rows and a NaN state error.
+# Run 1 (oss/vllm/68414-gdn/runs/2026-11-19-run1-spot-reclaimed) recorded BEFORE on this image: 70 unwritten rows and a NaN state error.
 # So run 2 runs AFTER only, with the final diff, whose repeat_interleave now takes output_size.
 # /in holds fix.diff, kernel_repro.py, run_repro.py and pins.txt, read-only; /out/gdn-after receives the record.
-# This script records and does not judge: hack/vllm-gdn-68414/verdict.py reads what it leaves.
+# This script records and does not judge: oss/vllm/68414-gdn/verdict.py reads what it leaves.
 set -u
 . "$(dirname "$0")/lib.sh"
 S=$1
 REPRO_S=$2
 UNIT_S=$3
 [ "$S" = after ] || { echo "unknown state $S; #68414 runs AFTER only" >&2; exit 4; }
-# The reporter's script, byte for byte; hack/vllm-gdn-68414-session-test.sh holds this equal to the session's pin.
+# The reporter's script, byte for byte; oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh holds this equal to the session's pin.
 REPRO_SHA256=766ccd795b2e1f71ba9c48dc99e22deec8f17047467b70866acf7378310af3af
 INDEX_MOD=vllm.third_party.flash_linear_attention.ops.index
 FIX_LINE='seq_ids = torch.repeat_interleave('

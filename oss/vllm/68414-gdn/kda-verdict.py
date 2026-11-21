@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The #68415 verdict of hack/vllm-gdn-68414-session.sh run 3, read from the records hack/vllm-gdn-68414/kda-state.sh leaves.
+"""The #68415 verdict of oss/vllm/68414-gdn/vllm-gdn-68414-session.sh run 3, read from the records oss/vllm/68414-gdn/kda-state.sh leaves.
 
     kda-verdict.py <sweep dir> <kda-test.diff sha256> <kda-fix.diff sha256>
 

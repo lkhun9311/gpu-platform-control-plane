@@ -1,5 +1,5 @@
 #!/bin/bash
-# The on-instance part of hack/vllm-tpot-session.sh: pull, image identity, model download, BEFORE, then AFTER.
+# The on-instance part of oss/vllm/68548-tpot/vllm-tpot-session.sh: pull, image identity, model download, BEFORE, then AFTER.
 #
 #   runner.sh <dir with the fetched inputs> <out dir> <harness-end epoch>
 #

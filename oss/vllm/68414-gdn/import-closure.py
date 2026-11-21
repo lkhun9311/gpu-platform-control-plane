@@ -5,7 +5,7 @@
 
 It follows `import` and `from ... import` statements in module bodies, class bodies and if, try and with blocks, and every package __init__ on the way.
 It skips function bodies and `if TYPE_CHECKING:` blocks, since neither runs when pytest imports a test module.
-Run on a test file and the conftest files pytest loads for it, it lists what that collection imports, which hack/vllm-gdn-68414-session-test.sh intersects with the files that differ between the image's commit and a diff base.
+Run on a test file and the conftest files pytest loads for it, it lists what that collection imports, which oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh intersects with the files that differ between the image's commit and a diff base.
 It is static, so an import made by a string at run time is not in it; the probe in lib.sh records what the real collection loaded.
 """
 import ast

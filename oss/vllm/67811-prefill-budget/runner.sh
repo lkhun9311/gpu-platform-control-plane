@@ -1,5 +1,5 @@
 #!/bin/bash
-# The on-instance part of hack/vllm-67811-session.sh: pull, identity, model download, then one adaptive engine
+# The on-instance part of oss/vllm/67811-prefill-budget/vllm-67811-session.sh: pull, identity, model download, then one adaptive engine
 # (run 2), running the PR's own benchmark once to warm up and once scored, with every controller call traced.
 #
 #   runner.sh <dir with the fetched inputs> <out dir> <harness-end epoch>

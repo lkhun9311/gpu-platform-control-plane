@@ -11,8 +11,8 @@
 # cannot drift from the work and the instance cannot be handed another build.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SCRIPT="$ROOT/hack/vllm-58420-session.sh"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+SCRIPT="$ROOT/oss/vllm/58420-srpf/vllm-58420-session.sh"
 GO_SRC="$ROOT/internal/bench/srpf_sweep.go"
 DIAG=hack/eks-serve/holdcap-study/diagnostic
 failures=0
@@ -34,8 +34,8 @@ done
 fixture() {
   local repo
   repo=$(mktemp -d "$WORK/repo.XXXXXX")
-  mkdir -p "$repo/hack/lib" "$repo/$DIAG"
-  cp "$SCRIPT" "$repo/hack/"
+  mkdir -p "$repo/hack/lib" "$repo/$DIAG" "$repo/oss/vllm/58420-srpf"
+  cp "$SCRIPT" "$repo/oss/vllm/58420-srpf/"
   cp "$ROOT/hack/lib/spot-run.sh" "$repo/hack/lib/"
   cp "$ROOT/hack/m5c-gpu-session.sh" "$repo/hack/"
   cp "$ROOT/$DIAG/SHA256SUMS" "$ROOT/$DIAG/trace-off-3.jsonl" "$ROOT/$DIAG/manifest-off-3.yaml" "$repo/$DIAG/"
@@ -51,7 +51,7 @@ session() {
   shift
   : >"$WORK/aws-calls"
   env -u SESSION_CONFIRM -u VLLM58420_AMI_ID PATH="$WORK/bin:$PATH" AWS_CALLS="$WORK/aws-calls" "$@" \
-    bash "$repo/hack/vllm-58420-session.sh" 2>&1
+    bash "$repo/oss/vllm/58420-srpf/vllm-58420-session.sh" 2>&1
 }
 
 # refuses asserts the script exits non-zero with want in its output and never called aws or curl.
@@ -111,18 +111,18 @@ refuses "a manifest its SHA256SUMS does not list" "does not match its SHA256SUMS
 
 # A rate that puts the worst case over the cap must be refused by the script's own arithmetic.
 COSTLY=$(fixture) || exit 1
-sed -i 's/^ALL_IN_RATE=.*/ALL_IN_RATE=1.40/' "$COSTLY/hack/vllm-58420-session.sh"
+sed -i 's/^ALL_IN_RATE=.*/ALL_IN_RATE=1.40/' "$COSTLY/oss/vllm/58420-srpf/vllm-58420-session.sh"
 commit_all "$COSTLY" costly
 refuses "a worst case over \$3" "is not under \$3.00" "$COSTLY" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI
 
 # Seven arms at run 8's 500 s ready bound end at 13,800 s, $3.18 at the all-in rate, so the cut bound is what fits them.
 # Mutation that turns this red: drop the worst-case check, or compute it from a fixed six arms.
 OLDREADY=$(fixture) || exit 1
-sed -i 's/^READY_BOUND_S=.*/READY_BOUND_S=500/' "$OLDREADY/hack/vllm-58420-session.sh"
+sed -i 's/^READY_BOUND_S=.*/READY_BOUND_S=500/' "$OLDREADY/oss/vllm/58420-srpf/vllm-58420-session.sh"
 commit_all "$OLDREADY" oldready
 refuses "seven arms at run 8's ready bound" "the worst case, 13800 s at \$0.8292/h, is not under \$3.00" "$OLDREADY" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI
 MOREARMS=$(fixture) || exit 1
-sed -i 's/^ARMS=.*/ARMS=8/' "$MOREARMS/hack/vllm-58420-session.sh"
+sed -i 's/^ARMS=.*/ARMS=8/' "$MOREARMS/oss/vllm/58420-srpf/vllm-58420-session.sh"
 commit_all "$MOREARMS" morearms
 refuses "an eighth arm" "is not under \$3.00" "$MOREARMS" SESSION_CONFIRM=yes VLLM58420_AMI_ID=$AMI
 
@@ -260,7 +260,7 @@ fi
 
 # Run 3 on 2026-11-16 ran past the pull bound pulling anonymously, so the instance logs in to ECR Public before the
 # sweep, and the role's policy, which spot_ensure_profile never updates on an existing role, is written every time.
-s="$ROOT/hack/vllm-58420-session.sh"
+s="$ROOT/oss/vllm/58420-srpf/vllm-58420-session.sh"
 if ! grep -qF 'aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws' "$s" ||
   ! grep -qF 'ecr-public:GetAuthorizationToken' "$s" || ! grep -qF 'sts:GetServiceBearerToken' "$s" ||
   ! grep -qF 'aws iam put-role-policy --role-name "$STACK" --policy-name write-results --policy-document "$ROLE_POLICY"' "$s"; then
@@ -272,7 +272,7 @@ fi
 
 # Run 5 on 2026-11-17 was still extracting layers when the pull bound cut it, so the volume is provisioned past gp3's
 # free baseline, and that cost is in the all-in rate the $3 check reads.
-s="$ROOT/hack/vllm-58420-session.sh"
+s="$ROOT/oss/vllm/58420-srpf/vllm-58420-session.sh"
 if ! grep -qF '"$UD" "$TAGS" "$token" "" "" "$EBS_THROUGHPUT_MIBPS" "$EBS_IOPS"' "$s" ||
   ! grep -qx 'EBS_THROUGHPUT_MIBPS=500' "$s" || ! grep -qx 'EBS_IOPS=6000' "$s" || ! grep -qx 'ALL_IN_RATE=0.8292' "$s" ||
   ! grep -qF ',\"Throughput\":$ebs_throughput' "$ROOT/hack/lib/spot-run.sh"; then
@@ -288,7 +288,7 @@ printf '{"arms":[{"outcome":"measured"},{"outcome":"failed"}]}' >"$d/sweep/summa
 got=$(python3 -c 'import json, sys
 arms = json.load(open(sys.argv[1]))["arms"]
 print("%d of %d" % (sum(a.get("outcome") == "measured" for a in arms), len(arms)))' "$d/sweep/summary.json")
-s="$ROOT/hack/vllm-58420-session.sh"
+s="$ROOT/oss/vllm/58420-srpf/vllm-58420-session.sh"
 if [ "$got" != "1 of 2" ] || ! grep -qF 'echo "measured=$MEASURED"' "$s" || ! grep -qF '[ "$MEASURED" = "$ARMS of $ARMS" ] || exit 2' "$s" ||
   ! grep -qF 'print("%d of %d" % (sum(a.get("outcome") == "measured" for a in arms), len(arms)))' "$s"; then
   echo "FAIL the session does not report and exit on the number of measured arms (counted $got)" >&2
@@ -303,8 +303,8 @@ order=$(ZONES="ap-northeast-2a ap-northeast-2c ap-northeast-2d"; RECLAIMED_ZONES
   ZONES=$(for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) ;; *) echo "$z" ;; esac; done
     for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*) echo "$z" ;; esac; done)
   paste -sd' ' <<<"$ZONES")
-if [ "$order" != "ap-northeast-2c ap-northeast-2d ap-northeast-2a" ] || ! grep -qx 'RECLAIMED_ZONES="ap-northeast-2a"' "$ROOT/hack/vllm-58420-session.sh" ||
-  [ "$(grep -cF 'for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*)' "$ROOT/hack/vllm-58420-session.sh")" != 2 ]; then
+if [ "$order" != "ap-northeast-2c ap-northeast-2d ap-northeast-2a" ] || ! grep -qx 'RECLAIMED_ZONES="ap-northeast-2a"' "$ROOT/oss/vllm/58420-srpf/vllm-58420-session.sh" ||
+  [ "$(grep -cF 'for z in $ZONES; do case " $RECLAIMED_ZONES " in *" $z "*)' "$ROOT/oss/vllm/58420-srpf/vllm-58420-session.sh")" != 2 ]; then
   echo "FAIL a reclaimed zone is not tried last (got $order)" >&2
   failures=$((failures + 1))
 else

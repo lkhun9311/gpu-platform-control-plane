@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# Offline checks for hack/vllm-67811-session.sh and the runner it ships, run before anything is bought.
-# The EC2 lifecycle is hack/vllm-58420-session.sh's, which hack/vllm-58420-session-test.sh covers; these checks cover
+# Offline checks for oss/vllm/67811-prefill-budget/vllm-67811-session.sh and the runner it ships, run before anything is bought.
+# The EC2 lifecycle is oss/vllm/58420-srpf/vllm-58420-session.sh's, which oss/vllm/58420-srpf/vllm-58420-session-test.sh covers; these checks cover
 # what is new here: the runner's bounds against the session's stop, the probe, and the runner's whole path, driven
 # against fake docker, curl and nvidia-smi so a defect in a later step shows here rather than on a paid card.
 set -uo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-S="$ROOT/hack/vllm-67811-session.sh"
-R="$ROOT/hack/vllm-67811/runner.sh"
-P="$ROOT/hack/vllm-67811/probe/sitecustomize.py"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+S="$ROOT/oss/vllm/67811-prefill-budget/vllm-67811-session.sh"
+R="$ROOT/oss/vllm/67811-prefill-budget/runner.sh"
+P="$ROOT/oss/vllm/67811-prefill-budget/probe/sitecustomize.py"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 failures=0
@@ -56,7 +56,7 @@ class AdaptivePrefillController:
             self.token_ms = device_ms / 1000
         return step_id
 EOF
-AP_PROBE_DIR="$WORK/probe-out" AP_SLOT=t PYTHONPATH="$ROOT/hack/vllm-67811/probe:$WORK/pkg" python3 -c '
+AP_PROBE_DIR="$WORK/probe-out" AP_SLOT=t PYTHONPATH="$ROOT/oss/vllm/67811-prefill-budget/probe:$WORK/pkg" python3 -c '
 from vllm.v1.core.sched.adaptive_prefill import AdaptivePrefillController as C
 c = C()
 b = c.begin(0.0, 1, 8192, {"p", "w"})

@@ -64,6 +64,8 @@ docs/superpowers/*
 # is invisible to `git status` and a commit simply leaves it behind -- which is what happened to this one.
 # A pattern rather than a name, because an experiment is expected to arrive with its own directory.
 !/experiments/**/README.md
+# Upstream contribution work: its index and each item's write-up and run notes are what a reader of the thread checks.
+!/oss/**/*.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
 # Numbered by pattern rather than by name, because naming each one is how docs/08 and docs/11 ended up

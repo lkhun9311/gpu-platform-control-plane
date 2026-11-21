@@ -1,10 +1,10 @@
 #!/bin/bash
-# One state of hack/vllm-tpot-session.sh, run inside a fresh container of the pinned vLLM CI image.
+# One state of oss/vllm/68548-tpot/vllm-tpot-session.sh, run inside a fresh container of the pinned vLLM CI image.
 #
 #   state.sh <before|after> <tpot pytest seconds> [<whole-file pytest seconds>]
 #
 # /in holds the two diffs and pins.txt, read-only; /out/<state> receives the record.
-# This script records and does not judge: hack/vllm-tpot/verdict.py reads what it leaves.
+# This script records and does not judge: oss/vllm/68548-tpot/verdict.py reads what it leaves.
 # It stops before pytest only when the tree it would test is not the one pinned, since a run on any other tree is void.
 set -u
 S=$1

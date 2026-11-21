@@ -3,7 +3,7 @@
 # The vLLM #67811 adaptive-prefill measurement: one g5.xlarge Spot instance, one attempt, stopped by itself 4,040 s after
 # launch.
 #
-#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM67811_AMI_ID=ami-... bash hack/vllm-67811-session.sh
+#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM67811_AMI_ID=ami-... bash oss/vllm/67811-prefill-budget/vllm-67811-session.sh
 #
 # PR #67811 (draft) adds an opt-in prefill time budget, --adaptive-prefill. Its author says the next required gate is a
 # real GPU run of benchmarks/adaptive_prefill/serve.py, baseline against the flag, on identical hardware, model,
@@ -13,20 +13,20 @@
 # under a threshold between 0.11 and 0.14 ms, and run1 cannot say which side the A10G is on.
 # Run 2 starts one adaptive engine and traces every controller call, begin, commit and complete, past the warm-up,
 # so the per-token cost and the allowance in the stalled phase are measured rather than modelled.
-# On the instance it runs only hack/vllm-67811/runner.sh: the pull of vLLM CI's image of the PR's merge base, a check
+# On the instance it runs only oss/vllm/67811-prefill-budget/runner.sh: the pull of vLLM CI's image of the PR's merge base, a check
 # that the image ships the merge base's files, the model download, then one fresh adaptive engine that runs the PR's
 # serve.py once as an unscored warm-up and once scored, under seed 62574.
-# Run1 also ran base and t512 (--long-prefill-token-threshold 512); their results are in hack/vllm-67811/2026-11-18-run1.
-# It shares its EC2 lifecycle with hack/vllm-58420-session.sh (hack/lib/spot-run.sh).
+# Run1 also ran base and t512 (--long-prefill-token-threshold 512); their results are in oss/vllm/67811-prefill-budget/2026-11-18-run1.
+# It shares its EC2 lifecycle with oss/vllm/58420-srpf/vllm-58420-session.sh (hack/lib/spot-run.sh).
 #
 # THE BUILD.
 # The PR changes seven Python files of the package and no compiled code. The engine is
 # public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo at the merge base 71c35414, pinned by digest, with the seven head files
 # (4053e4e4) mounted read-only over the installed ones.
 # This script fetches them, serve.py and compare.py from GitHub before anything is bought and refuses any whose hash is
-# not the one pinned in hack/vllm-67811/runner.sh.
+# not the one pinned in oss/vllm/67811-prefill-budget/runner.sh.
 # Prefix caching is off in every engine: the scored runs repeat the same seeds, so a cache would serve the long prompts.
-# hack/vllm-67811/probe/sitecustomize.py records what the controller is fed, since the PR logs nothing about it.
+# oss/vllm/67811-prefill-budget/probe/sitecustomize.py records what the controller is fed, since the PR logs nothing about it.
 #
 # THE CLOCK.
 # Every deadline counts from EC2's LaunchTime, read right after the launch and written to the run's S3 prefix for the
@@ -56,7 +56,7 @@
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the arms, the bounds and the stop are constants,
 # and a caller who sets one is refused rather than ignored.
 set -uo pipefail
-cd "$(dirname "$0")/.." || exit 1
+cd "$(dirname "$0")/../../.." || exit 1
 
 REGION=ap-northeast-2
 ACCOUNT_WANT=007635145730
@@ -74,11 +74,11 @@ PURPOSE=vllm-67811-adaptive-prefill
 # The PR head; every file fetched from it is checked against the hashes pinned in the runner.
 PR_COMMIT=4053e4e4c2f83b7f431c40ac38ad769e928b1595
 RAW="https://raw.githubusercontent.com/vllm-project/vllm/$PR_COMMIT"
-RUNNER=hack/vllm-67811/runner.sh
-PROBE=hack/vllm-67811/probe/sitecustomize.py
+RUNNER=oss/vllm/67811-prefill-budget/runner.sh
+PROBE=oss/vllm/67811-prefill-budget/probe/sitecustomize.py
 BENCH_FILES="benchmarks/adaptive_prefill/serve.py fac101e873a45938085d6c491d04a19adc8d3c0d69e0ac54d66ddbe923046cf1
 benchmarks/adaptive_prefill/compare.py 2c9db66ae0b6589794163ca0a62299b5229d502439a27cf3cdf521d58911c9fd"
-# The step bounds, each the runner's own; hack/vllm-67811-session-test.sh holds the two equal.
+# The step bounds, each the runner's own; oss/vllm/67811-prefill-budget/vllm-67811-session-test.sh holds the two equal.
 BRINGUP_S=600
 PULL_BOUND_S=1500
 BASE_ID_S=300

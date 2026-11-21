@@ -1,5 +1,5 @@
 #!/bin/bash
-# One #68415 state of hack/vllm-gdn-68414-session.sh run 3, run inside a fresh container of the pinned vLLM CI image.
+# One #68415 state of oss/vllm/68414-gdn/vllm-gdn-68414-session.sh run 3, run inside a fresh container of the pinned vLLM CI image.
 # Run 3 confirmed #68415 with it, and run 4 neither ships nor runs it, so it stays as run 3 ran it.
 #
 #   kda-state.sh before <pytest seconds> <probe seconds>
@@ -11,7 +11,7 @@
 # With V above K the unfixed kernel writes past the output it was given, so k32-v64 is never run before the fix.
 # k64-v32 and k64-v32-hv2 must fail on the shape assert, and k64-v64 and v-bf16 must pass.
 # AFTER applies the whole diff and runs all five cases, which must all pass.
-# This script records and does not judge: hack/vllm-gdn-68414/kda-verdict.py reads what it leaves.
+# This script records and does not judge: oss/vllm/68414-gdn/kda-verdict.py reads what it leaves.
 set -u
 . "$(dirname "$0")/lib.sh"
 S=$1
