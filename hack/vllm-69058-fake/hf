@@ -1,0 +1,23 @@
+#!/bin/bash
+# A fake hf for the vLLM #69058 kit's offline test, answering `hf download facebook/opt-125m --revision main --include FILE...`.
+# It writes a snapshot of small files under FAKE_HF_DIR and prints its path the way hf's agent format does.
+# FAKE_HF=fail exits non-zero, FAKE_HF=badrev names another revision, and FAKE_HF=badsha writes different weights.
+set -uo pipefail
+[ "${1:-}" = download ] && [ "${2:-}" = facebook/opt-125m ] || { echo "fake hf: unexpected arguments $*" >&2; exit 2; }
+shift 2
+files=()
+while [ $# -gt 0 ]; do
+  case $1 in
+    --revision) [ "${2:-}" = main ] || { echo "fake hf: revision ${2:-} is not main" >&2; exit 2; }; shift 2 ;;
+    --include) files+=("$2"); shift 2 ;;
+    *) echo "fake hf: unexpected argument $1" >&2; exit 2 ;;
+  esac
+done
+[ "${FAKE_HF:-}" = fail ] && { echo "fake hf: 503 from the hub" >&2; exit 1; }
+rev=27dcfa74d334bc871f3234de431e71c6eeba5dd6
+[ "${FAKE_HF:-}" = badrev ] && rev=1111111111111111111111111111111111111111
+snap="${FAKE_HF_DIR:?}/models--facebook--opt-125m/snapshots/$rev"
+mkdir -p "$snap" || exit 1
+for f in "${files[@]}"; do printf 'fake %s\n' "$f" > "$snap/$f"; done
+[ "${FAKE_HF:-}" = badsha ] && printf 'other weights\n' > "$snap/pytorch_model.bin"
+echo "path=$snap"

@@ -8,7 +8,7 @@ rootdir: /src/vllm
 configfile: pyproject.toml
 plugins: anyio-4.16.0, asyncio-1.5.0
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collected 24 items / 16 deselected / 8 selected
+collected 26 items / 18 deselected / 8 selected
 
 tests/v1/kv_connector/unit/test_hf3fs_connector.py ...s....              [100%]
 
@@ -55,7 +55,7 @@ __ TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail] __
 ------------------------------ Captured log setup ------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
 ----------------------------- Captured stderr call -----------------------------
-Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 5001.82it/s]
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 3993.73it/s]
 ------------------------------ Captured log call -------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
@@ -75,7 +75,7 @@ WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializ
 WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:443 Read operation failed for Loaded request id-2
 WARNING  vllm.v1.core.sched.scheduler:scheduler.py:3983 Recovered from KV load failure: 1 request(s) rescheduled (64 tokens affected).
-___ TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_valid_prefix ___
+_ TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_prefix_and_saves_the_rest _
 ------------------------------ Captured log call -------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
@@ -94,7 +94,7 @@ PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[short_read]
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]
-PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_valid_prefix
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load
-SKIPPED [1] tests/v1/kv_connector/unit/test_hf3fs_connector.py:428: a successful load scatters with a Triton kernel
-=========== 7 passed, 1 skipped, 16 deselected, 1 warning in 12.18s ============
+SKIPPED [1] tests/v1/kv_connector/unit/test_hf3fs_connector.py:434: a successful load scatters with a Triton kernel
+=========== 7 passed, 1 skipped, 18 deselected, 1 warning in 11.83s ============

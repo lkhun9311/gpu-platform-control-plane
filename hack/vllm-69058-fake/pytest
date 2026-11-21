@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
-"""A fake pytest for the vLLM #69058 kit's offline test, run in the vLLM checkout.
+"""A fake pytest for the vLLM #69058 kit's offline test, run in the vLLM checkout or, for command (c), in its tests directory.
 
 It reads the checkout to decide what the real file would do on a GPU.
 The new tests exist only when the diff's tests/ part is applied, and they pass only when the connector carries the fix.
+On base the eight unit tests fail, [fail] end to end fails at its finish_reason check, and [recompute] fails at its token comparison.
 FAKE_MODE bends one outcome so the verdict's rules can be driven:
-  skip      the CUDA-only test is skipped, as it is without CUDA;
-  nosummary pytest is interrupted before its summary;
-  fixfail   the CUDA-only test fails with the fix;
-  basepass  the CUDA-only test passes on base;
-  error     the CUDA-only test errors in setup with the fix;
-  hang      pytest never returns;
-  outside   an older mock-client test fails on base only, which the verdict must name as a finding.
+  skip        the CUDA-only unit test is skipped, as it is without CUDA;
+  nosummary   pytest is interrupted before its summary;
+  fixfail     the CUDA-only unit test fails with the fix;
+  basepass    the CUDA-only unit test passes on base;
+  error       the CUDA-only unit test errors in setup with the fix;
+  hang        pytest never returns;
+  outside     an older mock-client test fails on base only, which the verdict must name as a finding;
+  c_skip      the end-to-end tests are skipped, as they are without CUDA;
+  c_basepass  end-to-end [fail] passes on base;
+  c_fixfail   end-to-end [recompute] fails at its token comparison with the fix;
+  c_recompute_basepass  end-to-end [recompute] passes on base, which the spec allows;
+  c_timeout   end-to-end [fail] times out in the wait for stored keys with the fix;
+  c_oom       end-to-end [recompute] runs out of GPU memory on base;
+  c_layout    end-to-end [fail] hits a KV layout registration error with the fix;
+  c_noread    end-to-end [recompute] never reads from HF3FS with the fix;
+  c_error     end-to-end [fail] errors in its fixture's setup on base.
 """
 
 import os
@@ -42,76 +52,135 @@ NEW = (
     [f"TestHF3FSLoadErrors::test_failed_load_reports_block_ids[{p}]" for p in ("missing_key", "lookup_raises", "short_read")]
     + [CUDA]
     + [f"TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[{p}]" for p in ("fail", "recompute")]
-    + ["TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_valid_prefix", "TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load"]
+    + ["TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest",
+       "TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load"]
 )
-# This new test passes on base by design, as it does in the CPU run at the base commit.
-BASE_PASSES = "TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_valid_prefix"
-# The assertion lines the CPU run at the base commit printed for each new test that fails there.
+E2E_F = "TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]"
+E2E_R = "TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]"
+E2E = [E2E_F, E2E_R]
+# The assertion lines the CPU run at the base commit printed for each new unit test that fails there.
 ASSERT = {
-    "TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]": "E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11>",
-    "TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]": "E       AssertionError: assert {'id-2': 1} == {'id-2': 65}",
-    "TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load": "E       assert (64, True) == (0, False)",
+    "TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]": ["E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11>"],
+    "TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]": ["E       AssertionError: assert {'id-2': 1} == {'id-2': 65}"],
+    "TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest": ["E       AssertionError: assert 10 == 8"],
+    "TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load": ["E       assert (64, True) == (0, False)"],
 }
-OUTSIDE = "TestHf3fsMockClient::test_multiple_tensors_rw"
+# The traceback lines an end-to-end failure prints, by how it failed: the ">" source line in the test, then its E line.
+E2E_FAILURES = {
+    "finish_error": ['>           assert retry.finish_reason == "error"', "E           AssertionError: assert 'length' == 'error'"],
+    "token_ids": [">       assert retry.token_ids == cold.token_ids", "E       assert [2, 50118, 133] == [2, 50118, 4148]"],
+    "timeout": [">           _wait_until(lambda: metadata.num_stored_keys() >= num_target_blocks)", "",
+                "    def _wait_until(condition, timeout=60.0):",
+                '>           assert time.monotonic() < deadline, "condition not met before the timeout"',
+                "E           AssertionError: condition not met before the timeout"],
+    "oom": [">       with vllm_runner(E2E_MODEL, **common_kwargs) as runner:",
+            "E       torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 20.00 MiB."],
+    "layout": [">           with (", "E       RuntimeError: HF3FS register_kv_caches: unsupported KV cache layout for OPTForCausalLM"],
+    "noread": [">           assert faults.num_failed_reads > 0", "E           assert 0 > 0"],
+}
 
 args = sys.argv[1:]
-if args not in ([FILE, "-k", "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure", "-rA"], [FILE, "-rA"]):
+C_ARGS = ["-v", "-s", "v1/kv_connector/unit/test_hf3fs_connector.py", "-k", "TestHF3FSLoadFailureEndToEnd", "-rA"]
+if args == C_ARGS:
+    cmd, root, prefix = "c", "..", "v1/kv_connector/unit/test_hf3fs_connector.py"
+    if os.environ.get("VLLM_ENABLE_V1_MULTIPROCESSING") != "0":
+        print("fake pytest: command (c) needs VLLM_ENABLE_V1_MULTIPROCESSING=0", file=sys.stderr)
+        sys.exit(4)
+elif args == [FILE, "-k", "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure", "-rA"]:
+    cmd, root, prefix = "a", ".", FILE
+elif args == [FILE, "-rA"]:
+    cmd, root, prefix = "b", ".", FILE
+else:
     print(f"fake pytest: unexpected arguments {args}", file=sys.stderr)
+    sys.exit(4)
+# The offline test sets FAKE_EXPECT_OFFLINE=1 when the kit should have taken the hub offline before any test run.
+if os.environ.get("FAKE_EXPECT_OFFLINE") == "1" and os.environ.get("HF_HUB_OFFLINE") != "1":
+    print("fake pytest: the hub is not offline", file=sys.stderr)
     sys.exit(4)
 mode = os.environ.get("FAKE_MODE", "")
 if mode == "hang":
     time.sleep(3600)
-src = open(FILE).read()
-has_tests = "class TestHF3FSLoadErrors" in src and "class TestHF3FSSchedulerLoadFailure" in src
-fixed = "take_load_error_block_ids" in open(CONNECTOR).read()
-selected = "-k" in args
-tests = (NEW if has_tests else []) if selected else OLD + (NEW if has_tests else [])
-deselected = len(OLD) if selected else 0
+src = open(os.path.join(root, FILE)).read()
+has_tests = all(f"class {c}" in src for c in ("TestHF3FSLoadErrors", "TestHF3FSSchedulerLoadFailure", "TestHF3FSLoadFailureEndToEnd"))
+fixed = "take_load_error_block_ids" in open(os.path.join(root, CONNECTOR)).read()
+added = NEW + E2E if has_tests else []
+tests = {"a": [t for t in added if t in NEW], "b": OLD + added, "c": [t for t in added if t in E2E]}[cmd]
+deselected = len(OLD) + len(added) - len(tests)
 
 print("============================= test session starts ==============================")
-print(f"collected {len(OLD) + (len(NEW) if has_tests else 0)} items")
+print(f"collected {len(OLD) + len(added)} items")
 if mode == "nosummary":
     print("!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!")
     sys.exit(2)
 outcome = {}
+how = {}
 for t in tests:
     if t in NEW:
-        outcome[t] = "PASSED" if fixed or t == BASE_PASSES else "FAILED"
+        outcome[t] = "PASSED" if fixed else "FAILED"
+    elif t in E2E:
+        outcome[t] = "PASSED" if fixed else "FAILED"
+        if not fixed:
+            how[t] = "finish_error" if t == E2E_F else "token_ids"
     else:
         outcome[t] = "PASSED"
-if CUDA in outcome:
-    if mode == "skip":
-        outcome[CUDA] = "SKIPPED"
-    elif mode == "fixfail" and fixed:
-        outcome[CUDA] = "FAILED"
-    elif mode == "basepass" and not fixed:
-        outcome[CUDA] = "PASSED"
-    elif mode == "error" and fixed:
-        outcome[CUDA] = "ERROR"
-if mode == "outside" and OUTSIDE in outcome and not fixed:
-    outcome[OUTSIDE] = "FAILED"
+side = "fix" if fixed else "base"
+bends = {
+    ("skip", CUDA, "base"): ("SKIPPED", None), ("skip", CUDA, "fix"): ("SKIPPED", None),
+    ("fixfail", CUDA, "fix"): ("FAILED", None), ("basepass", CUDA, "base"): ("PASSED", None), ("error", CUDA, "fix"): ("ERROR", None),
+    ("c_skip", E2E_F, "base"): ("SKIPPED", None), ("c_skip", E2E_F, "fix"): ("SKIPPED", None),
+    ("c_skip", E2E_R, "base"): ("SKIPPED", None), ("c_skip", E2E_R, "fix"): ("SKIPPED", None),
+    ("c_basepass", E2E_F, "base"): ("PASSED", None), ("c_fixfail", E2E_R, "fix"): ("FAILED", "token_ids"),
+    ("c_recompute_basepass", E2E_R, "base"): ("PASSED", None), ("c_timeout", E2E_F, "fix"): ("FAILED", "timeout"),
+    ("c_oom", E2E_R, "base"): ("FAILED", "oom"), ("c_layout", E2E_F, "fix"): ("FAILED", "layout"),
+    ("c_noread", E2E_R, "fix"): ("FAILED", "noread"), ("c_error", E2E_F, "base"): ("ERROR", None),
+}
+for t in tests:
+    if (mode, t, side) in bends:
+        outcome[t], h = bends[(mode, t, side)]
+        if h:
+            how[t] = h
+        elif t in how and outcome[t] != "FAILED":
+            del how[t]
+if mode == "outside" and OLD[6] in outcome and not fixed:
+    outcome[OLD[6]] = "FAILED"
+errored = [t for t in tests if outcome[t] == "ERROR"]
 failed = [t for t in tests if outcome[t] == "FAILED"]
+if errored:
+    print("==================================== ERRORS ====================================")
+    for t in errored:
+        print(f"_ ERROR at setup of {t.replace('::', '.')} _")
+        print(f"E       RuntimeError: fixture setup failed for {t}")
 if failed:
     print("=================================== FAILURES ===================================")
     for t in failed:
-        print(f"_____ {t.split('::', 1)[0]}.{t.split('::', 1)[1]} _____")
-        print(ASSERT.get(t, "E       assert set() == {3, 5}"))
+        print(f"_____ {t.replace('::', '.')} _____")
+        print("")
+        print("self = <test object>")
+        if t in E2E:
+            for line in E2E_FAILURES[how.get(t, "token_ids")]:
+                print(line)
+        else:
+            for line in ASSERT.get(t, ["E       assert set() == {3, 5}"]):
+                print(line)
 print("=========================== short test summary info ============================")
 for t in tests:
     o = outcome[t]
     if o == "SKIPPED":
-        print(f"SKIPPED [1] {FILE}:384: a successful load scatters with a Triton kernel")
+        reason = "needs a CUDA GPU" if t in E2E else "a successful load scatters with a Triton kernel"
+        print(f"SKIPPED [1] {prefix}:434: {reason}")
+    elif o == "ERROR":
+        print(f"ERROR {prefix}::{t} - RuntimeError: fixture setup failed")
     else:
-        print(f"{o} {FILE}::{t}")
+        print(f"{o} {prefix}::{t}")
 counts = []
 for word, o in (("failed", "FAILED"), ("passed", "PASSED"), ("skipped", "SKIPPED"), ("error", "ERROR")):
     n = sum(1 for t in tests if outcome[t] == o)
     if n:
-        counts.append(f"{n} {word}")
+        counts.append(f"{n} {word}{'s' if word == 'error' and n > 1 else ''}")
 if deselected:
     counts.append(f"{deselected} deselected")
 body = ", ".join(counts) or "no tests ran"
 print(f"============ {body}, 1 warning in 7.53s ============")
 if not tests:
     sys.exit(5)
-sys.exit(1 if failed or any(o == "ERROR" for o in outcome.values()) else 0)
+sys.exit(1 if failed or errored else 0)

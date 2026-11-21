@@ -8,16 +8,16 @@ rootdir: /src/vllm
 configfile: pyproject.toml
 plugins: anyio-4.16.0, asyncio-1.5.0
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collected 24 items
+collected 26 items
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py .FFF..F............s. [ 87%]
-...                                                                      [100%]
+tests/v1/kv_connector/unit/test_hf3fs_connector.py .FFF..F............s. [ 80%]
+...ss                                                                    [100%]
 
 =================================== FAILURES ===================================
 _________ TestHf3fsMockClient.test_batch_write_and_read_dtype[float32] _________
 
-self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f0b011c5c70>
-tmp_path = PosixPath('/tmp/pytest-of-user/pytest-433/test_batch_write_and_read_dtyp0')
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f5532591dc0>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-447/test_batch_write_and_read_dtyp0')
 dtype = torch.float32, bytes_per_page = 512
 
     @pytest.mark.parametrize(
@@ -48,13 +48,13 @@ E
 E         At index 0 diff: -1 != 512
 E         Use -v to get more diff
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py:105: AssertionError
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:111: AssertionError
 ------------------------------ Captured log call -------------------------------
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
 _________ TestHf3fsMockClient.test_batch_write_and_read_dtype[float16] _________
 
-self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f0b011c5df0>
-tmp_path = PosixPath('/tmp/pytest-of-user/pytest-433/test_batch_write_and_read_dtyp1')
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f5532591bb0>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-447/test_batch_write_and_read_dtyp1')
 dtype = torch.float16, bytes_per_page = 256
 
     @pytest.mark.parametrize(
@@ -85,13 +85,13 @@ E
 E         At index 0 diff: -1 != 256
 E         Use -v to get more diff
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py:105: AssertionError
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:111: AssertionError
 ------------------------------ Captured log call -------------------------------
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
 ________ TestHf3fsMockClient.test_batch_write_and_read_dtype[bfloat16] _________
 
-self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f0b011c5e80>
-tmp_path = PosixPath('/tmp/pytest-of-user/pytest-433/test_batch_write_and_read_dtyp2')
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f5532591b20>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-447/test_batch_write_and_read_dtyp2')
 dtype = torch.bfloat16, bytes_per_page = 256
 
     @pytest.mark.parametrize(
@@ -122,13 +122,13 @@ E
 E         At index 0 diff: -1 != 256
 E         Use -v to get more diff
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py:105: AssertionError
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:111: AssertionError
 ------------------------------ Captured log call -------------------------------
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
 _________________ TestHf3fsMockClient.test_multiple_tensors_rw _________________
 
-self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f0b011c60f0>
-tmp_path = PosixPath('/tmp/pytest-of-user/pytest-433/test_multiple_tensors_rw0')
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f5532592330>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-447/test_multiple_tensors_rw0')
 
     def test_multiple_tensors_rw(self, tmp_path):
         """Write multiple tensors at different offsets, then read all back."""
@@ -151,9 +151,9 @@ tmp_path = PosixPath('/tmp/pytest-of-user/pytest-433/test_multiple_tensors_rw0')
         results = client.batch_write(offsets, tensors_write, event)
 >       assert all(r == bytes_per_page for r in results)
 E       assert False
-E        +  where False = all(<generator object TestHf3fsMockClient.test_multiple_tensors_rw.<locals>.<genexpr> at 0x7f0b00f3fed0>)
+E        +  where False = all(<generator object TestHf3fsMockClient.test_multiple_tensors_rw.<locals>.<genexpr> at 0x7f5655c6bd30>)
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py:163: AssertionError
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:169: AssertionError
 ------------------------------ Captured log call -------------------------------
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
 =============================== warnings summary ===============================
@@ -202,7 +202,7 @@ __ TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail] __
 ------------------------------ Captured log setup ------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
 ----------------------------- Captured stderr call -----------------------------
-Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 5770.21it/s]
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 4636.87it/s]
 ------------------------------ Captured log call -------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
@@ -222,7 +222,7 @@ WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializ
 WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:443 Read operation failed for Loaded request id-2
 WARNING  vllm.v1.core.sched.scheduler:scheduler.py:3983 Recovered from KV load failure: 1 request(s) rescheduled (64 tokens affected).
-___ TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_valid_prefix ___
+_ TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_prefix_and_saves_the_rest _
 ------------------------------ Captured log call -------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
@@ -253,11 +253,12 @@ PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[short_read]
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]
-PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_valid_prefix
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load
-SKIPPED [1] tests/v1/kv_connector/unit/test_hf3fs_connector.py:428: a successful load scatters with a Triton kernel
+SKIPPED [1] tests/v1/kv_connector/unit/test_hf3fs_connector.py:434: a successful load scatters with a Triton kernel
+SKIPPED [2] tests/v1/kv_connector/unit/test_hf3fs_connector.py:699: needs a CUDA GPU
 FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float32]
 FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float16]
 FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[bfloat16]
 FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw
-============= 4 failed, 19 passed, 1 skipped, 1 warning in 15.09s ==============
+============= 4 failed, 19 passed, 3 skipped, 1 warning in 15.12s ==============
