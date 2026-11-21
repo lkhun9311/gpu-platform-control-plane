@@ -3,7 +3,7 @@
 # The vLLM TPOT single-token pytest, before and after the fix: one g5.xlarge Spot instance, one attempt, stopped by
 # itself 4,500 s after launch.
 #
-#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMTPOT_AMI_ID=ami-... bash hack/vllm-tpot-session.sh
+#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMTPOT_AMI_ID=ami-... bash oss/vllm/68548-tpot/vllm-tpot-session.sh
 #
 # The runtime session's fix (storage/open-source/contributions/vllm/tpot-single-token) stops vLLM observing
 # vllm:request_time_per_output_token_seconds for requests that generated one token or none.
@@ -11,16 +11,16 @@
 # BEFORE: vLLM main 3a1c6c43df with serving-test-only.diff, where the test must fail with a TPOT _count delta of 5.
 # AFTER: the same commit with fix.diff, where the same test must pass, and then the whole test_metrics.py with -k text.
 # The two diffs are copies of the runtime session's, pinned below by sha256.
-# It shares its EC2 lifecycle with hack/vllm-67811-session.sh (hack/lib/spot-run.sh).
+# It shares its EC2 lifecycle with oss/vllm/67811-prefill-budget/vllm-67811-session.sh (hack/lib/spot-run.sh).
 #
 # THE BUILD.
 # vLLM CI publishes a test image per main commit, and the one for 3a1c6c43df is pinned by digest in the runner.
 # Its labels name the commit, and it carries the wheel's sha256, both recorded on the instance.
 # The image installs the wheel, copies the checkout's vllm/v1 over the installed package, and moves the checkout's
 # vllm/ aside, so Python imports vllm from dist-packages and pytest runs the checkout's tests from /vllm-workspace.
-# hack/vllm-tpot/state.sh therefore applies each diff in two parts: vllm/* to the installed package, the rest to the
+# oss/vllm/68548-tpot/state.sh therefore applies each diff in two parts: vllm/* to the installed package, the rest to the
 # checkout, and it records the loggers.py Python imports and whether that file holds the fix line.
-# hack/vllm-tpot/pins.txt holds the sha256 of every file the diffs touch, at the commit and after each diff.
+# oss/vllm/68548-tpot/pins.txt holds the sha256 of every file the diffs touch, at the commit and after each diff.
 # Each state runs in its own fresh container, which is the `git checkout .` between them.
 #
 # THE CLOCK.
@@ -50,7 +50,7 @@
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the diffs, the bounds and the stop are constants,
 # and a caller who sets one is refused rather than ignored.
 set -uo pipefail
-cd "$(dirname "$0")/.." || exit 1
+cd "$(dirname "$0")/../../.." || exit 1
 
 REGION=ap-northeast-2
 ACCOUNT_WANT=007635145730
@@ -65,15 +65,15 @@ COST_CAP_USD=2.00
 STUDY_ID=vllm-tpot-single-token-2026-11-18
 STACK=tpot-gpu
 PURPOSE=vllm-tpot-single-token-pytest
-RUNNER=hack/vllm-tpot/runner.sh
-STATE=hack/vllm-tpot/state.sh
-PINS=hack/vllm-tpot/pins.txt
-VERDICT=hack/vllm-tpot/verdict.py
-SERVING_DIFF=hack/vllm-tpot/serving-test-only.diff
+RUNNER=oss/vllm/68548-tpot/runner.sh
+STATE=oss/vllm/68548-tpot/state.sh
+PINS=oss/vllm/68548-tpot/pins.txt
+VERDICT=oss/vllm/68548-tpot/verdict.py
+SERVING_DIFF=oss/vllm/68548-tpot/serving-test-only.diff
 SERVING_DIFF_SHA256=9050a74bc947195993d781e861c6c7036eb39a9d1bb44312ecf004ee34f32a7b
-FIX_DIFF=hack/vllm-tpot/fix.diff
+FIX_DIFF=oss/vllm/68548-tpot/fix.diff
 FIX_DIFF_SHA256=a17086cf04325c126e89e142763ad9e5fd146b1423c77cd9c06026c090771c64
-# The step bounds, each the runner's own; hack/vllm-tpot-session-test.sh holds the two equal.
+# The step bounds, each the runner's own; oss/vllm/68548-tpot/vllm-tpot-session-test.sh holds the two equal.
 BRINGUP_S=600
 PULL_BOUND_S=1500
 IMAGE_ID_S=300

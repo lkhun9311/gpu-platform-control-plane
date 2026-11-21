@@ -1,5 +1,5 @@
 #!/bin/bash
-# One #68416 state of hack/vllm-gdn-68414-session.sh run 4, run inside a fresh container of the pinned vLLM CI image.
+# One #68416 state of oss/vllm/68414-gdn/vllm-gdn-68414-session.sh run 4, run inside a fresh container of the pinned vLLM CI image.
 #
 #   stride-state.sh before <pytest seconds> <probe seconds>
 #   stride-state.sh after <pytest seconds> <probe seconds> <whole-file seconds>
@@ -11,7 +11,7 @@
 # AFTER applies the whole diff and runs `-k stride`, whose three cases must pass, and then the whole file, which must pass too.
 # The diff changes fused_recurrent.py, fused_sigmoid_gating.py and the test file, and its kda case launches fused_recurrent.py's kernel through kda.py.
 # So the import checks cover all four files, kda.py holding #68415's bug line and not its fix in both states.
-# This script records and does not judge: hack/vllm-gdn-68414/stride-verdict.py reads what it leaves.
+# This script records and does not judge: oss/vllm/68414-gdn/stride-verdict.py reads what it leaves.
 set -u
 . "$(dirname "$0")/lib.sh"
 S=$1

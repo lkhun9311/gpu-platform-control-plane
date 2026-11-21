@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The verdict of hack/vllm-tpot-session.sh, read from the records hack/vllm-tpot/state.sh leaves.
+"""The verdict of oss/vllm/68548-tpot/vllm-tpot-session.sh, read from the records oss/vllm/68548-tpot/state.sh leaves.
 
     verdict.py <sweep dir> <serving-test-only.diff sha256> <fix.diff sha256>
 

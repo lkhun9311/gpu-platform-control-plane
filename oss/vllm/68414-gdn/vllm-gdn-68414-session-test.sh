@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# Offline checks for hack/vllm-gdn-68414-session.sh run 4, the runner and the state script it ships, its verdict and its pytest summary, run before anything is bought.
+# Offline checks for oss/vllm/68414-gdn/vllm-gdn-68414-session.sh run 4, the runner and the state script it ships, its verdict and its pytest summary, run before anything is bought.
 # The EC2 lifecycle is hack/lib/spot-run.sh's, which the 58420 and 67811 tests cover; these checks cover what is new or changed here.
 # That is the purchase option and its cost refusals, the schedule, the image and its base proof, the pins and their isolation proof, the two states in fresh containers, the import checks and the collection probe, the run commands and their records, the summary's assertion lines, and that only the expected combination is called "confirmed".
 # The runner's whole path runs against a fake docker that executes the state scripts on a fake tree, a stub torch, and a fake pytest that selects cases as pytest does and answers from the files Python imports.
 # #68414 and #68415 are not part of run 4; what is left of them here checks that they stay out of the run and unchanged.
 #
-#   bash hack/vllm-gdn-68414-session-test.sh                      # offline only
-#   VLLM_SRC=~/workspace/oss/vllm bash hack/vllm-gdn-68414-session-test.sh   # also re-derives every pin and the base proof from git
+#   bash oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh                      # offline only
+#   VLLM_SRC=~/workspace/oss/vllm bash oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh   # also re-derives every pin and the base proof from git
 set -uo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-S="$ROOT/hack/vllm-gdn-68414-session.sh"
-DIR="$ROOT/hack/vllm-gdn-68414"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+S="$ROOT/oss/vllm/68414-gdn/vllm-gdn-68414-session.sh"
+DIR="$ROOT/oss/vllm/68414-gdn"
 R="$DIR/runner.sh"
 LIBS="$DIR/lib.sh"
 KST="$DIR/kda-state.sh"
@@ -781,10 +781,10 @@ check "the session's judge exits 2 when #68416 is not confirmed, and names why" 
 check "the session's judge exits 2 when the records are missing" \
   "judged missing 'rm -r stride-before stride-after' | grep -qx 'verdicts=stride=void-identity' && [ \"\$(cat '$WORK/judge-rc')\" = 2 ]"
 # A session whose summary script cannot run: the verdict stands, but the session cannot succeed without what the PR quotes.
-sed 's|^PYTEST_SUMMARY=.*|PYTEST_SUMMARY=hack/vllm-gdn-68414/no-such-summary.py|' "$S" > "$ROOT/hack/.vllm-gdn-68414-nosummary.sh"
+sed 's|^PYTEST_SUMMARY=.*|PYTEST_SUMMARY=oss/vllm/68414-gdn/no-such-summary.py|' "$S" > "$ROOT/oss/vllm/68414-gdn/.vllm-gdn-68414-nosummary.sh"
 d=$(real_case_dir jnosummary); rm -rf "$WORK/judge-out-nosummary"; mkdir -p "$WORK/judge-out-nosummary"
-env -u SESSION_CONFIRM PURCHASE=spot OUT="$WORK/judge-out-nosummary" bash "$ROOT/hack/.vllm-gdn-68414-nosummary.sh" --judge "$d" > "$WORK/judge-out-nosummary/stdout" 2>&1; nsrc=$?
-rm -f "$ROOT/hack/.vllm-gdn-68414-nosummary.sh"
+env -u SESSION_CONFIRM PURCHASE=spot OUT="$WORK/judge-out-nosummary" bash "$ROOT/oss/vllm/68414-gdn/.vllm-gdn-68414-nosummary.sh" --judge "$d" > "$WORK/judge-out-nosummary/stdout" 2>&1; nsrc=$?
+rm -f "$ROOT/oss/vllm/68414-gdn/.vllm-gdn-68414-nosummary.sh"
 check "the session's judge exits 2 when the summary the PR quotes could not be written, though the verdict is confirmed" \
   "[ $nsrc = 2 ] && grep -qx 'verdicts=$ALL_OK' '$WORK/judge-out-nosummary/stdout' && grep -qx 'summary_rc=empty' '$WORK/judge-out-nosummary/stdout'"
 check "the session's judge exits 2 when the verdict script crashes" \

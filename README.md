@@ -11,13 +11,14 @@ Most GPU setups stop at running a single workload. This project treats the GPU a
 The benchmark harness and the paid GPU session tooling in this repository are also used to measure changes proposed to upstream open-source projects.
 Each result below was posted on the upstream thread, and its raw rows are committed here.
 Every case, with its environment, baseline, result, reproduction command, cost and upstream status, is in [`docs/16_OSS_VALIDATION_CASE_STUDIES.md`](docs/16_OSS_VALIDATION_CASE_STUDIES.md).
+Upstream contribution work (kits, session scripts and run records) lives under [`oss/`](oss/README.md), separate from the platform's own code.
 
 ### vLLM #58420: SRPF scheduling and its starvation threshold
 
 [vllm-project/vllm#58420](https://github.com/vllm-project/vllm/pull/58420) proposes a Shortest Remaining Prefill First scheduling policy.
 Its author asked for a measurement on real hardware, and later asked for a sweep of the new `VLLM_SRPF_STARVATION_THRESHOLD` setting.
 
-![Short-request TTFT p99 by scheduling arm](hack/vllm-58420/2026-11-19-threshold-run1/ttft-p99.svg)
+![Short-request TTFT p99 by scheduling arm](oss/vllm/58420-srpf/2026-11-19-threshold-run1/ttft-p99.svg)
 
 | Arm | Short TTFT p99 (ms) | vs fcfs | Long completion p95 (ms) | vs fcfs |
 |---|---:|---:|---:|---:|
@@ -55,11 +56,11 @@ What this does not show:
 | Trace (frozen, with SHA256SUMS) | [`hack/eks-serve/holdcap-study/diagnostic/`](hack/eks-serve/holdcap-study/diagnostic/) |
 | Open-loop replay | [`internal/bench/replay.go`](internal/bench/replay.go) |
 | Arms, pins and engine-core checks | [`internal/bench/srpf_sweep.go`](internal/bench/srpf_sweep.go), [`cmd/benchharness/srpfsweep.go`](cmd/benchharness/srpfsweep.go) |
-| Paid session (launch, deadlines, teardown) | [`hack/vllm-58420-session.sh`](hack/vllm-58420-session.sh) |
-| Raw rows, per-arm summary, arm table | [`hack/vllm-58420/2026-11-19-threshold-run1/`](hack/vllm-58420/2026-11-19-threshold-run1/) |
-| Earlier runs 1–8 | [`hack/vllm-58420/`](hack/vllm-58420/) |
+| Paid session (launch, deadlines, teardown) | [`oss/vllm/58420-srpf/vllm-58420-session.sh`](oss/vllm/58420-srpf/vllm-58420-session.sh) |
+| Raw rows, per-arm summary, arm table | [`oss/vllm/58420-srpf/2026-11-19-threshold-run1/`](oss/vllm/58420-srpf/2026-11-19-threshold-run1/) |
+| Earlier runs 1–8 | [`oss/vllm/58420-srpf/`](oss/vllm/58420-srpf/) |
 
-To check the session offline, with fakes for AWS and the engine, run `bash hack/vllm-58420-session-test.sh`.
+To check the session offline, with fakes for AWS and the engine, run `bash oss/vllm/58420-srpf/vllm-58420-session-test.sh`.
 To recompute the table from the raw rows, run the following.
 It uses only the Python standard library.
 It matches the table to within 0.1 ms, a rounding difference from the harness's own summary.
@@ -67,7 +68,7 @@ It matches the table to within 0.1 ms, a rounding difference from the harness's 
 ```bash
 python3 - <<'EOF'
 import gzip, json, math
-d = "hack/vllm-58420/2026-11-19-threshold-run1/sr-run/sweep"
+d = "oss/vllm/58420-srpf/2026-11-19-threshold-run1/sr-run/sweep"
 pct = lambda v, p: sorted(v)[max(0, math.ceil(p / 100 * len(v)) - 1)]
 for arm in ["fcfs", "priority", "srpf-s2", "srpf-s3", "srpf-s5", "srpf-s8", "srpf-s10"]:
     short, long_ = [], []
@@ -88,9 +89,9 @@ Repeating the paid run needs an AWS account that allows g5 instances, and the se
 
 | Upstream thread | What was measured here | Evidence |
 |---|---|---|
-| [vllm-project/vllm#67811](https://github.com/vllm-project/vllm/pull/67811) (adaptive prefill time budget, open) | The PR's `serve.py` baseline against its opt-in mode on one A10G, then a traced re-run that located a stall. [1](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967453629), [2](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967700360), [3](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6968495394) | [`hack/vllm-67811/`](hack/vllm-67811/) |
+| [vllm-project/vllm#67811](https://github.com/vllm-project/vllm/pull/67811) (adaptive prefill time budget, open) | The PR's `serve.py` baseline against its opt-in mode on one A10G, then a traced re-run that located a stall. [1](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967453629), [2](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967700360), [3](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6968495394) | [`oss/vllm/67811-prefill-budget/`](oss/vllm/67811-prefill-budget/) |
 | [vllm-project/aibrix#3439](https://github.com/vllm-project/aibrix/issues/3439) (a failed metric source lets the rest scale down, open) | Replayed on a kind lab with an autoscaled InferenceDeployment | [`docs/15_AIBRIX_AUTOSCALING_LAB.md`](docs/15_AIBRIX_AUTOSCALING_LAB.md), [`hack/aibrix-lane2/`](hack/aibrix-lane2/) |
-| [vllm-project/vllm#68548](https://github.com/vllm-project/vllm/pull/68548) (single-token TPOT metric fix, open) | vLLM's own metrics pytest before and after the fix, in the CI image on one A10G: before failed as expected, after passed 3 of 3 | [`hack/vllm-tpot/runs/2026-11-18-run1/`](hack/vllm-tpot/runs/2026-11-18-run1/) |
+| [vllm-project/vllm#68548](https://github.com/vllm-project/vllm/pull/68548) (single-token TPOT metric fix, open) | vLLM's own metrics pytest before and after the fix, in the CI image on one A10G: before failed as expected, after passed 3 of 3 | [`oss/vllm/68548-tpot/runs/2026-11-18-run1/`](oss/vllm/68548-tpot/runs/2026-11-18-run1/) |
 
 ## Latest results (2026-10-27 to 2026-11-08)
 

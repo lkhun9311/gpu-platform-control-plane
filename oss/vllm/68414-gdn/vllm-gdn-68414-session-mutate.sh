@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 #
-# Mutation runs for hack/vllm-gdn-68414-session-test.sh: each mutation breaks one guard of run 3 in a copy of the session's files, and the offline test must fail on it.
+# Mutation runs for oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh: each mutation breaks one guard of run 3 in a copy of the session's files, and the offline test must fail on it.
 # A mutation whose edit changed nothing is reported as not applied and counts as a failure of this script, so a stale pattern cannot pass as a killed mutant.
 # The unmutated copy must pass first, or no mutant's failure means anything.
 #
-#   bash hack/vllm-gdn-68414-session-mutate.sh
+#   bash oss/vllm/68414-gdn/vllm-gdn-68414-session-mutate.sh
 set -uo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 WORK=$(mktemp -d)
 [ -n "${KEEP_WORK:-}" ] || trap 'rm -rf "$WORK"' EXIT
-D=hack/vllm-gdn-68414
+D=oss/vllm/68414-gdn
 
 # copy DIR: the files the session and its test read, with only the run record the test reads, run 3's.
 copy() {
   mkdir -p "$1/hack/lib" "$1/$D/runs"
-  cp "$ROOT/hack/vllm-gdn-68414-session.sh" "$ROOT/hack/vllm-gdn-68414-session-test.sh" "$ROOT/hack/m5c-gpu-session.sh" "$1/hack/"
+  cp "$ROOT/hack/m5c-gpu-session.sh" "$1/hack/"
   cp "$ROOT/hack/lib/spot-run.sh" "$1/hack/lib/"
   find "$ROOT/$D" -maxdepth 1 -type f -exec cp {} "$1/$D/" \;
   cp -r "$ROOT/$D/runs/2026-11-19-run3-kda-confirmed-stride-void" "$1/$D/runs/"
 }
 
 copy "$WORK/base"
-if ! bash "$WORK/base/hack/vllm-gdn-68414-session-test.sh" > "$WORK/base.log" 2>&1; then
+if ! bash "$WORK/base/oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh" > "$WORK/base.log" 2>&1; then
   echo "the unmutated copy fails its own test; see $WORK/base.log" >&2
   tail -n 5 "$WORK/base.log" >&2
   exit 2
@@ -42,7 +42,7 @@ mutate() {
     survived=$((survived + 1))
     return
   fi
-  bash "$m/hack/vllm-gdn-68414-session-test.sh" > "$m.log" 2>&1
+  bash "$m/oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh" > "$m.log" 2>&1
   rc=$?
   fails=$(grep -c '^FAIL' "$m.log")
   if [ "$rc" != 0 ] && [ "$fails" -gt 0 ]; then
@@ -69,8 +69,8 @@ mutate "the summary drops the E lines and keeps the statement" "$D/pytest-summar
 mutate "the summary drops the image" "$D/pytest-summary.py" 's|    out += \[f"   {x}" for x in image(sweep)\]|    pass|'
 mutate "pytest runs without --tb=short" "$D/lib.sh" 's| -rA --tb=short -p no:cacheprovider| -rA -p no:cacheprovider|'
 # A wrong diff hash.
-mutate "a wrong #68416 fix pin" "hack/vllm-gdn-68414-session.sh" 's|^STRIDE_FIX_DIFF_SHA256=0|STRIDE_FIX_DIFF_SHA256=1|'
-mutate "a wrong #68416 test pin" "hack/vllm-gdn-68414-session.sh" 's|^STRIDE_TEST_DIFF_SHA256=2|STRIDE_TEST_DIFF_SHA256=3|'
+mutate "a wrong #68416 fix pin" "oss/vllm/68414-gdn/vllm-gdn-68414-session.sh" 's|^STRIDE_FIX_DIFF_SHA256=0|STRIDE_FIX_DIFF_SHA256=1|'
+mutate "a wrong #68416 test pin" "oss/vllm/68414-gdn/vllm-gdn-68414-session.sh" 's|^STRIDE_TEST_DIFF_SHA256=2|STRIDE_TEST_DIFF_SHA256=3|'
 mutate "a changed #68416 fix diff" "$D/stride-fix.diff" 's|^+            ).to(tl.int64)$|+            ).to(tl.int32)|'
 mutate "a changed #68415 test diff" "$D/kda-test.diff" 's|^+    num_tokens = 4$|+    num_tokens = 5|'
 # Another item's fix leaking into #68416's BEFORE.
@@ -89,12 +89,12 @@ mutate "the probe compares against no list" "$D/lib.sh" 's|  hits=$(awk .{print 
 mutate "the runner runs a #68415 state again" "$D/runner.sh" 's|^step "stride states done"$|step "stride states done"\ncontained kda-state.sh kda-before $(( SETUP_S + PROBE_S + PYTEST_S + STOP_S )) "$PYTEST_S" "$PROBE_S"|'
 mutate "derive-pins.sh derives #68415 on run 4's image" "$D/derive-pins.sh" 's|^  kda \| kda-differs) echo .*|  kda \| kda-differs) STATES="base: before:kda-test.diff after:kda-fix.diff"; DIFFBASE=428c371b32c18a788def35abea1cb9f579278381; FIXCOMMIT=841cd50ff065f983c49f0cbd3cb63ac662de4ed7 ;;|'
 # What codex's adversarial passes added: the unfit #68416 diffs, the quoted provenance, and the GPU.
-mutate "the session buys with #68416's unfit fix diff" "hack/vllm-gdn-68414-session.sh" 's|^for unfit in 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 |for unfit in |'
-mutate "the session buys with #68416's unfit test diff" "hack/vllm-gdn-68414-session.sh" 's| abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4; do$|; do|'
+mutate "the session buys with #68416's unfit fix diff" "oss/vllm/68414-gdn/vllm-gdn-68414-session.sh" 's|^for unfit in 6bf2352933b148465f6437098280bfba2c1e4ff7ca586ca3d5e9d87fc71a6fe9 |for unfit in |'
+mutate "the session buys with #68416's unfit test diff" "oss/vllm/68414-gdn/vllm-gdn-68414-session.sh" 's| abbfbaf392a39a3083ab1ff285dd3f747ebde4fa07b157f20781503391ea3ec4; do$|; do|'
 mutate "the stride verdict ignores the recorded provenance" "$D/stride-verdict.py" 's|    elif ev != "ok":|    elif False:|'
 mutate "the stride verdict ignores AFTER's dist-packages apply" "$D/stride-verdict.py" 's|    if name.endswith("-after") and (" apply " not in site_cmd|    if False and (" apply " not in site_cmd|'
 mutate "the stride verdict ignores a missing summary line" "$D/stride-verdict.py" 's|        if not st.get(f"{key}_summary"):|        if False:|'
-mutate "the session succeeds without the summary" "hack/vllm-gdn-68414-session.sh" 's|^all_confirmed() { \[ "$VERDICTS" = "stride=confirmed" \] \&\& \[ "$SUMMARY_RC" = 0 \]; }|all_confirmed() { [ "$VERDICTS" = "stride=confirmed" ]; }|'
+mutate "the session succeeds without the summary" "oss/vllm/68414-gdn/vllm-gdn-68414-session.sh" 's|^all_confirmed() { \[ "$VERDICTS" = "stride=confirmed" \] \&\& \[ "$SUMMARY_RC" = 0 \]; }|all_confirmed() { [ "$VERDICTS" = "stride=confirmed" ]; }|'
 mutate "the stride verdict ignores the recorded GPU" "$D/stride-verdict.py" 's|    if "A10G" not in st.get("gpu_name", ""):|    if False:|'
 
 echo "$n mutant(s), $survived not killed"

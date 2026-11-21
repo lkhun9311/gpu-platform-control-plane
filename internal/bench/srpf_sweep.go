@@ -78,7 +78,7 @@ const (
 
 // The sweep's step bounds.
 //
-// hack/vllm-58420-session.sh sizes the instance's hard stop from these, and its offline test holds the two equal.
+// oss/vllm/58420-srpf/vllm-58420-session.sh sizes the instance's hard stop from these, and its offline test holds the two equal.
 const (
 	// SRPFSweepPullBound bounds the image pull: the image is 10.9 GB compressed.
 	// From ECR Public it took 913, 1,111 and 1,239 s on g5.xlarge, and twice ran past 1,500 s (2026-11-16 and 11-17).

@@ -3,13 +3,13 @@
 # vLLM run 4 of the FLA fixes: one g5.xlarge, one attempt, stopped by itself 2,520 s after launch.
 # It runs one item: #68416 (state-index token stride) BEFORE and AFTER.
 #
-#   PURCHASE=spot SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh
-#   PURCHASE=on-demand SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh
+#   PURCHASE=spot SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash oss/vllm/68414-gdn/vllm-gdn-68414-session.sh
+#   PURCHASE=on-demand SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash oss/vllm/68414-gdn/vllm-gdn-68414-session.sh
 #
 # PURCHASE has no default: Spot is cheaper, and run 1 lost its last records to a Spot reclaim 16 minutes in, so the owner picks one each time.
 #
 # WHY RUN 4.
-# Run 3 (hack/vllm-gdn-68414/runs/2026-11-19-run3-kda-confirmed-stride-void) confirmed #68415 and voided #68416 on its import check.
+# Run 3 (oss/vllm/68414-gdn/runs/2026-11-19-run3-kda-confirmed-stride-void) confirmed #68415 and voided #68416 on its import check.
 # #68416's collection loaded vllm/v1/core/kv_cache_planning.py and vllm/v1/engine/detokenizer.py, which differ between run 3's image, 428c371b32, and #68416's diff base, 545ef08189.
 # Its tests themselves gave the expected results there, but a run whose test process loaded files other than the diff base's cannot stand as the diff's evidence.
 # Run 3's static import closure had missed both files, since the collection reaches them through imports the closure does not follow; the probe on the instance caught them.
@@ -31,7 +31,7 @@
 # It compares paths, not contents: the image is CI's build of its commit, whose label the runner checks and whose wheel hash it records without verifying, and only the eight files that matter are hashed against git by the pins.
 # So what is established is that the image's declared revision has the diff base's tracked code but for the recipe, not that every installed file matches git.
 # The image installs the wheel, copies the checkout's vllm/v1 over the installed package, and moves the checkout's vllm/ aside.
-# So hack/vllm-gdn-68414/lib.sh applies each diff in two parts, vllm/* to the installed package and the rest to the checkout, and records each command and its targets.
+# So oss/vllm/68414-gdn/lib.sh applies each diff in two parts, vllm/* to the installed package and the rest to the checkout, and records each command and its targets.
 #
 # ISOLATION.
 # Each state runs in its own fresh container, and the pins name the same eight files as run 3's: the three items' sources and tests, and torch_utils.py.
@@ -74,7 +74,7 @@
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the diffs, the bounds and the stop are constants, and a caller who sets one is refused rather than ignored.
 set -uo pipefail
-cd "$(dirname "$0")/.." || exit 1
+cd "$(dirname "$0")/../../.." || exit 1
 
 REGION=ap-northeast-2
 ACCOUNT_WANT=007635145730
@@ -95,20 +95,20 @@ COST_CAP_USD=1.50
 STUDY_ID=vllm-fla-68416-run4-2026-11-19
 STACK=gdn-gpu
 PURPOSE=vllm-fla-68416-run4
-RUNNER=hack/vllm-gdn-68414/runner.sh
-LIB=hack/vllm-gdn-68414/lib.sh
-PLUGIN=hack/vllm-gdn-68414/fla_loaded_modules.py
-PYTEST_SUMMARY=hack/vllm-gdn-68414/pytest-summary.py
+RUNNER=oss/vllm/68414-gdn/runner.sh
+LIB=oss/vllm/68414-gdn/lib.sh
+PLUGIN=oss/vllm/68414-gdn/fla_loaded_modules.py
+PYTEST_SUMMARY=oss/vllm/68414-gdn/pytest-summary.py
 # Each fix diff is the storage copy byte for byte, and each test diff is the storage test-only.diff, which is its fix diff's first part.
-STRIDE_STATE=hack/vllm-gdn-68414/stride-state.sh
-STRIDE_PINS=hack/vllm-gdn-68414/stride-pins.txt
-STRIDE_DIFFERS=hack/vllm-gdn-68414/stride-differs.txt
-STRIDE_VERDICT=hack/vllm-gdn-68414/stride-verdict.py
-STRIDE_FIX_DIFF=hack/vllm-gdn-68414/stride-fix.diff
+STRIDE_STATE=oss/vllm/68414-gdn/stride-state.sh
+STRIDE_PINS=oss/vllm/68414-gdn/stride-pins.txt
+STRIDE_DIFFERS=oss/vllm/68414-gdn/stride-differs.txt
+STRIDE_VERDICT=oss/vllm/68414-gdn/stride-verdict.py
+STRIDE_FIX_DIFF=oss/vllm/68414-gdn/stride-fix.diff
 STRIDE_FIX_DIFF_SHA256=0eaef549b2b6919272666660626e70734fb3b07b25ec13d29f52e1d3c178b60a
-STRIDE_TEST_DIFF=hack/vllm-gdn-68414/stride-test.diff
+STRIDE_TEST_DIFF=oss/vllm/68414-gdn/stride-test.diff
 STRIDE_TEST_DIFF_SHA256=21d8bbecee8dae26df7b75630d3f059513dda2cf022787f8edea28cc04bc5e94
-# The step bounds, each the runner's own; hack/vllm-gdn-68414-session-test.sh holds the two equal.
+# The step bounds, each the runner's own; oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh holds the two equal.
 BRINGUP_S=240
 PULL_BOUND_S=1500
 IMAGE_ID_S=60

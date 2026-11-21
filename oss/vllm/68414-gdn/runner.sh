@@ -1,5 +1,5 @@
 #!/bin/bash
-# The on-instance part of hack/vllm-gdn-68414-session.sh run 4: pull, image identity, then #68416 BEFORE and AFTER.
+# The on-instance part of oss/vllm/68414-gdn/vllm-gdn-68414-session.sh run 4: pull, image identity, then #68416 BEFORE and AFTER.
 #
 #   runner.sh <dir with the fetched inputs> <out dir> <harness-end epoch>
 #

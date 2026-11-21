@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Offline checks for hack/vllm-tpot-session.sh, the runner and state script it ships, and its verdict, run before anything
+# Offline checks for oss/vllm/68548-tpot/vllm-tpot-session.sh, the runner and state script it ships, and its verdict, run before anything
 # is bought.
 # The EC2 lifecycle is hack/lib/spot-run.sh's, which the 58420 and 67811 tests cover; these checks cover what is new:
 # the schedule and its cost refusal, the user-data's backstop, BEFORE then AFTER in fresh containers, the import check,
@@ -8,12 +8,12 @@
 # The runner's whole path runs against a fake docker that executes state.sh on a fake tree, and a fake pytest that fails
 # exactly when the imported loggers.py lacks the fix line, so a defect in a later step shows here rather than on a card.
 set -uo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-S="$ROOT/hack/vllm-tpot-session.sh"
-R="$ROOT/hack/vllm-tpot/runner.sh"
-ST="$ROOT/hack/vllm-tpot/state.sh"
-V="$ROOT/hack/vllm-tpot/verdict.py"
-PINS="$ROOT/hack/vllm-tpot/pins.txt"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+S="$ROOT/oss/vllm/68548-tpot/vllm-tpot-session.sh"
+R="$ROOT/oss/vllm/68548-tpot/runner.sh"
+ST="$ROOT/oss/vllm/68548-tpot/state.sh"
+V="$ROOT/oss/vllm/68548-tpot/verdict.py"
+PINS="$ROOT/oss/vllm/68548-tpot/pins.txt"
 WORK=$(mktemp -d)
 [ -n "${KEEP_WORK:-}" ] || trap 'rm -rf "$WORK"' EXIT
 failures=0
@@ -71,8 +71,8 @@ check "the precise backstop counts from LaunchTime, and the runner ends at Launc
 
 # ---------------------------------------------------------------- pins
 check "the session pins the two diffs at their own sha256" \
-  "[ \"\$(sha256sum '$ROOT/hack/vllm-tpot/serving-test-only.diff' | cut -d' ' -f1)\" = \"\$(grep -m1 '^SERVING_DIFF_SHA256=' '$S' | cut -d= -f2)\" ] && [ \"\$(sha256sum '$ROOT/hack/vllm-tpot/fix.diff' | cut -d' ' -f1)\" = \"\$(grep -m1 '^FIX_DIFF_SHA256=' '$S' | cut -d= -f2)\" ]"
-paths=$(grep -h '^diff --git' "$ROOT/hack/vllm-tpot/fix.diff" "$ROOT/hack/vllm-tpot/serving-test-only.diff" | awk '{print substr($3,3)}' | sort -u)
+  "[ \"\$(sha256sum '$ROOT/oss/vllm/68548-tpot/serving-test-only.diff' | cut -d' ' -f1)\" = \"\$(grep -m1 '^SERVING_DIFF_SHA256=' '$S' | cut -d= -f2)\" ] && [ \"\$(sha256sum '$ROOT/oss/vllm/68548-tpot/fix.diff' | cut -d' ' -f1)\" = \"\$(grep -m1 '^FIX_DIFF_SHA256=' '$S' | cut -d= -f2)\" ]"
+paths=$(grep -h '^diff --git' "$ROOT/oss/vllm/68548-tpot/fix.diff" "$ROOT/oss/vllm/68548-tpot/serving-test-only.diff" | awk '{print substr($3,3)}' | sort -u)
 pinok=1
 for st in base before after; do
   [ "$(awk -v s=$st '$1 == s {print $3}' "$PINS" | sort | paste -sd' ')" = "$(paste -sd' ' <<<"$paths")" ] || pinok=0
@@ -86,8 +86,8 @@ if [ -n "${VLLM_SRC:-}" ]; then
   for st in base before after; do
     for p in $paths; do mkdir -p "$WORK/rederive/$st/$(dirname "$p")"; git -C "$VLLM_SRC" show "3a1c6c43df:$p" > "$WORK/rederive/$st/$p"; done
   done
-  (cd "$WORK/rederive/before" && git apply "$ROOT/hack/vllm-tpot/serving-test-only.diff") &&
-    (cd "$WORK/rederive/after" && git apply "$ROOT/hack/vllm-tpot/fix.diff")
+  (cd "$WORK/rederive/before" && git apply "$ROOT/oss/vllm/68548-tpot/serving-test-only.diff") &&
+    (cd "$WORK/rederive/after" && git apply "$ROOT/oss/vllm/68548-tpot/fix.diff")
   for st in base before after; do (cd "$WORK/rederive/$st" && sha256sum $paths) | awk -v s=$st '{print s, $1, $2}'; done > "$WORK/rederived"
   check "pins.txt is what the two diffs make of 3a1c6c43df in $VLLM_SRC" "diff -q <(sort '$PINS') <(sort '$WORK/rederived') >/dev/null"
 else

@@ -2,9 +2,9 @@
 #
 # The vLLM #58420 SRPF threshold sweep: one g5.xlarge Spot instance, one attempt, stopped by itself 12,100 s after launch.
 #
-#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM58420_AMI_ID=ami-... bash hack/vllm-58420-session.sh
+#   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM58420_AMI_ID=ami-... bash oss/vllm/58420-srpf/vllm-58420-session.sh
 #
-# Run 8 (hack/vllm-58420/2026-11-17-run8) measured the PR's head aae949c, whose SRPF aging rule was a fixed 5 steps.
+# Run 8 (oss/vllm/58420-srpf/2026-11-17-run8) measured the PR's head aae949c, whose SRPF aging rule was a fixed 5 steps.
 # On 2026-11-18 the PR's author pushed b8b0d36, which reads the step count from VLLM_SRPF_STARVATION_THRESHOLD, and asked
 # for 2 or 3 (does the long-request p95 move toward fcfs, and at what cost to the short p99) and 8 or 10 (does the short
 # p99 approach priority's, and at what cost to the long tail).
@@ -60,7 +60,7 @@
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the instance, the build, the arms, the bounds and the stop are constants,
 # and a caller who sets one is refused rather than ignored.
 set -uo pipefail
-cd "$(dirname "$0")/.." || exit 1
+cd "$(dirname "$0")/../../.." || exit 1
 
 REGION=ap-northeast-2
 ACCOUNT_WANT=007635145730
@@ -75,7 +75,7 @@ COST_CAP_USD=3.00
 STUDY_ID=vllm-58420-threshold-2026-11-19
 STACK=srpf58420-gpu
 PURPOSE=vllm-58420-srpf
-# The PR head and the sha256 of its scheduler.py; hack/vllm-58420-session-test.sh holds the hash equal to the Go source.
+# The PR head and the sha256 of its scheduler.py; oss/vllm/58420-srpf/vllm-58420-session-test.sh holds the hash equal to the Go source.
 PR_COMMIT=b8b0d3610dee138db57ba465897f4b7af74abbd5
 SCHED_URL="https://raw.githubusercontent.com/vllm-project/vllm/$PR_COMMIT/vllm/v1/core/sched/scheduler.py"
 SCHED_SHA256=2b39435388f0d716cb5a3f02b532f4225d1688153b483a67643af8c26389972a
@@ -84,7 +84,7 @@ DIAG_DIR=hack/eks-serve/holdcap-study/diagnostic
 TRACE_FILE=trace-off-3.jsonl
 MANIFEST_FILE=manifest-off-3.yaml
 # The step bounds, each the harness's own constant (internal/bench/srpf_sweep.go).
-# hack/vllm-58420-session-test.sh holds these equal to the Go source, so the stop cannot drift from the work.
+# oss/vllm/58420-srpf/vllm-58420-session-test.sh holds these equal to the Go source, so the stop cannot drift from the work.
 BRINGUP_S=600
 PULL_BOUND_S=2400
 IMAGE_IDENTITY_S=600

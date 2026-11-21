@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The #68414 verdict of hack/vllm-gdn-68414-session.sh run 2, read from the records hack/vllm-gdn-68414/state.sh leaves.
+"""The #68414 verdict of oss/vllm/68414-gdn/vllm-gdn-68414-session.sh run 2, read from the records oss/vllm/68414-gdn/state.sh leaves.
 
     verdict.py <sweep dir> <fix.diff sha256> <kernel_repro.py sha256>
 
@@ -23,7 +23,7 @@ VLLM_COMMIT = "8700cc9ba0016bf14d8f2756f3b673e93fbcf2fd"
 LINE = re.compile(r"^unwritten (\d+) o_err (\S+) state_err (\S+) empty_keeps_h0 (True|False)$")
 FIXED_LINE = "unwritten 0 o_err 0.0 state_err 0.0 empty_keeps_h0 True"
 # Run 1's BEFORE, on this image and commit, which run 2 does not repeat.
-BEFORE_REFERENCE = ("hack/vllm-gdn-68414/runs/2026-11-19-run1-spot-reclaimed/verdict.txt: "
+BEFORE_REFERENCE = ("oss/vllm/68414-gdn/runs/2026-11-19-run1-spot-reclaimed/verdict.txt: "
                     "unwritten 70 o_err 1234.100830078125 state_err nan empty_keeps_h0 True")
 UNIT_CASE = re.compile(r"^test_chunk_indices_keep_ids_of_empty_sequences\[.+\]$")
 # Six sequence-length lists, each with int32 and int64.
