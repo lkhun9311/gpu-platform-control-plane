@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run one GPU kit directory, unmodified, on one g5 Spot instance (A10G 24 GB), and bring back what it wrote.
+# Run one GPU kit directory, unmodified, on one g5 Spot instance (A10G 24 GB GPUs), and bring back what it wrote.
 # A kit is a directory committed in some git repository with a run.sh at its top, which writes its results to $OUT.
 #
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab OUT=hack/gpu-kit-runs/<name> [INSTANCE_TYPE=g5.2xlarge] [KIT_ENV='A=1;B=x y'] bash hack/gpu-kit-session.sh <kit-dir>
@@ -9,6 +9,8 @@
 #
 # INSTANCE_TYPE is g5.xlarge (16 GiB RAM) unless set, and only the types in type_rates below are accepted.
 # g5.2xlarge has the same A10G with 32 GiB RAM, for a kit whose single checkpoint file cannot be mapped in 16 GiB.
+# g5.12xlarge has four A10Gs, for a kit that needs more than one GPU, such as a prefill and a decode server on separate GPUs.
+# The instance's preflight requires exactly the type's number of GPUs, every one an A10G.
 #
 # WHAT RUNS WHERE.
 # The kit is shipped as the kit repository's committed tree at HEAD, and the session refuses a kit with uncommitted or untracked files.
@@ -29,12 +31,14 @@
 # THE COST.
 # The worst case bills to the termination deadline, 4,020 s.
 # It assumes EC2 confirms the termination by then; one that is not confirmed is reported as such, and billing past it is not bounded here.
-# Ten minutes past it would still cost $0.9860, under $1.00.
-# Each type has its own Spot cap, and every type adds $0.0683/h for 120 GB gp3 with 500 MiB/s and 6,000 IOPS and a public IPv4.
-#   g5.xlarge:  the $0.70/h cap is $0.7683/h all in, and $0.8579.
-#   g5.2xlarge: the $0.80/h cap is $0.8683/h all in, and $0.9696.
-# Any cap of $0.8272/h or more would put the worst case at $1.00 or more.
-# The script refuses to run if any listed type's constants stop giving a worst case under $1.00.
+# Ten minutes past it would still cost $0.9860 on g5.2xlarge, under $1.00, but $4.5537 on g5.12xlarge, over its $4.00.
+# Each type has its own Spot cap and its own cost cap, and every type adds $0.0683/h for 120 GB gp3 with 500 MiB/s and 6,000 IOPS and a public IPv4.
+#   g5.xlarge:   the $0.70/h cap is $0.7683/h all in, and $0.8579, under $1.00.
+#   g5.2xlarge:  the $0.80/h cap is $0.8683/h all in, and $0.9696, under $1.00.
+#   g5.12xlarge: the $3.48/h cap is $3.5483/h all in, and $3.9623, under $4.00.
+# Any cap of $0.8272/h or more would put a one-GPU type at $1.00 or more, and any cap of $3.5138/h or more would put g5.12xlarge at $4.00 or more.
+# On-Demand g5.12xlarge ($6.97442/h in Seoul on 2026-11-21) would be $7.8644, so the session buys Spot only.
+# The script refuses to run if any listed type's constants stop giving a worst case under that type's cost cap.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: a caller who sets one of the constants' names is refused rather than ignored.
 set -uo pipefail
@@ -42,16 +46,19 @@ cd "$(dirname "$0")/.." || exit 1
 
 REGION=ap-northeast-2
 INSTANCE_TYPE_FIXED=${INSTANCE_TYPE:-g5.xlarge}
-# type_rates TYPE: the type's Spot cap, its all-in rate (the cap plus EBS_IP_RATE) and its vCPUs, or nothing for a type not listed.
+# type_rates TYPE: the type's Spot cap, its all-in rate (the cap plus EBS_IP_RATE), its vCPUs, its A10G count and its cost cap in USD.
+# A type not listed gives nothing.
 # g5.xlarge Spot was $0.61-0.63/h in ap-northeast-2 on 2026-11-19, and g5.2xlarge $0.68-0.71/h the same evening.
+# g5.12xlarge Spot was $3.27-3.29/h in 2c and $3.45-3.48/h in 2a and 2d on 2026-11-19 to 21.
 # A zone above the cap is not used.
 type_rates() {
   case "$1" in
-    g5.xlarge) echo "0.70 0.7683 4" ;;
-    g5.2xlarge) echo "0.80 0.8683 8" ;;
+    g5.xlarge) echo "0.70 0.7683 4 1 1.00" ;;
+    g5.2xlarge) echo "0.80 0.8683 8 1 1.00" ;;
+    g5.12xlarge) echo "3.48 3.5483 48 4 4.00" ;;
   esac
 }
-TYPES_LISTED="g5.xlarge g5.2xlarge"
+TYPES_LISTED="g5.xlarge g5.2xlarge g5.12xlarge"
 # The Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016 that the earlier A10G sessions used.
 AMI_ID_FIXED=ami-097edab977037f65f
 AMI_NAME_FIXED="Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016"
@@ -61,7 +68,8 @@ EBS_THROUGHPUT_MIBPS=500
 EBS_IOPS=6000
 # 120 GB gp3 and a public IPv4 ($0.0214/h, at the per-GB rate the llm-d session used), plus the provisioned throughput and IOPS ($0.0468/h).
 EBS_IP_RATE=0.0683
-COST_CAP_USD=1.00
+# No type's own cost cap may exceed this, the largest cap a run of this session has been approved for (g5.12xlarge, 2026-11-21).
+COST_CAP_CEILING_USD=4.00
 # uv and the Python it installs, pinned; the tarball's sha256 is the one its release publishes.
 UV_VERSION=0.12.22
 UV_SHA256=b9980552309f09c15172b8be828555e375097f16deb459795ce7bfd200380f0b
@@ -94,9 +102,10 @@ spot_say() { say "$@"; }
 spot_fail() { fail "$@"; }
 
 worst_usd() { python3 -c 'import sys; print(f"{float(sys.argv[1]) / 3600 * float(sys.argv[2]):.4f}")' "$TERMINATION_S" "$1"; }
+# under_cap ALL_IN COST_CAP: whether the worst case at ALL_IN $/h is under COST_CAP, and COST_CAP is not above the ceiling.
 under_cap() {
-  python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) / 3600 * float(sys.argv[2]) < float(sys.argv[3]) else 1)' \
-    "$TERMINATION_S" "$1" "$COST_CAP_USD"
+  python3 -c 'import sys; t, r, c, top = map(float, sys.argv[1:]); sys.exit(0 if t / 3600 * r < c <= top else 1)' \
+    "$TERMINATION_S" "$1" "$2" "$COST_CAP_CEILING_USD"
 }
 
 # render_user_data FILE BUCKET RUN_ID INPUTS_SHA COMMIT RUN_NONCE: the instance's script, from the constants above.
@@ -135,7 +144,7 @@ fi
 P1=$(( L + BRINGUP_S_PLACEHOLDER )); HE=$(( L + HARNESS_END_S_PLACEHOLDER )); EV=$(( L + EVIDENCE_S_PLACEHOLDER ))
 nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv > "$R/preflight-nvidia-smi.csv" || exit 1
 upload "$R/preflight-nvidia-smi.csv" preflight-nvidia-smi.csv
-[ "$(tail -n +2 "$R/preflight-nvidia-smi.csv" | wc -l)" = 1 ] && tail -n +2 "$R/preflight-nvidia-smi.csv" | grep -q A10G || { echo "PREFLIGHT FAILED: not one A10G"; exit 1; }
+[ "$(tail -n +2 "$R/preflight-nvidia-smi.csv" | wc -l)" = GPUS_PLACEHOLDER ] && ! tail -n +2 "$R/preflight-nvidia-smi.csv" | grep -qv A10G || { echo "PREFLIGHT FAILED: not GPUS_PLACEHOLDER A10G"; exit 1; }
 { nvidia-smi; nvidia-smi -q; } > "$R/nvidia-smi.txt" 2>&1
 df -BG / > "$R/df-before.txt"
 free_gb=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
@@ -223,7 +232,7 @@ UD
     -e "s|BRINGUP_S_PLACEHOLDER|$BRINGUP_S|" -e "s|HARNESS_END_S_PLACEHOLDER|$HARNESS_END_S|" -e "s|EVIDENCE_S_PLACEHOLDER|$EVIDENCE_S|" \
     -e "s|PARTIAL_SYNC_S_PLACEHOLDER|$PARTIAL_SYNC_S|" -e "s|MIN_FREE_GB_PLACEHOLDER|$MIN_FREE_GB|" \
     -e "s|UV_VERSION_PLACEHOLDER|$UV_VERSION|" -e "s|UV_SHA256_PLACEHOLDER|$UV_SHA256|" -e "s|PYTHON_PIN_PLACEHOLDER|$PYTHON_PIN|g" \
-    -e "s|KIT_ENV_PLACEHOLDER|$KIT_ENV_WORDS|" \
+    -e "s|KIT_ENV_PLACEHOLDER|$KIT_ENV_WORDS|" -e "s|GPUS_PLACEHOLDER|$TYPE_GPUS|g" \
     "$ud.template" >"$ud" || fail "could not render the user-data"
   rm -f "$ud.template"
   ! command grep -q '_PLACEHOLDER' "$ud" || fail "the user-data still holds a placeholder"
@@ -253,9 +262,11 @@ for v in MAX_SPOT_PRICE HARD_STOP_SECONDS AMI_ID VOLUME KIT_SECONDS PURCHASE; do
 done
 # Every listed type is held under the cap, whichever one this run buys, so no type sits in the table unchecked.
 for t in $TYPES_LISTED; do
-  read -r cap all_in _ <<<"$(type_rates "$t")"
-  [ -n "${all_in:-}" ] || fail "the listed type $t has no rates"
-  under_cap "$all_in" || fail "the $t worst case, $TERMINATION_S s at \$$all_in/h, is \$$(worst_usd "$all_in"), not under \$$COST_CAP_USD"
+  read -r cap all_in _ gpus cost_cap <<<"$(type_rates "$t")"
+  [ -n "${cost_cap:-}" ] || fail "the listed type $t has no rates"
+  [[ $gpus =~ ^[1-8]$ ]] || fail "the listed type $t has GPU count '$gpus'"
+  under_cap "$all_in" "$cost_cap" ||
+    fail "the $t worst case, $TERMINATION_S s at \$$all_in/h, is \$$(worst_usd "$all_in"), not under \$$cost_cap, or that cap is over \$$COST_CAP_CEILING_USD"
   [ "$(python3 -c 'import sys; print(round(float(sys.argv[1]) + float(sys.argv[2]), 6))' "$cap" "$EBS_IP_RATE")" = "$all_in" ] ||
     fail "the $t all-in rate $all_in is not its Spot cap $cap plus EBS_IP_RATE $EBS_IP_RATE"
 done
@@ -285,8 +296,8 @@ if [ -n "${KIT_ENV:-}" ]; then
     KIT_ENV_WORDS="$KIT_ENV_WORDS$name='$value' "
   done
 fi
-read -r MAX_PRICE_FIXED SPOT_ALL_IN_RATE TYPE_VCPUS <<<"$(type_rates "$INSTANCE_TYPE_FIXED")"
-[ -n "${TYPE_VCPUS:-}" ] || fail "INSTANCE_TYPE '$INSTANCE_TYPE_FIXED' has no rates"
+read -r MAX_PRICE_FIXED SPOT_ALL_IN_RATE TYPE_VCPUS TYPE_GPUS COST_CAP_USD <<<"$(type_rates "$INSTANCE_TYPE_FIXED")"
+[ -n "${COST_CAP_USD:-}" ] || fail "INSTANCE_TYPE '$INSTANCE_TYPE_FIXED' has no rates"
 if [ "${1:-}" = --print-schedule ]; then
   echo "instance_type=$INSTANCE_TYPE_FIXED harness_end_s=$HARNESS_END_S evidence_s=$EVIDENCE_S stop_s=$STOP_FROM_LAUNCH_S termination_s=$TERMINATION_S worst_case_usd=$(worst_usd "$SPOT_ALL_IN_RATE")"
   exit 0
@@ -397,6 +408,8 @@ BUCKET="$STACK-$ACCOUNT"
   echo "region=$REGION"
   echo "instance_type=$INSTANCE_TYPE_FIXED"
   echo "max_spot_price=$MAX_PRICE_FIXED"
+  echo "gpus=$TYPE_GPUS"
+  echo "cost_cap_usd=$COST_CAP_USD"
   echo "volume=${VOLUME_GB} GB gp3, ${EBS_THROUGHPUT_MIBPS} MiB/s, ${EBS_IOPS} IOPS"
   echo "all_in_rate=$SPOT_ALL_IN_RATE"
   echo "worst_case_usd=$(worst_usd "$SPOT_ALL_IN_RATE")"
