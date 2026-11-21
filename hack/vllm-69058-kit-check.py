@@ -56,6 +56,8 @@ HOW = {
     "other_offline_log": [">           retry = _greedy_output(llm, target)", "E           ValueError: something else broke",
                           "------------------------------ Captured log call -------------------------------",
                           "INFO     vllm.engine.arg_utils:arg_utils.py:928 HF_HUB_OFFLINE is True, replace model_id [facebook/opt-125m] to model_path"],
+    # A deciding line that raises something other than an assertion, here because generate returned no output, decides nothing.
+    "attr_error": [">       assert retry.token_ids == cold.token_ids", "E       AttributeError: 'NoneType' object has no attribute 'token_ids'"],
     # pytest marks the raising line of every frame with ">", the test's own frame first.
     # A deciding statement's text on an inner frame's ">" line must not count as the test deciding.
     "inner_text": [">           retry = _greedy_output(llm, target)", "", "tests/v1/kv_connector/unit/test_hf3fs_connector.py:478: ", "",
@@ -320,7 +322,8 @@ check("(c) fail: fix [fail] failing at its finish_reason check is NOT AS EXPECTE
 for kind, cause in (("timeout", "timeout in the 60 s wait for stored keys"), ("oom", "GPU out of memory"),
                     ("layout", "KV layout registration error"), ("noread", "the failing read never reached HF3FS"),
                     ("download", "model download or offline load failure"), ("other", "other harness failure (FAILED)"),
-                    ("other_offline_log", "other harness failure (FAILED)"), ("inner_text", "other harness failure (FAILED)")):
+                    ("other_offline_log", "other harness failure (FAILED)"), ("inner_text", "other harness failure (FAILED)"),
+                    ("attr_error", "other harness failure (FAILED)")):
     r = expected_runs(); r["fix-c"][EF] = "FAILED"
     c = c_of(runs=r, how={"fix-c": {EF: kind}})
     check(f"(c) NOT RUN: a {kind} failure is a harness failure with its cause, never a verdict",
