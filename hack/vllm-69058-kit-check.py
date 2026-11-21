@@ -54,8 +54,13 @@ HOW = {
     "download": [">       with vllm_runner(E2E_MODEL, **common_kwargs) as runner:",
                  "E       huggingface_hub.errors.LocalEntryNotFoundError: Cannot find the requested files in the disk cache"],
     "other": [">           retry = _greedy_output(llm, target)", "E           ValueError: something else broke"],
-    # A deciding assertion's text in an inner frame, not on the test's own ">" line, must not count as deciding.
-    "inner_text": [">           retry = _greedy_output(llm, target)", '    assert retry.finish_reason == "error"', "E           KeyError: 'outputs'"],
+    # pytest marks the raising line of every frame with ">", the test's own frame first.
+    # A deciding statement's text on an inner frame's ">" line must not count as the test deciding.
+    "inner_text": [">           retry = _greedy_output(llm, target)", "", "tests/v1/kv_connector/unit/test_hf3fs_connector.py:478: ", "",
+                   "    def _greedy_output(llm, prompt):", '>       assert retry.finish_reason == "error"', "E       AssertionError: assert 'length' == 'error'"],
+    # check_logprobs_close raising something other than an assertion is the harness breaking, not the outputs differing.
+    "logprobs_typeerror": [">       check_logprobs_close(", "", "    def check_logprobs_close(", ">           for i, (x, y) in enumerate(zip(a, b)):",
+                           "E           TypeError: 'NoneType' object is not iterable"],
 }
 
 
@@ -316,7 +321,7 @@ check("(c) fail: fix [fail] failing at its finish_reason check is NOT AS EXPECTE
 for kind, cause in (("timeout", "timeout in the 60 s wait for stored keys"), ("oom", "OOM with two LLM instances"),
                     ("layout", "KV layout registration error"), ("noread", "the failing read never reached HF3FS"),
                     ("download", "model download or offline load failure"), ("other", "other harness failure (FAILED)"),
-                    ("inner_text", "other harness failure (FAILED)")):
+                    ("inner_text", "other harness failure (FAILED)"), ("logprobs_typeerror", "other harness failure (FAILED)")):
     r = expected_runs(); r["fix-c"][EF] = "FAILED"
     c = c_of(runs=r, how={"fix-c": {EF: kind}})
     check(f"(c) NOT RUN: a {kind} failure is a harness failure with its cause, never a verdict",
@@ -329,6 +334,13 @@ c = c_of(runs=r)
 check("(c) NOT RUN: a setup error is a harness failure, not a gap", c["verdict"] == "NOT RUN" and any("(ERROR)" in n for n in c["not_run"]) and not c["gaps"])
 c = c_of(not_run="model download failure: hf download facebook/opt-125m exited non-zero")
 check("(c) NOT RUN: the kit's c-not-run.txt names the cause", c["verdict"] == "NOT RUN" and c["not_run"] == ["model download failure: hf download facebook/opt-125m exited non-zero"])
+# With (c) not run, run.sh deselects the end-to-end class from (b), and (b) is judged on the rest.
+r = expected_runs(); del r["base-c"], r["fix-c"]
+r["base-b"] = {k: o for k, o in r["base-b"].items() if k not in V.EXPECTED_C}; r["fix-b"] = {k: o for k, o in r["fix-b"].items() if k not in V.EXPECTED_C}
+rec = verdict_of(build(runs=r, not_run="model download failure: x"))
+check("(b) without its end-to-end class is decided when (c) is NOT RUN", rec["verdict"] == "AS EXPECTED" and rec["c"]["verdict"] == "NOT RUN")
+rec = verdict_of(build(runs={**expected_runs(), "base-b": r["base-b"], "fix-b": r["fix-b"]}))
+check("(b) without its end-to-end class is INCOMPLETE when (c) ran", incomplete_for(rec, "the whole file lacks"))
 r = expected_runs(); r["fix-c"][ER] = "SKIPPED"
 c = c_of(runs=r)
 check("(c) skip: a skipped end-to-end test is INCOMPLETE", c["verdict"] == "INCOMPLETE" and any("fix-c: 1 skipped" in g for g in c["gaps"]))

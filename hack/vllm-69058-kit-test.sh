@@ -226,7 +226,14 @@ for kind in fail:'hf download facebook/opt-125m exited non-zero' badrev:'not the
   check "model $k: (c) is NOT RUN with the cause, it never ran, the hub stayed online, and (a) and (b) still decided" \
     "[ $rc = 4 ] && vc hf_$k 'NOT RUN' && vu hf_$k 'AS EXPECTED' && command grep -qF '$cause' '$WORK/e2e-hf_$k/out/c-not-run.txt' \
      && [ \"\$(order hf_$k)\" = 'test-base-a test-fix-a test-base-b test-fix-b' ] && ! command grep -q '^hub_offline' '$WORK/e2e-hf_$k/out/settings.txt'"
+  check "model $k: (b) ran with the end-to-end class deselected, on both sides" \
+    "command grep -qx 'command_b_run=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -k not TestHF3FSLoadFailureEndToEnd -rA (the end-to-end class deselected, since (c) is not run)' '$WORK/e2e-hf_$k/out/settings.txt' \
+     && ! command grep -q 'TestHF3FSLoadFailureEndToEnd' '$WORK/e2e-hf_$k/out/base-b.log' '$WORK/e2e-hf_$k/out/fix-b.log'"
 done
+m=$(mutant bkeepe2e run.sh 's/^  CMD_B=(pytest "\$TEST_FILE" -k "not TestHF3FSLoadFailureEndToEnd" -rA)$/  true/')
+[ -n "$m" ] && e2e "$m" m-bkeepe2e FAKE_HF=fail
+mcheck "mutant: a run.sh that still runs the end-to-end class in (b) after a failed download is caught" \
+  "command grep -q 'TestHF3FSLoadFailureEndToEnd' '$WORK/e2e-m-bkeepe2e/out/base-b.log'"
 
 # A pytest that never returns is cut at PYTEST_CAP_S, and the budget then stops the run before (c).
 # With 100 s and a 60 s reserve, base-a gets its 30 s cap, fix-a the 10 s left, and base-c nothing.
@@ -330,7 +337,9 @@ ignores the kit's c-not-run.txt|s/^    if os.path.exists(not_run_path):$/    if 
 decides (c) despite gaps|s/^    if c_rec\["gaps"\]:$/    if False:/
 decides (c) despite a harness failure|s/^    if c_rec\["not_run"\]:$/    if False:/
 takes any failure as deciding|s/^    if outcome == "FAILED":$/    if outcome == "FAILED":\n        return {"state": "FAILED", "at": "any"}/
-takes a deciding assertion's text from any frame|s/re.compile(r'\^>\\s+assert retry\\.finish_reason == "error"\\s\*\$')/re.compile(r'.*assert retry\\.finish_reason == "error"')/
+takes a deciding line from any frame|s/^            if pattern.match(own) and asserted:$/            if any(pattern.match(x) for x in lines) and asserted:/
+takes a non-assertion error as deciding|s/^            if pattern.match(own) and asserted:$/            if pattern.match(own):/
+judges (b) on the end-to-end class when (c) did not run|s/^            b_needs = EXPECTED_A if os.path.exists(os.path.join(out, "c-not-run.txt")) else JUDGED$/            b_needs = JUDGED/
 does not require base [fail] to fail|s/^    if s\[f"base {name_f}"\] != {"state": "FAILED", "at": 'assert retry.finish_reason == "error"'}:$/    if False:/
 judges base [recompute] instead of base [fail]|s/^    if s\[f"base {name_f}"\] != /    if s[f"base {name_r}"] != /
 does not require the fix to pass (c)|s/^        if s\[f"fix {name}"\] != {"state": "PASSED"}:$/        if False:/

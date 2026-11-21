@@ -90,6 +90,8 @@ elif args == [FILE, "-k", "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure"
     cmd, root, prefix = "a", ".", FILE
 elif args == [FILE, "-rA"]:
     cmd, root, prefix = "b", ".", FILE
+elif args == [FILE, "-k", "not TestHF3FSLoadFailureEndToEnd", "-rA"]:
+    cmd, root, prefix = "b-no-e2e", ".", FILE
 else:
     print(f"fake pytest: unexpected arguments {args}", file=sys.stderr)
     sys.exit(4)
@@ -104,7 +106,7 @@ src = open(os.path.join(root, FILE)).read()
 has_tests = all(f"class {c}" in src for c in ("TestHF3FSLoadErrors", "TestHF3FSSchedulerLoadFailure", "TestHF3FSLoadFailureEndToEnd"))
 fixed = "take_load_error_block_ids" in open(os.path.join(root, CONNECTOR)).read()
 added = NEW + E2E if has_tests else []
-tests = {"a": [t for t in added if t in NEW], "b": OLD + added, "c": [t for t in added if t in E2E]}[cmd]
+tests = {"a": [t for t in added if t in NEW], "b": OLD + added, "b-no-e2e": OLD + [t for t in added if t in NEW], "c": [t for t in added if t in E2E]}[cmd]
 deselected = len(OLD) + len(added) - len(tests)
 
 print("============================= test session starts ==============================")
