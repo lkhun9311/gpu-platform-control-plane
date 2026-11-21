@@ -41,9 +41,10 @@ START=$(date +%s)
 
 # Settings are checked before OUT is touched, so a refused run leaves nothing behind.
 [ $# = 0 ] || { echo "run.sh takes no arguments, and got: $*; settings come from the environment" >&2; exit 1; }
-[[ $BUDGET_S =~ ^[0-9]+$ ]] && [ "$BUDGET_S" -gt "$RESERVE_S" ] && [ "$BUDGET_S" -le "$BUDGET_MAX_S" ] ||
+# A leading zero is refused, since bash arithmetic would read it as octal and change or break the budget.
+[[ $BUDGET_S =~ ^[1-9][0-9]*$ ]] && [ "$BUDGET_S" -gt "$RESERVE_S" ] && [ "$BUDGET_S" -le "$BUDGET_MAX_S" ] ||
   { echo "BUDGET_S=$BUDGET_S: it must be whole seconds above $RESERVE_S and at most $BUDGET_MAX_S, which keeps g5.xlarge under \$0.50" >&2; exit 1; }
-[[ $PYTEST_CAP_S =~ ^[0-9]+$ ]] && [ "$PYTEST_CAP_S" -ge 30 ] || { echo "PYTEST_CAP_S=$PYTEST_CAP_S: it must be whole seconds, at least 30" >&2; exit 1; }
+[[ $PYTEST_CAP_S =~ ^[1-9][0-9]*$ ]] && [ "$PYTEST_CAP_S" -ge 30 ] || { echo "PYTEST_CAP_S=$PYTEST_CAP_S: it must be whole seconds without a leading zero, at least 30" >&2; exit 1; }
 mkdir -p "$OUT" || exit 1
 # A rerun into the same OUT would leave the earlier logs for verdict.py to read, so only an empty OUT is used.
 if [ -n "$(ls -A "$OUT")" ]; then echo "OUT=$OUT is not empty; each run writes a new directory" >&2; exit 1; fi
