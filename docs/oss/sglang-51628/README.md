@@ -6,7 +6,7 @@ The reporter's reply (2026-11-20) names the cause: on NemotronH, prefill CUDA gr
 
 ## Kits
 
-`kit-r2` is this kit.
+`kit-r2` is the kit run 2 used, described in the sections below up to "Kit r3"; `kit-r3` is its CONTROL arm alone, described in "Kit r3".
 Run 1 (2026-11-20, `hack/sglang-51628/` on `feat/sglang-51628-compile-stall`) served Falcon-H1-0.5B, whose every layer has attention, so prefill CUDA graph capture compiled the Mamba2 kernels at startup and nothing Mamba2 compiled while serving.
 Its verdict said "reproduces" because it counted three `_small_copy_kernel` compiles; r2's verdict counts Mamba2 kernels only, and lists every other kernel apart.
 
@@ -76,3 +76,53 @@ SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.2xlarge OUT=hack/gpu-ki
 g5.2xlarge has the same A10G as g5.xlarge with 8 vCPUs and 32 GiB, for the 15.7 GB image's decompression and the model load.
 The session's hard stop is 3,720 s after LaunchTime and its worst case is $0.9696 (4,020 s at $0.8683/h all in).
 The offline checks are `bash hack/sglang-51628-kit-test.sh`.
+
+## Kit r3
+
+Run 2 (2026-11-21, `hack/gpu-kit-runs/2026-11-21-sglang-51628-r2`, commit 93fac369) gave REPRODUCED: 53 Mamba2 compiles after ready, 33.3 s, `_chunk_scan_fwd_kernel` 24 times.
+Its CONTROL arm was skipped for its budget, since MAIN took 1,411 s.
+`kit-r3` runs that arm alone: the same image, model, revision, traffic and seeds, with `--warmups prefill_shapes` on the server.
+
+What changes from r2:
+- `measure.sh` starts one server, `python3 -m sglang.launch_server --model-path <model> --trust-remote-code --warmups prefill_shapes`, and takes four arguments (no control switch).
+- The server also gets `PYTHONUNBUFFERED=1`. In r2, buffered stdout spliced a `/health` log line into the middle of an autotune config line (r2 `server.log` line 137), and r3 reads that report.
+- The compile hook keeps `constants` and `signature` whole (r2 cut them at 400 characters), and adds `attrs` (the divisibility specialisations) and `num_warps` and `num_stages` from the compile metadata.
+- `r2-reference.json` pins r2's MAIN arm: its first-burst TTFT, its startup time from launch to ready, and its Mamba2 compiles before and after ready per kernel. It names the r2 files it was taken from (`verdict.json`, `arm.txt`, `compiles.jsonl`) and their sha256; the offline test re-derives it from them.
+
+`kit-r3/verdict.py`:
+
+| Verdict | When |
+|---|---|
+| WARMUP MOVES ALL | no Mamba2 kernel compiled after ready |
+| WARMUP MOVES SOME | fewer Mamba2 compiles after ready than r2's 53, with the counts per kernel |
+| NO EFFECT | as many Mamba2 compiles after ready as r2, or more |
+| GATE FAILED | the server did not start with prefill CUDA graph off (exit 4) |
+| INCOMPLETE | a record, a field or the reference is missing (exit 3); r2's rules, plus a startup with no launch time or a log that never says the warmup ended |
+
+It also prints, per Mamba2 kernel, r3's compiles before and after ready beside r2's, the burst each late compile landed in and its class; the warmup burst's TTFT beside r2's; and the startup time beside r2's 153.8 s.
+
+Triton's autotune report (`TRITON_PRINT_AUTOTUNING=1`) gives, per autotune, the kernel, the configs benchmarked (the `Autotuning kernel … with config` lines), the key, the seconds and the config chosen.
+Each late compile of a kernel is classed only where the records allow it:
+- autotune-config: one of several configs compiled for one specialisation (the same other constants, signature types and attrs), which only an autotune does;
+- post-autotune specialisation: the only config compiled for its specialisation, and one an autotune chose;
+- unclassified: a record lacks attrs, num_warps or num_stages, or a report is incomplete;
+- no autotune report: no report names the kernel, which is not read as "not autotuned".
+The n-th set of autotune-config compiles of a kernel, in time, is linked to its n-th report in the log, and the link is shown only when the number of configs and the chosen config agree.
+
+From r2's own records, read with r3's parser (r2's compile records lack attrs, num_warps and num_stages, so its compiles stay unclassified):
+the log reports two `_chunk_scan_fwd_kernel` autotunes of 18 configs each (17.15 s and 20.22 s), with keys `(256, 64, 128, True, …dtypes)`.
+The second key has three more dtypes than the first, from pointer arguments that the first call passed as None.
+The source at 03fde9cc lists 23 configs, keyed on `chunk_size, hdim, dstate, IS_CAUSAL` and pruned by tile size; with hdim 64 the five configs whose BLOCK_SIZE_N is 128 or 256 go, which leaves 18.
+By time and tile constants, r2's 19 compiles before ready are the first autotune (18) plus one compile 1.5 s before ready.
+Its 24 after ready are the second autotune (18, in the warmup burst), then 3 more in the warmup burst and 3 in c16-r1 and c16-r3.
+That the 6 are specialisations of a chosen config is consistent with their tile sizes, but r2 did not record what would show it; r3 does.
+
+Run from the repository root, with the kit committed:
+
+```bash
+SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.2xlarge OUT=hack/gpu-kit-runs/2026-11-21-sglang-51628-r3 \
+  bash hack/gpu-kit-session.sh docs/oss/sglang-51628/kit-r3
+```
+
+r2's pull took 737 s and its MAIN arm 1,411 s, so r3 should end in about 2,300 s of its 3,150 s budget; the session's worst case is still $0.9696.
+The offline checks are `bash hack/sglang-51628-kit-r3-test.sh`.

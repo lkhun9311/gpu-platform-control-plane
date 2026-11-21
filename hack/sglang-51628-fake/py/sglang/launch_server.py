@@ -7,6 +7,11 @@ FAKE_SCENARIO picks what happens:
   gatefail  the server captures a prefill CUDA graph and logs no disabling line
   hookdead  compilations reach SGLang's warning but not the listener chain, so the hook records nothing
   latedisable the disabling line is there, and so is a prefill capture
+For kit r3, which always runs with --warmups prefill_shapes, three more print Triton's autotune report:
+  moveall   the warmup autotunes and specialises the chunked scan; no Mamba2 kernel compiles after ready
+  movesome  the warmup autotunes one key; the first burst autotunes a second key and specialises, and c16-r1 specialises once
+  noeffect  the warmup compiles nothing Mamba2, and the first burst specialises the chunked scan 60 times
+FAKE_SPLICE=1 glues a log line into one config line of the report, as r2's buffered stdout did.
 """
 
 import argparse
@@ -61,6 +66,36 @@ def compile_(name, module, seconds):
     triton.fake_compile(name, module, seconds)
 
 
+SIG = {"x_ptr": "*bf16", "seqlen": "i32", "BLOCK_SIZE_M": "constexpr", "BLOCK_SIZE_N": "constexpr"}
+# A second autotune key comes from new argument dtypes, so its signature differs, as r2's second _chunk_scan_fwd_kernel key did.
+SIG2 = {"x_ptr": "*bf16", "seqlen": "i32", "BLOCK_SIZE_M": "constexpr", "BLOCK_SIZE_N": "constexpr", "idx_ptr": "*i32"}
+CONFIGS = [(32, 32, 8, 2), (64, 32, 4, 3), (64, 64, 4, 1)]
+
+
+def cfg_text(m, n, w, st):
+    return f"BLOCK_SIZE_M: {m}, BLOCK_SIZE_N: {n}, num_warps: {w}, num_ctas: 1, num_stages: {st}, maxnreg: None"
+
+
+def autotune(key, attrs, sig=SIG, best=2, splice=False):
+    """Compile every config for one specialisation and print Triton's report for it."""
+    for i, (m, n, w, st) in enumerate(CONFIGS):
+        triton.fake_compile("_chunk_scan_fwd_kernel", MAMBA, 0.5, constants={(2,): m, (3,): n}, signature=sig, attrs=attrs, num_warps=w, num_stages=st)
+        tail = "[2026-11-21 02:33:36] INFO:     127.0.0.1:50142 - \"GET /health HTTP/1.1\" 503" if splice and i == 1 else ""
+        print(f"Autotuning kernel _chunk_scan_fwd_kernel with config {cfg_text(m, n, w, st)}{tail}", flush=True)
+    print(f"Triton autotuning for function _chunk_scan_fwd_kernel,\nwith key as {key},\nfinished after 1.50s,\n"
+          f"best config selected: {cfg_text(*CONFIGS[best])};", flush=True)
+
+
+def specialise(attrs, seconds=1.0, sig=SIG2):
+    m, n, w, st = CONFIGS[2]
+    triton.fake_compile("_chunk_scan_fwd_kernel", MAMBA, seconds, constants={(2,): m, (3,): n}, signature=sig, attrs=attrs, num_warps=w, num_stages=st)
+
+
+KEY1 = "(256, 64, 128, True, 'torch.float32')"
+KEY2 = "(256, 64, 128, True, 'torch.float32', 'torch.int32')"
+A16 = {(0,): [["tt.divisibility", 16]]}
+A16B = {(0,): [["tt.divisibility", 16]], (1,): [["tt.divisibility", 16]]}
+A1 = {}
 compile_("write_req_to_token_pool_triton", MISC, 0.09)
 if SCENARIO in ("gatefail", "latedisable"):
     if SCENARIO == "latedisable":
@@ -79,6 +114,11 @@ triton_load_watch.mark_serving_started()
 compile_("_small_copy_kernel", MISC, 0.1)
 if warm:
     log.info("Running warmup prefill_shapes")
+    if SCENARIO in ("moveall", "movesome"):
+        autotune(KEY1, A16, splice=os.environ.get("FAKE_SPLICE") == "1")
+    if SCENARIO == "moveall":
+        specialise(A16B, sig=SIG)
+        autotune(KEY2, A16, SIG2)
     log.info("Warmup ended")
 state = {"bursts": 0}
 lock = threading.Lock()
@@ -104,7 +144,17 @@ class H(BaseHTTPRequestHandler):
                         compile_("_chunk_scan_fwd_kernel", MAMBA, 1.0)
                         compile_("_chunk_state_fwd_kernel", STATE, 0.3)
                         stall = 2750.0
+                    if SCENARIO == "movesome":
+                        autotune(KEY2, A16, SIG2)
+                        specialise(A1, 1.2)
+                        stall = 1500.0
+                    if SCENARIO == "noeffect":
+                        for i in range(60):
+                            specialise({(0,): [["tt.divisibility", 16]], (9,): i}, 0.2)
+                        stall = 2500.0
                     compile_("_small_copy_kernel", MISC, 0.12)
+                if SCENARIO == "movesome" and "seed=161" in self.path:
+                    specialise(A16B, 1.0)
             body = json.dumps({"stall_ms": stall}).encode()
             self.send_response(200)
             self.end_headers()

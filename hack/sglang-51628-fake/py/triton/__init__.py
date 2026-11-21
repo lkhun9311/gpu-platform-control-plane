@@ -16,11 +16,12 @@ class _Times:
 
 
 class _Src:
-    def __init__(self, fn):
+    def __init__(self, fn, constants=None, signature=None, attrs=None):
         self.fn = fn
         self.name = fn.fn.__name__
-        self.constants = {"BLOCK": 256}
-        self.signature = {"x_ptr": "*fp32"}
+        self.constants = {"BLOCK": 256} if constants is None else constants
+        self.signature = {"x_ptr": "*fp32"} if signature is None else signature
+        self.attrs = {} if attrs is None else attrs
 
 
 class JITFunction:
@@ -41,19 +42,20 @@ def jit(fn):
     return JITFunction(fn)
 
 
-def _emit(jitfn, seconds, cache_hit):
+def _emit(jitfn, seconds, cache_hit, constants=None, signature=None, attrs=None, num_warps=4, num_stages=3):
     time.sleep(min(seconds, 0.05))
     listener = getattr(knobs.compilation, "listener", None)
     if listener is not None:
-        listener(src=_Src(jitfn), metadata={"hash": "fake"}, metadata_group={}, times=_Times(seconds * 1e6), cache_hit=cache_hit)
+        meta = {"hash": "fake", "num_warps": num_warps, "num_stages": num_stages}
+        listener(src=_Src(jitfn, constants, signature, attrs), metadata=meta, metadata_group={}, times=_Times(seconds * 1e6), cache_hit=cache_hit)
 
 
-def fake_compile(name, module, seconds, cache_hit=False):
-    """Compile the kernel NAME defined in MODULE, taking SECONDS, through the listener."""
+def fake_compile(name, module, seconds, cache_hit=False, **spec):
+    """Compile the kernel NAME defined in MODULE, taking SECONDS, through the listener; spec may set constants, signature, attrs, num_warps, num_stages."""
 
     def f():
         pass
 
     f.__name__ = name
     f.__module__ = module
-    _emit(JITFunction(f), seconds, cache_hit)
+    _emit(JITFunction(f), seconds, cache_hit, **spec)
