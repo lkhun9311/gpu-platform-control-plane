@@ -1,0 +1,714 @@
+/opt/kit/work/.venv/lib/python3.12/site-packages/pytest_asyncio/plugin.py:299: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /opt/kit/work/vllm
+configfile: pyproject.toml
+plugins: anyio-4.16.0, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 26 items
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py ................FFFFF [ 80%]
+FFFFF                                                                    [100%]
+
+=================================== FAILURES ===================================
+_____ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[missing_key] ______
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadErrors object at 0x7dbec19d0110>
+load_connector = (<vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector.HF3FSKVConnector object at 0x7dbe65e86c60>, <tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x7dbec1a96b70>)
+get_key_locations = <function TestHF3FSLoadErrors.<lambda> at 0x7dbec19c1760>
+
+    @pytest.mark.parametrize(
+        "get_key_locations",
+        [
+            lambda keys: [None] * len(keys),
+            _raise_lookup_error,
+            # A page past the end of the file makes the read come back short.
+            lambda keys: [NUM_FILE_PAGES] * len(keys),
+        ],
+        ids=["missing_key", "lookup_raises", "short_read"],
+    )
+    def test_failed_load_reports_block_ids(self, load_connector, get_key_locations):
+        connector, metadata = load_connector
+        metadata.get_key_locations_replies.append(get_key_locations)
+    
+        _load_until_finished(connector, "req-0", [3, 5])
+    
+>       assert connector.get_block_ids_with_load_errors() == {3, 5}
+E       assert set() == {3, 5}
+E         
+E         Extra items in the right set:
+E         3
+E         5
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:430: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.transformers_utils.config:config.py:1637 Could not retrieve safetensors metadata for facebook/opt-125m (Hub fetch failed and the cached snapshot holds no weights yet).
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Blocks not found for Loaded request req-0
+____ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises] _____
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadErrors object at 0x7dbec19d0290>
+load_connector = (<vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector.HF3FSKVConnector object at 0x7dbe65e86c30>, <tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x7dbe9ebc4050>)
+get_key_locations = <function _raise_lookup_error at 0x7dbec19c1620>
+
+    @pytest.mark.parametrize(
+        "get_key_locations",
+        [
+            lambda keys: [None] * len(keys),
+            _raise_lookup_error,
+            # A page past the end of the file makes the read come back short.
+            lambda keys: [NUM_FILE_PAGES] * len(keys),
+        ],
+        ids=["missing_key", "lookup_raises", "short_read"],
+    )
+    def test_failed_load_reports_block_ids(self, load_connector, get_key_locations):
+        connector, metadata = load_connector
+        metadata.get_key_locations_replies.append(get_key_locations)
+    
+        _load_until_finished(connector, "req-0", [3, 5])
+    
+>       assert connector.get_block_ids_with_load_errors() == {3, 5}
+E       assert set() == {3, 5}
+E         
+E         Extra items in the right set:
+E         3
+E         5
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:430: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Task execution error: metadata server unreachable for Loaded request req-0
+______ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read] ______
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadErrors object at 0x7dbec19d0350>
+load_connector = (<vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector.HF3FSKVConnector object at 0x7dbec1c77d10>, <tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x7dbeccee84a0>)
+get_key_locations = <function TestHF3FSLoadErrors.<lambda> at 0x7dbec19c1800>
+
+    @pytest.mark.parametrize(
+        "get_key_locations",
+        [
+            lambda keys: [None] * len(keys),
+            _raise_lookup_error,
+            # A page past the end of the file makes the read come back short.
+            lambda keys: [NUM_FILE_PAGES] * len(keys),
+        ],
+        ids=["missing_key", "lookup_raises", "short_read"],
+    )
+    def test_failed_load_reports_block_ids(self, load_connector, get_key_locations):
+        connector, metadata = load_connector
+        metadata.get_key_locations_replies.append(get_key_locations)
+    
+        _load_until_finished(connector, "req-0", [3, 5])
+    
+>       assert connector.get_block_ids_with_load_errors() == {3, 5}
+E       assert set() == {3, 5}
+E         
+E         Extra items in the right set:
+E         3
+E         5
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:430: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Read operation failed for Loaded request req-0
+___ TestHF3FSLoadErrors.test_failed_batch_reported_when_last_batch_succeeds ____
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadErrors object at 0x7dbec19d05c0>
+load_connector = (<vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector.HF3FSKVConnector object at 0x7dbe65e87fb0>, <tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x7dbe9eb83f80>)
+
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(),
+        reason="a successful load scatters with a Triton kernel",
+    )
+    def test_failed_batch_reported_when_last_batch_succeeds(self, load_connector):
+        connector, metadata = load_connector
+        block_ids = list(range(1, DEFAULT_MAX_IO_ENTRIES + 2))
+        # The load is split into two batches.
+        # The first batch misses and the second batch reads page 0.
+        metadata.get_key_locations_replies += [
+            lambda keys: [None] * len(keys),
+            lambda keys: [0] * len(keys),
+        ]
+    
+        _load_until_finished(connector, "req-0", block_ids)
+    
+>       assert connector.get_block_ids_with_load_errors() == set(
+            block_ids[:DEFAULT_MAX_IO_ENTRIES]
+        )
+E       AssertionError: assert set() == {1, 2, 3, 4, 5, 6, ...}
+E         
+E         Extra items in the right set:
+E         1
+E         2
+E         3
+E         4
+E         5...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:450: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Blocks not found for Loaded request req-0
+__ TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail] __
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSSchedulerLoadFailure object at 0x7dbec19d0950>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-4/test_failed_load_honors_failur0')
+storage_services = (<tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x7dbe65e23440>, 'cuda')
+make_worker_connector = <function make_worker_connector.<locals>.make at 0x7dbe65e83920>
+policy = 'fail'
+
+    @pytest.mark.parametrize("policy", ["fail", "recompute"])
+    def test_failed_load_honors_failure_policy(
+        self, tmp_path, storage_services, make_worker_connector, policy
+    ):
+        metadata, _ = storage_services
+        # Every key is reported as stored, but every read comes back short.
+        metadata.default_reply = lambda keys: [NUM_FILE_PAGES] * len(keys)
+        config, scheduler = _hf3fs_scheduler(tmp_path, policy)
+        worker = make_worker_connector(
+            config, scheduler.kv_cache_config, NUM_SCHEDULER_BLOCKS
+        )
+    
+        num_prompt_tokens = 4 * BLOCK_SIZE + 1
+        request = create_request(num_tokens=num_prompt_tokens, block_size=BLOCK_SIZE)
+        scheduler.add_request(request)
+        scheduler_output = scheduler.schedule()
+        assert request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+        model_runner_output = _run_worker(
+            worker, scheduler_output, wait_for_recving=request.request_id
+        )
+        scheduler.update_from_output(scheduler_output, model_runner_output)
+    
+        if policy == "fail":
+>           assert request.status == RequestStatus.FINISHED_ERROR
+E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11>
+E            +  where <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> = <vllm.v1.request.Request object at 0x7dbe65a85160>.status
+E            +  and   <RequestStatus.FINISHED_ERROR: 11> = RequestStatus.FINISHED_ERROR
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:520: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Read operation failed for Loaded request id-1
+_ TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[recompute] _
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSSchedulerLoadFailure object at 0x7dbec19d0ad0>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-4/test_failed_load_honors_failur1')
+storage_services = (<tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x7dbe65a6f020>, 'cuda')
+make_worker_connector = <function make_worker_connector.<locals>.make at 0x7dbe65e837e0>
+policy = 'recompute'
+
+    @pytest.mark.parametrize("policy", ["fail", "recompute"])
+    def test_failed_load_honors_failure_policy(
+        self, tmp_path, storage_services, make_worker_connector, policy
+    ):
+        metadata, _ = storage_services
+        # Every key is reported as stored, but every read comes back short.
+        metadata.default_reply = lambda keys: [NUM_FILE_PAGES] * len(keys)
+        config, scheduler = _hf3fs_scheduler(tmp_path, policy)
+        worker = make_worker_connector(
+            config, scheduler.kv_cache_config, NUM_SCHEDULER_BLOCKS
+        )
+    
+        num_prompt_tokens = 4 * BLOCK_SIZE + 1
+        request = create_request(num_tokens=num_prompt_tokens, block_size=BLOCK_SIZE)
+        scheduler.add_request(request)
+        scheduler_output = scheduler.schedule()
+        assert request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+        model_runner_output = _run_worker(
+            worker, scheduler_output, wait_for_recving=request.request_id
+        )
+        scheduler.update_from_output(scheduler_output, model_runner_output)
+    
+        if policy == "fail":
+            assert request.status == RequestStatus.FINISHED_ERROR
+            # The next pass must not release the request a second time.
+            scheduler_output = scheduler.schedule()
+            model_runner_output = _run_worker(worker, scheduler_output)
+            scheduler.update_from_output(scheduler_output, model_runner_output)
+            assert_scheduler_empty(scheduler)
+            return
+    
+        # The rerun recomputes the whole prompt instead of loading it again.
+        scheduler_output = scheduler.schedule()
+        assert request.status == RequestStatus.RUNNING
+>       assert scheduler_output.num_scheduled_tokens == {
+            request.request_id: num_prompt_tokens
+        }
+E       AssertionError: assert {'id-2': 1} == {'id-2': 65}
+E         
+E         Differing items:
+E         {'id-2': 1} != {'id-2': 65}
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:531: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Read operation failed for Loaded request id-2
+_ TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_prefix_and_saves_the_rest _
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSSchedulerLoadFailure object at 0x7dbec19d0d40>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-4/test_failed_later_batch_keeps_0')
+storage_services = (<tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x7dbec1ca3dd0>, 'cuda')
+
+    def test_failed_later_batch_keeps_prefix_and_saves_the_rest(
+        self, tmp_path, storage_services
+    ):
+        # A successful batch needs a GPU, so the worker result is written here.
+        _, scheduler = _hf3fs_scheduler(tmp_path, "recompute")
+        num_loaded_blocks = DEFAULT_MAX_IO_ENTRIES + 2
+        num_prompt_tokens = num_loaded_blocks * BLOCK_SIZE + 1
+        request = create_request(num_tokens=num_prompt_tokens, block_size=BLOCK_SIZE)
+        scheduler.add_request(request)
+        scheduler_output = scheduler.schedule()
+        assert request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+        (load,) = scheduler_output.kv_connector_metadata.requests
+        block_ids = load.block_ids[:num_loaded_blocks]
+    
+        # The first batch loaded, and the second batch failed.
+        model_runner_output = create_model_runner_output(
+            [],
+            finished_recving={request.request_id},
+            invalid_block_ids=set(block_ids[DEFAULT_MAX_IO_ENTRIES:]),
+        )
+        scheduler.update_from_output(scheduler_output, model_runner_output)
+    
+        scheduler_output = scheduler.schedule()
+        assert request.status == RequestStatus.RUNNING
+        num_valid_tokens = DEFAULT_MAX_IO_ENTRIES * BLOCK_SIZE
+        assert scheduler_output.num_scheduled_tokens == {
+            request.request_id: num_prompt_tokens - num_valid_tokens
+        }
+        # Saves start after the kept prefix, so the failed entries are replaced.
+        (save,) = scheduler_output.kv_connector_metadata.requests
+        assert save.save_block_op is not None
+>       assert save.save_block_op.skip_leading_blocks == DEFAULT_MAX_IO_ENTRIES
+E       AssertionError: assert 10 == 8
+E        +  where 10 = SaveBlockInfo(skip_leading_blocks=10).skip_leading_blocks
+E        +    where SaveBlockInfo(skip_leading_blocks=10) = HF3FSRequestMetadata(request_id='id-3', token_ids=[0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51,...block_ids=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], load_block_op=None, save_block_op=SaveBlockInfo(skip_leading_blocks=10)).save_block_op
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:567: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+WARNING  vllm.v1.core.sched.scheduler:scheduler.py:3983 Recovered from KV load failure: 1 request(s) rescheduled (32 tokens affected).
+_ TestHF3FSSchedulerLoadFailure.test_reused_blocks_do_not_mark_a_finished_load _
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSSchedulerLoadFailure object at 0x7dbec19d0fe0>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-4/test_reused_blocks_do_not_mark0')
+storage_services = (<tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x7dbe64d93c20>, 'cuda')
+
+    def test_reused_blocks_do_not_mark_a_finished_load(
+        self, tmp_path, storage_services
+    ):
+        _, scheduler = _hf3fs_scheduler(tmp_path, "recompute")
+        connector = scheduler.connector
+        num_hit_tokens = 4 * BLOCK_SIZE
+        block_ids = [1, 2, 3, 4]
+    
+        def start_load(request):
+            assert connector.get_num_new_matched_tokens(request, 0) == (
+                num_hit_tokens,
+                True,
+            )
+            blocks = KVCacheBlocks(blocks=([KVCacheBlock(i) for i in block_ids],))
+            connector.update_state_after_alloc(request, blocks, num_hit_tokens)
+            connector.build_connector_meta(SchedulerOutput.make_empty())
+    
+        request_a = create_request(num_tokens=num_hit_tokens + 1)
+        request_b = create_request(num_tokens=num_hit_tokens + 1)
+        start_load(request_a)
+        connector.update_connector_output(
+            KVConnectorOutput(finished_recving={request_a.request_id})
+        )
+        # A was preempted, and B now loads into the blocks A released.
+        start_load(request_b)
+        connector.update_connector_output(
+            KVConnectorOutput(
+                finished_recving={request_b.request_id},
+                invalid_block_ids=set(block_ids),
+            )
+        )
+    
+>       assert connector.get_num_new_matched_tokens(request_b, 0) == (0, False)
+E       assert (64, True) == (0, False)
+E         
+E         At index 0 diff: 64 != 0
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:601: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+______ TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail] _______
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadFailureEndToEnd object at 0x7dbec19afaa0>
+vllm_runner = <class 'tests.conftest.VllmRunner'>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-4/test_failed_read_honors_policy0')
+in_process_storage = (<tests.v1.kv_connector.unit.test_hf3fs_connector.InProcessMetadataService object at 0x7dbe65ea5ac0>, <tests.v1.kv_connector.unit.test_hf3fs_connector.StorageFaults object at 0x7dbe65ea5c10>)
+policy = 'fail'
+
+    @pytest.mark.parametrize("policy", ["fail", "recompute"])
+    def test_failed_read_honors_policy(
+        self, vllm_runner, tmp_path, in_process_storage, policy
+    ):
+        metadata, faults = in_process_storage
+        target, fillers = _e2e_prompts()
+        common_kwargs = dict(
+            max_model_len=1024,
+            block_size=BLOCK_SIZE,
+            enforce_eager=True,
+            gpu_memory_utilization=0.3,
+            num_gpu_blocks_override=E2E_NUM_GPU_BLOCKS,
+            enable_prefix_caching=True,
+        )
+    
+>       with vllm_runner(E2E_MODEL, **common_kwargs) as runner:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:714: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/conftest.py:1107: in __init__
+    self.llm = LLM(
+vllm/entrypoints/llm.py:352: in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+vllm/v1/engine/llm_engine.py:193: in from_engine_args
+    return cls(
+vllm/v1/engine/llm_engine.py:118: in __init__
+    self.engine_core = EngineCoreClient.make_client(
+vllm/v1/engine/core_client.py:149: in make_client
+    return InprocClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+vllm/v1/engine/core_client.py:412: in __init__
+    self.engine_core = EngineCore(
+vllm/v1/engine/core.py:179: in __init__
+    kv_cache_config = self._initialize_kv_caches(vllm_config)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+vllm/tracing/otel.py:175: in sync_wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+vllm/v1/engine/core.py:344: in _initialize_kv_caches
+    kv_cache_configs = get_kv_cache_configs(
+vllm/v1/core/kv_cache_planning.py:1548: in get_kv_cache_configs
+    _check_enough_kv_cache_memory(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+available_memory = 37158912
+get_needed_memory = functools.partial(<function _max_memory_usage_bytes_from_groups at 0x7dbec8aa6200>, <vllm.v1.core.kv_cache_planning.De...True, host_resident=False, enable_kv_transfer=True, role=<KVCacheGroupRole.DEFAULT: 'default'>, unprojected_specs=())])
+max_model_len = 1024
+estimate_max_model_len = functools.partial(<function _estimate_max_model_len_from_groups at 0x7dbec8aa62a0>, <vllm.v1.core.kv_cache_planning.De...True, host_resident=False, enable_kv_transfer=True, role=<KVCacheGroupRole.DEFAULT: 'default'>, unprojected_specs=())])
+hint = 'Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name).'
+
+    def _check_enough_kv_cache_memory(
+        available_memory: int,
+        get_needed_memory: Callable[[], int],
+        max_model_len: int,
+        estimate_max_model_len: Callable[[int], int],
+        hint: str,
+    ):
+        if available_memory <= 0:
+            raise ValueError(
+                f"No available memory for the cache blocks. {hint} "
+                "See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ "
+                "for more details."
+            )
+    
+        needed_memory = get_needed_memory()
+    
+        if needed_memory > available_memory:
+            estimated_max_len = estimate_max_model_len(available_memory)
+            estimated_msg = ""
+            if estimated_max_len > 0:
+                estimated_msg = (
+                    "Based on the available memory, "
+                    f"the estimated maximum model length is {estimated_max_len}. "
+                )
+    
+>           raise ValueError(
+                f"To serve at least one request with the model's max seq len "
+                f"({max_model_len}), ({format_gib(needed_memory)} GiB KV "
+                f"cache is needed, which is larger than the available KV cache "
+                f"memory ({format_gib(available_memory)} GiB). {estimated_msg}"
+                f"{hint} Decreasing `max_model_len` also reduces what is needed. "
+                f"See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ "
+                f"for more details."
+            )
+E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.
+
+vllm/v1/core/kv_cache_planning.py:123: ValueError
+----------------------------- Captured stdout call -----------------------------
+(MainProcess pid=3797) INFO 11-21 11:38:09 [startup.py:96] non-default args: {'max_model_len': 1024, 'block_size': 16, 'enable_prefix_caching': True, 'gpu_memory_utilization': 0.3, 'disable_log_stats': True, 'enforce_eager': True, 'num_gpu_blocks_override': 64, 'enable_chunked_prefill': False, 'compilation_config': {'mode': None, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': [], 'ir_enable_torch_wrap': None, 'splitting_ops': None, 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_token_budget': 5120, 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': None, 'compile_ranges_endpoints': None, 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': None, 'use_breakable_cudagraph': None, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': [4], 'prefill_cudagraph_capture_token_sizes': None, 'max_prefill_cudagraph_capture_tokens': None, 'decode_cudagraph_capture_request_sizes': None, 'max_decode_cudagraph_capture_requests': None, 'max_decode_cudagraph_capture_tokens': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': None, 'pass_config': {}, 'max_cudagraph_capture_size': None, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': None, 'static_all_moe_layers': []}, 'kernel_config': KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=[], fused_add_rms_norm=[], gelu_and_mul_sparse=[], rotary_embedding=[], rotary_embedding_query_only=[]), enable_flashinfer_autotune=None, enable_flashinfer_mm_encoder_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_rocm_aiter_gemm_warmup=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', step5_attention_backend='native', sparse_indexer_topk_backend='auto', flashinfer_sparse_mla_kernel='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable', b12x_moe_uncompressed_scales=False), 'model': '/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6'}
+(MainProcess pid=3797) WARNING 11-21 11:38:09 [arg_utils.py:1989] The global random seed is set to 0. Since VLLM_ENABLE_V1_MULTIPROCESSING is set to False, this may affect the random state of the Python process that launched vLLM.
+(MainProcess pid=3797) INFO 11-21 11:38:09 [model.py:767] Resolved architecture: OPTForCausalLM
+(MainProcess pid=3797) INFO 11-21 11:38:09 [model.py:2371] Using max model len 1024
+(MainProcess pid=3797) WARNING 11-21 11:38:09 [arg_utils.py:3081] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(MainProcess pid=3797) WARNING 11-21 11:38:09 [vllm.py:1837] Enforce eager set, disabling torch.compile, CUDAGraphs, and JIT kernel warmup. This is equivalent to setting -cc.mode=none -cc.cudagraph_mode=none and --kernel_config.enable_jit_warmup=False
+(MainProcess pid=3797) WARNING 11-21 11:38:09 [vllm.py:1861] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(MainProcess pid=3797) INFO 11-21 11:38:09 [kernel.py:578] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native'])
+(MainProcess pid=3797) INFO 11-21 11:38:09 [vllm.py:2061] Cudagraph is disabled under eager mode
+(MainProcess pid=3797) INFO 11-21 11:38:09 [compilation.py:429] Enabled custom fusions: norm_quant, act_quant
+(MainProcess pid=3797) INFO 11-21 11:38:09 [core.py:154] Initializing a V1 LLM engine (v0.34.0rc1.dev1105+g2f170a0fe) with config: model='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', speculative_config=None, tokenizer='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.float16, max_seq_len=1024, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=None, quantization_config=None, enforce_eager=True, aux_output_config=AuxOutputConfig(enable_return_routed_experts=False, max_bytes=None), kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, per_request_spec_decode_metrics='none', kv_cache_metrics=False, kv_cache_metrics_sample=0.01, custom_histogram_buckets=None, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False, jit_monitor_mode='warn', jit_monitor_verbose=False), seed=0, served_model_name=/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6, enable_prefix_caching=True, enable_chunked_prefill=False, pooler_config=None, compilation_config={'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['all'], 'ir_enable_torch_wrap': False, 'splitting_ops': [], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_token_budget': 5120, 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.NONE: 0>, 'use_breakable_cudagraph': False, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': [], 'prefill_cudagraph_capture_token_sizes': None, 'max_prefill_cudagraph_capture_tokens': None, 'decode_cudagraph_capture_request_sizes': None, 'max_decode_cudagraph_capture_requests': None, 'max_decode_cudagraph_capture_tokens': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': True, 'fuse_act_quant': True, 'fuse_attn_quant': False, 'fuse_allreduce_rms': False, 'enable_qk_norm_rope_fusion': False, 'fuse_rope_kvcache_cat_mla': False, 'fuse_act_padding': False, 'fuse_qk_norm_rope_kvcache': False}, 'max_cudagraph_capture_size': 0, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native']), enable_flashinfer_autotune=True, enable_flashinfer_mm_encoder_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_rocm_aiter_gemm_warmup=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', step5_attention_backend='native', sparse_indexer_topk_backend='auto', flashinfer_sparse_mla_kernel='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable', b12x_moe_uncompressed_scales=False)
+(MainProcess pid=3797) INFO 11-21 11:38:09 [parallel_state.py:1981] world_size=1 rank=0 local_rank=0 distributed_init_method=file:///tmp/vllm_dist_547ba84519be4f1a9a279673e1f157ca backend=nccl
+(MainProcess pid=3797) INFO 11-21 11:38:09 [parallel_state.py:2461] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, ETP rank 0, EP rank N/A, EPLB rank N/A
+(MainProcess pid=3797) INFO 11-21 11:38:10 [cuda.py:240] NVIDIA Confidential Computing not detected via NVML
+(MainProcess pid=3797) INFO 11-21 11:38:10 [model_runner.py:415] Loading model from scratch...
+(MainProcess pid=3797) INFO 11-21 11:38:11 [flash_attn.py:1201] Using FlashAttention version 2
+(MainProcess pid=3797) INFO 11-21 11:38:11 [base_loader.py:100] Initializing model took 0.777049 seconds
+(MainProcess pid=3797) INFO 11-21 11:38:11 [default_loader.py:570] Loading weights took 0.23 seconds
+(MainProcess pid=3797) INFO 11-21 11:38:11 [utils.py:417] Backends selected for OPTForCausalLM (/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6):
+(MainProcess pid=3797) INFO 11-21 11:38:11 [utils.py:417]   layer     | count | backend                 | modules
+(MainProcess pid=3797) INFO 11-21 11:38:11 [utils.py:417]   attention |    12 | FLASH_ATTN              | model.decoder.layers.[0-11].self_attn.attn
+(MainProcess pid=3797) INFO 11-21 11:38:11 [utils.py:417]   linear    |    50 | unquantized [w=float16] | model.decoder.embed_tokens, model.decoder.layers.[0-11].self_attn.{qkv_proj,out_proj}, model.decoder.layers.[0-11].{fc1,fc2}, lm_head
+(MainProcess pid=3797) INFO 11-21 11:38:11 [model_runner.py:455] Model loading took 0.24 GiB memory and 1.149409 seconds
+(MainProcess pid=3797) INFO 11-21 11:38:11 [topk_topp_sampler.py:119] Using FlashInfer for top-p & top-k sampling.
+(MainProcess pid=3797) INFO 11-21 11:38:11 [torch_utils.py:302] Reducing Torch threads from 2 to 1 for serving. Set OMP_NUM_THREADS in the external environment to override.
+(MainProcess pid=3797) INFO 11-21 11:38:11 [utils.py:428] Using LBNHC KV cache layout.
+(MainProcess pid=3797) INFO 11-21 11:38:11 [gpu_worker.py:846] Available KV cache memory: 6.12 GiB
+(MainProcess pid=3797) INFO 11-21 11:38:11 [kv_cache_planning.py:1519] Overriding num_gpu_blocks=11140 with num_gpu_blocks_override=64
+----------------------------- Captured stderr call -----------------------------
+Loading pt checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.56it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.55it/s]
+
+____ TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute] ____
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadFailureEndToEnd object at 0x7dbec19af950>
+vllm_runner = <class 'tests.conftest.VllmRunner'>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-4/test_failed_read_honors_policy1')
+in_process_storage = (<tests.v1.kv_connector.unit.test_hf3fs_connector.InProcessMetadataService object at 0x7dbe3341b1a0>, <tests.v1.kv_connector.unit.test_hf3fs_connector.StorageFaults object at 0x7dbe32095a90>)
+policy = 'recompute'
+
+    @pytest.mark.parametrize("policy", ["fail", "recompute"])
+    def test_failed_read_honors_policy(
+        self, vllm_runner, tmp_path, in_process_storage, policy
+    ):
+        metadata, faults = in_process_storage
+        target, fillers = _e2e_prompts()
+        common_kwargs = dict(
+            max_model_len=1024,
+            block_size=BLOCK_SIZE,
+            enforce_eager=True,
+            gpu_memory_utilization=0.3,
+            num_gpu_blocks_override=E2E_NUM_GPU_BLOCKS,
+            enable_prefix_caching=True,
+        )
+    
+>       with vllm_runner(E2E_MODEL, **common_kwargs) as runner:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:714: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/conftest.py:1107: in __init__
+    self.llm = LLM(
+vllm/entrypoints/llm.py:352: in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+vllm/v1/engine/llm_engine.py:193: in from_engine_args
+    return cls(
+vllm/v1/engine/llm_engine.py:118: in __init__
+    self.engine_core = EngineCoreClient.make_client(
+vllm/v1/engine/core_client.py:149: in make_client
+    return InprocClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+vllm/v1/engine/core_client.py:412: in __init__
+    self.engine_core = EngineCore(
+vllm/v1/engine/core.py:179: in __init__
+    kv_cache_config = self._initialize_kv_caches(vllm_config)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+vllm/tracing/otel.py:175: in sync_wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+vllm/v1/engine/core.py:344: in _initialize_kv_caches
+    kv_cache_configs = get_kv_cache_configs(
+vllm/v1/core/kv_cache_planning.py:1548: in get_kv_cache_configs
+    _check_enough_kv_cache_memory(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+available_memory = 37158912
+get_needed_memory = functools.partial(<function _max_memory_usage_bytes_from_groups at 0x7dbec8aa6200>, <vllm.v1.core.kv_cache_planning.De...True, host_resident=False, enable_kv_transfer=True, role=<KVCacheGroupRole.DEFAULT: 'default'>, unprojected_specs=())])
+max_model_len = 1024
+estimate_max_model_len = functools.partial(<function _estimate_max_model_len_from_groups at 0x7dbec8aa62a0>, <vllm.v1.core.kv_cache_planning.De...True, host_resident=False, enable_kv_transfer=True, role=<KVCacheGroupRole.DEFAULT: 'default'>, unprojected_specs=())])
+hint = 'Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name).'
+
+    def _check_enough_kv_cache_memory(
+        available_memory: int,
+        get_needed_memory: Callable[[], int],
+        max_model_len: int,
+        estimate_max_model_len: Callable[[int], int],
+        hint: str,
+    ):
+        if available_memory <= 0:
+            raise ValueError(
+                f"No available memory for the cache blocks. {hint} "
+                "See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ "
+                "for more details."
+            )
+    
+        needed_memory = get_needed_memory()
+    
+        if needed_memory > available_memory:
+            estimated_max_len = estimate_max_model_len(available_memory)
+            estimated_msg = ""
+            if estimated_max_len > 0:
+                estimated_msg = (
+                    "Based on the available memory, "
+                    f"the estimated maximum model length is {estimated_max_len}. "
+                )
+    
+>           raise ValueError(
+                f"To serve at least one request with the model's max seq len "
+                f"({max_model_len}), ({format_gib(needed_memory)} GiB KV "
+                f"cache is needed, which is larger than the available KV cache "
+                f"memory ({format_gib(available_memory)} GiB). {estimated_msg}"
+                f"{hint} Decreasing `max_model_len` also reduces what is needed. "
+                f"See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ "
+                f"for more details."
+            )
+E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.
+
+vllm/v1/core/kv_cache_planning.py:123: ValueError
+----------------------------- Captured stdout call -----------------------------
+(MainProcess pid=3797) INFO 11-21 11:38:12 [arg_utils.py:928] HF_HUB_OFFLINE is True, replace model_id [facebook/opt-125m] to model_path [/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6]
+(MainProcess pid=3797) INFO 11-21 11:38:12 [startup.py:96] non-default args: {'max_model_len': 1024, 'block_size': 16, 'enable_prefix_caching': True, 'gpu_memory_utilization': 0.3, 'disable_log_stats': True, 'enforce_eager': True, 'num_gpu_blocks_override': 64, 'enable_chunked_prefill': False, 'compilation_config': {'mode': None, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': [], 'ir_enable_torch_wrap': None, 'splitting_ops': None, 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_token_budget': 5120, 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': None, 'compile_ranges_endpoints': None, 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': None, 'use_breakable_cudagraph': None, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': [4], 'prefill_cudagraph_capture_token_sizes': None, 'max_prefill_cudagraph_capture_tokens': None, 'decode_cudagraph_capture_request_sizes': None, 'max_decode_cudagraph_capture_requests': None, 'max_decode_cudagraph_capture_tokens': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': None, 'pass_config': {}, 'max_cudagraph_capture_size': None, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': None, 'static_all_moe_layers': []}, 'kernel_config': KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=[], fused_add_rms_norm=[], gelu_and_mul_sparse=[], rotary_embedding=[], rotary_embedding_query_only=[]), enable_flashinfer_autotune=None, enable_flashinfer_mm_encoder_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_rocm_aiter_gemm_warmup=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', step5_attention_backend='native', sparse_indexer_topk_backend='auto', flashinfer_sparse_mla_kernel='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable', b12x_moe_uncompressed_scales=False), 'model': '/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6'}
+(MainProcess pid=3797) WARNING 11-21 11:38:12 [arg_utils.py:1989] The global random seed is set to 0. Since VLLM_ENABLE_V1_MULTIPROCESSING is set to False, this may affect the random state of the Python process that launched vLLM.
+(MainProcess pid=3797) INFO 11-21 11:38:12 [model.py:767] Resolved architecture: OPTForCausalLM
+(MainProcess pid=3797) INFO 11-21 11:38:12 [model.py:2371] Using max model len 1024
+(MainProcess pid=3797) INFO 11-21 11:38:12 [kernel.py:578] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native'])
+(MainProcess pid=3797) INFO 11-21 11:38:13 [core.py:154] Initializing a V1 LLM engine (v0.34.0rc1.dev1105+g2f170a0fe) with config: model='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', speculative_config=None, tokenizer='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.float16, max_seq_len=1024, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=None, quantization_config=None, enforce_eager=True, aux_output_config=AuxOutputConfig(enable_return_routed_experts=False, max_bytes=None), kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, per_request_spec_decode_metrics='none', kv_cache_metrics=False, kv_cache_metrics_sample=0.01, custom_histogram_buckets=None, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False, jit_monitor_mode='warn', jit_monitor_verbose=False), seed=0, served_model_name=/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6, enable_prefix_caching=True, enable_chunked_prefill=False, pooler_config=None, compilation_config={'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['all'], 'ir_enable_torch_wrap': False, 'splitting_ops': [], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_token_budget': 5120, 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.NONE: 0>, 'use_breakable_cudagraph': False, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': [], 'prefill_cudagraph_capture_token_sizes': None, 'max_prefill_cudagraph_capture_tokens': None, 'decode_cudagraph_capture_request_sizes': None, 'max_decode_cudagraph_capture_requests': None, 'max_decode_cudagraph_capture_tokens': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': True, 'fuse_act_quant': True, 'fuse_attn_quant': False, 'fuse_allreduce_rms': False, 'enable_qk_norm_rope_fusion': False, 'fuse_rope_kvcache_cat_mla': False, 'fuse_act_padding': False, 'fuse_qk_norm_rope_kvcache': False}, 'max_cudagraph_capture_size': 0, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native']), enable_flashinfer_autotune=True, enable_flashinfer_mm_encoder_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_rocm_aiter_gemm_warmup=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', step5_attention_backend='native', sparse_indexer_topk_backend='auto', flashinfer_sparse_mla_kernel='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable', b12x_moe_uncompressed_scales=False)
+(MainProcess pid=3797) INFO 11-21 11:38:13 [parallel_state.py:1981] world_size=1 rank=0 local_rank=0 distributed_init_method=file:///tmp/vllm_dist_2b8eebc1a7f743398a8013369b2044da backend=nccl
+(MainProcess pid=3797) INFO 11-21 11:38:13 [base_loader.py:100] Initializing model took 0.028911 seconds
+(MainProcess pid=3797) INFO 11-21 11:38:13 [default_loader.py:570] Loading weights took 0.21 seconds
+(MainProcess pid=3797) INFO 11-21 11:38:13 [model_runner.py:455] Model loading took 0.24 GiB memory and 0.249445 seconds
+(MainProcess pid=3797) INFO 11-21 11:38:13 [kv_cache_planning.py:1519] Overriding num_gpu_blocks=11147 with num_gpu_blocks_override=64
+----------------------------- Captured stderr call -----------------------------
+Loading pt checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.91it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.90it/s]
+
+------------------------------ Captured log call -------------------------------
+INFO     vllm.engine.arg_utils:arg_utils.py:928 HF_HUB_OFFLINE is True, replace model_id [facebook/opt-125m] to model_path [/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6]
+INFO     vllm.entrypoints.common.startup:startup.py:96 non-default args: {'max_model_len': 1024, 'block_size': 16, 'enable_prefix_caching': True, 'gpu_memory_utilization': 0.3, 'disable_log_stats': True, 'enforce_eager': True, 'num_gpu_blocks_override': 64, 'enable_chunked_prefill': False, 'compilation_config': {'mode': None, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': [], 'ir_enable_torch_wrap': None, 'splitting_ops': None, 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_token_budget': 5120, 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': None, 'compile_ranges_endpoints': None, 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': None, 'use_breakable_cudagraph': None, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': [4], 'prefill_cudagraph_capture_token_sizes': None, 'max_prefill_cudagraph_capture_tokens': None, 'decode_cudagraph_capture_request_sizes': None, 'max_decode_cudagraph_capture_requests': None, 'max_decode_cudagraph_capture_tokens': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': None, 'pass_config': {}, 'max_cudagraph_capture_size': None, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': None, 'static_all_moe_layers': []}, 'kernel_config': KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=[], fused_add_rms_norm=[], gelu_and_mul_sparse=[], rotary_embedding=[], rotary_embedding_query_only=[]), enable_flashinfer_autotune=None, enable_flashinfer_mm_encoder_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_rocm_aiter_gemm_warmup=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', step5_attention_backend='native', sparse_indexer_topk_backend='auto', flashinfer_sparse_mla_kernel='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable', b12x_moe_uncompressed_scales=False), 'model': '/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6'}
+WARNING  vllm.engine.arg_utils:arg_utils.py:1989 The global random seed is set to 0. Since VLLM_ENABLE_V1_MULTIPROCESSING is set to False, this may affect the random state of the Python process that launched vLLM.
+INFO     vllm.config.model:model.py:767 Resolved architecture: OPTForCausalLM
+INFO     vllm.config.model:model.py:2371 Using max model len 1024
+INFO     vllm.config.kernel:kernel.py:578 Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native'])
+INFO     vllm.v1.engine.core:core.py:154 Initializing a V1 LLM engine (v0.34.0rc1.dev1105+g2f170a0fe) with config: model='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', speculative_config=None, tokenizer='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.float16, max_seq_len=1024, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=None, quantization_config=None, enforce_eager=True, aux_output_config=AuxOutputConfig(enable_return_routed_experts=False, max_bytes=None), kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, per_request_spec_decode_metrics='none', kv_cache_metrics=False, kv_cache_metrics_sample=0.01, custom_histogram_buckets=None, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False, jit_monitor_mode='warn', jit_monitor_verbose=False), seed=0, served_model_name=/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6, enable_prefix_caching=True, enable_chunked_prefill=False, pooler_config=None, compilation_config={'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['all'], 'ir_enable_torch_wrap': False, 'splitting_ops': [], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_token_budget': 5120, 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.NONE: 0>, 'use_breakable_cudagraph': False, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': [], 'prefill_cudagraph_capture_token_sizes': None, 'max_prefill_cudagraph_capture_tokens': None, 'decode_cudagraph_capture_request_sizes': None, 'max_decode_cudagraph_capture_requests': None, 'max_decode_cudagraph_capture_tokens': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': True, 'fuse_act_quant': True, 'fuse_attn_quant': False, 'fuse_allreduce_rms': False, 'enable_qk_norm_rope_fusion': False, 'fuse_rope_kvcache_cat_mla': False, 'fuse_act_padding': False, 'fuse_qk_norm_rope_kvcache': False}, 'max_cudagraph_capture_size': 0, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native']), enable_flashinfer_autotune=True, enable_flashinfer_mm_encoder_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_rocm_aiter_gemm_warmup=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', step5_attention_backend='native', sparse_indexer_topk_backend='auto', flashinfer_sparse_mla_kernel='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable', b12x_moe_uncompressed_scales=False)
+INFO     vllm.distributed.parallel_state:parallel_state.py:1981 world_size=1 rank=0 local_rank=0 distributed_init_method=file:///tmp/vllm_dist_2b8eebc1a7f743398a8013369b2044da backend=nccl
+INFO     vllm.model_executor.model_loader.base_loader:base_loader.py:100 Initializing model took 0.028911 seconds
+INFO     vllm.model_executor.model_loader.default_loader:default_loader.py:570 Loading weights took 0.21 seconds
+INFO     vllm.v1.worker.gpu.model_runner:model_runner.py:455 Model loading took 0.24 GiB memory and 0.249445 seconds
+INFO     vllm.v1.core.kv_cache_planning:kv_cache_planning.py:1519 Overriding num_gpu_blocks=11147 with num_gpu_blocks_override=64
+=============================== warnings summary ===============================
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float32]
+  /opt/kit/work/vllm/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/hf3fs_mock_client.py:75: UserWarning: The given buffer is not writable, and PyTorch does not support non-writable tensors. This means you can write to the underlying (supposedly non-writable) buffer using the tensor. You may want to copy the buffer to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at /__w/pytorch/pytorch/torch/csrc/utils/tensor_new.cpp:1556.)
+    return torch.frombuffer(buffer_data, dtype=dtype)
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py:3504: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/moe_w4a16_kernel.py:2893: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:29: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:31: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:34: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:968: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:970: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:427: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    epi_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:2391: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/cute_dsl/low_latency_blockscaled_gemm.py:103: DeprecationWarning: cutlass.utils.smem_allocator.get_smem_capacity_in_bytes is deprecated; use cutlass.memory.get_smem_capacity_in_bytes instead. It will be removed in a future release.
+    _SMEM_CAPACITY_BYTES = cutlass.utils.get_smem_capacity_in_bytes("sm_100")
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_rubin.py:218: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_chunked.py:95: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gdn_kernels/delta_rule_dsl/collective_store_tma.py:6: DeprecationWarning: cutlass.utils.tensormap_manager.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils.tensormap_manager import TensorMapManager, TensorMapUpdateMode
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_cp_prefill.py:55: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/cute_dsl/availability.py:136: DeprecationWarning: Arch from arch.py is deprecated. Use Arch from enums.py instead.
+    from cutlass.base_dsl.arch import Arch
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_init_creates_file
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float32]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float16]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[bfloat16]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_read_empty_file_returns_error
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_out_of_bounds_returns_error
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_flush_and_close_no_error
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_initial_is_empty
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_success_duration[save]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_success_duration[load]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_failed_task[save]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_failed_task[load]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_aggregate_two_stats
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_reduce_with_data
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_clone_and_reset
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[missing_key]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[lookup_raises]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[short_read]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_batch_reported_when_last_batch_succeeds
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]
+================= 10 failed, 16 passed, 18 warnings in 23.93s ==================

@@ -1,0 +1,15 @@
+vllm_sha=2f170a0fed20fd84dfcf6da2a3a8188a32f67e4e
+vllm_repo=https://github.com/vllm-project/vllm.git
+diff_sha256_pin=210caa5fa2f391720dabba5445d297bc414c31ebf650358b8325009644ecf11d
+model=facebook/opt-125m
+model_rev_pin=27dcfa74d334bc871f3234de431e71c6eeba5dd6
+model_bin_sha256_pin=2d74da6615135c58cf3cf9ad4cb11e7c613ff9e55fe658a47ab83b6c8d1174a9
+budget_s=3200
+pytest_cap_s=300
+llm_cap_s=900
+command_a=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -k TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure -rA
+command_c=cd tests && pytest -v -s v1/kv_connector/unit/test_hf3fs_connector.py -k TestHF3FSLoadFailureEndToEnd -rA
+command_b=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -rA
+command_c_env=VLLM_ENABLE_V1_MULTIPROCESSING=0
+base=the base commit with only the diff's tests/ part applied; fix=the base commit with the whole diff
+hub_offline=1 from the first test run on

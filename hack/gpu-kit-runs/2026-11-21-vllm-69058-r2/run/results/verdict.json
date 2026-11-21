@@ -1,0 +1,291 @@
+{
+ "c": {
+  "deviations": [],
+  "gaps": [],
+  "not_run": [
+   "base test_failed_read_honors_policy[fail]: other harness failure (FAILED): E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.",
+   "base test_failed_read_honors_policy[recompute]: model download or offline load failure: E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.",
+   "fix test_failed_read_honors_policy[fail]: other harness failure (FAILED): E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.",
+   "fix test_failed_read_honors_policy[recompute]: model download or offline load failure: E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details."
+  ],
+  "states": {
+   "base test_failed_read_honors_policy[fail]": {
+    "cause": "other harness failure (FAILED): E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.",
+    "state": "NOT RUN"
+   },
+   "base test_failed_read_honors_policy[recompute]": {
+    "cause": "model download or offline load failure: E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.",
+    "state": "NOT RUN"
+   },
+   "fix test_failed_read_honors_policy[fail]": {
+    "cause": "other harness failure (FAILED): E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.",
+    "state": "NOT RUN"
+   },
+   "fix test_failed_read_honors_policy[recompute]": {
+    "cause": "model download or offline load failure: E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.",
+    "state": "NOT RUN"
+   }
+  },
+  "verdict": "NOT RUN"
+ },
+ "cuda_only_test": {
+  "base": "FAILED",
+  "fix": "PASSED"
+ },
+ "deviations": [],
+ "env": {
+  "cuda_available": true,
+  "device_count": 1,
+  "device_name": "NVIDIA A10G",
+  "python": "3.12.15",
+  "torch": "2.14.0+cu130",
+  "torch_cuda": "13.0",
+  "triton": "3.8.0"
+ },
+ "findings": [],
+ "gaps": [],
+ "overall": "NOT RUN",
+ "runs": {
+  "base-a": {
+   "assertions": {
+    "TestHF3FSLoadErrors.test_failed_batch_reported_when_last_batch_succeeds": [
+     "E       AssertionError: assert set() == {1, 2, 3, 4, 5, 6, ...}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         1",
+     "E         2",
+     "E         3"
+    ],
+    "TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises]": [
+     "E       assert set() == {3, 5}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         3",
+     "E         5",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSLoadErrors.test_failed_load_reports_block_ids[missing_key]": [
+     "E       assert set() == {3, 5}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         3",
+     "E         5",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read]": [
+     "E       assert set() == {3, 5}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         3",
+     "E         5",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_prefix_and_saves_the_rest": [
+     "E       AssertionError: assert 10 == 8",
+     "E        +  where 10 = SaveBlockInfo(skip_leading_blocks=10).skip_leading_blocks",
+     "E        +    where SaveBlockInfo(skip_leading_blocks=10) = HF3FSRequestMetadata(request_id='id-3', token_ids=[0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51,...block_ids=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], load_block_op=None, save_block_op=SaveBlockInfo(skip_leading_blocks=10)).save_block_op"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail]": [
+     "E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11>",
+     "E            +  where <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> = <vllm.v1.request.Request object at 0x7f1e4c2cdbe0>.status",
+     "E            +  and   <RequestStatus.FINISHED_ERROR: 11> = RequestStatus.FINISHED_ERROR"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[recompute]": [
+     "E       AssertionError: assert {'id-2': 1} == {'id-2': 65}",
+     "E",
+     "E         Differing items:",
+     "E         {'id-2': 1} != {'id-2': 65}",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_reused_blocks_do_not_mark_a_finished_load": [
+     "E       assert (64, True) == (0, False)",
+     "E",
+     "E         At index 0 diff: 64 != 0",
+     "E         Use -v to get more diff"
+    ]
+   },
+   "counts": {
+    "deselected": 18,
+    "failed": 8,
+    "warnings": 1
+   },
+   "exit": 1,
+   "failed": [
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_batch_reported_when_last_batch_succeeds",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[lookup_raises]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[missing_key]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[short_read]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load"
+   ],
+   "seconds": 31.43,
+   "summary": "================= 8 failed, 18 deselected, 1 warning in 31.43s ================="
+  },
+  "base-b": {
+   "assertions": {
+    "TestHF3FSLoadErrors.test_failed_batch_reported_when_last_batch_succeeds": [
+     "E       AssertionError: assert set() == {1, 2, 3, 4, 5, 6, ...}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         1",
+     "E         2",
+     "E         3"
+    ],
+    "TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises]": [
+     "E       assert set() == {3, 5}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         3",
+     "E         5",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSLoadErrors.test_failed_load_reports_block_ids[missing_key]": [
+     "E       assert set() == {3, 5}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         3",
+     "E         5",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read]": [
+     "E       assert set() == {3, 5}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         3",
+     "E         5",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details."
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details."
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_prefix_and_saves_the_rest": [
+     "E       AssertionError: assert 10 == 8",
+     "E        +  where 10 = SaveBlockInfo(skip_leading_blocks=10).skip_leading_blocks",
+     "E        +    where SaveBlockInfo(skip_leading_blocks=10) = HF3FSRequestMetadata(request_id='id-3', token_ids=[0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51,...block_ids=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], load_block_op=None, save_block_op=SaveBlockInfo(skip_leading_blocks=10)).save_block_op"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail]": [
+     "E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11>",
+     "E            +  where <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> = <vllm.v1.request.Request object at 0x7dbe65a85160>.status",
+     "E            +  and   <RequestStatus.FINISHED_ERROR: 11> = RequestStatus.FINISHED_ERROR"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[recompute]": [
+     "E       AssertionError: assert {'id-2': 1} == {'id-2': 65}",
+     "E",
+     "E         Differing items:",
+     "E         {'id-2': 1} != {'id-2': 65}",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_reused_blocks_do_not_mark_a_finished_load": [
+     "E       assert (64, True) == (0, False)",
+     "E",
+     "E         At index 0 diff: 64 != 0",
+     "E         Use -v to get more diff"
+    ]
+   },
+   "counts": {
+    "failed": 10,
+    "passed": 16,
+    "warnings": 18
+   },
+   "exit": 1,
+   "failed": [
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_batch_reported_when_last_batch_succeeds",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[lookup_raises]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[missing_key]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[short_read]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load"
+   ],
+   "seconds": 23.93,
+   "summary": "================= 10 failed, 16 passed, 18 warnings in 23.93s =================="
+  },
+  "base-c": {
+   "assertions": {
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details."
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details."
+    ]
+   },
+   "counts": {
+    "deselected": 24,
+    "failed": 2,
+    "warnings": 17
+   },
+   "exit": 1,
+   "failed": [
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]"
+   ],
+   "seconds": 120.48,
+   "summary": "========== 2 failed, 24 deselected, 17 warnings in 120.48s (0:02:00) ==========="
+  },
+  "fix-a": {
+   "assertions": {},
+   "counts": {
+    "deselected": 18,
+    "passed": 8,
+    "warnings": 1
+   },
+   "exit": 0,
+   "failed": [],
+   "seconds": 14.39,
+   "summary": "================= 8 passed, 18 deselected, 1 warning in 14.39s ================="
+  },
+  "fix-b": {
+   "assertions": {
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details."
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details."
+    ]
+   },
+   "counts": {
+    "failed": 2,
+    "passed": 24,
+    "warnings": 18
+   },
+   "exit": 1,
+   "failed": [
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]"
+   ],
+   "seconds": 24.02,
+   "summary": "================== 2 failed, 24 passed, 18 warnings in 24.02s =================="
+  },
+  "fix-c": {
+   "assertions": {
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details."
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E           ValueError: To serve at least one request with the model's max seq len (1024), (0.04 GiB KV cache is needed, which is larger than the available KV cache memory (0.03 GiB). Based on the available memory, the estimated maximum model length is 1008. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). Decreasing `max_model_len` also reduces what is needed. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details."
+    ]
+   },
+   "counts": {
+    "deselected": 24,
+    "failed": 2,
+    "warnings": 17
+   },
+   "exit": 1,
+   "failed": [
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]"
+   ],
+   "seconds": 7.04,
+   "summary": "================ 2 failed, 24 deselected, 17 warnings in 7.04s ================="
+  }
+ },
+ "verdict": "AS EXPECTED"
+}

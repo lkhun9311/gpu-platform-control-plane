@@ -1,0 +1,6 @@
+ M tests/v1/kv_connector/unit/test_hf3fs_connector.py
+7d011576c6dbb7135adf0193de25cce368ea7b7305fb75718b0a032373c7bddc  tests/v1/kv_connector/unit/test_hf3fs_connector.py
+a6411cd6232943c02fcb9683bb3e8f3868c2bfc2d8b49b60b0c6fc90a367f533  vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
+fd4cc51a38f040318a646c0f4ce0b85b3721c7017caf0f16ddf183f014c98e80  vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py
+ tests/v1/kv_connector/unit/test_hf3fs_connector.py | 528 ++++++++++++++++++++-
+ 1 file changed, 527 insertions(+), 1 deletion(-)
