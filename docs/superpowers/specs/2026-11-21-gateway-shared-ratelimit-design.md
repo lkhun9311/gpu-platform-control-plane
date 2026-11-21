@@ -218,7 +218,7 @@ The shared-limit profile refuses `kv-aware`, so the alert cannot fire wrongly un
 | alternative | why not |
 |---|---|
 | GCRA (one theoretical-arrival-time value per tenant) | equivalent admissions for a fixed policy and one field smaller, but a burst or rate edit reinterprets the stored time and does not keep accumulated tokens the way the memory store does; matching that store matters more than one field |
-| fixed or sliding window counters (`INCR` + `EXPIRE`) | a fixed window admits up to twice the limit across a boundary, and neither has a burst separate from the rate, which `GPUQuotaRateLimit` requires |
+| fixed or sliding window counters (Redis INCR with an expiry) | a fixed window admits up to twice the limit across a boundary, and neither has a burst separate from the rate, which `GPUQuotaRateLimit` requires |
 | divide each replica's budget by the replica count | needs the count, which changes during rollouts and autoscaling; a stale count gives a wrong limit with no error, which is the original problem |
 | client-side read, compute, `SET` with `WATCH`/`MULTI` | two round trips, and contention between replicas turns into retries under exactly the load the limiter exists for |
 | Pod clock passed as a script argument | refill would depend on each replica's clock; `TIME` inside the script is one clock |
