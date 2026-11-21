@@ -25,6 +25,32 @@ A `RateLimiter` interface in the gateway with two implementations:
 `--rate-limit-store=memory|redis` selects one.
 With no flag the gateway behaves exactly as before, and every existing test runs against the memory store unchanged.
 
+### The two supported profiles
+
+Only two combinations are claimed.
+Every other combination makes no multi-replica claim.
+
+| profile | store | replicas | `--admission-mode` | backends | rollout |
+|---|---|---|---|---|---|
+| **single-instance** (the shipped manifest) | `memory` | 1 | any | any, HoldCap and `PrefixAffinity` included | `Recreate` |
+| **shared-limit** | `redis` | 1 or more | `off` only | default ordering, `RoundRobin` or `LeastQueue`; no HoldCap, no `PrefixAffinity` | any |
+
+The shared-limit profile shares the tenant rate limit and nothing else.
+How each part is checked, and what is not, is in "What stays per-process" below.
+
+### The limiter interface
+
+```go
+type RateLimiter interface {
+	Decide(ctx context.Context, tenant string, rl *platformv1.GPUQuotaRateLimit) (allowed bool, wait time.Duration, err error)
+}
+```
+
+- `allowed == false, err == nil` is budget exhaustion: 429 `rate_limited`, with `Retry-After` from `wait` when there is one.
+- `err != nil` is "could not decide": 503 `rate_limit_unavailable` with `Retry-After: 1`. Only the redis store under the `closed` policy returns it. It never becomes a 429, which tells a caller it spent a budget nobody measured.
+- `ctx` is the request's; the redis store wraps it in a deadline of `--rate-limit-redis-timeout`. A caller that leaves is returned as its own context error and does not open the breaker.
+- Neither store retries. The memory store cannot fail; the redis store sends each script once (below).
+
 ### Algorithm: a token bucket in one Lua script
 
 Each call runs one script, `EVALSHA` with `EVAL` on `NOSCRIPT`, against one key:
@@ -45,15 +71,33 @@ The semantics match the memory store on purpose, so switching stores does not ch
 - A nil `rateLimit` is unlimited and never reaches Redis.
 - The refusal's wait becomes `Retry-After` through the same `retryAfterSeconds` as today.
 
-The expiry is `ceil(burst / rate)` seconds plus one.
+The algorithm is the token bucket, not GCRA; Lua is only the vehicle that makes it atomic.
+A token bucket was chosen because it is the memory store's own model (`rate.Limiter`), so the full initial burst, the clamp to `burst` and the keep-tokens-on-edit rule carry over unchanged.
+
+The expiry is `ceil(burst / rate)` seconds plus one, recomputed on every call with that call's policy.
 After that long an untouched bucket is full, and a missing key also reads as full, so expiry discards nothing a tenant was owed and idle tenants do not accumulate keys.
+The expiry is never shorter than the refill: it is the time to refill from empty, plus a second.
+
+#### Cases the script has to get right
+
+| case | what happens | cost |
+|---|---|---|
+| policy edited | the next call passes the new `rate` and `burst`; tokens are kept and clamped to the new `burst`; no key carries a policy version, so an edit never grants a burst | none |
+| replicas see different policy versions (cache lag) | each call applies its own replica's `rate` and `burst` to the same bucket; a smaller `burst` clamps the tokens, a larger one only lets them refill higher; both converge when the caches do | a mix of the two policies for the lag, never a fresh burst |
+| a burst raised, then the key idle past the old policy's expiry | the key expired under the old expiry and reads as full under the new `burst` | at most `new burst - old burst` once, the same as a tenant the memory store sees for the first time |
+| Redis restarted without persistence, or the key evicted | a missing key reads as full | one burst per tenant; run Redis with `maxmemory-policy noeviction`, under which a full Redis fails the write and the failure policy decides |
+| a reply lost after the script ran | the token was spent in Redis, the call is a failure, and the failure policy decides that request | at most one token per lost reply; never two, because nothing retries |
+| `NOSCRIPT` (script cache flushed or Redis restarted) | `Run` sends `EVALSHA`, and on `NOSCRIPT` sends `EVAL` with the body, which is not a retry: the first attempt ran nothing | one extra round trip |
+| pool exhausted | the wait for a connection is bounded by the same timeout (`PoolTimeout` and the call's context), then the call is a failure | the failure policy, as for any other |
+| Redis `TIME` steps backwards | elapsed time is `max(0, now - ts)` and `ts` never decreases, so refill stalls until the clock passes `ts` | a tenant refills late by the step; never early |
+| Redis `TIME` steps forwards | the step counts as elapsed time, and refill is clamped at `burst` | at most one burst early |
 
 ### Clock: Redis `TIME`, never the Pod's
 
 Refill is computed from `TIME` read inside the script, so every replica measures elapsed time on one clock.
 Pod clocks can disagree by tens of milliseconds on one node and more across nodes, and a replica whose clock ran ahead would refill a bucket another replica had just emptied.
 Since Redis 5 a script's writes replicate as effects, not as the script, so calling `TIME` before a write is allowed; Redis 7.4 is pinned (`redis:7.4.7-alpine` by digest).
-`ts = max(ts, now)` means a Redis clock that steps backwards stalls refill until it catches up rather than granting tokens.
+`TIME` is the Redis host's wall clock, not a monotonic one; the two directions it can step are in the table above.
 
 ### Key schema
 
@@ -95,7 +139,8 @@ The first call after the second tries Redis again, so recovery takes at most a s
 | `--rate-limit-redis-timeout` | 100 ms | dial, read, write and the call's context; the limiter sits in front of LLM requests that take seconds, and a same-cluster Redis answers in well under a millisecond |
 | retries | 0 | a retried script whose reply was lost would spend a second token; a lost reply is a failure handled by the policy |
 | `--rate-limit-redis-password-file` | optional | read once at start; an empty or missing named file stops the gateway, as `--metrics-bearer-token-file` does |
-| pool | go-redis default (10 per CPU) | one short script per request |
+| pool | go-redis default size (10 per CPU), `PoolTimeout` = the timeout | one short script per request; waiting for a connection is bounded like everything else |
+| dial attempts | 1 | go-redis redials five times with backoff by default, which the deadline would cut short anyway |
 
 Redis does not gate readiness.
 Under `local` a replica without Redis can still serve, and under `closed` a 503 that names the cause is more useful than a Service with no endpoints.
@@ -112,6 +157,10 @@ Under `local` a replica without Redis can still serve, and under `closed` a 503 
 
 `gpuaas_gateway_rate_limited_total{tenant}` keeps counting refusals by budget under either store.
 
+What the existing latency series do not show:
+`gpuaas_gateway_time_to_first_byte_seconds` is stamped when the first response byte reaches the client and counts error responses too (`proxy.go`), so it is not TTFT; and `gpuaas_gateway_request_duration_seconds` starts just before admission, after the rate limit, so neither includes the Redis call.
+`ratelimit_redis_seconds` is the series that measures what the shared store adds to a request.
+
 ### What stays per-process, and how that is enforced
 
 The rate limit is the only state this change shares.
@@ -123,14 +172,24 @@ These keep their state in one gateway process, so at N replicas each replica wou
 | `PrefixAffinity` | an `InferenceDeployment`'s `routing.policy`, at run time | the prefix index | each replica learns a third of the prefixes; the measured hit ratio does not apply |
 | `static-cap`, `prospective` | `--admission-mode`, at start | per-backend token and stream budgets | budgets multiplied by N |
 | `serial-prefill`, `fixed-spacing` | `--admission-mode`, at start | turn order and spacing per backend | N turns at once |
+| `kv-aware` | `--admission-mode`, at start | engage and release hysteresis per backend, its own scrapers | N replicas engage and release on their own; not shown correct at more than one |
+| `LeastQueue` | `routing.policy` | outstanding requests this process sent | each replica balances only its own traffic |
+| `RoundRobin` | `routing.policy` | a counter per model | each replica rotates on its own |
+| hold budget | `--admission-hold-*` | held requests and bytes | stays per process on purpose: it protects this Pod's memory, and under the shared-limit profile nothing holds, because the only holders are refused |
 
-`off` and `kv-aware` hold no budget of their own: kv-aware decides from the engine's own telemetry, which every replica reads the same.
-`RoundRobin` and `LeastQueue` keep per-replica counters too, but only as load spreading; at N replicas they spread less evenly and promise nothing they then break, so they are left alone.
+`LeastQueue` and `RoundRobin` stay allowed: they spread load and promise no bound, so at N replicas they spread less evenly and break nothing they claim.
+`LeastQueue` balances on a third of the traffic each at three replicas, which is a weaker signal and has not been measured.
 
-Enforcement, in two places, because the features are chosen in two places:
+Enforcement, in the three places a profile can be broken:
 
-1. **At start.** `--rate-limit-store=redis` with `--admission-mode` other than `off` or `kv-aware` refuses to start (`CheckSharedStoreAdmission`).
-2. **Per request.** With the redis store, a request whose head backend is HoldCap, or whose backends select `PrefixAffinity`, is refused with 503 `single_gateway_required` and counted in `single_gateway_refusals_total{feature}`, before routing records anything.
+1. **At start.** `--rate-limit-store=redis` with any `--admission-mode` but `off` refuses to start (`CheckSharedStoreAdmission`).
+2. **Per request.** Under the redis store, a request whose head backend is HoldCap, or whose backends select `PrefixAffinity`, is refused with 503 `single_gateway_required` and counted in `single_gateway_refusals_total{feature}`, before routing records anything. This is what holds when an `InferenceDeployment` changes after the gateway started, which a start-time check cannot see.
+3. **In the shipped manifest.** `config/gateway/deployment.yaml` is the single-instance profile: memory store, `replicas: 1`, `strategy: Recreate`. `TestGatewayManifestIsTheSingleInstanceProfile` holds the file to that.
+
+What is **not** enforced, and is not called enforced:
+
+- Scaling the memory-store Deployment past one replica. The gateway cannot read Deployments (`config/gateway/rbac.yaml` grants it the two CRDs and its Secret), and no admission policy guards the count. The manifest test checks the file, not the cluster. The cost of breaking it is measured: 1.95x at two replicas, and the kind run below at three.
+- Several memory-store gateways started some other way (two Deployments, a manual Pod). Nothing can see them from inside one process without a coordination point, which is what Redis is here.
 
 The redis store is the declaration that replicas may be more than one, because a single replica gets nothing from it but a network dependency.
 So the gateway takes it to mean "more than one may be running" and refuses what that would silently break.
@@ -138,9 +197,21 @@ So the gateway takes it to mean "more than one may be running" and refuses what 
 Why refuse rather than degrade:
 HoldCap's protection is the serialisation itself, and `holdCapTargets` already refuses to send a request into a capped engine without its hold; serving it unheld would be the failure HoldCap exists to prevent, under a status that still reports HoldCap.
 `PrefixAffinity` degraded to default ordering would serve, but a study registered and read under `PrefixAffinity` would then be measuring something else under its name.
-In this repository a configuration that quietly does something other than what it says is the failure worth preventing, so both are loud: a deployment that needs either runs the gateway with the memory store at `replicas: 1`.
+In this repository a configuration that quietly does something other than what it says is the failure worth preventing, so both are loud: a deployment that needs either runs the single-instance profile.
 
-The memory store keeps everything as it was, including the known gap that a rolling update briefly runs two Pods.
+#### The rollout overlap
+
+The shipped manifest had no `strategy`, so it got RollingUpdate with the default 25% surge, which at one replica starts the new Pod before the old one is gone.
+Every rollout therefore ran two gateways for a while, each with its own buckets, serial-prefill turns and prefix index (docs/05 listed this as a known HoldCap gap).
+`Recreate` removes that: the new Pod starts only after the old one has terminated, drain included.
+The cost is a gap with no serving Pod during each rollout, from the old Pod's readiness turning off to the new one's turning on; that is not measured here.
+`maxSurge: 0` was not used, because RollingUpdate counts a terminating Pod as gone and starts the new one during the old one's 25-second drain.
+
+#### An alert that would mislead at several replicas
+
+`GatewayKVGuardNotReporting` (`config/prometheus/gateway_rules.yaml`) joins with `unless on()`, so one Pod reporting fresh telemetry hides another Pod that reports none.
+It is correct for one replica.
+The shared-limit profile refuses `kv-aware`, so the alert cannot fire wrongly under a supported profile, and it is left unchanged; extending `kv-aware` to several replicas would have to join it per Pod first.
 
 ## Alternatives considered
 
@@ -158,7 +229,7 @@ The memory store keeps everything as it was, including the known gap that a roll
 
 ## Not covered
 
-- High availability of Redis itself. The kind run uses one Redis Pod with no persistence; a restart empties every bucket, which hands each tenant one burst.
+- Limiter high availability. This is one Redis. Sentinel or a replica failover would not make it HA for this purpose: replication is asynchronous, so a failover can lose acknowledged spends and hand tokens back. The kind run uses one Redis Pod with no persistence; a restart empties every bucket, which hands each tenant one burst.
 - TLS to Redis.
 - Sharing HoldCap, the holding admitters or the prefix index. Each would need its own design: HoldCap's turn order is a distributed lock with a lease per backend, which is a different problem from a counter.
 - Gateway autoscaling. Nothing scales the gateway; the replica count is set by hand.

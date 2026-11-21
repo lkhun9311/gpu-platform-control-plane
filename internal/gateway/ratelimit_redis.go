@@ -164,6 +164,9 @@ func newRedisLimiter(cfg RedisRateLimitConfig) (*redisLimiter, error) {
 		MaxRetries: -1,
 		// One dial per call: the client's default redials five times with backoff, which the call's deadline would cut short anyway.
 		DialerRetries: 1,
+		// The pool's default wait is the read timeout plus a second; an exhausted pool is a failure at the same bound as any other.
+		// The call's context bounds it as well, so this states the bound rather than relying on that.
+		PoolTimeout: cfg.Timeout,
 	})
 	redisAvailable.Set(1)
 	return &redisLimiter{

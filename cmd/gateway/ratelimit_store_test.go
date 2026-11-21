@@ -23,6 +23,9 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+	"sigs.k8s.io/yaml"
+
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway"
 )
 
@@ -57,21 +60,18 @@ func TestInstallRateLimiterMemoryIsTheDefault(t *testing.T) {
 func TestInstallRateLimiterRedisRefusesPerProcessAdmission(t *testing.T) {
 	for _, mode := range []gateway.AdmissionMode{
 		gateway.AdmissionStaticCap, gateway.AdmissionProspective,
-		gateway.AdmissionSerialPrefill, gateway.AdmissionFixedSpacing,
+		gateway.AdmissionSerialPrefill, gateway.AdmissionFixedSpacing, gateway.AdmissionKVAware,
 	} {
 		if _, err := installRateLimiter(&gateway.Server{}, redisFlags(), mode); err == nil {
 			t.Errorf("the redis store started with --admission-mode=%s, whose state each replica would keep on its own", mode)
 		}
 	}
-	// The control: the two modes that keep nothing per process still start, so the check is not a blanket refusal.
-	for _, mode := range []gateway.AdmissionMode{gateway.AdmissionOff, gateway.AdmissionKVAware} {
-		closeFn, err := installRateLimiter(&gateway.Server{}, redisFlags(), mode)
-		if err != nil {
-			t.Errorf("the redis store refused --admission-mode=%s: %v", mode, err)
-			continue
-		}
-		_ = closeFn()
+	// The control: off, the one supported multi-replica mode, still starts, so the check is not a blanket refusal.
+	closeFn, err := installRateLimiter(&gateway.Server{}, redisFlags(), gateway.AdmissionOff)
+	if err != nil {
+		t.Fatalf("the redis store refused --admission-mode=off: %v", err)
 	}
+	_ = closeFn()
 }
 
 // A typo in the store, an empty address and an unknown failure policy each stop the gateway rather than run something else.
@@ -119,6 +119,35 @@ func TestInstallRateLimiterRefusesAnEmptyPasswordFile(t *testing.T) {
 		t.Fatalf("a password file with a password was refused: %v", err)
 	}
 	_ = closeFn()
+}
+
+// The shipped manifest is the single-instance profile: the memory store, one replica, and Recreate so a rollout never
+// runs two Pods at once.
+// This is a check on the file, not on the cluster: nothing in the cluster stops a scale-up, and the comment in the
+// manifest says so.
+// Mutations that turn this red: set replicas to 2, drop the strategy, or add --rate-limit-store=redis to the args.
+func TestGatewayManifestIsTheSingleInstanceProfile(t *testing.T) {
+	b, err := os.ReadFile("../../config/gateway/deployment.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d appsv1.Deployment
+	if err := yaml.Unmarshal(b, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Spec.Replicas == nil || *d.Spec.Replicas != 1 {
+		t.Errorf("replicas is %v; the memory store multiplies every tenant's limit by the replica count", d.Spec.Replicas)
+	}
+	if d.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType {
+		t.Errorf("strategy is %q; a RollingUpdate surge runs two gateways during every rollout", d.Spec.Strategy.Type)
+	}
+	for _, c := range d.Spec.Template.Spec.Containers {
+		for _, a := range append(append([]string{}, c.Command...), c.Args...) {
+			if strings.HasPrefix(a, "--rate-limit-store") && a != "--rate-limit-store="+rateLimitStoreMemory {
+				t.Errorf("container %s runs %s, which is not the single-instance profile", c.Name, a)
+			}
+		}
+	}
 }
 
 // The flag defaults are the ones the design page states, so the page and the binary cannot drift apart unnoticed.

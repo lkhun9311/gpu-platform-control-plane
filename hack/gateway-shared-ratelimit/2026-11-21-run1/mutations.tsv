@@ -1,0 +1,32 @@
+mutation	property	selector	verdict	evidence
+baseline	-	TestInstallRateLimiterRedisRefusesPerProcessAdmission	PASS	
+baseline	-	admits exactly the burst	PASS	
+baseline	-	expires a tenant's key	PASS	
+baseline	-	falls back to a local bucket	PASS	
+baseline	-	gives up on a hung Redis	PASS	
+baseline	-	keeps spent tokens across a policy edit	PASS	
+baseline	-	keeps tenants' buckets apart	PASS	
+baseline	-	rate_limit_unavailable	PASS	
+baseline	-	refills at the policy	PASS	
+baseline	-	refuses PrefixAffinity	PASS	
+baseline	-	refuses a HoldCap backend	PASS	
+baseline	-	refuses under the closed policy	PASS	
+baseline	-	returns to the shared bucket	PASS	
+baseline	-	stops calling a failed Redis	PASS	
+per-replica-key	replicas share one budget	admits exactly the burst	KILLED	[FAILED] three replicas admitted other than the one budget of 100 | Expected <int64>: 300 to equal <int64>: 100
+non-atomic-read-modify-write	replicas share one budget	admits exactly the burst	KILLED	[FAILED] three replicas admitted other than the one budget of 100 | Expected <int64>: 600 to equal <int64>: 100
+refill-60x-fast	refill follows the policy rate	refills at the policy	KILLED	[FAILED] Expected
+no-refill	refill follows the policy rate	refills at the policy	KILLED	[FAILED] refused after the refill period had passed | Expected <bool>: false to be true In [It] at: /tmp/gw-mut/internal/gateway/ratelimit_redis_test.go:239 @ 11/21/26 12:24:45.938
+rebuild-on-policy-edit	a policy edit keeps spent tokens	keeps spent tokens across a policy edit	KILLED	[FAILED] editing the policy handed the tenant a fresh burst | Expected <bool>: true to be false In [It] at: /tmp/gw-mut/internal/gateway/ratelimit_redis_test.go:255 @ 11/21/26 12:24:48.396
+key-without-tenant	tenants never share a bucket	keeps tenants' buckets apart	KILLED	[FAILED] tenant "team:x" was refused for spending it never did | Expected <bool>: false to be true In [It] at: /tmp/gw-mut/internal/gateway/ratelimit_redis_test.go:273 @ 11/21/26 12:24:50.881
+no-expiry	keys expire once the bucket is full	expires a tenant's key	KILLED	[FAILED] Expected
+closed-admits	closed refuses while Redis is down	refuses under the closed policy	KILLED	[FAILED] Expected an error, got nil
+local-admits-all	local is bounded by a local bucket	falls back to a local bucket	KILLED	[FAILED] Expected
+local-refuses	local keeps serving while Redis is down	falls back to a local bucket	KILLED	[FAILED] Unexpected error:
+no-timeout	a hung Redis costs one timeout	gives up on a hung Redis	KILLED	panic: test timed out after 1m30s
+no-breaker	a failure keeps the replica off Redis for the cooldown	stops calling a failed Redis	KILLED	[FAILED] the open breaker still paid the timeout | Expected <time.Duration>: 1009551848 to be < <time.Duration>: 50000000
+breaker-never-closes	the replica returns to Redis once it is back	returns to the shared bucket	KILLED	[FAILED] Timed out after 3.000s. | Expected <bool>: true to be false In [It] at: /tmp/gw-mut/internal/gateway/ratelimit_redis_test.go:376 @ 11/21/26 12:26:41.613
+holdcap-allowed	HoldCap is refused under the shared store	refuses a HoldCap backend	KILLED	[FAILED] Expected
+prefix-affinity-allowed	PrefixAffinity is refused under the shared store	refuses PrefixAffinity	KILLED	[FAILED] Expected
+unavailable-as-429	an undecided request is 503, not 429	rate_limit_unavailable	KILLED	[FAILED] Expected
+startup-accepts-holding-modes	the shared store refuses holding admission modes at start	TestInstallRateLimiterRedisRefusesPerProcessAdmission	KILLED	ratelimit_store_test.go:63: the redis store started with --admission-mode=static-cap, whose state each replica would keep on its own | ratelimit_store_test.go:63: the redis store started with --admission-mode=prospective, whose state each replica would keep on its own | ratelimit_store_test.go:63: the redis store started with --admission-mode=serial-prefill, whose state each replica would keep on 

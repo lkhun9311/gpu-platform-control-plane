@@ -1,0 +1,130 @@
+mkdir -p "/home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/gateway-shared-ratelimit/bin"
+Downloading sigs.k8s.io/kustomize/kustomize/v5@v5.8.1
+commit de6152d75281ee3173b600f1f74657c608297cc2, dirty files under cmd/ internal/: 0
+kubeconfig /tmp/tmp.ZmK4dnzfFX/kubeconfig (private to this run)
+== build
++ make docker-build IMG=controller:gwshared
+docker build -t controller:gwshared .
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.61kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#2 ...
+
+#3 [internal] load metadata for gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#3 DONE 0.4s
+
+#2 [internal] load metadata for docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#2 DONE 1.8s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 643B done
+#4 DONE 0.0s
+
+#5 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#5 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
+#5 DONE 0.0s
+
+#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#6 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
+#6 ...
+
+#7 [internal] load build context
+#7 transferring context: 3.60MB 0.0s done
+#7 DONE 0.1s
+
+#8 [builder 2/7] WORKDIR /workspace
+#8 CACHED
+
+#9 [builder 3/7] COPY go.mod go.mod
+#9 DONE 0.1s
+
+#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#6 DONE 0.3s
+
+#10 [builder 4/7] COPY go.sum go.sum
+#10 DONE 0.1s
+
+#11 [builder 5/7] RUN go mod download
+#11 DONE 22.7s
+
+#12 [builder 6/7] COPY . .
+#12 DONE 0.2s
+
+#13 [builder 7/7] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go
+#13 DONE 14.2s
+
+#14 [stage-1 2/3] COPY --from=builder /workspace/manager .
+#14 DONE 0.1s
+
+#15 exporting to image
+#15 exporting layers
+#15 exporting layers 1.5s done
+#15 exporting manifest sha256:93a531e79a81505580ad71f4312337919ebe724f169541bfe292a241c4d8003d 0.0s done
+#15 exporting config sha256:df10622f60ef7361a71ca33fd41e178d2c6dd83542a86336a956343130483eeb 0.0s done
+#15 exporting attestation manifest sha256:71e6c3fce31e284ee1bf5ef0145ad6a9d05dda5bb921f74b1e53323dcaeef273 0.1s done
+#15 exporting manifest list sha256:e54eeb72c8ae2090790c625c55080b8831d3dd2fc4947744660f22b6ebe5b69c
+#15 exporting manifest list sha256:e54eeb72c8ae2090790c625c55080b8831d3dd2fc4947744660f22b6ebe5b69c 0.0s done
+#15 naming to docker.io/library/controller:gwshared done
+#15 unpacking to docker.io/library/controller:gwshared
+#15 unpacking to docker.io/library/controller:gwshared 0.2s done
+#15 DONE 1.8s
++ make docker-build-gateway GATEWAY_IMG=gateway:gwshared
+docker build -t gateway:gwshared -f Dockerfile.gateway .
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.gateway
+#1 transferring dockerfile: 1.65kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 643B done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 DONE 0.0s
+
+#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#6 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
+#6 DONE 0.0s
+
+#7 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#7 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#7 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
+#7 DONE 0.0s
+
+#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#6 CACHED
+
+#5 [internal] load build context
+#5 transferring context: 11.90kB done
+#5 DONE 0.0s
+
+#8 [builder 2/7] WORKDIR /workspace
+#8 CACHED
+
+#9 [builder 3/7] COPY go.mod go.mod
+#9 CACHED
+
+#10 [builder 4/7] COPY go.sum go.sum
+#10 CACHED
+
+#11 [builder 5/7] RUN go mod download
+#11 CACHED
+
+#12 [builder 6/7] COPY . .
+#12 CACHED
+
+#13 [builder 7/7] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o gateway cmd/gateway/main.go
+#13 CANCELED
+ERROR: failed to build: failed to solve: Canceled: context canceled
+make: *** [Makefile:170: docker-build-gateway] Error 130

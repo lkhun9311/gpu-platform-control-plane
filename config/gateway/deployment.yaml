@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/component: gateway
     app.kubernetes.io/managed-by: kustomize
 spec:
-  # replicas: 1 is forced by the store this manifest runs, the default --rate-limit-store=memory.
+  # replicas: 1 is required, not enforced, by the store this manifest runs, the default --rate-limit-store=memory.
   #
   # The memory store keeps each tenant's token bucket in process memory (bucketRegistry in ratelimit.go).
   # Raising replicas to 2 on it gives each Pod its own buckets, multiplying a tenant's effective limit by the replica count.
@@ -17,9 +17,20 @@ spec:
   #
   # More replicas need --rate-limit-store=redis, which shares one bucket per tenant through Redis
   # (docs/superpowers/specs/2026-11-21-gateway-shared-ratelimit-design.md).
-  # That store refuses HoldCap and PrefixAffinity backends with 503 and the holding --admission-mode values at start,
+  # That store refuses HoldCap and PrefixAffinity backends with 503 and every --admission-mode but off at start,
   # because their state stays in one process; a deployment that needs them runs this manifest as it is.
+  #
+  # Nothing in the cluster stops someone scaling this Deployment past 1: the gateway cannot read Deployments
+  # (rbac.yaml), and no admission policy guards the count.
+  # TestGatewayManifestIsTheSingleInstanceProfile in cmd/gateway pins what is checked: this file's replicas,
+  # strategy and store.
   replicas: 1
+  # Recreate, because the default RollingUpdate surges a second Pod before the first is gone, so every rollout
+  # briefly ran two gateways, each with its own buckets, serial-prefill turns and prefix index.
+  # Recreate waits until the old Pod has terminated, drain included, before starting the new one.
+  # The cost is that a rollout has no gateway serving from the old Pod's drain until the new one is ready.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: gpu-platform-control-plane

@@ -239,19 +239,20 @@ func (s *Server) rateLimiter() RateLimiter {
 	return nil
 }
 
-// CheckSharedStoreAdmission refuses a process-wide admission mode whose state each replica would keep on its own.
+// CheckSharedStoreAdmission refuses every process-wide admission mode but off under the shared store.
 //
 // static-cap and prospective keep per-backend budgets, which N replicas would multiply by N.
 // serial-prefill and fixed-spacing keep per-backend turn order, which N replicas would run N at a time.
-// off keeps nothing, and kv-aware decides from the engine's own telemetry, which every replica reads alike.
+// kv-aware keeps its engage and release hysteresis per process, and its not-reporting alert joins with unless on(),
+// so one replica's telemetry would hide another's silence; it has not been shown correct at more than one replica.
+// So the supported multi-replica profile is exactly the shared store with admission off, and nothing else is claimed.
 // The shared store is the only reason to run more than one replica, so it is where this is checked.
 func CheckSharedStoreAdmission(mode AdmissionMode) error {
-	switch mode {
-	case AdmissionOff, AdmissionKVAware:
+	if mode == AdmissionOff {
 		return nil
 	}
 	return fmt.Errorf("--admission-mode=%s keeps its state in one gateway process, so it cannot run with the shared "+
-		"rate limit store, which exists to run more than one; use off or kv-aware, or the memory store at one replica", mode)
+		"rate limit store, which exists to run more than one; use off, or the memory store at one replica", mode)
 }
 
 // Feature labels for a request refused because the shared store met a per-process feature.

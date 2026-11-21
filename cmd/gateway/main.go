@@ -139,7 +139,7 @@ func main() {
 	)
 	flag.StringVar(&rateLimit.store, "rate-limit-store", rateLimitStoreMemory,
 		"where each tenant's token bucket lives: memory (this process; run one replica) or redis (shared by every replica). "+
-			"redis refuses --admission-mode other than off or kv-aware, and answers 503 for HoldCap and PrefixAffinity backends, "+
+			"redis refuses --admission-mode other than off, and answers 503 for HoldCap and PrefixAffinity backends, "+
 			"because those keep their state in one process.")
 	flag.StringVar(&rateLimit.redis.Addr, "rate-limit-redis-addr", "",
 		"redis store: host:port of the Redis every replica shares. Required with --rate-limit-store=redis.")

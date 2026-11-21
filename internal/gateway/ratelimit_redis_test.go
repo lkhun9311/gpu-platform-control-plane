@@ -289,6 +289,45 @@ var _ = Describe("redisLimiter against a real Redis", Ordered, func() {
 		Expect(ttl).To(BeNumerically("<=", 6*time.Second))
 	})
 
+	// A Redis that lost its script cache, after a restart or SCRIPT FLUSH, answers EVALSHA with NOSCRIPT.
+	// The limiter must load the script again and decide, not count a lost cache as an outage for every request.
+	// Mutation that turns this red: call EvalSha alone, without Run's fallback to EVAL.
+	It("decides after the script cache is flushed", func() {
+		l := newTestRedisLimiter(redisAddr, uniquePrefix(), RedisFailureClosed, time.Second)
+		rl := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 60, Burst: 5}
+		_, _, err := l.Decide(ctx, "t", rl)
+		Expect(err).NotTo(HaveOccurred())
+		c := redis.NewClient(&redis.Options{Addr: redisAddr})
+		defer func() { _ = c.Close() }()
+		Expect(c.ScriptFlush(ctx).Err()).To(Succeed())
+		ok, _, err := l.Decide(ctx, "t", rl)
+		Expect(err).NotTo(HaveOccurred(), "a flushed script cache was treated as Redis failing")
+		Expect(ok).To(BeTrue())
+	})
+
+	// A Redis that loses its data, by a restart without persistence or by eviction, hands each tenant one full burst.
+	// This pins that documented cost, so a change to it is a decision and not an accident: a missing key reads as a
+	// full bucket, which is also what lets the expiry discard nothing.
+	It("gives a tenant one full burst after its key is lost", func() {
+		prefix := uniquePrefix()
+		l := newTestRedisLimiter(redisAddr, prefix, RedisFailureClosed, time.Second)
+		rl := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 1, Burst: 3}
+		admitted := func() int {
+			n := 0
+			for range 5 {
+				if ok, _, err := l.Decide(ctx, "t", rl); err == nil && ok {
+					n++
+				}
+			}
+			return n
+		}
+		Expect(admitted()).To(Equal(3))
+		c := redis.NewClient(&redis.Options{Addr: redisAddr})
+		defer func() { _ = c.Close() }()
+		Expect(c.Del(ctx, prefix+"t").Err()).To(Succeed())
+		Expect(admitted()).To(Equal(3))
+	})
+
 	// closed refuses while Redis cannot answer, and the caller turns the error into a 503.
 	// Mutation that turns this red: make the closed policy admit.
 	It("refuses under the closed policy when Redis refuses connections", func() {
@@ -377,5 +416,17 @@ var _ = Describe("redisLimiter against a real Redis", Ordered, func() {
 		ok, _, err = l.Decide(ctx, "t", rl)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ok).To(BeFalse(), "after Redis came back the local bucket, not the empty shared one, decided")
+	})
+
+	// The series docs/05 and the design page name are the ones /metrics serves.
+	// It runs last, because the degraded counter has a series only once a spec above has decided without Redis.
+	It("publishes the documented series", func() {
+		names := registeredNames()
+		for _, n := range []string{
+			"gpuaas_gateway_ratelimit_redis_seconds", "gpuaas_gateway_ratelimit_redis_errors_total",
+			"gpuaas_gateway_ratelimit_degraded_decisions_total", "gpuaas_gateway_ratelimit_redis_available",
+		} {
+			Expect(names).To(HaveKey(n))
+		}
 	})
 })

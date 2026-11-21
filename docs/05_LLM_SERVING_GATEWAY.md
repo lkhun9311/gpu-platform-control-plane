@@ -129,7 +129,7 @@ Known gaps *(corrected 2026-11-07: this line said none of them holds requests fo
 - Editing the object, `maxHold` included, moves its generation, so the backend gets the process-wide mode until the controller reports HoldCap again.
 - When HoldCap is turned off and the gateway's cache lags the new engine becoming ready, requests can be held briefly for the uncapped engine: no protection, and holds bounded by `maxHold`. The window is the cache lag plus up to `maxHold`, not the cache lag alone, because a request keeps the admission it was routed with while it waits. It has not been measured.
 - A plain deployment ahead of a HoldCap one for the same model no longer falls back into it, so if the plain one is down, its requests fail.
-- serial-prefill state lives in one gateway process. A gateway rollout under the default RollingUpdate briefly runs two, and each admits on its own.
+- serial-prefill state lives in one gateway process. Until 2026-11-21 a gateway rollout under the default RollingUpdate briefly ran two, each admitting on its own; the manifest now uses `strategy: Recreate`, which trades that overlap for a gap with no gateway during a rollout. Nothing stops a hand-scaled second replica (see "Running more than one replica").
 
 ### Experimental engine profile
 
@@ -215,7 +215,8 @@ The default, `memory`, is the store above, and the manifests in `config/gateway/
 
 - One Lua script per request refills and spends the bucket on Redis's own `TIME`, so replicas neither race for the last token nor refill on their own clocks.
 - `--rate-limit-redis-failure-policy=local` (default) decides on each replica's own bucket while Redis cannot answer, up to N times the limit across N replicas; `closed` answers 503 `rate_limit_unavailable`. A failure keeps the replica off Redis for one second.
-- HoldCap, `PrefixAffinity` and the holding admission modes keep their state in one process. Under the redis store the gateway refuses `--admission-mode` other than `off` or `kv-aware` at start, and answers 503 `single_gateway_required` for a HoldCap or `PrefixAffinity` backend. A deployment that needs them runs the memory store at one replica.
+- Two profiles are supported, and nothing else is claimed. **single-instance**: the memory store at one replica with `strategy: Recreate`, which is what `config/gateway/` ships and `TestGatewayManifestIsTheSingleInstanceProfile` checks; any admission mode and backend. **shared-limit**: the redis store, `--admission-mode=off`, and backends with default ordering, `RoundRobin` or `LeastQueue`.
+- Under the redis store the gateway refuses every `--admission-mode` but `off` at start, and answers 503 `single_gateway_required` for a HoldCap or `PrefixAffinity` backend, which can appear after start. Scaling the memory-store Deployment past one is not prevented: the gateway cannot read Deployments.
 - New series: `gpuaas_gateway_ratelimit_redis_seconds`, `gpuaas_gateway_ratelimit_redis_errors_total`, `gpuaas_gateway_ratelimit_degraded_decisions_total{policy}`, `gpuaas_gateway_ratelimit_redis_available` and `gpuaas_gateway_single_gateway_refusals_total{feature}`.
 
 The kind measurement at one and three replicas, with Redis stopped and with a gateway Pod deleted under load, is `hack/gateway-shared-ratelimit/2026-11-21-run1/README.md`.

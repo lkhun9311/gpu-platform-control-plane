@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -39,6 +40,17 @@ type stubLimiter struct {
 
 func (f stubLimiter) Decide(context.Context, string, *platformv1.GPUQuotaRateLimit) (bool, time.Duration, error) {
 	return f.allow, 0, f.err
+}
+
+// registeredNames is every series family the registry /metrics serves would print now.
+func registeredNames() map[string]bool {
+	families, err := metrics.Registry.Gather()
+	Expect(err).NotTo(HaveOccurred())
+	names := map[string]bool{}
+	for _, f := range families {
+		names[f.GetName()] = true
+	}
+	return names
 }
 
 var _ = Describe("the shared rate limit store in the pipeline", func() {
@@ -83,6 +95,7 @@ var _ = Describe("the shared rate limit store in the pipeline", func() {
 		Expect(rr.Header().Get("Retry-After")).To(BeEmpty(), "the same request is refused again until the deployment changes")
 		Expect(reached.Load()).To(BeZero())
 		Expect(testutil.ToFloat64(singleGatewayRefusals.WithLabelValues(singleGatewayHoldCap)) - before).To(Equal(1.0))
+		Expect(registeredNames()).To(HaveKey("gpuaas_gateway_single_gateway_refusals_total"))
 	})
 
 	// The control: the memory store serves the same HoldCap backend, so the refusal is the store's and not HoldCap's.

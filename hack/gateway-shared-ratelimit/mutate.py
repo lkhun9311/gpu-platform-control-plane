@@ -16,6 +16,7 @@ import sys
 TREE, OUT = sys.argv[1], sys.argv[2]
 REDIS = "internal/gateway/ratelimit_redis.go"
 SERVER = "internal/gateway/server.go"
+MANIFEST = "config/gateway/deployment.yaml"
 
 NON_ATOMIC = '''
 // nonAtomicBucket is the mutation: the same bucket read and written from Go in separate round trips.
@@ -110,10 +111,18 @@ MUTATIONS = [
        "\tok, wait, err := limiter.Decide(ctx, tenant, policy.Spec.RateLimit)\n"
        "\tif err != nil {\n\t\ts.fail(w, tenant, \"\", http.StatusTooManyRequests)\n\t\treturn\n\t}\n\tif err != nil {")],
      "gw", "rate_limit_unavailable"),
-    ("startup-accepts-holding-modes", "the shared store refuses holding admission modes at start",
-     [(SERVER, "\tswitch mode {\n\tcase AdmissionOff, AdmissionKVAware:\n\t\treturn nil\n\t}",
-       "\tif mode != \"never\" {\n\t\treturn nil\n\t}")],
+    ("startup-accepts-holding-modes", "the shared store refuses every admission mode but off at start",
+     [(SERVER, "\tif mode == AdmissionOff {\n\t\treturn nil\n\t}", "\tif mode != \"never\" {\n\t\treturn nil\n\t}")],
      "cmd", "TestInstallRateLimiterRedisRefusesPerProcessAdmission"),
+    ("startup-accepts-kv-aware", "kv-aware is outside the supported multi-replica profile",
+     [(SERVER, "\tif mode == AdmissionOff {\n", "\tif mode == AdmissionOff || mode == AdmissionKVAware {\n")],
+     "cmd", "TestInstallRateLimiterRedisRefusesPerProcessAdmission"),
+    ("evalsha-without-fallback", "a flushed script cache is reloaded, not an outage",
+     [(REDIS, "tokenBucketScript.Run(", "tokenBucketScript.EvalSha(")], "gw", "script cache is flushed"),
+    ("manifest-rolling-update", "the shipped manifest never runs two Pods during a rollout",
+     [(MANIFEST, "  strategy:\n    type: Recreate\n", "")], "cmd", "TestGatewayManifestIsTheSingleInstanceProfile"),
+    ("manifest-two-replicas", "the shipped memory-store manifest runs one replica",
+     [(MANIFEST, "  replicas: 1\n", "  replicas: 2\n")], "cmd", "TestGatewayManifestIsTheSingleInstanceProfile"),
 ]
 
 
@@ -157,7 +166,7 @@ def apply(edits):
 
 
 def revert():
-    subprocess.run(["git", "checkout", "--", "internal", "cmd"], cwd=TREE, check=True)
+    subprocess.run(["git", "checkout", "--", "internal", "cmd", "config"], cwd=TREE, check=True)
 
 
 rows = ["mutation\tproperty\tselector\tverdict\tevidence"]
