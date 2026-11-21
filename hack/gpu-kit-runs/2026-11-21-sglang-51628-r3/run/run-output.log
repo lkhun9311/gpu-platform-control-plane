@@ -1,0 +1,39 @@
+gpu exit=0 t=0
+verdict exit=0 t=1942
+VERDICT: WARMUP MOVES SOME
+WARMUP MOVES SOME: 11 Mamba2 compile(s) after ready, against 53 in r2's MAIN arm.
+GATE: pass: [2026-11-21 06:05:33 PID360] Disable prefill CUDA graph because some layers do not apply Standard GQA
+PER MAMBA2 KERNEL: name | r3 before ready, after ready | r2 MAIN before, after | r3 late compiles by burst | by class
+  _bmm_chunk_fwd_kernel | 11, 0 | 10, 1 | - | -
+  _causal_conv1d_fwd_kernel | 3, 0 | 2, 1 | - | -
+  _causal_conv1d_update_kernel | 2, 0 | 2, 0 | - | -
+  _chunk_cumsum_fwd_kernel | 8, 0 | 7, 1 | - | -
+  _chunk_scan_fwd_kernel | 39, 4 | 19, 24 | warmup 3, c16-r1 1 | post-autotune specialisation 4
+  _chunk_state_fwd_kernel | 11, 0 | 10, 1 | - | -
+  _chunk_state_varlen_kernel | 20, 1 | 10, 11 | warmup 1 | post-autotune specialisation 1
+  _selective_scan_update_kernel | 2, 0 | 2, 0 | - | -
+  _state_passing_fwd_kernel | 17, 6 | 7, 14 | warmup 4, c16-r1 1, c16-r3 1 | post-autotune specialisation 6
+MAMBA2 COMPILES AFTER READY (r3):
+  _state_passing_fwd_kernel 0.09 s in warmup (9.5 s after ready), post-autotune specialisation
+  _state_passing_fwd_kernel 0.10 s in warmup (11.7 s after ready), post-autotune specialisation
+  _chunk_scan_fwd_kernel 1.02 s in warmup (12.7 s after ready), post-autotune specialisation
+  _chunk_state_varlen_kernel 0.45 s in warmup (13.1 s after ready), post-autotune specialisation
+  _state_passing_fwd_kernel 0.12 s in warmup (14.3 s after ready), post-autotune specialisation
+  _chunk_scan_fwd_kernel 1.03 s in warmup (15.3 s after ready), post-autotune specialisation
+  _state_passing_fwd_kernel 0.13 s in warmup (27.8 s after ready), post-autotune specialisation
+  _chunk_scan_fwd_kernel 1.02 s in warmup (28.8 s after ready), post-autotune specialisation
+  _state_passing_fwd_kernel 0.10 s in c16-r1 (293.6 s after ready), post-autotune specialisation
+  _chunk_scan_fwd_kernel 1.01 s in c16-r1 (294.6 s after ready), post-autotune specialisation
+  _state_passing_fwd_kernel 0.13 s in c16-r3 (459.5 s after ready), post-autotune specialisation
+FIRST-BURST TTFT ms (warmup burst): r3 mean 35530.5, median 37402.6, p99 53821.1; r2 MAIN mean 50110.7, median 49119.5, p99 82974.7; r3 minus r2 mean -14580.2
+STARTUP launch to ready: r3 210.4 s with --warmups prefill_shapes, r2 MAIN 153.8 s without, +56.6 s
+AUTOTUNE (Triton's report, one line per autotune): kernel #n | configs benchmarked | key | seconds | chosen | compiles linked, where
+  _bmm_chunk_fwd_kernel #1 | 9 | (256, 128, False, 'torch.bfloat16', 'torch.bfloat16', 'torch.float32', 'torch.int32') | 6.17 | {'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'num_warps': 2, 'num_ctas': 1, 'num_stages': 5, 'maxnreg': None} | not linked to a set of compiles
+  _chunk_cumsum_fwd_kernel #1 | 6 | (256, 112, 'torch.bfloat16', 'torch.float32', 'torch.bfloat16', 'torch.float32', 'torch.float32') | 4.98 | {'BLOCK_SIZE_H': 2, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 3, 'maxnreg': None} | 6 compiles, startup
+  _chunk_scan_fwd_kernel #1 | 18 | (256, 64, 128, True, 'torch.float32', 'torch.bfloat16', 'torch.bfloat16', 'torch.float32', 'torch.float32', 'torch.int32', 'torch.bfloat16', 'torch.float32', 'torch.bfloat16') | 17.38 | {'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 1, 'maxnreg': None} | 18 compiles, startup
+  _chunk_scan_fwd_kernel #2 | 18 | (256, 64, 128, True, 'torch.float32', 'torch.bfloat16', 'torch.bfloat16', 'torch.float32', 'torch.float32', 'torch.int32', 'torch.bfloat16', 'torch.float32', 'torch.bfloat16', 'torch.float32', 'torch.int32', 'torch.int32') | 20.68 | {'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 1, 'maxnreg': None} | 18 compiles, startup
+  _chunk_state_fwd_kernel #1 | 9 | (64, 128, 256, 'torch.bfloat16', 'torch.bfloat16', 'torch.float32', 'torch.float32', 'torch.float32', 'torch.int32') | 5.1 | {'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 32, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 3, 'maxnreg': None} | 9 compiles, startup
+  _chunk_state_varlen_kernel #1 | 9 | (64, 128, 256, 'torch.bfloat16', 'torch.bfloat16', 'torch.float32', 'torch.float32', 'torch.float32', 'torch.int32', 'torch.float32') | 6.11 | {'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 32, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 3, 'maxnreg': None} | 9 compiles, startup
+  _chunk_state_varlen_kernel #2 | 9 | (64, 128, 256, 'torch.bfloat16', 'torch.bfloat16', 'torch.float32', 'torch.float32', 'torch.float32', 'torch.int32', 'torch.float32', 'torch.float32') | 6.23 | {'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 32, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 3, 'maxnreg': None} | 9 compiles, startup
+  _state_passing_fwd_kernel #1 | 6 | (8192, 'torch.float32', 'torch.float32', 'torch.float32', 'torch.float32', 'torch.int32') | 1.1 | {'BLOCK_SIZE': 64, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 3, 'maxnreg': None} | 6 compiles, startup
+  _state_passing_fwd_kernel #2 | 6 | (8192, 'torch.float32', 'torch.float32', 'torch.float32', 'torch.float32', 'torch.float32', 'torch.int32', 'torch.int32') | 1.46 | {'BLOCK_SIZE': 64, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 3, 'maxnreg': None} | 6 compiles, startup

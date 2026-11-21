@@ -1,0 +1,16 @@
+2026-11-21T06:03:46Z measure: probe: two fresh kernels must each leave a compile record
+2026-11-21T06:03:53Z measure: download nvidia/Nemotron-H-4B-Instruct-128K at f3c0b6c3b7fcb39e132b6007386e33a586d6e6cb
+2026-11-21T06:04:30Z measure: control: server on an empty Triton cache
+2026-11-21T06:08:00Z measure: control: warmup (concurrency 32, 64 prompts, seed 42)
+2026-11-21T06:10:17Z measure: control: c1-r1 (concurrency 1, 4 prompts, seed 101)
+2026-11-21T06:11:06Z measure: control: c1-r2 (concurrency 1, 4 prompts, seed 102)
+2026-11-21T06:11:55Z measure: control: c1-r3 (concurrency 1, 4 prompts, seed 103)
+2026-11-21T06:12:44Z measure: control: c16-r1 (concurrency 16, 32 prompts, seed 161)
+2026-11-21T06:13:55Z measure: control: c16-r2 (concurrency 16, 32 prompts, seed 162)
+2026-11-21T06:15:05Z measure: control: c16-r3 (concurrency 16, 32 prompts, seed 163)
+2026-11-21T06:16:16Z measure: control: c128-r1 (concurrency 128, 128 prompts, seed 1281)
+2026-11-21T06:20:15Z measure: control: c128-r2 (concurrency 128, 128 prompts, seed 1282)
+2026-11-21T06:24:15Z measure: control: c128-r3 (concurrency 128, 128 prompts, seed 1283)
+/in/measure.sh: line 116:   200 Killed                  setsid "${cmd[@]}" > "$A/server.log" 2>&1
+2026-11-21T06:28:25Z measure: done
+measure exit=0 t=1942

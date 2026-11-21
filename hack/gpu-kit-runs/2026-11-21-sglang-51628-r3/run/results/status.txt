@@ -1,0 +1,5 @@
+gpu exit=0 t=0
+pull exit=0 t=438
+image-identity exit=0 t=438
+measure exit=0 t=1942
+verdict exit=0 t=1942

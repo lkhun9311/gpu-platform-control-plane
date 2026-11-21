@@ -1,0 +1,51 @@
+{
+ "bursts": [
+  "warmup",
+  "c1-r1",
+  "c1-r2",
+  "c1-r3",
+  "c16-r1",
+  "c16-r2",
+  "c16-r3",
+  "c128-r1",
+  "c128-r2",
+  "c128-r3"
+ ],
+ "first_burst_ttft_ms": {
+  "mean_ttft_ms": 50110.69758762499,
+  "median_ttft_ms": 49119.54625800002,
+  "p99_ttft_ms": 82974.66266345995
+ },
+ "launch_epoch": 1795228293.264613,
+ "mamba2_after_ready": {
+  "_bmm_chunk_fwd_kernel": 1,
+  "_causal_conv1d_fwd_kernel": 1,
+  "_chunk_cumsum_fwd_kernel": 1,
+  "_chunk_scan_fwd_kernel": 24,
+  "_chunk_state_fwd_kernel": 1,
+  "_chunk_state_varlen_kernel": 11,
+  "_state_passing_fwd_kernel": 14
+ },
+ "mamba2_after_ready_total": 53,
+ "mamba2_before_ready": {
+  "_bmm_chunk_fwd_kernel": 10,
+  "_causal_conv1d_fwd_kernel": 2,
+  "_causal_conv1d_update_kernel": 2,
+  "_chunk_cumsum_fwd_kernel": 7,
+  "_chunk_scan_fwd_kernel": 19,
+  "_chunk_state_fwd_kernel": 10,
+  "_chunk_state_varlen_kernel": 10,
+  "_selective_scan_update_kernel": 2,
+  "_state_passing_fwd_kernel": 7
+ },
+ "ready_epoch": 1795228447.072764,
+ "source_arm": "hack/gpu-kit-runs/2026-11-21-sglang-51628-r2/run/results/c/main/arm.txt",
+ "source_arm_sha256": "472c630dbaef2d8dcb1deda3574b5abff445c4559f56d1a2886edd032f4c6b56",
+ "source_commit": "93fac369",
+ "source_compiles": "hack/gpu-kit-runs/2026-11-21-sglang-51628-r2/run/results/c/main/compiles.jsonl",
+ "source_compiles_sha256": "3903abbb7068c2e34954f91ae3bc5bcee168cdc4a575c0fd4053ca506a6f4a24",
+ "source_verdict": "hack/gpu-kit-runs/2026-11-21-sglang-51628-r2/run/results/verdict.json",
+ "source_verdict_sha256": "b8241f69344bf4db8122f97e72e221874d701850e352cc27b4782950571244e6",
+ "startup_s": 153.8081510066986,
+ "verdict": "REPRODUCED"
+}

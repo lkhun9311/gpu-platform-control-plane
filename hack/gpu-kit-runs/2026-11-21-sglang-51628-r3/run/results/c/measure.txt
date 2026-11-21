@@ -1,0 +1,16 @@
+started=1795241019
+bursts=warmup:32:64:42 c1-r1:1:4:101 c1-r2:1:4:102 c1-r3:1:4:103 c16-r1:16:32:161 c16-r2:16:32:162 c16-r3:16:32:163 c128-r1:128:128:1281 c128-r2:128:128:1282 c128-r3:128:128:1283
+sglang_build_commit=03fde9cc392a5f84a54a365635ffed0061cdf1b8
+gpu_name=NVIDIA A10G
+hook_pth=/opt/sglang/lib/python3.12/site-packages/sgl51628_compile_hook.pth
+probe_rc=0
+probe_hook=ok
+download_rc=0
+model_repo=nvidia/Nemotron-H-4B-Instruct-128K
+model_revision=f3c0b6c3b7fcb39e132b6007386e33a586d6e6cb
+sha256_model-00001-of-00002.safetensors=77ec45e9fe138d04e0e89900ca952d673837984b66f7809c7ed5cb7eb742b611
+sha256_model-00002-of-00002.safetensors=9377b88ee9b8007cd9b955b5d2d7820b7214799806d96984c1f3126f8b5db13e
+sha256_tokenizer.json=3277c00fe5fb3963b3cb7c07b7f183722d2af4d775a4aea7cfb3684d7cccbc2f
+model=ok
+control_rc=0
+ended=1795242505
