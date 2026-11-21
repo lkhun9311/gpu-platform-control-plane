@@ -1,0 +1,4555 @@
+++ date +%s
++ SR_START=1795262794
++ BUCKET=gpukit-007635145730
++ PREFIX=2026-11-21-llmd-1598-pilot-34757805
++ trap 'upload /var/log/gpukit.log log.txt; shutdown -h now' EXIT
++ R=/opt/kit/run
++ mkdir -p /opt/kit/in /opt/kit/bin /opt/kit/work /opt/kit/run/results
++ sleep 3720
++ aws s3 cp --only-show-errors s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/inputs.tgz /opt/kit/inputs.tgz
+++ sha256sum /opt/kit/inputs.tgz
+++ cut '-d ' -f1
++ '[' 44720486b8c080bd0be781003b65fa2f17f9d006a7f0afb5443db61836ce87a7 = 44720486b8c080bd0be781003b65fa2f17f9d006a7f0afb5443db61836ce87a7 ']'
++ tar -xzf /opt/kit/inputs.tgz -C /opt/kit/in
++ L=
+++ date +%s
++ '[' 1 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-11-21T12:05:02+00:00 +%s
++ L=1795262702
++ break
+++ date +%s
++ NOW=1795262796
++ [[ 1795262702 =~ ^[0-9]+$ ]]
++ '[' 1795262702 -gt 1795262796 ']'
++ '[' 94 -gt 900 ']'
++ P1=1795263002
++ HE=1795266302
++ EV=1795266362
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+++ date +%s
+++ date +%s
++ sleep 3626
++ upload /opt/kit/run/preflight-nvidia-smi.csv preflight-nvidia-smi.csv
++ aws s3 cp --only-show-errors /opt/kit/run/preflight-nvidia-smi.csv s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/preflight-nvidia-smi.csv
+++ tail -n +2 /opt/kit/run/preflight-nvidia-smi.csv
+++ wc -l
++ '[' 4 = 4 ']'
++ tail -n +2 /opt/kit/run/preflight-nvidia-smi.csv
++ grep -qv A10G
++ df -BG /
+++ df -BG --output=avail /
+++ tail -1
+++ tr -dc 0-9
++ free_gb=67
++ '[' 67 -ge 60 ']'
++ cat
+++ date +%s
++ bringup_left=204
++ bringup_rc=124
++ '[' 204 -gt 0 ']'
++ timeout --kill-after=15 204 bash /tmp/python.sh
+uv.tgz: OK
+Downloading cpython-3.12.15-linux-x86_64-gnu (download) (32.7MiB)
+ Downloaded cpython-3.12.15-linux-x86_64-gnu (download)
+Installed Python 3.12.15 in 1.16s
+ + cpython-3.12.15-linux-x86_64-gnu (python3.12)
+warning: `/root/.local/bin` is not on your PATH. To use installed Python executables, run `export PATH="/root/.local/bin:$PATH"` or `uv python update-shell`.
++ bringup_rc=0
++ echo 'bring-up exited 0'
+bring-up exited 0
++ echo commit=f460cfc0143923dd9ae26e7cf2dad23fc43a8d15
++ echo launch_time_epoch=1795262702
++ echo bringup_rc=0
++ sha256sum /opt/kit/inputs.tgz
++ '[' 0 = 0 ']'
++ sync_pid=3030
++ mem
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ '[' 0 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ mem_pid=3042
++ date -u +%Y-%m-%dT%H:%M:%SZ
++ n=0
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ cd /opt/kit/work
++ '[' 0 = 0 ']'
+++ date +%s
+++ date +%s
++ env HOME=/root PATH=/opt/kit/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin UV_PYTHON_INSTALL_DIR=/opt/kit/python OUT=/opt/kit/run/results timeout --kill-after=15 3501 bash /opt/kit/in/kit/run.sh
++ n=1
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=2
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=3
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=4
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=5
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=6
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=7
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=8
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=9
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=10
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=11
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=12
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=13
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=14
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=15
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=16
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=17
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=18
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=19
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=20
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=21
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=22
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=23
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=24
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=25
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=26
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=27
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=28
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=29
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=30
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=31
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ '[' 0 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=32
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=33
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=34
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=35
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=36
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=37
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=38
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=39
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=40
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=41
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=42
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=43
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=44
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=45
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=46
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=47
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=48
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=49
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=50
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=51
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=52
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=53
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=54
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=55
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=56
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=57
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=58
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=59
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=60
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=61
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ '[' 0 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=62
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=63
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=64
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=65
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=66
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=67
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=68
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=69
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=70
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=71
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=72
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=73
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=74
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=75
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=76
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=77
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=78
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=79
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=80
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=81
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=82
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=83
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=84
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=85
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=86
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=87
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=88
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=89
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=90
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=91
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=92
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=93
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=94
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=95
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=96
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=97
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=98
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=99
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=100
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=101
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=102
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=103
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=104
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=105
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=106
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=107
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=108
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=109
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=110
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=111
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=112
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=113
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=114
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=115
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=116
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=117
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=118
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=119
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=120
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=121
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=122
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=123
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=124
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=125
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=126
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=127
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=128
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=129
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=130
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=131
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=132
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=133
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=134
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=135
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=136
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=137
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=138
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=139
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=140
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=141
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=142
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=143
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=144
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=145
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=146
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=147
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=148
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=149
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=150
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=151
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=152
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=153
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ '[' 0 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=154
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=155
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=156
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=157
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=158
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=159
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=160
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=161
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=162
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=163
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=164
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=165
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=166
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=167
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=168
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=169
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=170
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=171
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=172
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=173
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=174
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=175
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=176
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=177
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=178
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=179
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=180
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=181
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=182
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=183
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=184
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=185
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=186
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=187
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=188
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=189
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=190
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=191
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=192
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=193
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=194
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=195
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=196
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=197
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=198
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=199
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=200
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=201
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=202
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=203
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=204
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=205
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=206
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=207
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=208
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=209
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=210
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=211
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=212
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=213
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=214
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=215
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=216
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=217
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=218
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=219
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=220
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=221
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=222
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=223
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=224
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=225
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=226
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=227
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=228
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=229
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=230
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=231
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=232
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=233
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=234
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=235
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=236
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=237
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=238
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=239
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=240
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=241
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=242
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=243
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=244
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=245
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=246
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=247
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=248
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=249
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=250
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=251
++ sleep 2
++ '[' 0 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=252
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=253
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=254
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=255
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=256
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=257
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=258
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=259
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=260
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=261
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=262
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=263
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=264
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=265
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=266
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=267
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=268
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=269
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=270
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=271
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=272
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=273
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=274
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=275
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=276
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=277
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=278
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=279
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=280
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=281
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=282
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=283
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=284
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=285
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=286
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=287
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=288
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=289
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=290
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=291
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=292
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=293
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=294
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=295
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=296
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=297
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=298
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=299
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=300
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=301
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=302
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=303
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=304
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=305
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=306
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=307
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=308
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=309
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=310
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=311
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=312
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=313
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=314
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=315
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=316
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=317
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=318
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=319
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=320
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=321
++ sleep 2
++ '[' 0 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=322
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=323
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=324
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=325
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=326
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=327
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=328
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=329
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=330
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=331
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=332
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=333
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=334
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=335
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=336
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=337
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=338
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=339
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=340
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=341
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=342
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=343
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=344
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=345
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=346
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=347
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=348
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=349
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=350
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=351
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=352
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=353
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=354
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=355
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=356
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=357
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=358
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=359
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=360
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=361
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=362
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=363
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=364
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=365
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=366
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=367
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=368
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=369
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=370
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=371
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=372
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=373
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=374
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=375
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=376
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=377
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=378
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=379
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=380
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=381
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=382
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=383
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=384
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=385
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=386
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=387
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=388
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=389
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=390
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=391
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=392
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=393
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=394
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=395
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=396
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=397
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=398
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=399
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=400
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=401
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=402
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=403
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=404
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=405
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=406
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=407
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=408
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=409
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=410
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=411
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=412
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=413
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=414
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=415
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=416
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=417
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=418
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=419
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=420
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=421
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=422
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=423
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=424
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=425
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=426
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=427
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=428
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=429
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=430
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=431
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=432
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=433
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=434
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=435
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=436
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=437
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=438
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=439
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=440
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=441
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=442
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=443
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=444
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=445
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=446
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=447
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=448
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=449
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=450
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=451
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=452
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=453
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=454
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=455
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=456
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=457
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=458
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=459
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=460
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=461
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=462
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=463
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=464
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=465
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=466
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=467
++ sleep 2
++ '[' 0 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=468
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=469
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=470
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=471
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=472
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=473
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=474
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=475
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=476
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=477
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=478
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=479
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=480
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=481
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=482
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=483
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=484
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=485
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=486
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=487
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=488
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=489
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=490
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=491
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=492
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=493
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=494
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=495
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=496
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=497
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=498
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=499
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=500
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=501
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=502
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=503
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=504
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=505
++ sleep 2
++ '[' 0 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=506
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=507
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=508
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=509
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=510
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=511
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=512
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=513
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=514
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=515
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=516
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=517
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=518
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=519
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=520
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=521
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=522
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=523
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=524
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=525
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=526
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=527
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=528
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=529
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=530
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=531
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=532
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=533
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=534
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=535
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=536
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=537
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=538
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=539
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=540
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=541
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=542
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=543
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=544
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=545
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=546
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=547
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=548
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=549
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=550
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=551
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=552
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=553
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=554
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=555
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=556
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=557
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=558
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=559
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=560
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=561
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=562
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=563
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=564
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=565
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=566
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=567
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=568
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=569
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=570
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=571
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=572
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=573
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=574
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=575
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=576
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=577
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=578
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=579
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=580
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=581
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=582
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=583
++ sleep 2
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=584
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=585
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=586
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=587
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=588
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=589
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=590
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=591
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=592
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=593
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=594
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=595
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=596
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=597
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=598
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=599
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=600
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=601
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=602
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=603
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=604
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=605
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=606
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=607
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=608
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=609
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=610
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=611
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=612
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=613
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=614
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=615
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=616
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=617
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=618
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=619
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=620
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=621
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=622
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=623
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=624
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=625
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=626
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=627
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=628
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=629
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=630
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=631
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=632
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=633
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=634
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=635
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=636
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=637
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=638
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=639
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=640
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=641
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=642
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=643
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=644
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=645
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=646
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=647
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=648
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=649
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=650
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=651
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=652
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=653
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=654
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=655
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=656
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=657
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=658
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=659
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=660
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=661
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=662
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=663
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=664
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=665
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=666
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=667
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=668
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=669
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=670
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=671
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=672
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=673
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=674
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=675
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=676
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=677
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=678
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=679
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=680
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=681
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=682
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=683
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=684
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=685
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=686
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=687
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=688
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=689
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=690
++ sleep 2
++ :
++ nice -n 19 tar --warning=no-file-changed -czf /tmp/partial.tgz -C /opt/kit run
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=691
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=692
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=693
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=694
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=695
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=696
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=697
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=698
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=699
++ sleep 2
++ '[' 1 -le 1 ']'
++ timeout 60 aws s3 cp --only-show-errors /tmp/partial.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/partial.tgz
++ sleep 60
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=700
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=701
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=702
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=703
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=704
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=705
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=706
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=707
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=708
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=709
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 4 = 0 ']'
++ n=710
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 5 = 0 ']'
++ n=711
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 6 = 0 ']'
++ n=712
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 7 = 0 ']'
++ n=713
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 8 = 0 ']'
++ n=714
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 9 = 0 ']'
++ n=715
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 10 = 0 ']'
++ n=716
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 11 = 0 ']'
++ n=717
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 12 = 0 ']'
++ n=718
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 13 = 0 ']'
++ n=719
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 14 = 0 ']'
++ n=720
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 0 = 0 ']'
++ n=721
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 1 = 0 ']'
++ n=722
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 2 = 0 ']'
++ n=723
++ sleep 2
++ :
++ '[' '!' -e /opt/kit/run/memory-before-loads.txt ']'
++ grep -q '^test-files-fix ' /opt/kit/run/results/status.txt
++ '[' 3 = 0 ']'
++ n=724
++ sleep 2
++ kit_rc=0
++ date -u +%Y-%m-%dT%H:%M:%SZ
++ echo kit_rc=0
++ df -BG /
++ kill 3030 3042
++ cp /var/log/gpukit-sync.log /opt/kit/run/sync.log
++ echo 'run.sh exited 0'
+run.sh exited 0
++ cp /var/log/gpukit.log /opt/kit/run/instance.log
+++ date +%s
++ left=2111
++ '[' 2111 -gt 5 ']'
++ timeout 2111 tar --warning=no-file-changed -czf /tmp/evidence.tgz -C /opt/kit run
++ tar_rc=0
++ evidence=failed
++ '[' 0 -le 1 ']'
+++ date +%s
++ left=2094
++ '[' 2094 -gt 0 ']'
++ timeout 2094 aws s3 cp --only-show-errors /tmp/evidence.tgz s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/evidence.tgz
++ evidence=uploaded
++ break
++ echo 'evidence_upload=uploaded tar_rc=0'
+evidence_upload=uploaded tar_rc=0
++ upload /var/log/gpukit.log log.txt
++ aws s3 cp --only-show-errors /var/log/gpukit.log s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/log.txt
++ echo '34757805 evidence=uploaded'
++ upload /tmp/DONE DONE
++ aws s3 cp --only-show-errors /tmp/DONE s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/DONE
++ upload /var/log/gpukit.log log.txt
++ aws s3 cp --only-show-errors /var/log/gpukit.log s3://gpukit-007635145730/2026-11-21-llmd-1598-pilot-34757805/log.txt

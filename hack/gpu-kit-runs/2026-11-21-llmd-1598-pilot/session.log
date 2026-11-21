@@ -1,0 +1,87 @@
+== gpu kit docs/oss/llmd-1598/kit at f460cfc0143923dd9ae26e7cf2dad23fc43a8d15, from f460cfc0143923dd9ae26e7cf2dad23fc43a8d15, into hack/gpu-kit-runs/2026-11-21-llmd-1598-pilot
+== hard stop 3720 s after LaunchTime; worst case 4020 s at $3.5483/h all in, $3.9623, under $4.00
+== Spot g5.12xlarge under $3.48/h, cheapest first: ap-northeast-2c ap-northeast-2d ap-northeast-2a (ap-northeast-2d	3.435300 ap-northeast-2a	3.469300 ap-northeast-2c	3.273600)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the purchase checks: credentials expire in 398 minutes
+== before the purchase: credentials expire in 398 minutes
+== launching g5.12xlarge Spot (cap $3.48/h, $3.5483/h all in), study-deadline 2026-11-21T13:06:00Z -- the instance bills from here
+== launched i-06d08103975c8d5fb in ap-northeast-2c
+== LaunchTime 2026-11-21T12:05:02+00:00; the sweeper's deadline moved to 2026-11-21T13:06:32Z
+== the wait ended with status 0 ()
+== waiting up to 2450s for EC2 to report the instance terminated
+== terminating i-06d08103975c8d5fb
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is shutting-down
+== i-06d08103975c8d5fb is terminated
+== evidence returned; termination confirmed; run.sh exit 0

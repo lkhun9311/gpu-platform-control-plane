@@ -1,0 +1,6 @@
+verdict: APPARATUS HOLDS
+K burst under A1: mean largest share {'log-K-A1-v2': 21.5, 'log-K-A1-v5': 23.666666666666668} (threshold 24 of 64): does not show
+logging: {'epp_sched_p99_delta_s': {'A': 0.0009, 'K': 0.049}, 'k_share_delta': 2.166666666666668, 'keep_v5': False}
+b_pressure: {'lost_share': 0.0, 'is_pressure': False}
+calibration: {'cold_p50_A_s': 0.07550311088562012, 'cold_p50_B_s': 0.05051469802856445, 'cold_p50_W942_s': 1.0154619216918945, 'peak_median_ttft_s': 0.230910062789917, 'peak_prefill_tps': 8869.254008489355, 'preload_ttft_s': [0.4800426959991455, 0.47472310066223145, 0.4745597839355469], 'slo_A_s': 0.23, 'slo_B_s': 0.16, 'slo_W942_s': 3.05, 'warm_p50_A_s': 0.024506568908691406, 'warm_p50_B_s': 0.023679256439208984, 'warm_p50_W942_s': 0.04698371887207031}
+ramps: {'A': {'kind': 'at_least', 'r': 80, 'results': [[10, True], [20, True], [40, True], [80, True]], 'slo_s': 0.23}, 'B': {'kind': 'at_least', 'r': 80, 'results': [[10, True], [20, True], [40, True], [80, True]], 'slo_s': 0.16}, 'W942': {'kind': 'bracketed', 'r': 2.9, 'results': [[1.75, True], [2.9, True], [4.4, False]], 'slo_s': 3.05}}

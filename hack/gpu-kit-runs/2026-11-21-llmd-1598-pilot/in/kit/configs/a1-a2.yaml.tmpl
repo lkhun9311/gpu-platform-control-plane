@@ -1,0 +1,25 @@
+# A1 and A2: llm-d's guide optimized-baseline plugin set (llm-d d83e85c37c0d, guides/optimized-baseline/router/optimized-baseline.values.yaml),
+# with file discovery in place of Kubernetes and peakPrefillThroughput set to the value measured on this hardware.
+# A1 and A2 run this same file; only the EPP binary differs.
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+plugins:
+- name: file-disc
+  type: file-discovery
+  parameters:
+    path: @ENDPOINTS@
+- type: approx-prefix-cache-producer
+- type: inflight-load-producer
+- type: prefix-cache-affinity-filter
+  parameters:
+    peakPrefillThroughput: @PEAK@
+- type: token-load-scorer
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: prefix-cache-affinity-filter
+  - pluginRef: token-load-scorer
+dataLayer:
+  discovery:
+    endpoints:
+      pluginRef: file-disc
