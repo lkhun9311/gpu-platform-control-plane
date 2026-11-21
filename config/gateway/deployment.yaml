@@ -8,12 +8,17 @@ metadata:
     app.kubernetes.io/component: gateway
     app.kubernetes.io/managed-by: kustomize
 spec:
-  # replicas: 1 is not a stopgap; it is forced by the current design (design spec Deployment section, ADR).
+  # replicas: 1 is forced by the store this manifest runs, the default --rate-limit-store=memory.
   #
-  # The reason is that the token buckets live in process memory (bucketRegistry in ratelimit.go).
-  # Raising replicas to 2 gives each Pod its own buckets, multiplying a tenant's effective limit by the replica count.
+  # The memory store keeps each tenant's token bucket in process memory (bucketRegistry in ratelimit.go).
+  # Raising replicas to 2 on it gives each Pod its own buckets, multiplying a tenant's effective limit by the replica count.
   # A policy set to 60 requests per minute quietly becomes 120. Nothing errors; only the limit is wrong.
-  # Scaling horizontally requires moving the buckets to shared storage (Redis or similar) first, which is explicitly out of scope for M4-b.
+  # Measured: two replicas admitted 1.95x (experiments/gateway-replica-limit).
+  #
+  # More replicas need --rate-limit-store=redis, which shares one bucket per tenant through Redis
+  # (docs/superpowers/specs/2026-11-21-gateway-shared-ratelimit-design.md).
+  # That store refuses HoldCap and PrefixAffinity backends with 503 and the holding --admission-mode values at start,
+  # because their state stays in one process; a deployment that needs them runs this manifest as it is.
   replicas: 1
   selector:
     matchLabels:

@@ -208,9 +208,21 @@ Until issue #571 a cut stream was missing from `requests_total` altogether and r
 
 `config/gateway/`: Deployment `replicas: 1` (in-memory bucket — scaling multiplies limits; documented ADR), Service, ServiceAccount, minimal RBAC (`get;list;watch` on the two CRDs + the api-keys Secret). Definition of done for M4-b includes the Makefile target, a gateway Dockerfile, and these manifests — `go run` is not a deployment story.
 
+### Running more than one replica
+
+`--rate-limit-store=redis` keeps each tenant's bucket in one Redis that every replica shares, so N replicas apply one limit rather than N (`internal/gateway/ratelimit_redis.go`; design: `docs/superpowers/specs/2026-11-21-gateway-shared-ratelimit-design.md`).
+The default, `memory`, is the store above, and the manifests in `config/gateway/` still run it at one replica.
+
+- One Lua script per request refills and spends the bucket on Redis's own `TIME`, so replicas neither race for the last token nor refill on their own clocks.
+- `--rate-limit-redis-failure-policy=local` (default) decides on each replica's own bucket while Redis cannot answer, up to N times the limit across N replicas; `closed` answers 503 `rate_limit_unavailable`. A failure keeps the replica off Redis for one second.
+- HoldCap, `PrefixAffinity` and the holding admission modes keep their state in one process. Under the redis store the gateway refuses `--admission-mode` other than `off` or `kv-aware` at start, and answers 503 `single_gateway_required` for a HoldCap or `PrefixAffinity` backend. A deployment that needs them runs the memory store at one replica.
+- New series: `gpuaas_gateway_ratelimit_redis_seconds`, `gpuaas_gateway_ratelimit_redis_errors_total`, `gpuaas_gateway_ratelimit_degraded_decisions_total{policy}`, `gpuaas_gateway_ratelimit_redis_available` and `gpuaas_gateway_single_gateway_refusals_total{feature}`.
+
+The kind measurement at one and three replicas, with Redis stopped and with a gateway Pod deleted under load, is `hack/gateway-shared-ratelimit/2026-11-21-run1/README.md`.
+
 `--metrics-bearer-token-file` makes `/metrics` on `:8081` demand `Authorization: Bearer <token>` read from that file, answering 401 with no metric bytes otherwise; unset, `/metrics` stays open as before, and the gateway refuses to start if the flag names a missing or empty file (`internal/gateway/metricsauth.go`).
 `/readyz` on the same port stays open either way, because the kubelet's readiness and liveness probes call it without credentials; `config/prometheus/gateway_podmonitor.yaml` sends no token, so an operator who sets the flag also adds an `authorization` block referencing a Secret with the same token.
 
 ## Deferred
 
-`/v1/embeddings` · distributed token bucket (Redis) · per-model limits · Open WebUI wiring · `platformctl` · ServiceMonitor.
+`/v1/embeddings` · Redis high availability for the shared bucket · sharing HoldCap and the prefix index across replicas · per-model limits · Open WebUI wiring · `platformctl` · ServiceMonitor.

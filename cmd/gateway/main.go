@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -132,7 +133,25 @@ func main() {
 
 		// holdLimits bounds what serial-prefill, HoldCap and fixed-spacing keep while requests wait; on by default.
 		holdLimits = gateway.DefaultHoldLimits
+
+		// rateLimit selects where tenants' buckets live; memory, the default, is the store this gateway always had.
+		rateLimit rateLimitFlags
 	)
+	flag.StringVar(&rateLimit.store, "rate-limit-store", rateLimitStoreMemory,
+		"where each tenant's token bucket lives: memory (this process; run one replica) or redis (shared by every replica). "+
+			"redis refuses --admission-mode other than off or kv-aware, and answers 503 for HoldCap and PrefixAffinity backends, "+
+			"because those keep their state in one process.")
+	flag.StringVar(&rateLimit.redis.Addr, "rate-limit-redis-addr", "",
+		"redis store: host:port of the Redis every replica shares. Required with --rate-limit-store=redis.")
+	flag.StringVar(&rateLimit.passwordFile, "rate-limit-redis-password-file", "",
+		"redis store: file holding the Redis password; empty sends none. A named file that is missing or empty stops the gateway.")
+	flag.StringVar(&rateLimit.redis.KeyPrefix, "rate-limit-redis-key-prefix", gateway.DefaultRedisKeyPrefix,
+		"redis store: prefix of every tenant's key; the tenant name follows it.")
+	flag.DurationVar(&rateLimit.redis.Timeout, "rate-limit-redis-timeout", gateway.DefaultRedisTimeout,
+		"redis store: bound on one call, dial included; a call past it is a Redis failure.")
+	flag.StringVar((*string)(&rateLimit.redis.FailurePolicy), "rate-limit-redis-failure-policy", string(gateway.RedisFailureLocal),
+		"redis store: what a request gets while Redis cannot answer: local (this replica's own bucket, up to N times the limit "+
+			"across N replicas) or closed (503 rate_limit_unavailable).")
 	flag.StringVar(&admissionModeFlag, "admission-mode", string(gateway.AdmissionOff),
 		"Admission control mode on the inference path: off, static-cap, kv-aware, prospective, serial-prefill, or fixed-spacing.")
 	flag.IntVar(&admissionProspectivePrefill, "admission-prospective-prefill-tokens", 0,
@@ -307,7 +326,17 @@ func main() {
 	// The package exposes one method and main merely states the intent to rate limit.
 	//
 	// Skipping this call would leave buckets nil while serving, so the gateway guards that case.
-	s.InitRateLimiter()
+	closeRateLimiter, err := installRateLimiter(s, rateLimit, admissionMode)
+	if err != nil {
+		log.Error(err, "configure the rate limit store", "store", rateLimit.store)
+		os.Exit(1)
+	}
+	// Closed after serve returns, because the drain still admits requests through it.
+	defer func() {
+		if err := closeRateLimiter(); err != nil {
+			log.Error(err, "close the rate limit store")
+		}
+	}()
 	// Install the admission-control implementation resolved from --admission-mode above.
 	//
 	// Why here rather than in the struct literal: SetAdmitter is exported for the same reason
@@ -425,6 +454,55 @@ func serve(ctx context.Context, api *http.Server, apiLn net.Listener,
 	// Stopping them first left the guard failing open over the whole drain.
 	stopAdmitter()
 	return nil
+}
+
+// The two values --rate-limit-store accepts.
+const (
+	rateLimitStoreMemory = "memory"
+	rateLimitStoreRedis  = "redis"
+)
+
+// rateLimitFlags is what --rate-limit-* parsed into.
+type rateLimitFlags struct {
+	store        string
+	passwordFile string
+	redis        gateway.RedisRateLimitConfig
+}
+
+// noopClose is the close function of a store that holds nothing to release.
+func noopClose() error { return nil }
+
+// installRateLimiter puts the store the flags name on s and returns the function that releases it.
+//
+// The shared store is refused with a holding admission mode before anything is built, because each replica would
+// keep its own budget or turn order, and the shared store is the declaration that there may be several.
+// An unknown store is refused rather than defaulted, for the same reason an unknown admission mode is: a typo must
+// stop the gateway, not quietly run the store that multiplies limits.
+func installRateLimiter(s *gateway.Server, f rateLimitFlags, mode gateway.AdmissionMode) (func() error, error) {
+	switch f.store {
+	case rateLimitStoreMemory:
+		s.InitRateLimiter()
+		return noopClose, nil
+	case rateLimitStoreRedis:
+		if err := gateway.CheckSharedStoreAdmission(mode); err != nil {
+			return nil, err
+		}
+		cfg := f.redis
+		if f.passwordFile != "" {
+			raw, err := os.ReadFile(f.passwordFile)
+			if err != nil {
+				return nil, fmt.Errorf("read --rate-limit-redis-password-file: %w", err)
+			}
+			cfg.Password = strings.TrimSpace(string(raw))
+			// An empty file would connect without a password and fail every call, which the local policy would hide.
+			if cfg.Password == "" {
+				return nil, fmt.Errorf("--rate-limit-redis-password-file %s is empty", f.passwordFile)
+			}
+		}
+		return s.InitSharedRateLimiter(cfg)
+	default:
+		return nil, fmt.Errorf("unknown --rate-limit-store %q: want memory or redis", f.store)
+	}
 }
 
 // envOr returns the environment value for key or def when unset.
