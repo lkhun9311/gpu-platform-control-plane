@@ -1,6 +1,8 @@
 baseline TestGatewayManifestIsTheSingleInstanceProfile: PASS
 baseline TestInstallRateLimiterRedisRefusesPerProcessAdmission: PASS
 baseline admits exactly the burst: PASS
+baseline bounds an EVALSHA and EVAL pair: PASS
+baseline does not refill the time before a policy edit: PASS
 baseline expires a tenant's key: PASS
 baseline falls back to a local bucket: PASS
 baseline gives up on a hung Redis: PASS
@@ -33,5 +35,7 @@ unavailable-as-429: KILLED
 startup-accepts-holding-modes: KILLED
 startup-accepts-kv-aware: KILLED
 evalsha-without-fallback: KILLED
+refill-gap-at-new-rate: KILLED
+no-context-timeout: KILLED
 manifest-rolling-update: KILLED
 manifest-two-replicas: KILLED

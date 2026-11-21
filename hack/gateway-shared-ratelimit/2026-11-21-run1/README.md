@@ -7,6 +7,7 @@ Files here: `log.txt` (full run log), `arms.tsv`, one `<arm>-<rep>.tsv` per arm 
 ## Setup
 
 - Tree `33b6a75`; its `cmd/` and `internal/` are `f951fa8`'s, and the log records 0 uncommitted files under them.
+- After this run, codex's review of `fb1de164` led to `b571833`: the script now refills the gap before a policy edit at the stored old policy, and one context deadline bounds the whole Redis call. Under the constant policy every arm here used, the first change does not alter what is admitted, and the second only bounds a slow Redis; neither was re-measured on kind. The unit tests and the mutations below ran at `b571833`.
 - A throwaway single-node kind cluster `gwshared` with its own kubeconfig in a temporary directory; `~/.kube/config` was not read or written (its checksum matched before and after), and the cluster was deleted at the end (`cluster gwshared deleted: yes` in the log).
 - The operator, the gateway and the stub backend (`benchharness stub-serve`) built from that tree; Redis `redis:7.4.7-alpine` (`sha256:02f2cc48…bfcf`, checked against the pulled image) as one Pod with no persistence.
 - One tenant, `rateLimit: {requestsPerMinute: 60, burst: 5}`: one token a second, a bucket of five.
@@ -66,9 +67,9 @@ Killed at 15.04 s; three ready endpoints again at 26.27 s, 11.2 s later.
 
 ## Mutations
 
-`mutate.py`, run in a detached worktree at `f951fa8`, writes each mutation into the tree, runs the one test that guards its property, and reverts.
+`mutate.py`, run in a detached worktree at `b571833`, writes each mutation into the tree, runs the one test that guards its property, and reverts.
 A build failure would be INVALID, not a kill, and every focused test first passed unmutated (`baseline` rows).
-All **21 of 21** were KILLED. `mutations.tsv` has each failed assertion, with the values it saw where Gomega printed them on the lines the harness keeps; the right column says what the failed assertion checks, and gives a value only where one was recorded.
+All **23 of 23** were KILLED. `mutations.tsv` has each failed assertion, with the values it saw where Gomega printed them on the lines the harness keeps; the right column says what the failed assertion checks, and gives a value only where one was recorded.
 
 | mutation | test that failed | failed assertion |
 |---|---|---|
@@ -76,6 +77,8 @@ All **21 of 21** were KILLED. `mutations.tsv` has each failed assertion, with th
 | read and write the bucket from Go, not one script | same | 600 admitted, want 100 |
 | refill 60x fast / no refill | refills at the policy's rate | the refusal and wait inside one refill period / "refused after the refill period had passed" |
 | key versioned by rate and burst | keeps spent tokens across a policy edit | a fresh burst after the edit |
+| refill the gap before an edit at the new rate | does not refill the time before a policy edit at the new rate | "the raised rate was applied to the 300 ms before the edit" |
+| `ContextTimeoutEnabled` off | bounds an EVALSHA and EVAL pair by one timeout | "two 70 ms round trips finished inside a 100 ms bound" |
 | key without the tenant | keeps tenants' buckets apart | `team:x` refused for `team`'s spending |
 | no expiry | expires a tenant's key | the key's TTL |
 | `closed` admits / `local` admits all / `local` refuses | the two failure-policy specs | "Expected an error, got nil" / the burst-then-refuse sequence / "Unexpected error" |
