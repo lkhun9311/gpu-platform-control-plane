@@ -8,16 +8,16 @@ rootdir: /src/vllm
 configfile: pyproject.toml
 plugins: anyio-4.16.0, asyncio-1.5.0
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collected 22 items
+collected 24 items
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py .FFF..F............s. [ 95%]
-.                                                                        [100%]
+tests/v1/kv_connector/unit/test_hf3fs_connector.py .FFF..F............s. [ 87%]
+...                                                                      [100%]
 
 =================================== FAILURES ===================================
 _________ TestHf3fsMockClient.test_batch_write_and_read_dtype[float32] _________
 
-self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f717f375850>
-tmp_path = PosixPath('/tmp/pytest-of-user/pytest-421/test_batch_write_and_read_dtyp0')
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f0b011c5c70>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-433/test_batch_write_and_read_dtyp0')
 dtype = torch.float32, bytes_per_page = 512
 
     @pytest.mark.parametrize(
@@ -48,13 +48,13 @@ E
 E         At index 0 diff: -1 != 512
 E         Use -v to get more diff
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py:100: AssertionError
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:105: AssertionError
 ------------------------------ Captured log call -------------------------------
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
 _________ TestHf3fsMockClient.test_batch_write_and_read_dtype[float16] _________
 
-self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f717f3759d0>
-tmp_path = PosixPath('/tmp/pytest-of-user/pytest-421/test_batch_write_and_read_dtyp1')
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f0b011c5df0>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-433/test_batch_write_and_read_dtyp1')
 dtype = torch.float16, bytes_per_page = 256
 
     @pytest.mark.parametrize(
@@ -85,13 +85,13 @@ E
 E         At index 0 diff: -1 != 256
 E         Use -v to get more diff
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py:100: AssertionError
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:105: AssertionError
 ------------------------------ Captured log call -------------------------------
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
 ________ TestHf3fsMockClient.test_batch_write_and_read_dtype[bfloat16] _________
 
-self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f717f375a60>
-tmp_path = PosixPath('/tmp/pytest-of-user/pytest-421/test_batch_write_and_read_dtyp2')
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f0b011c5e80>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-433/test_batch_write_and_read_dtyp2')
 dtype = torch.bfloat16, bytes_per_page = 256
 
     @pytest.mark.parametrize(
@@ -122,13 +122,13 @@ E
 E         At index 0 diff: -1 != 256
 E         Use -v to get more diff
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py:100: AssertionError
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:105: AssertionError
 ------------------------------ Captured log call -------------------------------
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
 _________________ TestHf3fsMockClient.test_multiple_tensors_rw _________________
 
-self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f717f375490>
-tmp_path = PosixPath('/tmp/pytest-of-user/pytest-421/test_multiple_tensors_rw0')
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7f0b011c60f0>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-433/test_multiple_tensors_rw0')
 
     def test_multiple_tensors_rw(self, tmp_path):
         """Write multiple tensors at different offsets, then read all back."""
@@ -151,9 +151,9 @@ tmp_path = PosixPath('/tmp/pytest-of-user/pytest-421/test_multiple_tensors_rw0')
         results = client.batch_write(offsets, tensors_write, event)
 >       assert all(r == bytes_per_page for r in results)
 E       assert False
-E        +  where False = all(<generator object TestHf3fsMockClient.test_multiple_tensors_rw.<locals>.<genexpr> at 0x7f717f7deb50>)
+E        +  where False = all(<generator object TestHf3fsMockClient.test_multiple_tensors_rw.<locals>.<genexpr> at 0x7f0b00f3fed0>)
 
-tests/v1/kv_connector/unit/test_hf3fs_connector.py:158: AssertionError
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:163: AssertionError
 ------------------------------ Captured log call -------------------------------
 ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
 =============================== warnings summary ===============================
@@ -179,7 +179,7 @@ WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accel
 WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
 WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
 ------------------------------ Captured log call -------------------------------
-ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:437 Blocks not found for Loaded request req-0
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:443 Blocks not found for Loaded request req-0
 ____ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises] _____
 ------------------------------ Captured log setup ------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
@@ -188,7 +188,7 @@ WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accel
 WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
 WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
 ------------------------------ Captured log call -------------------------------
-ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:437 Task execution error: metadata server unreachable for Loaded request req-0
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:443 Task execution error: metadata server unreachable for Loaded request req-0
 ______ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read] ______
 ------------------------------ Captured log setup ------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
@@ -197,19 +197,19 @@ WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accel
 WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
 WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
 ------------------------------ Captured log call -------------------------------
-ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:437 Read operation failed for Loaded request req-0
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:443 Read operation failed for Loaded request req-0
 __ TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail] __
 ------------------------------ Captured log setup ------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
 ----------------------------- Captured stderr call -----------------------------
-Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 4936.41it/s]
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 5770.21it/s]
 ------------------------------ Captured log call -------------------------------
 WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
 WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
 WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
 WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
 WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
-ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:437 Read operation failed for Loaded request id-1
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:443 Read operation failed for Loaded request id-1
 ERROR    vllm.v1.core.sched.scheduler:scheduler.py:3974 Failing 1 request(s) due to KV load failure (failure_policy=fail, 64 tokens affected). Request IDs: {'id-1'}
 _ TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[recompute] _
 ------------------------------ Captured log setup ------------------------------
@@ -220,8 +220,21 @@ WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accel
 WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
 WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
 WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
-ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:437 Read operation failed for Loaded request id-2
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:443 Read operation failed for Loaded request id-2
 WARNING  vllm.v1.core.sched.scheduler:scheduler.py:3983 Recovered from KV load failure: 1 request(s) rescheduled (64 tokens affected).
+___ TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_valid_prefix ___
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
+WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+WARNING  vllm.v1.core.sched.scheduler:scheduler.py:3983 Recovered from KV load failure: 1 request(s) rescheduled (32 tokens affected).
+_ TestHF3FSSchedulerLoadFailure.test_reused_blocks_do_not_mark_a_finished_load _
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
+WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
 =========================== short test summary info ============================
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_init_creates_file
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_read_empty_file_returns_error
@@ -240,9 +253,11 @@ PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[short_read]
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]
 PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]
-SKIPPED [1] tests/v1/kv_connector/unit/test_hf3fs_connector.py:423: a successful load scatters with a Triton kernel
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_valid_prefix
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load
+SKIPPED [1] tests/v1/kv_connector/unit/test_hf3fs_connector.py:428: a successful load scatters with a Triton kernel
 FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float32]
 FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float16]
 FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[bfloat16]
 FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw
-============= 4 failed, 17 passed, 1 skipped, 1 warning in 13.84s ==============
+============= 4 failed, 19 passed, 1 skipped, 1 warning in 15.09s ==============

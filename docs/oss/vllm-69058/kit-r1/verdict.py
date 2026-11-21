@@ -15,20 +15,25 @@ FILE = "tests/v1/kv_connector/unit/test_hf3fs_connector.py"
 CLASS = FILE + "::TestHF3FSLoadErrors::"
 SCHED = FILE + "::TestHF3FSSchedulerLoadFailure::"
 CUDA_TEST = CLASS + "test_failed_batch_reported_when_last_batch_succeeds"
-# The six tests that command (a) selects, all added by the diff.
+# This test passes on base by design: the scheduler already keeps the valid prefix when the worker reports a later batch's blocks.
+# It guards the fix against dropping that prefix, so it must pass on both sides.
+BASE_PASSES = SCHED + "test_failed_later_batch_keeps_valid_prefix"
+# The eight tests that command (a) selects, all added by the diff.
 EXPECTED_A = frozenset(
     [CLASS + "test_failed_load_reports_block_ids[" + p + "]" for p in ("missing_key", "lookup_raises", "short_read")]
     + [CUDA_TEST]
     + [SCHED + "test_failed_load_honors_failure_policy[" + p + "]" for p in ("fail", "recompute")]
+    + [BASE_PASSES, SCHED + "test_reused_blocks_do_not_mark_a_finished_load"]
 )
+BASE_FAILS = EXPECTED_A - {BASE_PASSES}
 SIDES = ("base", "fix")
 CMDS = ("a", "b")
 # What the fix claims, per side and command, as the set of tests that must fail.
 # Every other test the command ran must pass.
 EXPECTED_FAILED = {
-    ("base", "a"): EXPECTED_A,
+    ("base", "a"): BASE_FAILS,
     ("fix", "a"): frozenset(),
-    ("base", "b"): EXPECTED_A,
+    ("base", "b"): BASE_FAILS,
     ("fix", "b"): frozenset(),
 }
 
@@ -144,7 +149,7 @@ def check_run(side, cmd, run, rc):
         gaps.append(f"{name}: pytest exited {rc} with {failed} failed")
     ids = set(run["outcomes"])
     if cmd == "a" and ids != EXPECTED_A:
-        gaps.append(f"{name}: ran {sorted(ids)}, not the six tests the diff adds")
+        gaps.append(f"{name}: ran {sorted(ids)}, not the eight tests the diff adds")
     if cmd == "b" and not EXPECTED_A <= ids:
         gaps.append(f"{name}: the whole file lacks {sorted(EXPECTED_A - ids)}")
     return gaps
@@ -190,7 +195,8 @@ def judge(out):
             gaps.append(f"{cmd}: base and fix ran different tests")
     cuda = {side: (runs[(side, "a")] or {"outcomes": {}})["outcomes"].get(CUDA_TEST, "missing") for side in SIDES}
     rec["cuda_only_test"] = cuda
-    # A test outside the diff's six that the fix changes is a finding of its own, named even when other gaps leave the verdict open.
+    rec["base_passes_test"] = {side: (runs[(side, "a")] or {"outcomes": {}})["outcomes"].get(BASE_PASSES, "missing") for side in SIDES}
+    # A test outside the diff's eight that the fix changes is a finding of its own, named even when other gaps leave the verdict open.
     rec["findings"] = findings = []
     b, f = runs[("base", "b")], runs[("fix", "b")]
     if b is not None and f is not None:
@@ -210,7 +216,7 @@ def judge(out):
                 rec["deviations"].append(f"{side}-{cmd}: failed but expected to pass: {extra}")
             if lacking:
                 rec["deviations"].append(f"{side}-{cmd}: passed but expected to fail: {lacking}")
-    # A decided finding always has one side failing a test outside the six, which is also a deviation.
+    # A decided finding always has one side failing a test outside the eight, which is also a deviation.
     # The findings are tested here anyway, so the verdict does not depend on that overlap holding.
     rec["verdict"] = "NOT AS EXPECTED" if rec["deviations"] or findings else "AS EXPECTED"
     return rec
@@ -223,6 +229,8 @@ def render(rec):
     lines.append(f"gpu: {env.get('device_name')} torch: {env.get('torch')} cuda: {env.get('torch_cuda')} triton: {env.get('triton')}")
     c = rec["cuda_only_test"]
     lines.append(f"CUDA-only test {CUDA_TEST.rsplit('::', 1)[1]}: base {c['base']}, fix {c['fix']}")
+    p = rec["base_passes_test"]
+    lines.append(f"base-passes-by-design test {BASE_PASSES.rsplit('::', 1)[1]}: base {p['base']}, fix {p['fix']}")
     for name, r in rec["runs"].items():
         lines.append(f"{name} (exit {r['exit']}): {r['summary']}")
         for header, asserts in r["assertions"].items():
@@ -232,7 +240,7 @@ def render(rec):
     for d in rec["deviations"]:
         lines.append(f"DEVIATION: {d}")
     for x in rec["findings"]:
-        lines.append(f"FINDING outside the six: {x}")
+        lines.append(f"FINDING outside the eight: {x}")
     lines.append(f"VERDICT: {rec['verdict']}")
     return lines
 

@@ -42,11 +42,15 @@ NEW = (
     [f"TestHF3FSLoadErrors::test_failed_load_reports_block_ids[{p}]" for p in ("missing_key", "lookup_raises", "short_read")]
     + [CUDA]
     + [f"TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[{p}]" for p in ("fail", "recompute")]
+    + ["TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_valid_prefix", "TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load"]
 )
+# This new test passes on base by design, as it does in the CPU run at the base commit.
+BASE_PASSES = "TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_valid_prefix"
 # The assertion lines the CPU run at the base commit printed for each new test that fails there.
 ASSERT = {
     "TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]": "E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11>",
     "TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]": "E       AssertionError: assert {'id-2': 1} == {'id-2': 65}",
+    "TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load": "E       assert (64, True) == (0, False)",
 }
 OUTSIDE = "TestHf3fsMockClient::test_multiple_tensors_rw"
 
@@ -72,7 +76,7 @@ if mode == "nosummary":
 outcome = {}
 for t in tests:
     if t in NEW:
-        outcome[t] = "PASSED" if fixed else "FAILED"
+        outcome[t] = "PASSED" if fixed or t == BASE_PASSES else "FAILED"
     else:
         outcome[t] = "PASSED"
 if CUDA in outcome:

@@ -7,7 +7,8 @@
 #   (b) pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -rA
 # each run once on base and once on base plus the diff, with the identical command.
 # The tests are part of the diff, so "base" is the base commit with only the diff's tests/ part applied, and "fix" is the whole diff.
-# The expectation is that the six tests (a) selects fail on base and pass with the fix.
+# The expectation is that of the eight tests (a) selects, seven fail on base and all eight pass with the fix.
+# test_failed_later_batch_keeps_valid_prefix passes on base by design, and it must pass on both sides.
 # One of them, test_failed_batch_reported_when_last_batch_succeeds, is skipped without CUDA and has never run on a GPU.
 # In the whole file every other test must pass on both sides, and one whose outcome the fix changes is reported as a finding.
 # A skip, an error, a missing summary or a run without CUDA makes the verdict INCOMPLETE, never a pass.
@@ -27,8 +28,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${OUT:-$HERE/results}
 VLLM_SHA=2f170a0fed20fd84dfcf6da2a3a8188a32f67e4e
 DIFF="$HERE/local-fix.diff"
-# The sha256 of local-fix.diff at storage commit 0f0ecadc, the draft with the recompute guard that the runtime session re-pinned.
-DIFF_SHA256=6a5ad525fa1f7192a3030d4b87dcf6a3e1d59229b1f164e9004f2dec8392974c
+# The sha256 of local-fix.diff at storage commit ae797934, the runtime session's round-3 draft.
+DIFF_SHA256=a2974753be64eba77d4b46953e3c3f29191a8faf362a046714027bf4956b1c1d
 VLLM_REPO=https://github.com/vllm-project/vllm.git
 BUDGET_S=${BUDGET_S:-1500}
 BUDGET_MAX_S=1500
@@ -152,7 +153,7 @@ side() {
   ! git -C vllm diff --quiet HEAD -- "$TEST_FILE" || stop "the $1 side lacks the diff's tests"
   { git -C vllm status --short --untracked-files=no; ( cd vllm && sha256sum "$TEST_FILE" "$CONNECTOR" "$COMMON" ); git -C vllm diff --stat HEAD; } > "$OUT/tree-$1.txt" 2>&1
 }
-# Command (a) runs on both sides before (b), so a run the budget cuts short still has the six tests on both.
+# Command (a) runs on both sides before (b), so a run the budget cuts short still has the eight tests on both.
 for cmd in a b; do
   for s in base fix; do
     side "$s"

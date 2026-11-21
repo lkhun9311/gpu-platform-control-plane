@@ -17,10 +17,10 @@ FAKES="$ROOT/hack/vllm-69058-fake"
 CHECK="$ROOT/hack/vllm-69058-kit-check.py"
 SRC="${VLLM_SRC:-$HOME/workspace/oss/vllm}"
 VLLM_SHA=2f170a0fed20fd84dfcf6da2a3a8188a32f67e4e
-DIFF_SHA256=6a5ad525fa1f7192a3030d4b87dcf6a3e1d59229b1f164e9004f2dec8392974c
-# The runtime session re-pinned the diff at storage commit 0f0ecadc, so the comparison reads that commit, not the file as it is now.
+DIFF_SHA256=a2974753be64eba77d4b46953e3c3f29191a8faf362a046714027bf4956b1c1d
+# The runtime session re-pinned the diff at storage commit ae797934, its round-3 draft, so the comparison reads that commit, not the file as it is now.
 STORAGE="$HOME/workspace/storage"
-STORAGE_REF=0f0ecadc:open-source/contributions/vllm/hf3fs-load-errors-69058/local-fix.diff
+STORAGE_REF=ae797934:open-source/contributions/vllm/hf3fs-load-errors-69058/local-fix.diff
 # Scratch space lives on disk, since /tmp is RAM-backed on the development machine.
 SCRATCH="${SCRATCH:-$HOME/.cache/vllm-69058}"
 mkdir -p "$SCRATCH" || exit 1
@@ -154,7 +154,7 @@ check "pass: the CUDA-only test line says base FAILED, fix PASSED" \
 check "pass: the verdict keeps each summary line with its time and the failing assertion lines" \
   "command grep -qE '^base-a \(exit 1\): =+ 6 failed, 16 deselected, 1 warning in [0-9.]+s =+$' '$WORK/e2e-pass/out/verdict.txt' && command grep -qF 'E       assert set() == {3, 5}' '$WORK/e2e-pass/out/verdict.txt' \
    && command grep -qF 'FINISHED_ERROR' '$WORK/e2e-pass/out/verdict.txt' && command grep -qE '^fix-b \(exit 0\): =+ 22 passed' '$WORK/e2e-pass/out/verdict.txt'"
-check "pass: no finding outside the six" "! command grep -q '^FINDING' '$WORK/e2e-pass/out/verdict.txt'"
+check "pass: no finding outside the eight" "! command grep -q '^FINDING' '$WORK/e2e-pass/out/verdict.txt'"
 check "pass: the records hold the GPU, the versions, the checkout SHA and the diff's sha256" \
   "command grep -q 'A10G' '$WORK/e2e-pass/out/gpu.txt' && command grep -qx 'vllm_head=$VLLM_SHA' '$WORK/e2e-pass/out/versions.txt' \
    && command grep -qx 'diff_sha256=$DIFF_SHA256' '$WORK/e2e-pass/out/versions.txt' && command grep -q '\"torch\"' '$WORK/e2e-pass/out/versions.txt'"
@@ -175,7 +175,7 @@ e2e "$KIT" error FAKE_MODE=error; rc=$?
 check "error: a setup error with the fix is INCOMPLETE, exit 3" "[ $rc = 3 ] && v error INCOMPLETE"
 e2e "$KIT" outside FAKE_MODE=outside; rc=$?
 check "finding: an older test that only base fails is named as a FINDING and the kit exits 2, not AS EXPECTED" \
-  "[ $rc = 2 ] && v outside 'NOT AS EXPECTED' && command grep -qx 'FINDING outside the six: tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw: base FAILED, fix PASSED' '$WORK/e2e-outside/out/verdict.txt'"
+  "[ $rc = 2 ] && v outside 'NOT AS EXPECTED' && command grep -qx 'FINDING outside the eight: tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw: base FAILED, fix PASSED' '$WORK/e2e-outside/out/verdict.txt'"
 e2e "$KIT" nocuda FAKE_CUDA=0; rc=$?
 check "no CUDA: torch seeing no GPU is INCOMPLETE, exit 3" "[ $rc = 3 ] && v nocuda INCOMPLETE"
 
@@ -249,8 +249,8 @@ does not require the fix to pass (b)|s/^    ("fix", "b"): frozenset(),$/    ("fi
 reports every decided run AS EXPECTED|s/^    rec\["verdict"\] = "NOT AS EXPECTED" if rec\["deviations"\] or findings else "AS EXPECTED"$/    rec["verdict"] = "AS EXPECTED"/
 drops headers padded with fewer than three underscores|s/^HEADER_RE = re.compile(r"^_+ /HEADER_RE = re.compile(r"^_{3,} /
 reads a frame separator as a header|s/^HEADER_RE = re.compile(r"^_+ (\[^_\\s\]/HEADER_RE = re.compile(r"^_+ (\\S/
-hides a base and fix difference outside the six|s/^            if ob != of:$/            if False:/
-counts the six as findings|s/^        for t in sorted((set(b\["outcomes"\]) | set(f\["outcomes"\])) - EXPECTED_A):$/        for t in sorted(set(b["outcomes"]) | set(f["outcomes"])):/
+hides a base and fix difference outside the eight|s/^            if ob != of:$/            if False:/
+counts the eight as findings|s/^        for t in sorted((set(b\["outcomes"\]) | set(f\["outcomes"\])) - EXPECTED_A):$/        for t in sorted(set(b["outcomes"]) | set(f["outcomes"])):/
 exits 0 on INCOMPLETE|s/{"AS EXPECTED": 0, "NOT AS EXPECTED": 2}.get(rec\["verdict"\], 3)/{"AS EXPECTED": 0, "NOT AS EXPECTED": 2}.get(rec["verdict"], 0)/
 MUTANTS
 
