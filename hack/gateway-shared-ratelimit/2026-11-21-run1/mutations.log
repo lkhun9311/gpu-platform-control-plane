@@ -1,3 +1,4 @@
+baseline TestGatewayManifestIsTheSingleInstanceProfile: PASS
 baseline TestInstallRateLimiterRedisRefusesPerProcessAdmission: PASS
 baseline admits exactly the burst: PASS
 baseline expires a tenant's key: PASS
@@ -11,6 +12,7 @@ baseline refuses PrefixAffinity: PASS
 baseline refuses a HoldCap backend: PASS
 baseline refuses under the closed policy: PASS
 baseline returns to the shared bucket: PASS
+baseline script cache is flushed: PASS
 baseline stops calling a failed Redis: PASS
 per-replica-key: KILLED
 non-atomic-read-modify-write: KILLED
@@ -29,3 +31,7 @@ holdcap-allowed: KILLED
 prefix-affinity-allowed: KILLED
 unavailable-as-429: KILLED
 startup-accepts-holding-modes: KILLED
+startup-accepts-kv-aware: KILLED
+evalsha-without-fallback: KILLED
+manifest-rolling-update: KILLED
+manifest-two-replicas: KILLED

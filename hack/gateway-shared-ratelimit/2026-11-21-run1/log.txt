@@ -1,77 +1,73 @@
-mkdir -p "/home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/gateway-shared-ratelimit/bin"
-Downloading sigs.k8s.io/kustomize/kustomize/v5@v5.8.1
-commit de6152d75281ee3173b600f1f74657c608297cc2, dirty files under cmd/ internal/: 0
-kubeconfig /tmp/tmp.ZmK4dnzfFX/kubeconfig (private to this run)
+commit 33b6a759a644126ffbd7219e8a4ba2eac25569c7, dirty files under cmd/ internal/: 0
+kubeconfig /tmp/tmp.uM9jil7KIw/kubeconfig (private to this run)
 == build
 + make docker-build IMG=controller:gwshared
 docker build -t controller:gwshared .
 #0 building with "default" instance using docker driver
 
 #1 [internal] load build definition from Dockerfile
+#1 DONE 0.0s
+
+#1 [internal] load build definition from Dockerfile
 #1 transferring dockerfile: 1.61kB done
 #1 DONE 0.0s
 
 #2 [internal] load metadata for docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
-#2 ...
+#2 DONE 0.0s
 
 #3 [internal] load metadata for gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
-#3 DONE 0.4s
-
-#2 [internal] load metadata for docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
-#2 DONE 1.8s
+#3 DONE 0.0s
 
 #4 [internal] load .dockerignore
 #4 transferring context: 643B done
 #4 DONE 0.0s
 
-#5 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
-#5 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
+#5 [internal] load build context
 #5 DONE 0.0s
 
-#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
-#6 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
-#6 ...
+#6 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#6 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
+#6 DONE 0.0s
 
-#7 [internal] load build context
-#7 transferring context: 3.60MB 0.0s done
-#7 DONE 0.1s
+#7 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#7 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
+#7 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 11.90kB done
+#5 DONE 0.0s
 
 #8 [builder 2/7] WORKDIR /workspace
 #8 CACHED
 
-#9 [builder 3/7] COPY go.mod go.mod
-#9 DONE 0.1s
+#9 [builder 4/7] COPY go.sum go.sum
+#9 CACHED
 
-#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
-#6 DONE 0.3s
+#10 [builder 6/7] COPY . .
+#10 CACHED
 
-#10 [builder 4/7] COPY go.sum go.sum
-#10 DONE 0.1s
+#11 [builder 3/7] COPY go.mod go.mod
+#11 CACHED
 
-#11 [builder 5/7] RUN go mod download
-#11 DONE 22.7s
-
-#12 [builder 6/7] COPY . .
-#12 DONE 0.2s
+#12 [builder 5/7] RUN go mod download
+#12 CACHED
 
 #13 [builder 7/7] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go
-#13 DONE 14.2s
+#13 CACHED
 
 #14 [stage-1 2/3] COPY --from=builder /workspace/manager .
-#14 DONE 0.1s
+#14 CACHED
 
 #15 exporting to image
-#15 exporting layers
-#15 exporting layers 1.5s done
-#15 exporting manifest sha256:93a531e79a81505580ad71f4312337919ebe724f169541bfe292a241c4d8003d 0.0s done
-#15 exporting config sha256:df10622f60ef7361a71ca33fd41e178d2c6dd83542a86336a956343130483eeb 0.0s done
-#15 exporting attestation manifest sha256:71e6c3fce31e284ee1bf5ef0145ad6a9d05dda5bb921f74b1e53323dcaeef273 0.1s done
-#15 exporting manifest list sha256:e54eeb72c8ae2090790c625c55080b8831d3dd2fc4947744660f22b6ebe5b69c
-#15 exporting manifest list sha256:e54eeb72c8ae2090790c625c55080b8831d3dd2fc4947744660f22b6ebe5b69c 0.0s done
+#15 exporting layers done
+#15 exporting manifest sha256:93a531e79a81505580ad71f4312337919ebe724f169541bfe292a241c4d8003d done
+#15 exporting config sha256:df10622f60ef7361a71ca33fd41e178d2c6dd83542a86336a956343130483eeb done
+#15 exporting attestation manifest sha256:b7ee244070697c80e5fe632888c46396bc53e6af2c363923a84146e58e44736e 0.1s done
+#15 exporting manifest list sha256:1ed059f4a86595584805c4b93c77ee054211543146b83c9e9513c1ad0c743899
+#15 exporting manifest list sha256:1ed059f4a86595584805c4b93c77ee054211543146b83c9e9513c1ad0c743899 0.0s done
 #15 naming to docker.io/library/controller:gwshared done
-#15 unpacking to docker.io/library/controller:gwshared
-#15 unpacking to docker.io/library/controller:gwshared 0.2s done
-#15 DONE 1.8s
+#15 unpacking to docker.io/library/controller:gwshared done
+#15 DONE 0.1s
 + make docker-build-gateway GATEWAY_IMG=gateway:gwshared
 docker build -t gateway:gwshared -f Dockerfile.gateway .
 #0 building with "default" instance using docker driver
@@ -93,29 +89,25 @@ docker build -t gateway:gwshared -f Dockerfile.gateway .
 #5 [internal] load build context
 #5 DONE 0.0s
 
-#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
-#6 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
+#6 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#6 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
 #6 DONE 0.0s
 
-#7 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
-#7 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
-#7 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
+#7 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#7 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
 #7 DONE 0.0s
-
-#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
-#6 CACHED
 
 #5 [internal] load build context
 #5 transferring context: 11.90kB done
 #5 DONE 0.0s
 
-#8 [builder 2/7] WORKDIR /workspace
+#8 [builder 4/7] COPY go.sum go.sum
 #8 CACHED
 
 #9 [builder 3/7] COPY go.mod go.mod
 #9 CACHED
 
-#10 [builder 4/7] COPY go.sum go.sum
+#10 [builder 2/7] WORKDIR /workspace
 #10 CACHED
 
 #11 [builder 5/7] RUN go mod download
@@ -125,6 +117,474 @@ docker build -t gateway:gwshared -f Dockerfile.gateway .
 #12 CACHED
 
 #13 [builder 7/7] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o gateway cmd/gateway/main.go
-#13 CANCELED
-ERROR: failed to build: failed to solve: Canceled: context canceled
-make: *** [Makefile:170: docker-build-gateway] Error 130
+#13 CACHED
+
+#14 [stage-1 2/3] COPY --from=builder /workspace/gateway .
+#14 CACHED
+
+#15 exporting to image
+#15 exporting layers done
+#15 exporting manifest sha256:dccc73b1fbd4cb1d4cddb456a65b3bc9d74c5880122d43ecdf13ab11271ae153 done
+#15 exporting config sha256:9301e294a2eb6e2a1b4716a8325c5b3c23dff0a1382266677f2104055d59f9ce done
+#15 exporting attestation manifest sha256:821c99ed1ae4591a580204c7d47bb09c7faea0bd707eeb5d17d7def5e7da028d 0.1s done
+#15 exporting manifest list sha256:312fe417896451c55d73ad1d17ac9fbe052d1729f1812389729343cccbcbdc3d
+#15 exporting manifest list sha256:312fe417896451c55d73ad1d17ac9fbe052d1729f1812389729343cccbcbdc3d 0.0s done
+#15 naming to docker.io/library/gateway:gwshared done
+#15 unpacking to docker.io/library/gateway:gwshared done
+#15 DONE 0.1s
++ make docker-build-benchharness BENCHHARNESS_IMG=benchharness:gwshared
+docker build -t benchharness:gwshared -f Dockerfile.benchharness .
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.benchharness
+#1 transferring dockerfile: 1.87kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 643B done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 DONE 0.0s
+
+#6 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#6 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#7 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
+#7 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 11.90kB done
+#5 DONE 0.0s
+
+#8 [builder 5/7] RUN go mod download
+#8 CACHED
+
+#9 [builder 6/7] COPY . .
+#9 CACHED
+
+#10 [builder 3/7] COPY go.mod go.mod
+#10 CACHED
+
+#11 [builder 7/7] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o benchharness ./cmd/benchharness
+#11 CACHED
+
+#12 [builder 4/7] COPY go.sum go.sum
+#12 CACHED
+
+#13 [builder 2/7] WORKDIR /workspace
+#13 CACHED
+
+#14 [stage-1 2/3] COPY --from=builder /workspace/benchharness .
+#14 CACHED
+
+#15 exporting to image
+#15 exporting layers done
+#15 exporting manifest sha256:c39b695a05c6729fd3987cdff0cc32bea91ba9a689d8e03e9e8f844eeea115da done
+#15 exporting config sha256:a1bee77bfb88906a9e21fc919618e8ce117ecc531b4df8e2dbb4def79cf99eb7 done
+#15 exporting attestation manifest sha256:d70e9eaf0b1198901beda8951d8c462500e9efdc9da1e401ca0039ec400a86ee 0.1s done
+#15 exporting manifest list sha256:baaa238221904873d1a3116dc7b6e1f97d7a322ee15be24ad4b91d6836a11b21
+#15 exporting manifest list sha256:baaa238221904873d1a3116dc7b6e1f97d7a322ee15be24ad4b91d6836a11b21 0.0s done
+#15 naming to docker.io/library/benchharness:gwshared done
+#15 unpacking to docker.io/library/benchharness:gwshared done
+#15 DONE 0.1s
++ docker pull redis:7.4.7-alpine
+7.4.7-alpine: Pulling from library/redis
+Digest: sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1bfcf
+Status: Image is up to date for redis:7.4.7-alpine
+docker.io/library/redis:7.4.7-alpine
+== cluster gwshared
++ kind create cluster --name gwshared --kubeconfig /tmp/tmp.uM9jil7KIw/kubeconfig --config /tmp/tmp.uM9jil7KIw/kind.yaml
+Creating cluster "gwshared" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+Set kubectl context to "kind-gwshared"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-gwshared --kubeconfig /tmp/tmp.uM9jil7KIw/kubeconfig
+
+Have a nice day! 👋
++ kind load docker-image controller:gwshared --name gwshared
+Image: "controller:gwshared" with ID "sha256:1ed059f4a86595584805c4b93c77ee054211543146b83c9e9513c1ad0c743899" not yet present on node "gwshared-control-plane", loading...
++ kind load docker-image gateway:gwshared --name gwshared
+Image: "gateway:gwshared" with ID "sha256:312fe417896451c55d73ad1d17ac9fbe052d1729f1812389729343cccbcbdc3d" not yet present on node "gwshared-control-plane", loading...
++ kind load docker-image benchharness:gwshared --name gwshared
+Image: "benchharness:gwshared" with ID "sha256:baaa238221904873d1a3116dc7b6e1f97d7a322ee15be24ad4b91d6836a11b21" not yet present on node "gwshared-control-plane", loading...
++ docker save --platform linux/amd64 -o /tmp/tmp.uM9jil7KIw/redis.tar redis:7.4.7-alpine
++ kind load image-archive /tmp/tmp.uM9jil7KIw/redis.tar --name gwshared
+== kueue, CRDs, operator, gateway, redis
++ k apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
++ k -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s
+deployment.apps/kueue-controller-manager condition met
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+namespace/gpu-platform-control-plane-system created
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager serverside-applied
++ k -n gpu-platform-control-plane-system set image deployment.apps/gpu-platform-control-plane-controller-manager *=controller:gwshared
+deployment.apps/gpu-platform-control-plane-controller-manager image updated
++ k -n gpu-platform-control-plane-system rollout status deployment.apps/gpu-platform-control-plane-controller-manager --timeout=180s
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+serviceaccount/gateway serverside-applied
+role.rbac.authorization.k8s.io/gateway-secret-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gateway-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gateway-secret-reader-binding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gateway-rolebinding serverside-applied
+service/gateway serverside-applied
+deployment.apps/gateway serverside-applied
+secret/gateway-api-keys created
++ k -n gpu-platform-control-plane-system set image deploy/gateway gateway=gateway:gwshared
+deployment.apps/gateway image updated
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 1 updated replicas are available...
+deployment "gateway" successfully rolled out
+deployment.apps/redis created
+service/redis created
++ k -n gpu-platform-control-plane-system rollout status deploy/redis --timeout=120s
+Waiting for deployment "redis" rollout to finish: 0 of 1 updated replicas are available...
+deployment "redis" successfully rolled out
+== tenant policy and stub backend
+namespace/serving created
+gpuquotapolicy.platform.lkhun9311.github.io/tenant-a-quota created
+inferencedeployment.platform.lkhun9311.github.io/stub created
+service/gateway-gwshared created
+service/stub-gwshared created
++ k -n serving rollout status deploy/stub --timeout=180s
+Waiting for deployment "stub" rollout to finish: 0 of 1 updated replicas are available...
+deployment "stub" successfully rolled out
+smoke 200
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=memory"]},{"op":"replace","path":"/spec/replicas","value":1}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 1 updated replicas are available...
+deployment "gateway" successfully rolled out
+memory-1 rep 1: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 events=[ ] pods before [gateway-f765495c9-lzbl5:ok=0,degraded=0,redis_errors=0 ] after [gateway-f765495c9-lzbl5:ok=34,degraded=0,redis_errors=0 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=memory"]},{"op":"replace","path":"/spec/replicas","value":3}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 2 of 3 updated replicas are available...
+deployment "gateway" successfully rolled out
+memory-3 rep 1: sent=300 ok=102 limited=198 transport_errors=0 other=0 stub=102 events=[ ] pods before [gateway-f765495c9-ktdd4:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-lzbl5:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-r9fkd:ok=0,degraded=0,redis_errors=0 ] after [gateway-f765495c9-ktdd4:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-lzbl5:ok=68,degraded=0,redis_errors=0 gateway-f765495c9-r9fkd:ok=34,degraded=0,redis_errors=0 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=redis","--rate-limit-redis-addr=redis.gpu-platform-control-plane-system.svc.cluster.local:6379","--rate-limit-redis-failure-policy=local"]},{"op":"replace","path":"/spec/replicas","value":3}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 2 of 3 updated replicas are available...
+deployment "gateway" successfully rolled out
+redis-3 rep 1: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 events=[ ] pods before [gateway-5d8cf7d4b8-79frm:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hmhgr:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-r8kkt:ok=0,degraded=0,redis_errors=0 ] after [gateway-5d8cf7d4b8-79frm:ok=7,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hmhgr:ok=16,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-r8kkt:ok=11,degraded=0,redis_errors=0 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=memory"]},{"op":"replace","path":"/spec/replicas","value":1}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment spec update to be observed...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 1 updated replicas are available...
+deployment "gateway" successfully rolled out
+memory-1 rep 2: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 events=[ ] pods before [gateway-f765495c9-9hkmv:ok=0,degraded=0,redis_errors=0 ] after [gateway-f765495c9-9hkmv:ok=34,degraded=0,redis_errors=0 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=memory"]},{"op":"replace","path":"/spec/replicas","value":3}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 2 of 3 updated replicas are available...
+deployment "gateway" successfully rolled out
+memory-3 rep 2: sent=300 ok=102 limited=198 transport_errors=0 other=0 stub=102 events=[ ] pods before [gateway-f765495c9-56gzf:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-92lzg:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-9hkmv:ok=34,degraded=0,redis_errors=0 ] after [gateway-f765495c9-56gzf:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-92lzg:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-9hkmv:ok=68,degraded=0,redis_errors=0 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=redis","--rate-limit-redis-addr=redis.gpu-platform-control-plane-system.svc.cluster.local:6379","--rate-limit-redis-failure-policy=local"]},{"op":"replace","path":"/spec/replicas","value":3}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment spec update to be observed...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 2 of 3 updated replicas are available...
+deployment "gateway" successfully rolled out
+redis-3 rep 2: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 events=[ ] pods before [gateway-5d8cf7d4b8-7nk6l:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-96dnl:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-gqw4p:ok=0,degraded=0,redis_errors=0 ] after [gateway-5d8cf7d4b8-7nk6l:ok=13,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-96dnl:ok=12,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-gqw4p:ok=9,degraded=0,redis_errors=0 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=memory"]},{"op":"replace","path":"/spec/replicas","value":1}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment spec update to be observed...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 1 updated replicas are available...
+deployment "gateway" successfully rolled out
+memory-1 rep 3: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 events=[ ] pods before [gateway-f765495c9-ttl7t:ok=0,degraded=0,redis_errors=0 ] after [gateway-f765495c9-ttl7t:ok=34,degraded=0,redis_errors=0 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=memory"]},{"op":"replace","path":"/spec/replicas","value":3}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 2 of 3 updated replicas are available...
+deployment "gateway" successfully rolled out
+memory-3 rep 3: sent=300 ok=102 limited=198 transport_errors=0 other=0 stub=102 events=[ ] pods before [gateway-f765495c9-ms2rz:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-nhl4l:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-ttl7t:ok=34,degraded=0,redis_errors=0 ] after [gateway-f765495c9-ms2rz:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-nhl4l:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-ttl7t:ok=68,degraded=0,redis_errors=0 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=redis","--rate-limit-redis-addr=redis.gpu-platform-control-plane-system.svc.cluster.local:6379","--rate-limit-redis-failure-policy=local"]},{"op":"replace","path":"/spec/replicas","value":3}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment spec update to be observed...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 2 of 3 updated replicas are available...
+deployment "gateway" successfully rolled out
+redis-3 rep 3: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 events=[ ] pods before [gateway-5d8cf7d4b8-4mrqj:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-7wb7c:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hrb52:ok=0,degraded=0,redis_errors=0 ] after [gateway-5d8cf7d4b8-4mrqj:ok=12,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-7wb7c:ok=11,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hrb52:ok=11,degraded=0,redis_errors=0 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=redis","--rate-limit-redis-addr=redis.gpu-platform-control-plane-system.svc.cluster.local:6379","--rate-limit-redis-failure-policy=local"]},{"op":"replace","path":"/spec/replicas","value":3}]
+deployment.apps/gateway patched (no change)
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+deployment "gateway" successfully rolled out
++ k -n gpu-platform-control-plane-system scale deploy/redis --replicas=0
+deployment.apps/redis scaled
++ k -n gpu-platform-control-plane-system scale deploy/redis --replicas=1
+deployment.apps/redis scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/redis --timeout=60s
+Waiting for deployment "redis" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "redis" rollout to finish: 0 of 1 updated replicas are available...
+deployment "redis" successfully rolled out
+redis-3-down-local rep 1: sent=300 ok=75 limited=225 transport_errors=0 other=0 stub=75 events=[10.008 20.628] pods before [gateway-5d8cf7d4b8-4mrqj:ok=12,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-7wb7c:ok=11,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hrb52:ok=11,degraded=0,redis_errors=0 ] after [gateway-5d8cf7d4b8-4mrqj:ok=35,degraded=41,redis_errors=10 gateway-5d8cf7d4b8-7wb7c:ok=36,degraded=39,redis_errors=9 gateway-5d8cf7d4b8-hrb52:ok=38,degraded=38,redis_errors=9 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=redis","--rate-limit-redis-addr=redis.gpu-platform-control-plane-system.svc.cluster.local:6379","--rate-limit-redis-failure-policy=closed"]},{"op":"replace","path":"/spec/replicas","value":3}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 2 of 3 updated replicas are available...
+deployment "gateway" successfully rolled out
++ k -n gpu-platform-control-plane-system scale deploy/redis --replicas=0
+deployment.apps/redis scaled
++ k -n gpu-platform-control-plane-system scale deploy/redis --replicas=1
+deployment.apps/redis scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/redis --timeout=60s
+Waiting for deployment "redis" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "redis" rollout to finish: 0 of 1 updated replicas are available...
+deployment "redis" successfully rolled out
+redis-3-down-closed rep 1: sent=300 ok=27 limited=153 transport_errors=0 other=120 stub=27 events=[10.009 20.661] pods before [gateway-694b976dbf-54dtz:ok=0,degraded=0,redis_errors=0 gateway-694b976dbf-fhv22:ok=0,degraded=0,redis_errors=0 gateway-694b976dbf-jn68x:ok=0,degraded=0,redis_errors=0 ] after [gateway-694b976dbf-54dtz:ok=7,degraded=32,redis_errors=9 gateway-694b976dbf-fhv22:ok=12,degraded=41,redis_errors=9 gateway-694b976dbf-jn68x:ok=8,degraded=47,redis_errors=10 ]
++ k -n gpu-platform-control-plane-system patch deploy gateway --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args","value":["--rate-limit-store=redis","--rate-limit-redis-addr=redis.gpu-platform-control-plane-system.svc.cluster.local:6379","--rate-limit-redis-failure-policy=local"]},{"op":"replace","path":"/spec/replicas","value":3}]
+deployment.apps/gateway patched
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment spec update to be observed...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "gateway" rollout to finish: 2 of 3 updated replicas are available...
+deployment "gateway" successfully rolled out
++ k -n gpu-platform-control-plane-system delete pod/gateway-5d8cf7d4b8-6vfvr --grace-period=0 --force
+Warning: Immediate deletion does not wait for confirmation that the running resource has been terminated. The resource may continue to run on the cluster indefinitely.
+pod "gateway-5d8cf7d4b8-6vfvr" force deleted from gpu-platform-control-plane-system namespace
+killed pod/gateway-5d8cf7d4b8-6vfvr at 15.037s; three ready endpoints again at 26.267s
+redis-3-podkill rep 1: sent=300 ok=34 limited=265 transport_errors=1 other=0 stub=34 events=[15.037 26.267] pods before [gateway-5d8cf7d4b8-6vfvr:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-phg7d:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-w8224:ok=0,degraded=0,redis_errors=0 ] after [gateway-5d8cf7d4b8-phg7d:ok=14,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-rghw4:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-w8224:ok=15,degraded=0,redis_errors=0 ]
+== score
+arm	rep	replicas	store	sent	ok	429	503	transport	other	T_s	bound	ok/bound	stub
+memory-1	1	1	memory	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-3	1	3	memory	300	102	198	0	0	0	29.90	34.90	2.92	102
+redis-3	1	3	redis	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-1	2	1	memory	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-3	2	3	memory	300	102	198	0	0	0	29.90	34.90	2.92	102
+redis-3	2	3	redis	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-1	3	1	memory	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-3	3	3	memory	300	102	198	0	0	0	29.90	34.90	2.92	102
+redis-3	3	3	redis	300	34	266	0	0	0	29.90	34.90	0.97	34
+redis-3-down-local	1	3	redis	300	75	225	0	0	0	29.90	34.90	2.15	75
+redis-3-down-closed	1	3	redis	300	27	153	120	0	0	29.90	34.90	0.77	27
+redis-3-podkill	1	3	redis	300	34	265	0	1	0	29.90	34.90	0.97	34
+
+redis-3-down-local: event at 10.01s, cleared at 20.63s
+  before  [0, 10.01) ok=15 429=86  (one bucket: 15.0)
+  during  [10.01, 20.63) ok=44 429=62  (one bucket refills 10.6)
+  after   [20.63, 29.90) ok=16 429=77  (one bucket refills 9.3)
+  errors (not 200 or 429): 0
+  200s per second: 5 1 1 1 1 1 1 1 1 1 9 7 4 5 2 3 3 3 3 4 2 4 5 1 1 1 1 1 1 1
+  stub served 75, client saw 75 answered 200
+redis-3-down-closed: event at 10.01s, cleared at 20.66s
+  before  [0, 10.01) ok=14 429=87  (one bucket: 15.0)
+  during  [10.01, 20.66) ok=1 503=105  (one bucket refills 10.7)
+  after   [20.66, 29.90) ok=12 429=66 503=15  (one bucket refills 9.2)
+  errors (not 200 or 429): 120, sent from 10.20s to 22.10s
+  200s per second: 5 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 5 1 1 1 1 1 1 1
+  stub served 27, client saw 27 answered 200
+redis-3-podkill: event at 15.04s, cleared at 26.27s
+  before  [0, 15.04) ok=19 429=132  (one bucket: 20.0)
+  during  [15.04, 26.27) ok=12 429=99 transport=1  (one bucket refills 11.2)
+  after   [26.27, 29.90) ok=3 429=34  (one bucket refills 3.6)
+  errors (not 200 or 429): 1, sent from 15.10s to 15.10s
+  200s per second: 5 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+  stub served 34, client saw 34 answered 200
+pods memory-1-1: before [gateway-f765495c9-lzbl5:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-lzbl5:ok=34,degraded=0,redis_errors=0]
+pods memory-3-1: before [gateway-f765495c9-ktdd4:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-lzbl5:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-r9fkd:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-ktdd4:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-lzbl5:ok=68,degraded=0,redis_errors=0 gateway-f765495c9-r9fkd:ok=34,degraded=0,redis_errors=0]
+pods redis-3-1: before [gateway-5d8cf7d4b8-79frm:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hmhgr:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-r8kkt:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-79frm:ok=7,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hmhgr:ok=16,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-r8kkt:ok=11,degraded=0,redis_errors=0]
+pods memory-1-2: before [gateway-f765495c9-9hkmv:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-9hkmv:ok=34,degraded=0,redis_errors=0]
+pods memory-3-2: before [gateway-f765495c9-56gzf:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-92lzg:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-9hkmv:ok=34,degraded=0,redis_errors=0] after [gateway-f765495c9-56gzf:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-92lzg:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-9hkmv:ok=68,degraded=0,redis_errors=0]
+pods redis-3-2: before [gateway-5d8cf7d4b8-7nk6l:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-96dnl:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-gqw4p:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-7nk6l:ok=13,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-96dnl:ok=12,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-gqw4p:ok=9,degraded=0,redis_errors=0]
+pods memory-1-3: before [gateway-f765495c9-ttl7t:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-ttl7t:ok=34,degraded=0,redis_errors=0]
+pods memory-3-3: before [gateway-f765495c9-ms2rz:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-nhl4l:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-ttl7t:ok=34,degraded=0,redis_errors=0] after [gateway-f765495c9-ms2rz:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-nhl4l:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-ttl7t:ok=68,degraded=0,redis_errors=0]
+pods redis-3-3: before [gateway-5d8cf7d4b8-4mrqj:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-7wb7c:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hrb52:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-4mrqj:ok=12,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-7wb7c:ok=11,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hrb52:ok=11,degraded=0,redis_errors=0]
+pods redis-3-down-local-1: before [gateway-5d8cf7d4b8-4mrqj:ok=12,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-7wb7c:ok=11,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hrb52:ok=11,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-4mrqj:ok=35,degraded=41,redis_errors=10 gateway-5d8cf7d4b8-7wb7c:ok=36,degraded=39,redis_errors=9 gateway-5d8cf7d4b8-hrb52:ok=38,degraded=38,redis_errors=9]
+pods redis-3-down-closed-1: before [gateway-694b976dbf-54dtz:ok=0,degraded=0,redis_errors=0 gateway-694b976dbf-fhv22:ok=0,degraded=0,redis_errors=0 gateway-694b976dbf-jn68x:ok=0,degraded=0,redis_errors=0] after [gateway-694b976dbf-54dtz:ok=7,degraded=32,redis_errors=9 gateway-694b976dbf-fhv22:ok=12,degraded=41,redis_errors=9 gateway-694b976dbf-jn68x:ok=8,degraded=47,redis_errors=10]
+pods redis-3-podkill-1: before [gateway-5d8cf7d4b8-6vfvr:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-phg7d:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-w8224:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-phg7d:ok=14,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-rghw4:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-w8224:ok=15,degraded=0,redis_errors=0]
+
+VALID
+Deleting cluster "gwshared" ...
+Deleted nodes: ["gwshared-control-plane"]
+cluster gwshared deleted: yes
