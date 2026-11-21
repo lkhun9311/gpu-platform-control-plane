@@ -246,11 +246,10 @@ ignores a stopped run|s/^    if os.path.exists(os.path.join(out, "STOPPED")):$/ 
 decides despite gaps|s/^    if gaps:$/    if False:/
 does not require base to fail (a)|s/^    ("base", "a"): EXPECTED_A,$/    ("base", "a"): frozenset(),/
 does not require the fix to pass (b)|s/^    ("fix", "b"): frozenset(),$/    ("fix", "b"): EXPECTED_A,/
-reports every decided run AS EXPECTED|s/^    rec\["verdict"\] = "NOT AS EXPECTED" if rec\["deviations"\] else "AS EXPECTED"$/    rec["verdict"] = "AS EXPECTED"/
+reports every decided run AS EXPECTED|s/^    rec\["verdict"\] = "NOT AS EXPECTED" if rec\["deviations"\] or findings else "AS EXPECTED"$/    rec["verdict"] = "AS EXPECTED"/
 drops headers padded with fewer than three underscores|s/^HEADER_RE = re.compile(r"^_+ /HEADER_RE = re.compile(r"^_{3,} /
 reads a frame separator as a header|s/^HEADER_RE = re.compile(r"^_+ (\[^_\\s\]/HEADER_RE = re.compile(r"^_+ (\\S/
 hides a base and fix difference outside the six|s/^            if ob != of:$/            if False:/
-names a finding but still reports AS EXPECTED|s/^    rec\["verdict"\] = "NOT AS EXPECTED" if rec\["deviations"\] or findings else "AS EXPECTED"$/    rec["verdict"] = "NOT AS EXPECTED" if rec["deviations"] else "AS EXPECTED"/
 counts the six as findings|s/^        for t in sorted((set(b\["outcomes"\]) | set(f\["outcomes"\])) - EXPECTED_A):$/        for t in sorted(set(b["outcomes"]) | set(f["outcomes"])):/
 exits 0 on INCOMPLETE|s/{"AS EXPECTED": 0, "NOT AS EXPECTED": 2}.get(rec\["verdict"\], 3)/{"AS EXPECTED": 0, "NOT AS EXPECTED": 2}.get(rec["verdict"], 0)/
 MUTANTS
