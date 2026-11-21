@@ -186,24 +186,54 @@ def join_valid(rows, envoy, epp, epp_logged, limit=0.005):
     return len(bad) <= limit * max(1, len(rows)), bad
 
 
-def credit(rows, epp_match):
+def is_eval(r):
+    return r.get("population") == "eval"
+
+
+def recover_endpoints(rows, envoy):
+    """Fill in the upstream from Envoy's access record for a request that reached an engine but ended before its response
+    headers, so the ledger counts it as that engine's incomplete request rather than as no request at all."""
+    for r in rows:
+        up = (envoy.get(r["rid"]) or {}).get("upstream")
+        if not r.get("endpoint") and up and up != "-":
+            r["endpoint"] = up
+            r["endpoint_from"] = "envoy"
+    return rows
+
+
+def envoy_forward_t(rec):
+    """When Envoy sent a request upstream: its start plus the downstream-receive-to-upstream-send duration, or None."""
+    try:
+        return float(rec["start"]) + float(rec["route_us"]) / 1e6
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def credit(rows, epp_match, decision_t=None, measured=is_eval):
     """Classify router credit on the chosen endpoint against what the engine served from cache.
 
-    `epp_match` maps rid -> {endpoint: matched 64-token router blocks}. A credit is in-flight when the endpoint's earliest
-    earlier request with that prefix had not produced its first token when this one was sent, since the approximate
-    producer inserts its entries optimistically at PreRequest; otherwise it is a completed credit.
+    `epp_match` maps rid -> {endpoint: matched 64-token router blocks}; `decision_t` maps rid -> the EPP's pick time.
+    A credit is in-flight when the endpoint's earliest earlier request with that prefix had not produced its first token
+    when this one was scheduled, since the approximate producer inserts its entries optimistically at PreRequest; otherwise
+    it is a completed credit.
+    Every routed row is prefix history (warm-up included), and only rows `measured` accepts are classified.
     """
-    order = sorted((r for r in rows if r.get("endpoint") and r.get("sent_abs") is not None), key=lambda r: r["sent_abs"])
+    decision_t = decision_t or {}
+
+    def when(r):
+        return decision_t.get(r["rid"], r["sent_abs"])
+
+    order = sorted((r for r in rows if r.get("endpoint") and r.get("sent_abs") is not None), key=when)
     res = {"credited": 0, "in_flight": 0, "completed": 0, "completed_no_reuse": 0, "rows": []}
     for r in order:
         blocks = (epp_match.get(r["rid"]) or {}).get(r["endpoint"], 0)
-        if blocks < 1 or not completed(r):
+        if blocks < 1 or not completed(r) or not measured(r):
             continue
         res["credited"] += 1
         earlier = [e for e in order if e is not r and e.get("endpoint") == r["endpoint"]
-                   and e.get("prefix") is not None and e.get("prefix") == r.get("prefix") and e["sent_abs"] < r["sent_abs"]]
+                   and e.get("prefix") is not None and e.get("prefix") == r.get("prefix") and when(e) < when(r)]
         first = earlier[0] if earlier else None
-        settled = first is not None and first.get("first_text_t") is not None and first["first_text_t"] <= r["sent_abs"]
+        settled = first is not None and first.get("first_text_t") is not None and first["first_text_t"] <= when(r)
         kind = "completed" if settled else "in_flight"
         res[kind] += 1
         cached = r["usage"]["cached_tokens"]
@@ -215,19 +245,22 @@ def credit(rows, epp_match):
     return res
 
 
-def reuse(rows):
+def reuse(rows, measured=is_eval):
     """Separate first fills from lost reuse: a request whose prefix had already been served on its engine, by a request
-    whose first token arrived before this one was sent, and which still got no cached tokens."""
+    whose first token arrived before this one was sent, and which still got no cached tokens.
+    Every completed row is prefix history (warm-up included); only rows `measured` accepts are counted."""
     order = sorted((r for r in rows if completed(r) and r.get("prefix") is not None), key=lambda r: r["sent_abs"])
-    fills = lost = 0
+    fills = lost = n = 0
     for r in order:
+        if not measured(r):
+            continue
+        n += 1
         prior = [e for e in order if e is not r and e["endpoint"] == r["endpoint"] and e["prefix"] == r["prefix"]
                  and e.get("first_text_t") is not None and e["first_text_t"] <= r["sent_abs"]]
         if not prior:
             fills += 1
         elif r["usage"]["cached_tokens"] == 0:
             lost += 1
-    n = len(order)
     return {"measured": n, "first_fills": fills, "lost_reuse": lost, "lost_share": (lost / n) if n else None}
 
 
@@ -245,12 +278,16 @@ def largest_share(rows):
     return max(counts.values()) if counts else 0, counts
 
 
-def burst_valid(burst_rows, preload_rows, decision_t):
-    """K's burst is valid only if its three preloads went to three distinct engines and every burst request was decided
-    before any preload produced its first event, so the scorer saw all three engines loaded.
+def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy):
+    """K's burst is valid only if the scorer saw all three engines loaded for the whole burst: the three preloads went to
+    three distinct engines, all three were registered (PreRequest) before any burst request left the client, and every
+    burst request was decided before any preload produced its first event.
 
-    `decision_t` maps rid -> the EPP's pick time when it logged one; otherwise the request's send time is the bound, and
-    the result says which basis it used.
+    At -v=5 the EPP's PreRequest and pick times are used.
+    Without them each is bounded from Envoy's record (the upstream send follows PreRequest and the pick), which can only
+    make the check stricter: a preload's forward time is no earlier than its registration, and a burst request's forward
+    time is no earlier than its decision.
+    A burst with any time missing is invalid, never assumed valid.
     """
     eps = [p.get("endpoint") for p in preload_rows]
     if len(preload_rows) != 3 or None in eps or len(set(eps)) != 3:
@@ -258,10 +295,22 @@ def burst_valid(burst_rows, preload_rows, decision_t):
     firsts = [p.get("first_event_t") for p in preload_rows]
     if any(f is None for f in firsts):
         return False, "a preload produced no event", None
-    basis = "epp" if all(r["rid"] in decision_t for r in burst_rows) else "send"
-    last = max((decision_t.get(r["rid"]) if basis == "epp" else r.get("sent_abs")) or INF for r in burst_rows)
-    ok = last < min(firsts)
-    return ok, ("ok" if ok else "a burst request was decided after a preload's first event"), basis
+    rids = [r["rid"] for r in burst_rows + preload_rows]
+    basis = "epp" if all(x in epp_picked for x in rids) and all(p["rid"] in epp_prereq for p in preload_rows) else "envoy"
+    if basis == "epp":
+        registered = [epp_prereq[p["rid"]] for p in preload_rows]
+        decided = [epp_picked[r["rid"]] for r in burst_rows]
+    else:
+        registered = [envoy_forward_t(envoy.get(p["rid"]) or {}) for p in preload_rows]
+        decided = [envoy_forward_t(envoy.get(r["rid"]) or {}) for r in burst_rows]
+    sends = [r.get("sent_abs") for r in burst_rows]
+    if None in registered or None in decided or None in sends:
+        return False, "a registration, decision or send time is missing", basis
+    if max(registered) >= min(sends):
+        return False, "a preload was registered after the burst began", basis
+    if max(decided) >= min(firsts):
+        return False, "a burst request was decided after a preload's first event", basis
+    return True, "ok", basis
 
 
 def imbalance(samples, engines):

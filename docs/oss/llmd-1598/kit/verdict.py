@@ -39,6 +39,9 @@ def judge_cell(cdir):
     epp = logs.read_epp(os.path.join(cdir, "epp.log"), names)
     v5 = meta["verbosity"] >= 5
     epp_decided = set(epp["picked"]) if v5 else set()
+    # A request that reached an engine but ended before its headers has no endpoint on its row; Envoy's record names it,
+    # and without it the ledger would read that engine's work for it as a counting error.
+    analysis.recover_endpoints(rows, envoy)
     res = {"cell": meta["cell"], "arm": meta["arm"], "block": meta["block"], "verbosity": meta["verbosity"], "checks": {}}
     c = res["checks"]
     c["idle_at_start"] = bool(meta.get("idle_at_start"))
@@ -77,7 +80,8 @@ def judge_cell(cdir):
     res["unparsable_epp_lines"] = epp["unparsable"]
     res["unparsable_envoy_lines"] = envoy_bad
     if v5 and meta["arm"] in ("A1", "A2"):
-        cr = analysis.credit(ev, epp["match"])
+        # All rows are prefix history, warm-up included; only evaluation rows are classified, at the EPP's pick time.
+        cr = analysis.credit(rows, epp["match"], epp["picked"])
         res["credit"] = {k: v for k, v in cr.items() if k != "rows"}
         res["credit_rows"] = len(cr["rows"])
         joined = sum(1 for r in ev if r.get("endpoint") and r["rid"] in epp["match"])
@@ -85,14 +89,14 @@ def judge_cell(cdir):
         res["credit_join_share"] = (joined / fwd) if fwd else None
         c["credit_join"] = fwd > 0 and joined >= 0.995 * fwd
     if meta["block"] == "B":
-        res["reuse"] = analysis.reuse(ev)
+        res["reuse"] = analysis.reuse(rows)
     if meta["kind"] == "K":
         shares, valid = [], []
         rows_by = {r["rid"]: r for r in rows}
         for b in meta.get("bursts", []):
             br = [rows_by[x] for x in b["rids"]]
             pr = [rows_by[x] for x in b["preloads"]]
-            vok, vwhy, basis = analysis.burst_valid(br, pr, epp["picked"] if v5 else {})
+            vok, vwhy, basis = analysis.burst_valid(br, pr, epp["picked"] if v5 else {}, epp["prerequest"] if v5 else {}, envoy)
             top, counts = analysis.largest_share(br)
             shares.append(top)
             valid.append({"burst": b["burst"], "valid": vok, "why": vwhy, "basis": basis, "largest": top, "counts": counts,

@@ -1,6 +1,7 @@
 """Offline tests for the llm-d-router #1598 pilot kit: every analysis and verdict rule on synthetic rows, the workloads'
 determinism, and the log readers on lines in the pinned EPP's and Envoy's formats."""
 
+import datetime
 import json
 import math
 import os
@@ -165,6 +166,31 @@ class Credit(unittest.TestCase):
         self.assertEqual((res["credited"], res["in_flight"], res["completed"], res["completed_no_reuse"]), (3, 1, 2, 1))
         self.assertAlmostEqual(res["no_reuse_share"], 0.5)
 
+    def test_warmup_is_history_not_measured(self):
+        w = row(rid="w", prefix="P", sent=0.0, first=0.2, pop="warmup")
+        x = row(rid="x", prefix="P", sent=1.0, first=1.1, cached=0)
+        res = A.credit([w, x], {"w": {"e0": 8}, "x": {"e0": 8}})
+        self.assertEqual((res["credited"], res["completed"], res["completed_no_reuse"]), (1, 1, 1))
+        r = A.reuse([w, x])
+        self.assertEqual((r["measured"], r["first_fills"], r["lost_reuse"]), (1, 0, 1))
+
+    def test_credit_classified_at_decision_time(self):
+        a = row(rid="a", prefix="P", sent=0.0, first=0.5)
+        b = row(rid="b", prefix="P", sent=0.4, first=0.9, cached=0)
+        m = {"b": {"e0": 8}}
+        self.assertEqual(A.credit([a, b], m)["in_flight"], 1)
+        # b waited in the router until 0.6, after a's first token, so its credit was for a completed prefix.
+        res = A.credit([a, b], m, {"a": 0.01, "b": 0.6})
+        self.assertEqual((res["in_flight"], res["completed"], res["completed_no_reuse"]), (0, 1, 1))
+
+    def test_recover_endpoint_from_envoy(self):
+        r = row(rid="t", endpoint=None, status=None, done=False, usage=False, error="timeout")
+        A.recover_endpoints([r], {"t": {"upstream": "e2"}})
+        self.assertEqual(r["endpoint"], "e2")
+        q = row(rid="q", endpoint=None, status=None, done=False, usage=False, error="timeout")
+        A.recover_endpoints([q], {"q": {"upstream": "-"}})
+        self.assertIsNone(q["endpoint"])
+
     def test_credit_on_another_endpoint_is_not_credit(self):
         b = row(rid="b", prefix="P", endpoint="e1")
         self.assertEqual(A.credit([b], {"b": {"e0": 8}})["credited"], 0)
@@ -187,18 +213,37 @@ class Bursts(unittest.TestCase):
         rows = [row(rid=str(i), endpoint="e0" if i < 5 else "e1") for i in range(8)]
         self.assertEqual(A.largest_share(rows)[0], 5)
 
-    def test_burst_valid(self):
-        pre = [row(rid=f"p{i}", endpoint=f"e{i + 1}", first=1.0) for i in range(3)]
+    def burst(self):
+        pre = [row(rid=f"p{i}", endpoint=f"e{i + 1}", sent=0.0, first=1.0) for i in range(3)]
         burst = [row(rid=str(i), sent=0.5) for i in range(4)]
-        ok, why, basis = A.burst_valid(burst, pre, {str(i): 0.6 for i in range(4)})
+        return pre, burst
+
+    def test_burst_valid_on_epp_times(self):
+        pre, burst = self.burst()
+        picked = {str(i): 0.6 for i in range(4)}
+        picked.update({p["rid"]: 0.05 for p in pre})
+        prereq = {p["rid"]: 0.1 for p in pre}
+        ok, why, basis = A.burst_valid(burst, pre, picked, prereq, {})
         self.assertTrue(ok, why)
         self.assertEqual(basis, "epp")
-        self.assertFalse(A.burst_valid(burst, pre, {str(i): 1.2 for i in range(4)})[0])
-        same = [row(rid=f"p{i}", endpoint="e1", first=1.0) for i in range(3)]
-        self.assertFalse(A.burst_valid(burst, same, {})[0])
-        self.assertEqual(A.burst_valid(burst, pre, {})[2], "send")
-        late = [row(rid=str(i), sent=1.5) for i in range(4)]
-        self.assertFalse(A.burst_valid(late, pre, {})[0])
+        self.assertFalse(A.burst_valid(burst, pre, dict(picked, **{"0": 1.2}), prereq, {})[0])
+        self.assertFalse(A.burst_valid(burst, pre, picked, dict(prereq, p2=0.55), {})[0])
+        same = [dict(p, endpoint="e1") for p in pre]
+        self.assertFalse(A.burst_valid(burst, same, picked, prereq, {})[0])
+
+    def test_burst_valid_on_envoy_bounds(self):
+        pre, burst = self.burst()
+        env = {p["rid"]: {"start": "0.0", "route_us": "100000"} for p in pre}
+        env.update({r["rid"]: {"start": "0.5", "route_us": "2000"} for r in burst})
+        ok, why, basis = A.burst_valid(burst, pre, {}, {}, env)
+        self.assertTrue(ok, why)
+        self.assertEqual(basis, "envoy")
+        # A preload forwarded after the burst left the client: the scorer may not have seen it.
+        self.assertFalse(A.burst_valid(burst, pre, {}, {}, dict(env, p1={"start": "0.45", "route_us": "100000"}))[0])
+        # A burst request forwarded after a preload's first event.
+        self.assertFalse(A.burst_valid(burst, pre, {}, {}, dict(env, **{"3": {"start": "0.9", "route_us": "200000"}}))[0])
+        # A missing record never passes.
+        self.assertFalse(A.burst_valid(burst, pre, {}, {}, {k: v for k, v in env.items() if k != "2"})[0])
 
 
 class Samples(unittest.TestCase):
@@ -348,18 +393,31 @@ class Verdict(unittest.TestCase):
                     rows += pre + burst
                     bursts.append({"burst": b, "rids": [r["rid"] for r in burst], "preloads": [r["rid"] for r in pre]})
             else:
+                # The first four rows are warm-up: one per engine, they fill the prefix that every measured row then reuses.
                 rows = [row(rid=f"{name}-{i}", endpoint=self.ENG[i % 4], prefix="A0", pt=544, mt=4, cached=512 if i >= 4 else 0,
-                            sent=t0 + i, sched=t0 + i, first=t0 + i + 0.05, last=t0 + i + 0.1) for i in range(40)]
-            for r in rows:
+                            sent=t0 + i, sched=t0 + i, first=t0 + i + 0.05, last=t0 + i + 0.1,
+                            pop="warmup" if i < 4 else "eval") for i in range(40)]
+            timed_out = None
+            if "timeout_row" in faults and name == "switch-A-A2":
+                # Reached engine 0 and timed out before its headers: the row has no endpoint, Envoy's record does, and
+                # the engine's counters show its prompt.
+                timed_out = row(rid=f"{name}-to", endpoint=None, status=None, done=False, usage=False, error="TimeoutError",
+                                sent=t0 + 50, sched=t0 + 50)
+            for r in rows + ([timed_out] if timed_out else []):
                 if kind != "probe" and not ("no_lag" in faults and name == "switch-A-A3"):
                     r["lag_s"] = 0.001
-                acc.append({"rid": r["rid"], "upstream": r["endpoint"]})
+                acc.append({"rid": r["rid"], "upstream": r["endpoint"] or self.ENG[0], "start": str(r["sent_abs"]),
+                            "route_us": "1000"})
                 if v >= 5:
-                    ts = "2026-11-21T07:00:00.000000001Z"
+                    # The EPP decides each request at the moment it is sent, in its own RFC 3339 nanosecond format.
+                    sec = int(r["sent_abs"])
+                    ts = (datetime.datetime.fromtimestamp(sec, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+                          + ".%09dZ" % round((r["sent_abs"] - sec) * 1e9))
+                    epp_lines.append({"timestamp": ts, "body": "Running PreRequest plugin", "x-request-id": r["rid"]})
                     epp_lines.append({"timestamp": ts, "body": "Completed running picker plugin successfully", "x-request-id": r["rid"]})
-                    if not ("no_match" in faults and name == "switch-A-A2" and r["rid"].endswith(("-1", "-2"))):
+                    if not ("no_match" in faults and name == "switch-A-A2" and r["rid"].endswith(("-11", "-12"))):
                         epp_lines.append({"timestamp": ts, "body": "Prefix cache match", "x-request-id": r["rid"],
-                                          "matchedBlocks": {f"default/vllm-{self.ENG.index(r['endpoint'])}": 8}})
+                                          "matchedBlocks": {f"default/vllm-{self.ENG.index(r['endpoint'] or self.ENG[0])}": 8}})
             if "drop_envoy" in faults and name == "log-A-A1-v5":
                 acc = acc[:-5]
             deltas = {}
@@ -368,6 +426,9 @@ class Verdict(unittest.TestCase):
                 deltas[e] = {"prompt": sum(r["usage"]["prompt_tokens"] for r in mine),
                              "generation": sum(r["usage"]["completion_tokens"] for r in mine),
                              "cached": sum(r["usage"]["cached_tokens"] for r in mine), "success": len(mine), "preemptions": 0}
+            if timed_out:
+                deltas[self.ENG[0]]["prompt"] += 544
+                rows.append(timed_out)
             if "ledger" in faults and name == "switch-A-A2":
                 deltas[self.ENG[0]]["generation"] += 1
             reset = {e: True for e in self.ENG}
@@ -416,6 +477,17 @@ class Verdict(unittest.TestCase):
         self.assertTrue(v["k_effect"]["shows"])
         self.assertTrue(v["logging"]["keep_v5"])
         self.assertEqual(v["cells"]["log-A-A1-v5"]["credit_join_share"], 1.0)
+        # The warm-up filled the prefix on every engine, so no measured row is a first fill and every credit is completed.
+        self.assertEqual(v["cells"]["pressure-B-A1"]["reuse"], {"measured": 36, "first_fills": 0, "lost_reuse": 0, "lost_share": 0.0})
+        self.assertEqual((v["cells"]["log-A-A1-v5"]["credit"]["completed"], v["cells"]["log-A-A1-v5"]["credit"]["in_flight"]), (36, 0))
+
+    def test_request_cut_off_before_headers_is_an_outcome(self):
+        out = self.make(("timeout_row",))
+        self.assertEqual(self.run_verdict(out), 0)
+        with open(os.path.join(out, "verdict.json")) as f:
+            led = json.load(f)["cells"]["switch-A-A2"]["ledger"]["127.0.0.1:8000"]
+        self.assertFalse(led["exact"])
+        self.assertEqual(led["excess"]["prompt"], 544)
 
     def test_slower_v5_drops_verbose_logging(self):
         out = self.make(("slow_v5",))
