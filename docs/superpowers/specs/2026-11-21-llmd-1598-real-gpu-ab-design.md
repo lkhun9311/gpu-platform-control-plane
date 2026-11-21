@@ -226,7 +226,7 @@ One g5.12xlarge Spot session, the same kit in a pilot mode. It decides nothing a
 | engine starts, three configs | 3 × 120 = 360 s |
 | `peakPrefillThroughput`: the calibration recipe's method, `CHUNK_SIZE` 2,048, first, under the A and K configuration | 240 s |
 | isolated TTFT per block (A3, 20 cold with fresh prefixes and 20 warm): `SLO_A`, `SLO_B`, `SLO_W942`, C7's prefill rate, and the isolated prefill time of a 4,000-token preload | 150 s |
-| A3 ramp, A: up to 4 rates, ×1.5 steps from the thread's per-engine 2.5/s (10/s), stopping one rate after the first failure | 4 × 65 = 260 s |
+| A3 ramp, A: up to 4 rates, ×2 steps from the thread's per-engine 2.5/s (10, 20, 40, 80/s), stopping at the first failure; ×2 because the kit's offline run showed a ×1.5 ladder (10 to 33.75/s) can end without a failure, leaving the knee unbracketed | 4 × 65 = 260 s |
 | A3 ramp, B: the same ladder | 4 × 75 = 300 s |
 | A3 ramp, W942: 3 rates (1.75, 2.9 and 4.4/s), the full trace at each | 3 × 180 = 540 s |
 | logging perturbation: A1 at `-v=2` and `-v=5` on A (one rate) and on K | 2 × 65 + 2 × 99 = 328 s |
