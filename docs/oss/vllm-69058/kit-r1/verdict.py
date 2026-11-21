@@ -210,6 +210,8 @@ def judge(out):
                 rec["deviations"].append(f"{side}-{cmd}: failed but expected to pass: {extra}")
             if lacking:
                 rec["deviations"].append(f"{side}-{cmd}: passed but expected to fail: {lacking}")
+    # A decided finding always has one side failing a test outside the six, which is also a deviation.
+    # The findings are tested here anyway, so the verdict does not depend on that overlap holding.
     rec["verdict"] = "NOT AS EXPECTED" if rec["deviations"] or findings else "AS EXPECTED"
     return rec
 
