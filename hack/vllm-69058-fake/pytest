@@ -9,7 +9,8 @@ FAKE_MODE bends one outcome so the verdict's rules can be driven:
   fixfail   the CUDA-only test fails with the fix;
   basepass  the CUDA-only test passes on base;
   error     the CUDA-only test errors in setup with the fix;
-  hang      pytest never returns.
+  hang      pytest never returns;
+  outside   an older mock-client test fails on base only, which the verdict must name as a finding.
 """
 
 import os
@@ -37,16 +38,27 @@ OLD = [
     "TestHF3FSKVConnectorStats::test_clone_and_reset",
 ]
 CUDA = "TestHF3FSLoadErrors::test_failed_batch_reported_when_last_batch_succeeds"
-NEW = [f"TestHF3FSLoadErrors::test_failed_load_reports_block_ids[{p}]" for p in ("missing_key", "lookup_raises", "short_read")] + [CUDA]
+NEW = (
+    [f"TestHF3FSLoadErrors::test_failed_load_reports_block_ids[{p}]" for p in ("missing_key", "lookup_raises", "short_read")]
+    + [CUDA]
+    + [f"TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[{p}]" for p in ("fail", "recompute")]
+)
+# The assertion lines the CPU run at the base commit printed for each new test that fails there.
+ASSERT = {
+    "TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]": "E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11>",
+    "TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]": "E       AssertionError: assert {'id-2': 1} == {'id-2': 65}",
+}
+OUTSIDE = "TestHf3fsMockClient::test_multiple_tensors_rw"
 
 args = sys.argv[1:]
-if args not in ([FILE, "-k", "TestHF3FSLoadErrors", "-rA"], [FILE, "-rA"]):
+if args not in ([FILE, "-k", "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure", "-rA"], [FILE, "-rA"]):
     print(f"fake pytest: unexpected arguments {args}", file=sys.stderr)
     sys.exit(4)
 mode = os.environ.get("FAKE_MODE", "")
 if mode == "hang":
     time.sleep(3600)
-has_tests = "class TestHF3FSLoadErrors" in open(FILE).read()
+src = open(FILE).read()
+has_tests = "class TestHF3FSLoadErrors" in src and "class TestHF3FSSchedulerLoadFailure" in src
 fixed = "take_load_error_block_ids" in open(CONNECTOR).read()
 selected = "-k" in args
 tests = (NEW if has_tests else []) if selected else OLD + (NEW if has_tests else [])
@@ -72,12 +84,14 @@ if CUDA in outcome:
         outcome[CUDA] = "PASSED"
     elif mode == "error" and fixed:
         outcome[CUDA] = "ERROR"
+if mode == "outside" and OUTSIDE in outcome and not fixed:
+    outcome[OUTSIDE] = "FAILED"
 failed = [t for t in tests if outcome[t] == "FAILED"]
 if failed:
     print("=================================== FAILURES ===================================")
     for t in failed:
         print(f"_____ {t.split('::', 1)[0]}.{t.split('::', 1)[1]} _____")
-        print("E       assert set() == {3, 5}")
+        print(ASSERT.get(t, "E       assert set() == {3, 5}"))
 print("=========================== short test summary info ============================")
 for t in tests:
     o = outcome[t]

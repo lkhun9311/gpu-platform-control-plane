@@ -17,10 +17,10 @@ FAKES="$ROOT/hack/vllm-69058-fake"
 CHECK="$ROOT/hack/vllm-69058-kit-check.py"
 SRC="${VLLM_SRC:-$HOME/workspace/oss/vllm}"
 VLLM_SHA=2f170a0fed20fd84dfcf6da2a3a8188a32f67e4e
-DIFF_SHA256=d7f019347abd396feb5d20078420392be6c5540035c03b01a0c03f5e545123cf
-# The spec names the diff at storage commit a3387773, so the comparison reads that commit, not the file as it is now.
+DIFF_SHA256=6a5ad525fa1f7192a3030d4b87dcf6a3e1d59229b1f164e9004f2dec8392974c
+# The runtime session re-pinned the diff at storage commit 0f0ecadc, so the comparison reads that commit, not the file as it is now.
 STORAGE="$HOME/workspace/storage"
-STORAGE_REF=a3387773:open-source/contributions/vllm/hf3fs-load-errors-69058/local-fix.diff
+STORAGE_REF=0f0ecadc:open-source/contributions/vllm/hf3fs-load-errors-69058/local-fix.diff
 # Scratch space lives on disk, since /tmp is RAM-backed on the development machine.
 SCRATCH="${SCRATCH:-$HOME/.cache/vllm-69058}"
 mkdir -p "$SCRATCH" || exit 1
@@ -74,7 +74,7 @@ fi
 if git -C "$SRC" cat-file -e "$VLLM_SHA^{commit}" 2>"$WORK/src.err"; then
   git -C "$SRC" worktree add -q --detach "$WORK/apply" "$VLLM_SHA" >"$WORK/apply.log" 2>&1
   check "a local checkout at $VLLM_SHA takes the whole diff" "git -C '$WORK/apply' apply --check '$KIT/local-fix.diff'"
-  check "the base side, the diff's tests/ part, leaves the connector untouched" \
+  check "the base side, the diff's tests/ part, leaves everything under vllm/ untouched" \
     "git -C '$WORK/apply' apply --include='tests/*' '$KIT/local-fix.diff' && git -C '$WORK/apply' diff --quiet HEAD -- vllm/ && ! git -C '$WORK/apply' diff --quiet HEAD -- tests/"
   git -C "$WORK/apply" reset -q --hard
 else
@@ -98,7 +98,7 @@ dry() {
 }
 check "the default settings are accepted and recorded" \
   "dry '$KIT' && command grep -qx 'budget_s=1500' '$WORK/dry/settings.txt' \
-   && command grep -qx 'command_a=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -k TestHF3FSLoadErrors -rA' '$WORK/dry/settings.txt' \
+   && command grep -qx 'command_a=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -k TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure -rA' '$WORK/dry/settings.txt' \
    && command grep -qx 'command_b=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -rA' '$WORK/dry/settings.txt'"
 check "a positional argument is refused, and nothing is written" "! dry '$KIT' extra && command grep -qF 'takes no arguments' '$WORK/dry.out' && [ ! -e '$WORK/dry' ]"
 check "BUDGET_S=1501, which would stretch the bill, is refused" "! dry '$KIT' -- BUDGET_S=1501 && command grep -qF 'at most 1500' '$WORK/dry.out'"
@@ -152,12 +152,14 @@ check "pass: the four runs ran in the order base-a, fix-a, base-b, fix-b with th
 check "pass: the CUDA-only test line says base FAILED, fix PASSED" \
   "command grep -qx 'CUDA-only test test_failed_batch_reported_when_last_batch_succeeds: base FAILED, fix PASSED' '$WORK/e2e-pass/out/verdict.txt'"
 check "pass: the verdict keeps each summary line with its time and the failing assertion lines" \
-  "command grep -qE '^base-a \(exit 1\): =+ 4 failed, 16 deselected, 1 warning in [0-9.]+s =+$' '$WORK/e2e-pass/out/verdict.txt' && command grep -qF 'E       assert set() == {3, 5}' '$WORK/e2e-pass/out/verdict.txt'"
+  "command grep -qE '^base-a \(exit 1\): =+ 6 failed, 16 deselected, 1 warning in [0-9.]+s =+$' '$WORK/e2e-pass/out/verdict.txt' && command grep -qF 'E       assert set() == {3, 5}' '$WORK/e2e-pass/out/verdict.txt' \
+   && command grep -qF 'FINISHED_ERROR' '$WORK/e2e-pass/out/verdict.txt' && command grep -qE '^fix-b \(exit 0\): =+ 22 passed' '$WORK/e2e-pass/out/verdict.txt'"
+check "pass: no finding outside the six" "! command grep -q '^FINDING' '$WORK/e2e-pass/out/verdict.txt'"
 check "pass: the records hold the GPU, the versions, the checkout SHA and the diff's sha256" \
   "command grep -q 'A10G' '$WORK/e2e-pass/out/gpu.txt' && command grep -qx 'vllm_head=$VLLM_SHA' '$WORK/e2e-pass/out/versions.txt' \
    && command grep -qx 'diff_sha256=$DIFF_SHA256' '$WORK/e2e-pass/out/versions.txt' && command grep -q '\"torch\"' '$WORK/e2e-pass/out/versions.txt'"
 check "pass: the base tree changed only the test file and the fix tree both files" \
-  "[ \"\$(command grep -c '^ M ' '$WORK/e2e-pass/out/tree-base.txt')\" = 1 ] && [ \"\$(command grep -c '^ M ' '$WORK/e2e-pass/out/tree-fix.txt')\" = 2 ]"
+  "[ \"\$(command grep -c '^ M ' '$WORK/e2e-pass/out/tree-base.txt')\" = 1 ] && [ \"\$(command grep -c '^ M ' '$WORK/e2e-pass/out/tree-fix.txt')\" = 3 ]"
 check "pass: the run leaves checksums of everything it wrote" "( cd '$WORK/e2e-pass/out' && sha256sum -c --quiet SHA256SUMS )"
 check "pass: the run removed its worktree of the local repository" "! git -C '$SRC' worktree list | command grep -qF '$WORK/e2e-pass/'"
 
@@ -171,6 +173,9 @@ e2e "$KIT" nosummary FAKE_MODE=nosummary; rc=$?
 check "missing: pytest stopping before its summary is INCOMPLETE, exit 3" "[ $rc = 3 ] && v nosummary INCOMPLETE"
 e2e "$KIT" error FAKE_MODE=error; rc=$?
 check "error: a setup error with the fix is INCOMPLETE, exit 3" "[ $rc = 3 ] && v error INCOMPLETE"
+e2e "$KIT" outside FAKE_MODE=outside; rc=$?
+check "finding: an older test that only base fails is named as a FINDING and the kit exits 2, not AS EXPECTED" \
+  "[ $rc = 2 ] && v outside 'NOT AS EXPECTED' && command grep -qx 'FINDING outside the six: tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw: base FAILED, fix PASSED' '$WORK/e2e-outside/out/verdict.txt'"
 e2e "$KIT" nocuda FAKE_CUDA=0; rc=$?
 check "no CUDA: torch seeing no GPU is INCOMPLETE, exit 3" "[ $rc = 3 ] && v nocuda INCOMPLETE"
 
@@ -193,10 +198,19 @@ mcheck "mutant: a run.sh that skips the sha256 pin is caught" "! { [ -f '$WORK/e
 m=$(mutant baseall run.sh "s/apply --include='tests\/\*' \"\$DIFF\"/apply \"\$DIFF\"/")
 [ -n "$m" ] && e2e "$m" m-baseall
 mcheck "mutant: a base side that applies the whole diff does not report AS EXPECTED" "! v m-baseall 'AS EXPECTED'"
-m=$(mutant nobaseguard run.sh "s/apply --include='tests\/\*' \"\$DIFF\"/apply \"\$DIFF\"/; s/|| stop \"the base side changed the connector\"/|| true/")
+m=$(mutant nobaseguard run.sh "s/apply --include='tests\/\*' \"\$DIFF\"/apply \"\$DIFF\"/; s/|| stop \"the base side changed code under vllm\/\"/|| true/")
 [ -n "$m" ] && e2e "$m" m-nobaseguard
 mcheck "mutant: the same with its guard gone is reported NOT AS EXPECTED by the verdict" "v m-nobaseguard 'NOT AS EXPECTED'"
-m=$(mutant nora run.sh 's/^CMD_A=(pytest "\$TEST_FILE" -k TestHF3FSLoadErrors -rA)$/CMD_A=(pytest "$TEST_FILE" -k TestHF3FSLoadErrors)/')
+# The diff also changes utils/common.py, which the connector-only guard of the first draft would not have seen on the base side.
+m=$(mutant basecommon run.sh "s/apply --include='tests\/\*' \"\$DIFF\"/apply --include='tests\/*' --include='*\/utils\/common.py' \"\$DIFF\"/")
+[ -n "$m" ] && e2e "$m" basecommon
+mcheck "a base side that also takes the diff's common.py is stopped by the vllm/ guard" \
+  "command grep -qF 'the base side changed code under vllm/' '$WORK/e2e-basecommon/out/STOPPED'"
+m=$(mutant basecommon-oldguard run.sh "s/apply --include='tests\/\*' \"\$DIFF\"/apply --include='tests\/*' --include='*\/utils\/common.py' \"\$DIFF\"/; s/git -C vllm diff --quiet HEAD -- vllm\/ ||/git -C vllm diff --quiet HEAD -- \"\$CONNECTOR\" ||/")
+[ -n "$m" ] && e2e "$m" m-basecommon-oldguard
+mcheck "mutant: a guard that checks only the connector lets that base side through, and is caught" \
+  "! { [ -f '$WORK/e2e-m-basecommon-oldguard/out/STOPPED' ] && command grep -qF 'the base side changed code under vllm/' '$WORK/e2e-m-basecommon-oldguard/out/STOPPED'; }"
+m=$(mutant nora run.sh 's/^CMD_A=(pytest "\$TEST_FILE" -k "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure" -rA)$/CMD_A=(pytest "$TEST_FILE" -k "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure")/')
 [ -n "$m" ] && e2e "$m" m-nora
 mcheck "mutant: a command (a) without -rA does not report AS EXPECTED" "! v m-nora 'AS EXPECTED'"
 m=$(mutant notimeout run.sh 's/^  timeout --kill-after=10 "\$cap" "\$@" > "\$log" 2>&1$/  "$@" > "$log" 2>\&1/')
@@ -233,6 +247,11 @@ decides despite gaps|s/^    if gaps:$/    if False:/
 does not require base to fail (a)|s/^    ("base", "a"): EXPECTED_A,$/    ("base", "a"): frozenset(),/
 does not require the fix to pass (b)|s/^    ("fix", "b"): frozenset(),$/    ("fix", "b"): EXPECTED_A,/
 reports every decided run AS EXPECTED|s/^    rec\["verdict"\] = "NOT AS EXPECTED" if rec\["deviations"\] else "AS EXPECTED"$/    rec["verdict"] = "AS EXPECTED"/
+drops headers padded with fewer than three underscores|s/^HEADER_RE = re.compile(r"^_+ /HEADER_RE = re.compile(r"^_{3,} /
+reads a frame separator as a header|s/^HEADER_RE = re.compile(r"^_+ (\[^_\\s\]/HEADER_RE = re.compile(r"^_+ (\\S/
+hides a base and fix difference outside the six|s/^            if ob != of:$/            if False:/
+names a finding but still reports AS EXPECTED|s/^    rec\["verdict"\] = "NOT AS EXPECTED" if rec\["deviations"\] or findings else "AS EXPECTED"$/    rec["verdict"] = "NOT AS EXPECTED" if rec["deviations"] else "AS EXPECTED"/
+counts the six as findings|s/^        for t in sorted((set(b\["outcomes"\]) | set(f\["outcomes"\])) - EXPECTED_A):$/        for t in sorted(set(b["outcomes"]) | set(f["outcomes"])):/
 exits 0 on INCOMPLETE|s/{"AS EXPECTED": 0, "NOT AS EXPECTED": 2}.get(rec\["verdict"\], 3)/{"AS EXPECTED": 0, "NOT AS EXPECTED": 2}.get(rec["verdict"], 0)/
 MUTANTS
 

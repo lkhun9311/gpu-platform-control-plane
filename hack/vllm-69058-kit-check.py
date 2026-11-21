@@ -125,25 +125,49 @@ def verdict_of(d):
 
 # ---------------------------------------------------------------- parsing the real CPU logs
 base_a = V.parse_log(open(os.path.join(LOGS, "base-a.log")).read())
-check("real base-a: the summary line and its time are read", base_a["summary"] and base_a["summary"]["seconds"] == 7.98)
-check("real base-a: counts 3 failed, 1 skipped, 16 deselected, 1 warning", base_a["counts"] == {"failed": 3, "skipped": 1, "deselected": 16, "warnings": 1})
-check("real base-a: the three failed tests are the parametrized ones", {t for t, o in base_a["outcomes"].items() if o == "FAILED"} == set(NEW) - {CUDA})
+check("real base-a: the summary line and its time are read", base_a["summary"] and base_a["summary"]["seconds"] == 11.60)
+check("real base-a: counts 5 failed, 1 skipped, 16 deselected, 1 warning", base_a["counts"] == {"failed": 5, "skipped": 1, "deselected": 16, "warnings": 1})
+check("real base-a: the five failed tests are the six less the CUDA-only one", {t for t, o in base_a["outcomes"].items() if o == "FAILED"} == set(NEW) - {CUDA})
 check("real base-a: the CUDA-only test appears only as a SKIPPED line", CUDA not in base_a["outcomes"] and len(base_a["skipped_lines"]) == 1)
-check("real base-a: each failure keeps its assertion line", len(base_a["assertions"]) == 3 and all(a[0] == "E       assert set() == {3, 5}" for a in base_a["assertions"].values()))
+heads = base_a["assertions"]
+check("real base-a: each failure keeps its assertion line, the scheduler's two included",
+      len(heads) == 5 and sum(a[0] == "E       assert set() == {3, 5}" for a in heads.values()) == 3
+      and any("WAITING_FOR_REMOTE_KVS" in a[0] and "FINISHED_ERROR" in a[0] for a in heads.values())
+      and any("{'id-2': 1} == {'id-2': 65}" in a[0] for a in heads.values()))
+# A traceback's frame separator must not start a new header, or the assertion lines after it would be filed under it.
+sep = V.parse_log("__ TestX.test_long[p] __\n_ _ _ _ _ _ _ _\nE   assert 1 == 2\n")
+check("a '_ _ _' frame separator is not read as a failure header", list(sep["assertions"]) == ["TestX.test_long[p]"])
+base_b = V.parse_log(open(os.path.join(LOGS, "base-b.log")).read())
+check("real base-b: counts 9 failed, 12 passed, 1 skipped", (base_b["counts"].get("failed"), base_b["counts"].get("passed"), base_b["counts"].get("skipped")) == (9, 12, 1))
 fix_b = V.parse_log(open(os.path.join(LOGS, "fix-b.log")).read())
-check("real fix-b: counts 4 failed, 15 passed, 1 skipped", (fix_b["counts"].get("failed"), fix_b["counts"].get("passed"), fix_b["counts"].get("skipped")) == (4, 15, 1))
+check("real fix-b: counts 4 failed, 17 passed, 1 skipped", (fix_b["counts"].get("failed"), fix_b["counts"].get("passed"), fix_b["counts"].get("skipped")) == (4, 17, 1))
 check("real fix-b: the failing mock-client assertion is kept", any("Write should succeed" in a for v in fix_b["assertions"].values() for a in v))
 # The CPU runs are what the GPU run must not look like: a skipped CUDA test and no CUDA.
-cpu = {"base-a": open(os.path.join(LOGS, "base-a.log")).read(), "fix-a": open(os.path.join(LOGS, "fix-a.log")).read(),
-       "base-b": open(os.path.join(LOGS, "fix-b.log")).read(), "fix-b": open(os.path.join(LOGS, "fix-b.log")).read()}
+cpu = {n: open(os.path.join(LOGS, n + ".log")).read() for n in ("base-a", "fix-a", "base-b", "fix-b")}
 rec = verdict_of(build(runs={}, texts=cpu, rcs={"base-a": 1, "fix-a": 0, "base-b": 1, "fix-b": 1}, env={"cuda_available": False, "device_name": None}))
 check("the real CPU logs are INCOMPLETE, for the skip and for no CUDA", rec["verdict"] == "INCOMPLETE"
       and any("skipped" in g for g in rec["gaps"]) and any("did not see CUDA" in g for g in rec["gaps"]))
+# On CPU the four mock-client tests fail on both sides, so the fix changes nothing outside the six.
+check("the real CPU logs show no test outside the six that the fix changes", rec["findings"] == [])
 
 # ---------------------------------------------------------------- the verdict rules
 rec = verdict_of(build())
-check("pass: the expected outcomes are AS EXPECTED", rec["verdict"] == "AS EXPECTED" and rec["cuda_only_test"] == {"base": "FAILED", "fix": "PASSED"})
+check("pass: the expected outcomes are AS EXPECTED", rec["verdict"] == "AS EXPECTED" and rec["cuda_only_test"] == {"base": "FAILED", "fix": "PASSED"} and rec["findings"] == [])
+check("the six expected tests include both scheduler policies", len(NEW) == 6 and sum("TestHF3FSSchedulerLoadFailure" in t for t in NEW) == 2)
 
+r = expected_runs(); r["base-b"][OLD[1]] = "FAILED"
+rec = verdict_of(build(runs=r))
+check("finding: an older test that fails on base and passes with the fix is named, and the verdict is not AS EXPECTED",
+      rec["verdict"] == "NOT AS EXPECTED" and rec["findings"] == [f"{OLD[1]}: base FAILED, fix PASSED"])
+with contextlib.redirect_stdout(io.StringIO()) as buf:
+    print("\n".join(V.render(rec)))
+check("finding: verdict.txt prints it on its own FINDING line", f"FINDING outside the six: {OLD[1]}: base FAILED, fix PASSED" in buf.getvalue())
+r = expected_runs(); r["base-b"][OLD[1]] = "FAILED"
+rec = verdict_of(build(runs=r, env=None))
+check("finding: it is named even when a gap leaves the verdict INCOMPLETE", rec["verdict"] == "INCOMPLETE" and len(rec["findings"]) == 1)
+r = expected_runs(); r["base-b"][OLD[1]] = "FAILED"; r["fix-b"][OLD[1]] = "FAILED"
+rec = verdict_of(build(runs=r))
+check("finding: an older test failing on both sides is a deviation, not a finding", rec["verdict"] == "NOT AS EXPECTED" and rec["findings"] == [])
 r = expected_runs(); r["fix-a"][CUDA] = "FAILED"; r["fix-b"][CUDA] = "FAILED"
 rec = verdict_of(build(runs=r))
 check("fail: the CUDA-only test failing with the fix is NOT AS EXPECTED", rec["verdict"] == "NOT AS EXPECTED" and rec["cuda_only_test"]["fix"] == "FAILED")
@@ -196,7 +220,7 @@ r = expected_runs(); r["fix-b"] = {t: "PASSED" for t in OLD}; r["base-b"] = {t: 
 rec = verdict_of(build(runs=r))
 check("a whole-file run without the new tests is INCOMPLETE", incomplete_for(rec, "the whole file lacks"))
 r = expected_runs()
-rec = verdict_of(build(runs=r, texts={"fix-a": make_log(r["fix-a"], 16).replace("4 passed", "5 passed")}))
+rec = verdict_of(build(runs=r, texts={"fix-a": make_log(r["fix-a"], 16).replace("6 passed", "7 passed")}))
 check("a summary that disagrees with the -rA lines is INCOMPLETE", incomplete_for(rec, "the summary counts"))
 r = expected_runs()
 rec = verdict_of(build(runs=r, texts={"fix-a": make_log(r["fix-a"], 16).replace(f"PASSED {CUDA}\n", f"PASSED {CUDA}\nPASSED {CUDA}\n")}))
