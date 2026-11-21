@@ -1,7 +1,7 @@
 # A real-GPU A/B for llm-d-router #1598, bursty request distribution
 
-Date: 2026-11-21. Status: **design, revised after review (codex `gpt-6-astra`, "Review" at the end); nothing bought, nothing posted upstream.**
-Approval: the owner approved the experiment and its budget on 2026-11-21 (pilot about $3, main run about $20 to $24).
+Date: 2026-11-21. Status: **design, revised twice ("Revisions" at the end); nothing bought, nothing posted upstream.**
+Budget: pilot about $3, main run about $20 to $24; the pilot is run first and the main run is decided after it.
 This page fixes the arms, workloads, apparatus, measurements, pre-registered criteria and cost before any harness code is written.
 The harness is built in a follow-up, from this page.
 
@@ -104,7 +104,7 @@ These are deviations from the gist, and the post says so.
 
 **Engine slots.** `--max-num-seqs 16` on every engine is an intentional concurrency cap: 4 × 16 = 64 sequences, the same count as the thread's 8 × 8.
 Equal sequence counts do not make the capacity equal (the simulator's 60 ms inter-token latency and fixed prefill timing are not a continuously batched GPU's), so occupancy, waiting, preemptions and the effective batch-token limit are reported per cell, and conclusions are limited to this capped configuration.
-Under vLLM's default (256 or more) requests would wait in the engine far less often at these rates; that sensitivity is the first cell to add if the owner wants one, and it is not in the budget.
+Under vLLM's default (256 or more) requests would wait in the engine far less often at these rates; that sensitivity is the first cell to add if wanted, and it is not in the budget.
 
 ## Apparatus
 
@@ -237,7 +237,7 @@ One g5.12xlarge Spot session, the same kit in a pilot mode. It decides nothing a
 **Logging.** If `-v=5` raises the EPP's scheduling-duration p99 by more than 1 ms, or changes K's mean largest share by more than 4 of 64, on either block, the main run keeps `-v=2` in every cell; then C8, the per-request decision join and the concurrent-snapshot evidence (including K's burst-validity check, which then rests on Envoy's and the client's timestamps alone) are **unavailable** in the evaluated cells, and the post says so rather than borrowing them from other runs.
 
 **Go / no-go for the main run:** every instrumentation check passes on real engines; both EPP binaries built and the merged tree hash recorded; `r_w` was bracketed for A, B and W942 (A3 failed at one tested rate and passed at a lower one); the measured setup plus each main session's cells at their bounds ends at least 120 s before the kit deadline.
-If a knee is not bracketed, a second pilot is needed ($3.96 worst case) and needs the owner's approval.
+If a knee is not bracketed, a second pilot is needed ($3.96 worst case) and is a separate spending decision.
 If the setup is too long for the sessions below, the registered reduction is A3's removal (one third of every session's cells), not a shorter trace: W942's composition is the same at every rate and in every run.
 The pilot's `SLO_w`, `r_w`, `peakPrefillThroughput`, timings, available telemetry and the geometry check are committed in a registration amendment before the first main session.
 If #4313's head moves before the main run, the registered head `d44cd676` is still the one built, and the post names it.
@@ -285,18 +285,18 @@ Arms within a seed share an instance, so instance-to-instance speed differences 
 
 The worst case assumes EC2 confirms each termination by its deadline, as the runner states; one that does not is reported, and its billing past the deadline is not bounded by this design.
 S3 for evidence and the Hugging Face download are not billed meaningfully; there is no EKS cluster and no NAT gateway.
-A Spot reclaim keeps the records already checkpointed; rerunning a reclaimed session is a seventh main session ($3.96 more, $31.70 in all) and needs the owner's approval; nothing reruns automatically.
+A Spot reclaim keeps the records already checkpointed; rerunning a reclaimed session is a seventh main session ($3.96 more, $31.70 in all) and is a separate spending decision; nothing reruns automatically.
 **If the budget must shrink:** drop A3 first (one third of every session's cells), then the 1.5 × rate.
 
 ## Offline rehearsal before the pilot
 
 The whole kit runs on this machine first with llm-d-inference-sim in place of vLLM (same EPP binaries, Envoy, sender, ledger and scorer), with injected faults that must each fail visibly: a dropped request, a token count off by one, a missing EPP line, a reset that returns `success: false`, a schedule hash mismatch, a K burst released before its preconditions.
-It also runs K under A1 and A2 on the simulator, released at once and 20 ms apart, so the owner sees before the pilot whether #4313 changes a simultaneous burst at all in the real EPP; that result is recorded and does not gate the purchase.
+It also runs K under A1 and A2 on the simulator, released at once and 20 ms apart, so it is known before the pilot whether #4313 changes a simultaneous burst at all in the real EPP; that result is recorded and does not gate the purchase.
 That rehearsal checks the apparatus only; no simulator number from it is reported as a result.
 
 ## What would be posted to #1598 afterwards
 
-The shape, not the text; the text is drafted in Korean for the owner first, then posted in English only after the owner's review, following llm-d-router's AI-assistance practice as read at that time (the thread's contributors add a short "ai-assisted, checked by me" line).
+The shape, not the text; the text follows llm-d-router's contribution practice as read at the time it is posted.
 
 1. One sentence of setup: 4 × A10G, vLLM 0.34.0 with prefix caching, Qwen2.5-3B, router `733d0e4e` EPP behind Envoy, the guide's optimized-baseline profile, three seeds; #4313 at `d44cd676`.
 2. A table in the thread's layout, three rows (default, with #4313, round-robin): K largest share (even 16) with the six burst shares and K-stagger; A p95 / p99 and copies; B p50 / p95 and copies; so it lines up with the 11-14 table and with kuluruvineeth's first-turn counts.
@@ -306,48 +306,45 @@ The shape, not the text; the text is drafted in Korean for the owner first, then
 6. A link to the raw rows, configs, schedule hashes and the kit in the gpuaas repository.
 7. No PR, no `/assign`, no claim on the issue; the same data offered on #4313 as a short pointer if its author or the maintainers want it; an offer to run a maintainer-requested config through the same kit.
 
-## Review
+## Revisions
 
-codex `gpt-6-astra`, reasoning high, read-only sandbox, on the first draft, with the thread, the gist, the router at the pinned SHA and the runner at `c85a2901` as inputs (log outside the repository, header checked: `model: gpt-6-astra`, `reasoning effort: high`, `sandbox: read-only`).
-It found 2 blockers, 10 major and 3 minor findings. I checked each against the cited source; the code-level ones (tokenizer backend, 64-token minimum block, optimistic `PreRequest`, the gist's total window, the runner's checkpoint loop, the vLLM clamp) all held.
+Each row is a defect in an earlier version of this page and what replaced it; the code-level ones were each checked against the cited source.
 
-| # | finding | checked | change |
-|---|---|---|---|
-| 1 | K's 2,048-token preload cannot run under `--max-model-len 2048` with `min_tokens = max_tokens` | yes | 32 + 1,984 preload; per-burst preconditions, cancellation and refusal specified |
-| 2 | the X sessions' "worst case" bounded only one rate's drain; all-bound cells give 3,880 s | yes | every cell at its bound, timeouts per block, sessions re-planned (after the second pass, 3,063 s and 2,920 s); skipping is by whole rate group only |
-| 3 | A1's scorer set is not the gist's, so simulator results are not predictions | yes | "replication" language removed; the profile difference is in the comparability table. **Not adopted:** the gist's scorer set as the primary arm, since the owner asked for the default and it has no `inflight-load-producer`, so #4313 would be a no-op in it |
-| 4 | B with 24 prefixes fits when sprayed (384 < 400 blocks) | yes, my arithmetic was wrong | 48 prefixes on 4 engines: sprayed 768 against 400 (the simulator's 1.92), affinity 192; pilot checks the regime |
-| 5 | nothing verifies the concurrent-snapshot mechanism | yes | warmed connections, EPP-side overlap evidence, K-stagger control; C1 split into a threshold and an attribution |
-| 6 | text prompts get the router's byte-packing estimate, and router blocks are at least 64 tokens | yes | token-ID prompts; router credit in 64-token blocks, engine reuse in tokens |
-| 7 | exact reconciliation plus exclusion would remove failing cells | yes | outcomes separated from instrumentation; a three-population ledger; exact identity only where no request failed |
-| 8 | the `-v=2` fallback makes C8 unobservable in evaluated cells | yes | C8 and the joins declared unavailable under the fallback; logging perturbation also measured on K |
-| 9 | "no eviction by construction" is unestablished, and optimistic entries can show zero reuse with no eviction | yes | in-flight and completed credit split; C8 gated in A only, renamed |
-| 10 | cold calibration samples may be warm; "maximum sustainable" is not what a finite trace shows; W942's composition changed with the fallback | yes | fresh prefix per calibration sample; "highest passing tested rate", censored; the ramp ladder specified; W942's composition fixed |
-| 11 | C7's histogram is `Scheduler.Schedule` only, the saved-prefill figure assumes linearity, and A3's overhead is not equal | yes | scheduling and full routing path reported separately; saved prefill labelled an estimate and not gated; A3's overhead described as lower. **Not adopted:** measuring cold and warm prefill under batching, which needs its own cells |
-| 12 | C1's 50% threshold would reject the simulator's own 45.9% | yes | threshold 24 of 64 (1.5 × even) with A3 measured beside it; all six burst shares published |
-| 13 | the gist's windows are 30 and 40 s total, not measured | yes | the executable's windows adopted |
-| 14 | 2 of 3 is a voting rule; random pickers are not seeded from the arrival seed | yes | stated as descriptive; every paired effect published; picks recorded |
-| 15 | checkpoints are about two minutes apart, not 60 s | yes, runner lines 178 to 184 | corrected; the cost arithmetic it rechecked ($3.962268 a session, $27.735878 for seven) is unchanged |
+**First revision** (from `39a9a4bc`):
 
-**After the review: the second arm changed.**
-A check made while opening this page's pull request found upstream #4313 ("Reserve at pick", "Fixes #1598", opened 2026-11-17), cross-referenced from the issue's timeline and not mentioned in its comments, which the first draft had read.
-It is the upstream reservation candidate the owner's brief asked for before falling back, so it replaced `weighted-random-picker` as A2; because it acts only through `inflight-load-producer`, A1 moved from the router's `test/perf` scorer profile to the guide's `optimized-baseline`, and C2 and C3 were rewritten around #4313's claim and #1599's failure mode.
-codex reviewed the first draft's arms, not these; the revised page went through a second pass.
+| was | why it was wrong | now |
+|---|---|---|
+| K's preload was 2,048 output tokens at `--max-model-len 2048` with `min_tokens = max_tokens` | vLLM clamps output to the remaining context and rejects `min_tokens > max_tokens` | preloads redesigned (see the second revision); per-burst preconditions, cancellation and refusal specified |
+| the sessions' worst case gave the long drain to one rate only | with every cell at its bound the X session was 3,880 s, over the kit's 3,300 s | every cell budgeted at its bound with per-block timeouts; X 3,063 s, Y 2,920 s; skipping, if any, by whole rate group |
+| simulator numbers were stated as predictions | the profile and scorer set differ from the gist's | "replication" language removed; the difference is in the comparability table; the gist's set is not an arm, because it has no `inflight-load-producer`, so #4313 would do nothing in it |
+| B used 24 prefixes | 24 × 16 = 384 blocks fit in 400 when sprayed, so there was no pressure | 48 prefixes: sprayed 768 against 400, the simulator's own ratio of 1.92 |
+| no evidence tied any concentration to concurrent scheduling | a client-side dispatch bound does not show overlap at the EPP | warmed connections, EPP-side overlap evidence, the K-stagger control; C1 split into a threshold and an attribution |
+| prompts were text built with the model's tokenizer | with no `token-producer` the EPP estimates tokens by byte packing, and the approximate producer matches in blocks of at least 64 tokens | token-ID prompts; router credit in 64-token blocks, engine reuse in tokens |
+| exact token reconciliation with exclusion of failing cells | a request cut off before its usage record advances engine counters, so the cells where an arm fails would be excluded | outcomes separated from instrumentation; a three-population ledger; exact identity only where no request failed |
+| a low-verbosity fallback borrowed scores from separate diagnostic cells | another replay's scores are not the scores used for these requests | under the fallback C8 and the joins are declared unavailable; logging perturbation measured on K as well |
+| A and W942 were "no eviction by construction" | private blocks were not counted, and `PreRequest` inserts optimistic entries, so zero reuse can occur with no eviction | in-flight and completed credit split; C8 gated in A only, renamed "credited prefix with no realized reuse" |
+| cold calibration samples, "maximum sustainable rate", a shortened W942 phase 2 as fallback | later samples could be warm; a finite trace does not show stability; shortening changes W942's mix | a fresh prefix per sample; "highest passing tested rate", censored; the ramp ladder specified; W942's composition fixed at every rate |
+| C7 compared the scheduler histogram with linear saved prefill, and called A3's overhead equal | the histogram times `Scheduler.Schedule` only; savings under batching are not linear; A3 runs no producer or scorer | scheduling and full routing path separate; saved prefill an estimate, not gated; A3's overhead stated as lower |
+| C1 required 50% of a burst on one engine | the simulator's own MaxScore result was 45.9% | 24 of 64 (1.5 × even) with A3 beside it; all six burst shares published |
+| A and B measured 30 and 40 s | the gist's executable measures 25 and 30 s (its window is the total) | the executable's windows |
+| outcome words implied replication from two seeds of three | three runs are a voting rule, and random pickers are not seeded by the arrival seed | stated as descriptive; every paired effect published; picks recorded |
+| checkpoints every 60 s | the runner archives, uploads for up to 60 s, then sleeps 60 s | about two minutes |
 
-**Second pass.** codex `gpt-6-astra`, reasoning high, read-only, the same prompt plus #4313's description and diff and the guide's config as inputs (header checked).
-It found 1 blocker, 7 major and 4 minor findings; I checked the code-level ones against the source (`inflightload/kvevents.go` `onPrefillComplete`, `tokenload/token_load.go`, the TRACE level in `approximateprefix/plugin.go`, the 250 µs stagger and frozen baseline in #4313's test) and all held.
+**Second revision** (from `8c837521`): the second arm changed.
+Upstream #4313 ("Reserve at pick", "Fixes #1598", opened 2026-11-17) is cross-referenced from the issue's timeline and not mentioned in its comments, which the first version had read.
+It is the upstream reservation candidate, so it replaced `weighted-random-picker` as A2; because it acts only through `inflight-load-producer`, A1 moved from the router's `test/perf` scorer profile to the guide's `optimized-baseline`, and C2 and C3 were rewritten around #4313's claim and #1599's failure mode.
 
-| # | finding | checked | change |
-|---|---|---|---|
-| 1 | blocker: decoding preloads are invisible to `token-load-scorer`, which reads in-flight tokens freed at prefill completion | yes | preloads are 4,000-token prompts with one output token, still in prefill when the burst is scored; a burst is valid only if every request was scored before any preload's first token; K-equal added as the equal-score control |
-| 2 | #4313's quoted test is paced 250 µs apart and its baseline never calls `PreRequest` | yes | #4313 described as narrowing the window, closure under test; its numbers qualified. **Not adopted:** a CPU lifecycle comparison before purchase as a gate; the offline rehearsal runs both arms on the simulator, recorded, not gating |
-| 3 | prefix matches log at TRACE (level 5), and #4313 logs no reservation | yes | `-v=5`, perturbation tested at `-v=5`; reservation timing declared unavailable; no instrumentation added to either binary |
-| 4 | Envoy's upstream timing is a TTFB, not the gist's TTFT | yes | named TTFB, not compared as the same quantity; first event and first non-empty text recorded separately |
-| 5 | A3's lower hit fraction would hold with any cache size | yes | first fills and lost reuse separated; B counts as cache pressure only if A1 shows ≥ 1% lost reuse |
-| 6 | K's bounds ignored the precondition wait and the stagger span | yes | bounds 99 s and 107 s; X now 3,063 s |
-| 7 | the 99.5% decision join could exclude legitimate failures | yes | joins by lifecycle stage; only unexplained missing evidence invalidates |
-| 8 | ∞ percentiles make ratio verdicts ambiguous | yes | explicit both-∞, finite-against-∞ and empty cases |
-| 9 | 4,096-token calibration cannot run at `--max-model-len 2048` | yes | `CHUNK_SIZE` 2,048 under the A and K configuration, now 4,096 tokens long, first in the pilot |
-| 10 | K's prompts differ from the gist's `"hello"`, and reused prompts would warm later bursts | yes | in the comparability table; all 384 prompts of a cell have distinct first router blocks |
-| 11 | TPOT is undefined for one-token outputs | yes | defined for ≥ 2 tokens only, labelled client TPOT, ITL from the engines separately |
-| 12 | 16 slots do not make capacity equal to the simulator's | yes | described as an intentional cap; occupancy and waiting reported; conclusions limited to it |
+| was | why it was wrong | now |
+|---|---|---|
+| K's preloads were long decoding requests | `token-load-scorer` reads in-flight tokens, which `inflight-load-producer` frees at prefill completion (`inflightload/kvevents.go` `onPrefillComplete`), so a decoding request is invisible to it | 4,000-token preloads with one output token, still in prefill when the burst is scored; a burst is valid only if every request was scored before any preload's first token; K-equal added |
+| #4313's test was quoted as closing the race | it releases its 64 goroutines 250 µs apart and its baseline never calls `PreRequest` | #4313 described as narrowing the window, closure under test; the offline rehearsal runs both arms on the simulator, recorded, not gating |
+| scores and matches at `-v=4`, reservation times from the log | prefix matches log at TRACE (level 5), and #4313 logs nothing when it reserves | `-v=5`, perturbation tested at `-v=5`; reservation timing unavailable; no instrumentation added |
+| the gist's after-routing TTFT from Envoy | Envoy's upstream timing ends at the first byte, a different boundary | named TTFB; first event and first non-empty text recorded separately |
+| B's pressure inferred from A3's lower hit fraction | compulsory first fills alone give that with any cache size | first fills and lost reuse separated; B counts as cache pressure only if A1 shows ≥ 1% lost reuse |
+| K at 105 s | the precondition wait and the stagger span were not budgeted | 99 s and 107 s; X 3,063 s |
+| a 99.5% decision join for every row | a request rejected before scheduling has no decision, legitimately | joins by lifecycle stage; only unexplained missing evidence invalidates |
+| ratios of percentiles that can be ∞ | ∞ ≤ 0.90 × ∞ would read as an improvement | explicit both-∞, finite-against-∞ and empty cases |
+| calibration at 4,096 tokens under `--max-model-len 2048` | vLLM rejects it | `CHUNK_SIZE` 2,048 under the A and K configuration (now 4,096 tokens), first in the pilot |
+| K's prompts unqualified against the gist's; prompts possibly reused across bursts | the gist's burst sends `"hello"`; a reused prompt warms a later burst | in the comparability table; all 384 prompts of a cell have distinct first router blocks |
+| TPOT over `completion_tokens − 1` for every request | undefined for one-token outputs | defined for ≥ 2 tokens, labelled client TPOT |
+| 16 slots as equal capacity | equal sequence counts do not make continuously batched capacity equal | an intentional cap; occupancy and waiting reported |
