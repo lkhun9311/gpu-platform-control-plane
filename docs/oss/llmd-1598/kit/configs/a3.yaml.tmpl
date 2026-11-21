@@ -1,0 +1,17 @@
+# A3: round-robin. With no scorer every endpoint ties, and max-score-picker rotates ties through a mutex-guarded counter.
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+plugins:
+- name: file-disc
+  type: file-discovery
+  parameters:
+    path: @ENDPOINTS@
+- type: max-score-picker
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: max-score-picker
+dataLayer:
+  discovery:
+    endpoints:
+      pluginRef: file-disc

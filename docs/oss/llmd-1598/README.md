@@ -1,0 +1,46 @@
+# llm-d-router #1598 pilot kit
+
+The pilot of `docs/superpowers/specs/2026-11-21-llmd-1598-real-gpu-ab-design.md`: one g5.12xlarge Spot session, four vLLM 0.34.0 engines (Qwen2.5-3B-Instruct) behind one EPP and Envoy, 18 cells.
+It decides nothing about the arms.
+It answers two questions:
+- Does the apparatus work end to end on real engines: the token ledger, the lifecycle joins, router credit joined to `cached_tokens`, the 4 Hz load sampler, and each cell's validity checks?
+- Does K's burst concentrate at all under A1?
+
+**Not launched.** The main run is decided after the pilot.
+
+## Arms
+
+| arm | EPP binary | config |
+|---|---|---|
+| A1 | llm-d-router `733d0e4e` | `kit/configs/a1-a2.yaml.tmpl`: the llm-d guide's optimized-baseline plugin set, `peakPrefillThroughput` measured first in the pilot |
+| A2 | `733d0e4e` with llm-d-router#4313 head `d44cd676` merged (tree `f48fadc5`) | the same file |
+| A3 | A1's | `kit/configs/a3.yaml.tmpl`: `max-score-picker` alone (round-robin) |
+
+## Layout
+
+| file | what |
+|---|---|
+| `kit/run.sh` | installs vLLM from its pinned wheel, builds both EPP binaries from pinned SHAs (the merged tree is checked), fetches Envoy 1.40.2 and the model, then runs `pilot.py` and `verdict.py` |
+| `kit/pilot.py` | the plan: calibration, isolated TTFT per block, A3 ramps (A and B at 10, 20, 40, 80/s; W942 at 1.75, 2.9, 4.4/s), logging at `-v=2` and `-v=5` on A and K, A2 and A3 on A, the B pressure cell |
+| `kit/workloads.py`, `sender.py`, `sampler.py`, `logs.py` | schedules and token-ID prompts, the open-loop sender, the 4 Hz sampler and counter snapshots, the EPP and Envoy log readers |
+| `kit/analysis.py`, `verdict.py` | the registered rules, and the pilot's verdict (exit 0 apparatus holds, 3 incomplete, 4 apparatus failed) |
+| `test/fake_engine.py` | a fake vLLM server (token-ID prompts, prefix-cache blocks, usage, vLLM metric names, `/reset_prefix_cache`, injectable faults) |
+| `test/test_kit.py`, `test/mutate.py` | unit tests of every rule, and the mutants each must catch |
+| `hack/llmd-1598-kit-test.sh` | the offline gate: unit tests, mutants, `run.sh` refusals, and `run.sh` end to end against the real EPP and Envoy with fake engines, clean and with two faults |
+
+## Gate before any launch
+
+```
+bash hack/llmd-1598-kit-test.sh
+```
+
+## Launch (not run; needs the owner's go)
+
+```
+SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.12xlarge OUT=hack/gpu-kit-runs/<date>-llmd-1598-pilot \
+  bash hack/gpu-kit-session.sh docs/oss/llmd-1598/kit
+```
+
+Worst case: the runner's g5.12xlarge constants, a $3.48/h Spot cap plus $0.0683/h of disk and IPv4, billed to the 4,020 s termination deadline, **$3.9623**, under its $4.00 per-session cap, which it checks before buying.
+That assumes EC2 confirms the termination by its deadline, as the runner states.
+The account's Spot G and VT quota is 48 vCPU, exactly one g5.12xlarge, so nothing else can run beside it.
