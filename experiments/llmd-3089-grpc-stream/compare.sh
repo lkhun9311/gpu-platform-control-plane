@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Compares EPP builds behind one gateway on an existing kind cluster.
 # For each image it re-applies the rendered chart, then records:
-#   stream rows: concurrency 1, 8 and 32, RUNS_C1 / RUNS_C8 / RUNS_C32 runs each;
+#   stream rows: concurrency 1, 8 and 32, RUNS_C1 / RUNS_C8 / RUNS_C32 runs each, or the CELLS given;
+#   runs rows: wall time and host load1 per client run;
 #   unary rows: UNARY_RUNS UnaryCall digests;
 #   epp rows: EPP process CPU seconds and RSS before and after the stream phase.
 # With JSON=1 it instead switches the backend to its JSON mode and records the JSON control and EPP CPU/RSS.
@@ -16,6 +17,8 @@ RUNS_C1=${RUNS_C1:-10}
 RUNS_C8=${RUNS_C8:-5}
 RUNS_C32=${RUNS_C32:-5}
 UNARY_RUNS=${UNARY_RUNS:-3}
+# CELLS lists "concurrency:runs" pairs for the stream phase; the default is the original three levels.
+CELLS=${CELLS:-"1:$RUNS_C1 8:$RUNS_C8 32:$RUNS_C32"}
 JSON_C=${JSON_C:-8}
 JSON_REQUESTS=${JSON_REQUESTS:-250}
 mkdir -p "$out"
@@ -83,11 +86,15 @@ swap() {
 
 stream_cells() {
   local label=$1 target=$2
-  for spec in "1:$RUNS_C1" "8:$RUNS_C8" "32:$RUNS_C32"; do
+  for spec in $CELLS; do
     c=${spec%%:*}
     runs=${spec#*:}
     for i in $(seq 1 "$runs"); do
+      start=$(date +%s.%N)
       kubectl exec client -- /usr/local/bin/client -target "$target" -arm "$label" -run "$i" -c "$c" >>"$out/stream.jsonl"
+      # Wall time includes kubectl exec start-up, so calls/s from it is a lower bound.
+      printf '{"arm":"%s","run":%s,"c":%s,"start":%s,"end":%s,"load1":"%s"}\n' \
+        "$label" "$i" "$c" "$start" "$(date +%s.%N)" "$(cut -d' ' -f1 /proc/loadavg)" >>"$out/runs.jsonl"
     done
   done
 }

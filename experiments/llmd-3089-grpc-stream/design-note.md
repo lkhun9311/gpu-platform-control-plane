@@ -215,3 +215,94 @@ Streaming phase (210 calls per image, one pass): EPP CPU 2.67 to 3.00 ms per cal
 - One CPU node; client, gateway, EPP and backend share it.
 - Images run one after another rather than interleaved for the streaming phase; the JSON phase is interleaved.
 - The JSON body is 1 KiB, so the memory saved by not buffering a large response is shown by the unit test `TestProcessPassthroughLongStreamKeepsMemoryFlat`, not here.
+
+## Tail latency, concurrency 128 and faults
+
+Same cluster shape and images as above, on a new `llm-d-3089-cmp` cluster, deleted after the runs.
+Tables come from `latency_dist.py` (p50, p95, p99, max per cell; p95 printed from 20 calls, p99 from 100) and `fault_summary.py`.
+Calls in one run start together and their tails move together, so the run count is reported beside the call count.
+
+```
+CONTROLS=1 CELLS="1:100 8:40 32:10 128:3" ./compare.sh agw deploy/rendered-agw.yaml results/tail/agw <main> <A> <B>
+CELLS="128:5" UNARY_RUNS=0 ./compare.sh agw deploy/rendered-agw.yaml results/tail/agw-c128 <main> <A> <B>
+./c128-interleaved.sh deploy/rendered-agw.yaml results/tail/agw-c128-interleaved <main> <A> <B>
+./c128-cold.sh deploy/rendered-agw.yaml results/tail/agw-c128-cold <B> <A>
+CELLS="1:100 8:40 32:10" ./compare.sh envoy deploy/rendered-envoy-h2.yaml results/tail/envoy <main> <A> <B>
+./fault.sh deploy/rendered-agw.yaml results/fault <main> <B> <A>        # repetition 1
+./fault.sh deploy/rendered-agw.yaml results/fault-rep2 <main> <B> <A>   # repetition 2, adds forced-GC samples
+python3 latency_dist.py results/tail/agw
+python3 fault_summary.py results/fault-rep2
+```
+
+### Time to first message, agentgateway
+
+c=1 to 32 from `results/tail/agw`; c=128 from `results/tail/agw-c128-interleaved`, where each EPP run is followed by an agw-plain run and a direct run.
+
+| EPP | c | calls (runs) | p99 ms | p95 ms | p50 ms | max ms | gap p99 ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| main | 1 | 100 (100) | 1468.8 | 1459.3 | 1454.0 | 1478.2 | 0.01 |
+| main | 8 | 320 (40) | 1473.0 | 1459.6 | 1452.1 | 1473.0 | 0.01 |
+| main | 32 | 320 (10) | 1478.5 | 1478.3 | 1454.0 | 1478.7 | 0.03 |
+| main | 128 | 1280 (10) | 1484.6 | 1484.0 | 1457.6 | 1484.8 | 0.02 |
+| B | 1 | 100 (100) | 97.1 | 91.7 | 83.2 | 101.4 | 81.13 |
+| B | 8 | 320 (40) | 91.2 | 89.4 | 83.5 | 91.3 | 81.16 |
+| B | 32 | 320 (10) | 86.2 | 86.2 | 84.3 | 86.2 | 81.25 |
+| B | 128 | 1280 (10) | 213.3 | 211.2 | 88.8 | 213.4 | 81.35 |
+| A | 1 | 100 (100) | 105.3 | 92.7 | 83.3 | 114.5 | 81.12 |
+| A | 8 | 320 (40) | 99.4 | 90.8 | 83.4 | 99.5 | 81.11 |
+| A | 32 | 320 (10) | 91.3 | 91.3 | 84.4 | 91.4 | 81.37 |
+| A | 128 | 1280 (10) | 108.9 | 108.1 | 88.7 | 108.9 | 81.20 |
+| none (agw-plain) | 1 | 100 (100) | 97.0 | 92.8 | 82.5 | 118.9 | 81.06 |
+| none (agw-plain) | 8 | 320 (40) | 92.9 | 89.3 | 82.8 | 92.9 | 81.07 |
+| none (agw-plain) | 32 | 320 (10) | 90.8 | 90.8 | 83.0 | 90.8 | 81.66 |
+| none (agw-plain, beside B) | 128 | 1280 (10) | 119.9 | 119.7 | 85.0 | 119.9 | 81.25 |
+| none (direct) | 1 | 100 (100) | 100.1 | 90.5 | 82.2 | 118.0 | 81.05 |
+| none (direct) | 8 | 320 (40) | 96.5 | 90.7 | 82.3 | 96.6 | 81.06 |
+| none (direct) | 32 | 320 (10) | 82.7 | 82.7 | 82.4 | 82.7 | 81.12 |
+| none (direct, beside B) | 128 | 1280 (10) | 110.1 | 110.0 | 84.4 | 110.2 | 81.36 |
+
+- p50 values recomputed from `results/cmp` with `latency_dist.py` match the published ones (agentgateway main 1455.5, 1451.8, 1461.3 ms and B 83.3, 83.2, 84.3 ms at c=1, 8, 32; Envoy main 1453.5 and B 83.8 ms at c=1).
+  That earlier run had 10, 40 and 160 calls per cell, so its c=1 tail is the maximum of 10 calls; the tables here replace it.
+- On main p50 and p99 both sit at the stream length (the 18th message is sent at about 1,440 ms), and every gap is under 1 ms.
+- B's p99 at c=1 to 32 is between 4.6 ms below and 0.1 ms above agw-plain.
+  The tail above the median is present without the EPP and without a gateway, so it comes from the shared node; it was not split further into GC and scheduling.
+- c=128, B: run 1 (the first run after the EPP pod started) had all 128 calls between 210 and 213 ms; runs 2 to 10 had maxima of 88.3 to 98.8 ms (p99 over those 1,152 calls 98.7 ms; A 108.9 ms).
+  `results/tail/agw-c128` (5 runs per image, no controls) also had a slow first run for B (p50 111.8 ms) and none for A.
+  `c128-cold.sh` started a fresh EPP pod 6 times per image, alternating B and A: the first 128-call run's median was 97.8, 101.0, 89.6, 94.5, 96.9, 90.6 ms for B and 90.9, 93.2, 92.2, 90.0, 90.1, 90.8 ms for A; runs 2 and 3 were 86.7 to 101.1 ms for both.
+  So the first burst on a fresh B pod is a few ms slower in most of these samples and was 125 ms slower once; the cause is not identified.
+- c=256 is not valid here: agw-plain alone delayed 56 of 256 calls by a whole stream in each of two runs and none of 200 in two runs at c=200 (`results/tail/c256-probe`), consistent with a 200-stream limit per HTTP/2 connection (the client uses one).
+  The chart's Envoy sets `max_concurrent_streams: 100`, so Envoy is measured up to c=32.
+- Envoy (`results/tail/envoy`), p99 at c=1, 8, 32: main 1465.8, 1461.9, 1459.3 ms; B 96.9, 106.0, 94.3 ms; A 96.5, 109.0, 111.7 ms.
+- Calls/s is set by the backend's fixed stream length (128 calls per 1.50 s run, 85 calls/s, for every arm), so it does not compare the EPPs.
+- EPP CPU over the c=128-only pass (640 calls): main 0.97, A 1.19, B 1.13 ms per call; RSS after 84 to 88 MiB.
+  Behind Envoy over the c=1 to 32 phase: main 3.88, A 6.73, B 6.18 ms per call; per-message forwarding sends 18 body responses per call where main sends one.
+
+### Faults (agentgateway, `fault.sh`)
+
+The normal consumer is 4 concurrent calls of 18 messages 80 ms apart, repeated.
+Slow readers: 100 calls of 40 messages of 128 KiB, the client sleeping 1 s before each read.
+Disconnect: 200 calls cancelled 400 ms after they start.
+Kill: 16 calls of 40 messages, the backend process killed with SIGKILL 1.5 s in.
+
+| | main | B | A |
+|---|---|---|---|
+| normal consumer alone, TTFM p50 / p95 / max (rep 1; rep 2) | 1452.3 / 1458.1 / 1462.8; 1452.6 / 1456.9 / 1459.5 | 83.2 / 90.7 / 93.2; 83.4 / 91.7 / 98.3 | 83.2 / 92.1 / 95.5; 83.6 / 92.0 / 93.6 |
+| normal consumer beside 100 slow readers | 1453.8 / 1466.7 / 1467.8; 1452.6 / 1461.3 / 1462.5 | 83.8 / 94.0 / 183.8; 83.7 / 89.7 / 100.6 | 83.5 / 96.1 / 134.0; 83.6 / 90.7 / 100.3 |
+| slow readers: calls with all 40 messages | 100 of 100, both reps | 100 of 100, both reps | 100 of 100, both reps |
+| EPP heap in use midway through the slow readers (rep 1; rep 2) | 1176.9; 1143.1 MiB | 206.3; 379.3 MiB | 298.8; 448.5 MiB |
+| disconnect: calls ended by the cancel at about 401 ms | 200 of 200, 0 messages received | 200 of 200, 4 messages received | 200 of 200, 4 or 5 messages |
+| kill: calls ended with INTERNAL within 1.6 s | 16 of 16, 0 messages received | 16 of 16, 18 messages received | 16 of 16, 18 messages received |
+| goroutines at base, after the last phase (rep 2) | 54, 54 | 54, 56 | 54, 54 (rep 1) |
+| heap in use after a forced GC, base to end (rep 2) | 13.5 to 18.4 MiB | 14.0 to 18.8 MiB | rep 2 incomplete |
+| requests without an outcome after each phase settled | 0 | 0 | 0 |
+
+- No call reached the client's 60 s deadline, so no stream hung.
+- Each completed request has one completion record: `request_outcome_total{outcome="completed"}` equals `response_size_bytes_count` after every phase, for every image.
+- In rep 1 one run of 4 normal-consumer calls beside the slow readers started late under both B (up to 183.8 ms) and A (up to 134.0 ms); rep 2 had none above 101 ms.
+  The p50 and p95 of the normal consumer do not move with the slow readers present.
+- On main the EPP holds each slow reader's whole response (heap above 1.1 GiB midway); under A and B it holds what the gRPC flow-control windows and the 3-chunk read-ahead allow.
+- With a backend killed mid-stream, A and B have already delivered the 18 messages sent before the kill; main delivers none, because it held them until the trailers.
+- Accounting in the harness: a request rejected before routing (the backend restarting after the kill) records a `rejected` outcome without a `request_total` increment, so `metrics_row.py` leaves rejected outcomes out of the in-flight count.
+  The first repetition's first attempt used the raw difference and reported negative in-flight counts; it was discarded and rerun.
+- Rep 2's third kill hit kubelet's restart back-off on the backend pod, so A's kill phase in rep 2 has its 16 calls but no recovered phase.
+- The EPP's running-requests gauge is not used: it counts only requests with a model name, and `passthrough-parser` sets none.

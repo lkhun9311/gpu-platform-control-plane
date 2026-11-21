@@ -1,0 +1,6 @@
+{"arm":"envoy/main-fd30dea8","phase":"stream-before","pid":48758,"cpu_ticks":7,"hwm_kb":66832,"rss_kb":66832,"clk_tck":100}
+{"arm":"envoy/main-fd30dea8","phase":"stream-after","pid":48758,"cpu_ticks":294,"hwm_kb":80020,"rss_kb":80020,"clk_tck":100}
+{"arm":"envoy/a-fd30dea8-proto","phase":"stream-before","pid":53071,"cpu_ticks":10,"hwm_kb":64908,"rss_kb":64908,"clk_tck":100}
+{"arm":"envoy/a-fd30dea8-proto","phase":"stream-after","pid":53071,"cpu_ticks":508,"hwm_kb":78660,"rss_kb":78660,"clk_tck":100}
+{"arm":"envoy/b-867d3423","phase":"stream-before","pid":57326,"cpu_ticks":8,"hwm_kb":67012,"rss_kb":67012,"clk_tck":100}
+{"arm":"envoy/b-867d3423","phase":"stream-after","pid":57326,"cpu_ticks":465,"hwm_kb":81164,"rss_kb":81164,"clk_tck":100}

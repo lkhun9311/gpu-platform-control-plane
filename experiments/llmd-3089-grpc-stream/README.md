@@ -54,3 +54,4 @@ It fixes this issue but fails `test/integration/epp` `TestFullDuplexStreamed_GRP
 `design-note.md` describes the options, the chosen API (option B) and its tests, and holds the comparison results.
 `setup-cmp.sh` creates the cluster, `compare.sh` runs the streaming, unary and JSON phases per EPP image, and `summarize_cmp.py` turns `results/cmp/` into the tables there.
 `deploy/rendered-agw-openai.yaml` is `rendered-agw.yaml` with `openai-parser` ahead of `passthrough-parser`, for the JSON control.
+`latency_dist.py`, `c128-interleaved.sh`, `c128-cold.sh` and `fault.sh` (with `metrics_row.py` and `fault_summary.py`) produce the tail-latency, concurrency-128 and fault-injection results under `results/tail/`, `results/fault/` and `results/fault-rep2/`; `design-note.md` holds the tables.

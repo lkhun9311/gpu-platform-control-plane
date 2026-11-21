@@ -72,13 +72,27 @@ type jsonResult struct {
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
-func streamOnce(c testpb.TestServiceClient, n int, interval time.Duration) result {
+// streamOpts holds the fault-injection knobs; the zero value is the plain measured stream.
+type streamOpts struct {
+	// msgSize asks the backend to pad each message to this many bytes.
+	msgSize int
+	// recvDelay is slept before each Recv, standing in for a slow reader.
+	recvDelay time.Duration
+	// cancelAfter cancels the call this long after it starts, standing in for a client that leaves mid-response.
+	// It is a time rather than a message count so that it lands mid-response even when the EPP holds every message until the end.
+	cancelAfter time.Duration
+}
+
+func streamOnce(c testpb.TestServiceClient, n int, interval time.Duration, o streamOpts) result {
 	params := make([]*testpb.ResponseParameters, n)
 	for i := range params {
-		params[i] = &testpb.ResponseParameters{IntervalUs: int32(interval.Microseconds())}
+		params[i] = &testpb.ResponseParameters{IntervalUs: int32(interval.Microseconds()), Size: int32(o.msgSize)}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	if o.cancelAfter > 0 {
+		defer time.AfterFunc(o.cancelAfter, cancel).Stop()
+	}
 
 	var res result
 	var recv []time.Time
@@ -88,6 +102,7 @@ func streamOnce(c testpb.TestServiceClient, n int, interval time.Duration) resul
 	if err == nil {
 		var last time.Time
 		for {
+			time.Sleep(o.recvDelay)
 			msg, rerr := stream.Recv()
 			if rerr == io.EOF {
 				break
@@ -102,7 +117,7 @@ func streamOnce(c testpb.TestServiceClient, n int, interval time.Duration) resul
 			} else {
 				res.GapsMs = append(res.GapsMs, ms(now.Sub(last)))
 			}
-			if ns, perr := strconv.ParseInt(string(msg.GetPayload().GetBody()), 10, 64); perr == nil {
+			if ns, perr := strconv.ParseInt(string(bytes.TrimRight(msg.GetPayload().GetBody(), ".")), 10, 64); perr == nil {
 				s := time.Unix(0, ns)
 				res.LagMs = append(res.LagMs, ms(now.Sub(s)))
 				sent = append(sent, s)
@@ -201,6 +216,10 @@ func main() {
 	interval := flag.Duration("interval", 80*time.Millisecond, "backend send interval")
 	size := flag.Int("size", 100_000, "unary response payload bytes")
 	requests := flag.Int("requests", 50, "JSON requests per worker")
+	var opts streamOpts
+	flag.IntVar(&opts.msgSize, "msg-size", 0, "stream message size in bytes (backend pads)")
+	flag.DurationVar(&opts.recvDelay, "recv-delay", 0, "sleep before each stream Recv")
+	flag.DurationVar(&opts.cancelAfter, "cancel-after", 0, "cancel each stream this long after it starts")
 	flag.Parse()
 
 	enc := json.NewEncoder(os.Stdout)
@@ -239,7 +258,7 @@ func main() {
 	results := make([]result, *conc)
 	var wg sync.WaitGroup
 	for w := range *conc {
-		wg.Go(func() { results[w] = streamOnce(c, *n, *interval) })
+		wg.Go(func() { results[w] = streamOnce(c, *n, *interval, opts) })
 	}
 	wg.Wait()
 	for w, r := range results {

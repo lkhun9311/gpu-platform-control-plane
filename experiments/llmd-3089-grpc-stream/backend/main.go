@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,6 +35,10 @@ func (server) StreamingOutputCall(req *testpb.StreamingOutputCallRequest, stream
 	for i, p := range req.GetResponseParameters() {
 		time.Sleep(time.Duration(p.GetIntervalUs()) * time.Microsecond)
 		body := []byte(strconv.FormatInt(time.Now().UnixNano(), 10))
+		// Size pads the message with dots so a slow reader can fill the flow-control windows; the client strips them.
+		if pad := int(p.GetSize()) - len(body); pad > 0 {
+			body = append(body, bytes.Repeat([]byte{'.'}, pad)...)
+		}
 		if err := stream.Send(&testpb.StreamingOutputCallResponse{
 			Payload: &testpb.Payload{Body: body},
 		}); err != nil {
