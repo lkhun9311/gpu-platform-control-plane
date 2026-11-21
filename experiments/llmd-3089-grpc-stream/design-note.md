@@ -266,9 +266,9 @@ c=1 to 32 from `results/tail/agw`; c=128 from `results/tail/agw-c128-interleaved
 - On main p50 and p99 both sit at the stream length (the 18th message is sent at about 1,440 ms), and every gap is under 1 ms.
 - B's p99 at c=1 to 32 is between 4.6 ms below and 0.1 ms above agw-plain.
   The tail above the median is present without the EPP and without a gateway, so it comes from the shared node; it was not split further into GC and scheduling.
-- c=128, B: run 1 (the first run after the EPP pod started) had all 128 calls between 210 and 213 ms; runs 2 to 10 had maxima of 88.3 to 98.8 ms (p99 over those 1,152 calls 98.7 ms; A 108.9 ms).
+- c=128, B: run 1 (the first run after the EPP pod started) had all 128 calls receive message 1 between 208 and 214 ms, while the lag from the backend's send to the client's receipt stayed under 1 ms, so the delay came before the backend sent; runs 2 to 10 had maxima of 88.3 to 98.8 ms (p99 over those 1,152 calls 98.7 ms; A 108.9 ms).
   `results/tail/agw-c128` (5 runs per image, no controls) also had a slow first run for B (p50 111.8 ms) and none for A.
-  `c128-cold.sh` started a fresh EPP pod 6 times per image, alternating B and A: the first 128-call run's median was 97.8, 101.0, 89.6, 94.5, 96.9, 90.6 ms for B and 90.9, 93.2, 92.2, 90.0, 90.1, 90.8 ms for A; runs 2 and 3 were 86.7 to 101.1 ms for both.
+  `c128-cold.sh` started a fresh EPP pod 6 times per image, alternating B and A: the first 128-call run's median was 97.8, 101.0, 89.6, 94.5, 96.6, 90.6 ms for B and 90.9, 93.2, 92.2, 90.0, 90.1, 90.8 ms for A; runs 2 and 3 were 86.7 to 101.1 ms for both.
   So the first burst on a fresh B pod is a few ms slower in most of these samples and was 125 ms slower once; the cause is not identified.
 - c=256 is not valid here: agw-plain alone delayed 56 of 256 calls by a whole stream in each of two runs and none of 200 in two runs at c=200 (`results/tail/c256-probe`), consistent with a 200-stream limit per HTTP/2 connection (the client uses one).
   The chart's Envoy sets `max_concurrent_streams: 100`, so Envoy is measured up to c=32.
@@ -297,9 +297,13 @@ Kill: 16 calls of 40 messages, the backend process killed with SIGKILL 1.5 s in.
 | requests without an outcome after each phase settled | 0 | 0 | 0 |
 
 - No call reached the client's 60 s deadline, so no stream hung.
-- Each completed request has one completion record: `request_outcome_total{outcome="completed"}` equals `response_size_bytes_count` after every phase, for every image.
+- `request_outcome_total{outcome="completed"}` equals `response_size_bytes_count` after every phase, for every image.
+  That is an aggregate balance; one terminal hook per request is pinned by the unit tests, which count calls per request.
+- The 200 cancelled calls count as `completed` in the EPP for every image: agentgateway let the upstream call finish after the client left, so the EPP saw a complete response.
+  This phase therefore checks the client side and the EPP's accounting under that gateway behaviour; the EPP's own disconnect path is covered by `TestProcessPassthroughDisconnectAfterFirstMessage`.
+- The normal consumer ran beside the slow readers only; the disconnect and kill phases had no concurrent normal consumer.
 - In rep 1 one run of 4 normal-consumer calls beside the slow readers started late under both B (up to 183.8 ms) and A (up to 134.0 ms); rep 2 had none above 101 ms.
-  The p50 and p95 of the normal consumer do not move with the slow readers present.
+  With the slow readers present the normal consumer's p50 moves by 1.6 ms or less for every image, and its p95 by +3.3 to +8.6 ms in rep 1 and -2.1 to +4.3 ms in rep 2.
 - On main the EPP holds each slow reader's whole response (heap above 1.1 GiB midway); under A and B it holds what the gRPC flow-control windows and the 3-chunk read-ahead allow.
 - With a backend killed mid-stream, A and B have already delivered the 18 messages sent before the kill; main delivers none, because it held them until the trailers.
 - Accounting in the harness: a request rejected before routing (the backend restarting after the kill) records a `rejected` outcome without a `request_total` increment, so `metrics_row.py` leaves rejected outcomes out of the in-flight count.
