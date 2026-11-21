@@ -77,9 +77,13 @@ nodes:
       - {containerPort: $STUB_PORT, hostPort: $STUB_PORT, listenAddress: "127.0.0.1", protocol: TCP}
 EOF
 run kind create cluster --name "$CLUSTER" --kubeconfig "$KCFG" --config "$WORK/kind.yaml" || die "kind create"
-for img in controller:$TAG gateway:$TAG "$STUB_IMG" "$REDIS_IMG"; do
+for img in controller:$TAG gateway:$TAG "$STUB_IMG"; do
   run kind load docker-image "$img" --name "$CLUSTER" || die "kind load $img"
 done
+# The pulled Redis is a multi-platform index whose other platforms' layers are not on this host, and kind's import
+# fails on the first missing blob ("content digest ... not found"), so one platform is saved and loaded as an archive.
+run docker save --platform linux/amd64 -o "$WORK/redis.tar" "$REDIS_IMG" || die "save redis"
+run kind load image-archive "$WORK/redis.tar" --name "$CLUSTER" || die "kind load redis archive"
 
 log "== kueue, CRDs, operator, gateway, redis"
 # The operator's controllers watch Kueue kinds and do not start their caches without these CRDs.
