@@ -56,10 +56,10 @@ type RateLimiter interface {
 Each call runs one script, `EVALSHA` with `EVAL` on `NOSCRIPT`, against one key:
 
 1. read `TIME` from Redis, in microseconds;
-2. read the tenant's hash (`tokens`, `ts`); a missing key is a full bucket;
-3. refill: `tokens = min(burst, tokens + max(0, now - ts) * rate)`, with `rate = requestsPerMinute / 60` per second;
+2. read the tenant's hash (`tokens`, `ts`, and the `rpm` and `burst` of the last call); a missing key is a full bucket;
+3. refill the time since the last call at the stored rate, capped at the stored burst, then clamp to this call's `burst`: `tokens = min(burst, min(prev_burst, tokens + max(0, now - ts) * prev_rate))`, with rates `requestsPerMinute / 60` per second;
 4. if `tokens >= 1`, spend one and admit; otherwise refuse and compute the wait until one token, `(1 - tokens) / rate`;
-5. write `tokens` and `ts = max(ts, now)`, and set the key to expire once the bucket would be full again.
+5. write `tokens`, `ts = max(ts, now)` and this call's `rpm` and `burst`, and set the key to expire once the bucket would be full again.
 
 Redis runs a script to completion before any other command, so the read, the refill and the spend are one step for every replica.
 That is what makes N replicas share one budget rather than N budgets: there is no read-then-write window for two replicas to both see the last token.
@@ -67,6 +67,7 @@ That is what makes N replicas share one budget rather than N budgets: there is n
 The semantics match the memory store on purpose, so switching stores does not change what a tenant gets:
 
 - `rate` and `burst` arrive as arguments on every call, so an edited policy takes effect on the next request and keeps the tokens already accumulated, as `SetLimit`/`SetBurst` do in memory; a key is never rebuilt on a policy change, which would hand out a fresh burst.
+- The time before an edit is refilled at the policy that was in force over it, as `rate.Limiter.SetLimitAt` advances before it switches. The first version refilled the whole gap at the new rate, so raising a rate granted a burst the tenant never accrued; codex's review of `fb1de164` found it.
 - A refusal spends nothing.
 - A nil `rateLimit` is unlimited and never reaches Redis.
 - The refusal's wait becomes `Retry-After` through the same `retryAfterSeconds` as today.
@@ -82,8 +83,8 @@ The expiry is never shorter than the refill: it is the time to refill from empty
 
 | case | what happens | cost |
 |---|---|---|
-| policy edited | the next call passes the new `rate` and `burst`; tokens are kept and clamped to the new `burst`; no key carries a policy version, so an edit never grants a burst | none |
-| replicas see different policy versions (cache lag) | each call applies its own replica's `rate` and `burst` to the same bucket; a smaller `burst` clamps the tokens, a larger one only lets them refill higher; both converge when the caches do | a mix of the two policies for the lag, never a fresh burst |
+| policy edited | the gap since the last call refills at the stored old policy, then tokens are clamped to the new `burst` and the new `rate` applies from now; no key carries a policy version, so an edit never grants a burst | none |
+| replicas see different policy versions (cache lag) | each call refills the gap at the policy the previous caller stored, then applies its own; a smaller `burst` clamps the tokens, a larger one only lets them refill higher; both converge when the caches do | a mix of the two policies for the lag, never a fresh burst |
 | a burst raised, then the key idle past the old policy's expiry | the key expired under the old expiry and reads as full under the new `burst` | at most `new burst - old burst` once, the same as a tenant the memory store sees for the first time |
 | Redis restarted without persistence, or the key evicted | a missing key reads as full | one burst per tenant; run Redis with `maxmemory-policy noeviction`, under which a full Redis fails the write and the failure policy decides |
 | a reply lost after the script ran | the token was spent in Redis, the call is a failure, and the failure policy decides that request | at most one token per lost reply; never two, because nothing retries |
@@ -103,7 +104,7 @@ Since Redis 5 a script's writes replicate as effects, not as the script, so call
 
 `<prefix><tenant>`, with `--rate-limit-redis-key-prefix` defaulting to `gpuaas:gateway:ratelimit:v1:`.
 
-- One key per tenant, a hash with fields `tokens` and `ts`.
+- One key per tenant, a hash with fields `tokens`, `ts`, `rpm` and `burst`.
 - The prefix is fixed per deployment, so the key is injective in the tenant name and two tenants never share a bucket.
 - `v1` names the hash layout, so a later layout can take a new prefix rather than misread old state.
 - One key per script call, so the script also runs unchanged on Redis Cluster.
@@ -140,6 +141,7 @@ The first call after the second tries Redis again, so recovery takes at most a s
 | retries | 0 | a retried script whose reply was lost would spend a second token; a lost reply is a failure handled by the policy |
 | `--rate-limit-redis-password-file` | optional | read once at start; an empty or missing named file stops the gateway, as `--metrics-bearer-token-file` does |
 | pool | go-redis default size (10 per CPU), `PoolTimeout` = the timeout | one short script per request; waiting for a connection is bounded like everything else |
+| context deadline on the socket | on (`ContextTimeoutEnabled`) | go-redis otherwise bounds each read by the read timeout alone, so `EVALSHA`, `NOSCRIPT` and `EVAL` could take twice the timeout and still succeed; codex's review of `fb1de164` found it |
 | dial attempts | 1 | go-redis redials five times with backoff by default, which the deadline would cut short anyway |
 
 Redis does not gate readiness.

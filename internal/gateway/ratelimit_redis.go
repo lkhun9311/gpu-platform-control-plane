@@ -88,6 +88,10 @@ func (c RedisRateLimitConfig) Validate() error {
 // ts never moves backwards, so a Redis clock that steps back stalls refill instead of granting tokens.
 // rate and burst arrive on every call, so a policy edit keeps the tokens already accumulated, as SetLimit and SetBurst do
 // in the memory store.
+// The time since the last call is refilled at the rate and capped at the burst that were in force over it, stored with
+// the bucket, and only then is the new policy applied, as rate.Limiter's SetLimitAt advances before it switches.
+// Refilling the whole gap at the new rate would hand a tenant whose rate was raised a burst it never accrued (codex
+// review of fb1de164).
 // The key expires once the bucket would be full again, and a missing key reads as full, so expiry discards nothing.
 // Numbers are written with %.17g because Redis would otherwise format them with fewer digits, and ts in microseconds
 // has sixteen.
@@ -99,18 +103,27 @@ local t = redis.call('TIME')
 local now = tonumber(t[1]) * 1000000 + tonumber(t[2])
 local per_us = tonumber(ARGV[1]) / 60000000
 local burst = tonumber(ARGV[2])
-local s = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
+local s = redis.call('HMGET', KEYS[1], 'tokens', 'ts', 'rpm', 'burst')
 local tokens = tonumber(s[1])
 local ts = tonumber(s[2])
+local prev_per_us = per_us
+local prev_burst = burst
+if tonumber(s[3]) ~= nil and tonumber(s[4]) ~= nil then
+  prev_per_us = tonumber(s[3]) / 60000000
+  prev_burst = tonumber(s[4])
+end
 if tokens == nil or ts == nil then
   tokens = burst
   ts = now
 end
 if now > ts then
-  if per_us > 0 then
-    tokens = tokens + (now - ts) * per_us
+  if prev_per_us > 0 then
+    tokens = tokens + (now - ts) * prev_per_us
   end
   ts = now
+end
+if tokens > prev_burst then
+  tokens = prev_burst
 end
 if tokens > burst then
   tokens = burst
@@ -123,7 +136,8 @@ if tokens >= 1 then
 elseif per_us > 0 then
   wait = math.ceil((1 - tokens) / per_us)
 end
-redis.call('HSET', KEYS[1], 'tokens', string.format('%.17g', tokens), 'ts', string.format('%.17g', ts))
+redis.call('HSET', KEYS[1], 'tokens', string.format('%.17g', tokens), 'ts', string.format('%.17g', ts),
+  'rpm', ARGV[1], 'burst', ARGV[2])
 if per_us > 0 then
   redis.call('PEXPIRE', KEYS[1], math.ceil(burst / per_us / 1000) + 1000)
 else
@@ -167,6 +181,10 @@ func newRedisLimiter(cfg RedisRateLimitConfig) (*redisLimiter, error) {
 		// The pool's default wait is the read timeout plus a second; an exhausted pool is a failure at the same bound as any other.
 		// The call's context bounds it as well, so this states the bound rather than relying on that.
 		PoolTimeout: cfg.Timeout,
+		// Without this go-redis ignores the call's deadline on the socket and bounds each read by ReadTimeout alone, so an
+		// EVALSHA answered NOSCRIPT and the EVAL after it could take twice the timeout and still succeed (codex review of
+		// fb1de164); with it the whole call shares one bound.
+		ContextTimeoutEnabled: true,
 	})
 	redisAvailable.Set(1)
 	return &redisLimiter{

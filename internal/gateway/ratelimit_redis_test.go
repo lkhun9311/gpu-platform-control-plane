@@ -64,6 +64,7 @@ type switchProxy struct {
 	ln     net.Listener
 	target string
 	cut    atomic.Bool
+	delay  atomic.Int64
 	mu     sync.Mutex
 	conns  map[net.Conn]struct{}
 }
@@ -98,7 +99,24 @@ func (p *switchProxy) serve() {
 		p.conns[c], p.conns[up] = struct{}{}, struct{}{}
 		p.mu.Unlock()
 		go func() { _, _ = io.Copy(up, c); _ = up.Close() }()
-		go func() { _, _ = io.Copy(c, up); _ = c.Close() }()
+		go func() { p.reply(c, up); _ = c.Close() }()
+	}
+}
+
+// reply copies Redis's answers back, holding each read for the proxy's delay, which stands for a slow Redis.
+func (p *switchProxy) reply(c, up net.Conn) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := up.Read(buf)
+		if n > 0 {
+			time.Sleep(time.Duration(p.delay.Load()))
+			if _, werr := c.Write(buf[:n]); werr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
 	}
 }
 
@@ -255,6 +273,29 @@ var _ = Describe("redisLimiter against a real Redis", Ordered, func() {
 		Expect(ok).To(BeFalse(), "editing the policy handed the tenant a fresh burst")
 	})
 
+	// A raised rate applies from the edit on, not to the time before it, as rate.Limiter's SetLimitAt does.
+	// 300 ms at one a minute accrues 0.005 tokens; refilled at the new 6000 a minute it would be 30, clamped to the burst.
+	// Mutation that turns this red: refill the gap at the new rate (the code codex reviewed in fb1de164).
+	It("does not refill the time before a policy edit at the new rate", func() {
+		l := newTestRedisLimiter(redisAddr, uniquePrefix(), RedisFailureClosed, time.Second)
+		slow := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 1, Burst: 3}
+		for range 3 {
+			ok, _, err := l.Decide(ctx, "t", slow)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(ok).To(BeTrue())
+		}
+		time.Sleep(300 * time.Millisecond)
+		fast := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 6000, Burst: 3}
+		ok, _, err := l.Decide(ctx, "t", fast)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ok).To(BeFalse(), "the raised rate was applied to the 300 ms before the edit")
+		// The control: from the edit on the new rate holds, one token per 10 ms.
+		time.Sleep(30 * time.Millisecond)
+		ok, _, err = l.Decide(ctx, "t", fast)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ok).To(BeTrue(), "the new rate did not apply after the edit")
+	})
+
 	// One tenant's spending never touches another's bucket, including a tenant whose name extends another's.
 	// Mutation that turns this red: build the key from the prefix alone.
 	It("keeps tenants' buckets apart", func() {
@@ -303,6 +344,24 @@ var _ = Describe("redisLimiter against a real Redis", Ordered, func() {
 		ok, _, err := l.Decide(ctx, "t", rl)
 		Expect(err).NotTo(HaveOccurred(), "a flushed script cache was treated as Redis failing")
 		Expect(ok).To(BeTrue())
+	})
+
+	// The timeout bounds the whole call, not each round trip in it.
+	// A Redis answering in 70 ms takes about 140 ms for EVALSHA, NOSCRIPT and then EVAL, so a 100 ms bound must fail it.
+	// Mutation that turns this red: leave ContextTimeoutEnabled off, so each read gets its own 100 ms and the call succeeds.
+	It("bounds an EVALSHA and EVAL pair by one timeout", func() {
+		proxy := newSwitchProxy(redisAddr)
+		l := newTestRedisLimiter(proxy.addr(), uniquePrefix(), RedisFailureClosed, 100*time.Millisecond)
+		rl := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 60, Burst: 5}
+		// Warm the connection so the dial is not what spends the bound.
+		_, _, err := l.Decide(ctx, "t", rl)
+		Expect(err).NotTo(HaveOccurred())
+		c := redis.NewClient(&redis.Options{Addr: redisAddr})
+		defer func() { _ = c.Close() }()
+		Expect(c.ScriptFlush(ctx).Err()).To(Succeed())
+		proxy.delay.Store(int64(70 * time.Millisecond))
+		_, _, err = l.Decide(ctx, "t", rl)
+		Expect(err).To(MatchError(ErrRateLimitUnavailable), "two 70 ms round trips finished inside a 100 ms bound")
 	})
 
 	// A Redis that loses its data, by a restart without persistence or by eviction, hands each tenant one full burst.
