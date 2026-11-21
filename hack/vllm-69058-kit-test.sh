@@ -315,7 +315,7 @@ ignores a count mismatch|s/^    if (passed, failed, errored) != (c.get("passed",
 ignores a run with no tests|s/^    if passed + failed + errored == 0:$/    if False:/
 ignores duplicates|s/^    if run\["duplicates"\]:$/    if False:/
 takes any (a) selection|s/^    if cmd == "a" and ids != EXPECTED_A:$/    if False:/
-takes a whole file without the new tests|s/^    if cmd == "b" and not JUDGED <= ids:$/    if False:/
+takes a whole file without the new tests|s/^    if cmd == "b" and not b_needs <= ids:$/    if False:/
 takes any (c) selection|s/^    if cmd == "c" and ids != EXPECTED_C:$/    if False:/
 takes different tests on the two sides|s/^        if b is not None and f is not None and set(b\["outcomes"\]) != set(f\["outcomes"\]):$/        if False:/
 ignores no CUDA|s/^        if env.get("cuda_available") is not True:$/        if False:/
