@@ -1,0 +1,221 @@
+/src/venv/lib/python3.12/site-packages/pytest_asyncio/plugin.py:306: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session". Set it to "fixture-scope" to keep the current behavior.
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /src/vllm
+configfile: pyproject.toml
+plugins: anyio-4.16.0, asyncio-1.5.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 20 items
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py .FFF..F............s  [100%]
+
+=================================== FAILURES ===================================
+_________ TestHf3fsMockClient.test_batch_write_and_read_dtype[float32] _________
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7fbbd5aff380>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-410/test_batch_write_and_read_dtyp0')
+dtype = torch.float32, bytes_per_page = 512
+
+    @pytest.mark.parametrize(
+        "dtype, bytes_per_page",
+        [
+            (torch.float32, 512),
+            (torch.float16, 256),
+            (torch.bfloat16, 256),
+        ],
+        ids=["float32", "float16", "bfloat16"],
+    )
+    def test_batch_write_and_read_dtype(self, tmp_path, dtype, bytes_per_page):
+        """Write a tensor of the given dtype and verify round-trip correctness."""
+        path = str(tmp_path / f"rw_{dtype}")
+        client = MockHf3fsClient(
+            path=path, size=bytes_per_page * 8, bytes_per_page=bytes_per_page, entries=4
+        )
+        elem_size = torch.tensor([], dtype=dtype).element_size()
+        numel = bytes_per_page // elem_size
+        tensor_write = torch.arange(numel, dtype=dtype)
+        event = _make_cuda_event()
+    
+        results = client.batch_write([0], [tensor_write], event)
+>       assert results == [bytes_per_page], f"Write should succeed, got {results}"
+E       AssertionError: Write should succeed, got [-1]
+E       assert [-1] == [512]
+E         
+E         At index 0 diff: -1 != 512
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:91: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
+_________ TestHf3fsMockClient.test_batch_write_and_read_dtype[float16] _________
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7fbbd5aff500>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-410/test_batch_write_and_read_dtyp1')
+dtype = torch.float16, bytes_per_page = 256
+
+    @pytest.mark.parametrize(
+        "dtype, bytes_per_page",
+        [
+            (torch.float32, 512),
+            (torch.float16, 256),
+            (torch.bfloat16, 256),
+        ],
+        ids=["float32", "float16", "bfloat16"],
+    )
+    def test_batch_write_and_read_dtype(self, tmp_path, dtype, bytes_per_page):
+        """Write a tensor of the given dtype and verify round-trip correctness."""
+        path = str(tmp_path / f"rw_{dtype}")
+        client = MockHf3fsClient(
+            path=path, size=bytes_per_page * 8, bytes_per_page=bytes_per_page, entries=4
+        )
+        elem_size = torch.tensor([], dtype=dtype).element_size()
+        numel = bytes_per_page // elem_size
+        tensor_write = torch.arange(numel, dtype=dtype)
+        event = _make_cuda_event()
+    
+        results = client.batch_write([0], [tensor_write], event)
+>       assert results == [bytes_per_page], f"Write should succeed, got {results}"
+E       AssertionError: Write should succeed, got [-1]
+E       assert [-1] == [256]
+E         
+E         At index 0 diff: -1 != 256
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:91: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
+________ TestHf3fsMockClient.test_batch_write_and_read_dtype[bfloat16] _________
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7fbbd5aff590>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-410/test_batch_write_and_read_dtyp2')
+dtype = torch.bfloat16, bytes_per_page = 256
+
+    @pytest.mark.parametrize(
+        "dtype, bytes_per_page",
+        [
+            (torch.float32, 512),
+            (torch.float16, 256),
+            (torch.bfloat16, 256),
+        ],
+        ids=["float32", "float16", "bfloat16"],
+    )
+    def test_batch_write_and_read_dtype(self, tmp_path, dtype, bytes_per_page):
+        """Write a tensor of the given dtype and verify round-trip correctness."""
+        path = str(tmp_path / f"rw_{dtype}")
+        client = MockHf3fsClient(
+            path=path, size=bytes_per_page * 8, bytes_per_page=bytes_per_page, entries=4
+        )
+        elem_size = torch.tensor([], dtype=dtype).element_size()
+        numel = bytes_per_page // elem_size
+        tensor_write = torch.arange(numel, dtype=dtype)
+        event = _make_cuda_event()
+    
+        results = client.batch_write([0], [tensor_write], event)
+>       assert results == [bytes_per_page], f"Write should succeed, got {results}"
+E       AssertionError: Write should succeed, got [-1]
+E       assert [-1] == [256]
+E         
+E         At index 0 diff: -1 != 256
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:91: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
+_________________ TestHf3fsMockClient.test_multiple_tensors_rw _________________
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHf3fsMockClient object at 0x7fbbd5affc20>
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-410/test_multiple_tensors_rw0')
+
+    def test_multiple_tensors_rw(self, tmp_path):
+        """Write multiple tensors at different offsets, then read all back."""
+        bytes_per_page = 128
+        n = 4
+        path = str(tmp_path / "multi_rw")
+        client = MockHf3fsClient(
+            path=path,
+            size=bytes_per_page * n * 2,
+            bytes_per_page=bytes_per_page,
+            entries=8,
+        )
+        tensors_write = [
+            torch.full((bytes_per_page // 4,), float(i), dtype=torch.float32)
+            for i in range(n)
+        ]
+        offsets = [i * bytes_per_page for i in range(n)]
+        event = _make_cuda_event()
+    
+        results = client.batch_write(offsets, tensors_write, event)
+>       assert all(r == bytes_per_page for r in results)
+E       assert False
+E        +  where False = all(<generator object TestHf3fsMockClient.test_multiple_tensors_rw.<locals>.<genexpr> at 0x7fbbd5bf7e00>)
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:149: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
+=============================== warnings summary ===============================
+vllm/__init__.py:7
+  /src/vllm/vllm/__init__.py:7: RuntimeWarning: Failed to read commit hash:
+  No module named 'vllm._version'
+    from .version import __version__, __version_tuple__  # isort:skip
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+_______ TestHf3fsMockClient.test_batch_write_out_of_bounds_returns_error _______
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client:hf3fs_mock_client.py:110 Batch write error: Torch not compiled with CUDA enabled
+_____ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[missing_key] ______
+---------------------------- Captured stderr setup -----------------------------
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
+WARNING  huggingface_hub.utils._http:_http.py:1023 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+WARNING  vllm.transformers_utils.config:config.py:1637 Could not retrieve safetensors metadata for facebook/opt-125m (Hub fetch failed and the cached snapshot holds no weights yet).
+WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
+WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:436 Blocks not found for Loaded request req-0
+____ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises] _____
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
+WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
+WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:436 Task execution error: metadata server unreachable for Loaded request req-0
+______ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read] ______
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
+WARNING  vllm.platforms.cpu:cpu.py:314 CPU backend prefers block_size is multiples of 32, otherwise the performance is not optimized.
+WARNING  vllm.platforms.cpu:cpu.py:335 Reset SSM cache type to float32 for accelerated GDN mamba backend 'none'.
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:436 Read operation failed for Loaded request req-0
+=========================== short test summary info ============================
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_init_creates_file
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_read_empty_file_returns_error
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_out_of_bounds_returns_error
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_flush_and_close_no_error
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_initial_is_empty
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_success_duration[save]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_success_duration[load]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_failed_task[save]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_failed_task[load]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_aggregate_two_stats
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_reduce_with_data
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_clone_and_reset
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[missing_key]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[lookup_raises]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[short_read]
+SKIPPED [1] tests/v1/kv_connector/unit/test_hf3fs_connector.py:384: a successful load scatters with a Triton kernel
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float32]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float16]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[bfloat16]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw
+============= 4 failed, 15 passed, 1 skipped, 1 warning in 11.22s ==============

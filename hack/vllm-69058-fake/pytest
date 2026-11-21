@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""A fake pytest for the vLLM #69058 kit's offline test, run in the vLLM checkout.
+
+It reads the checkout to decide what the real file would do on a GPU.
+The new tests exist only when the diff's tests/ part is applied, and they pass only when the connector carries the fix.
+FAKE_MODE bends one outcome so the verdict's rules can be driven:
+  skip      the CUDA-only test is skipped, as it is without CUDA;
+  nosummary pytest is interrupted before its summary;
+  fixfail   the CUDA-only test fails with the fix;
+  basepass  the CUDA-only test passes on base;
+  error     the CUDA-only test errors in setup with the fix;
+  hang      pytest never returns.
+"""
+
+import os
+import sys
+import time
+
+FILE = "tests/v1/kv_connector/unit/test_hf3fs_connector.py"
+CONNECTOR = "vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py"
+OLD = [
+    "TestHf3fsMockClient::test_init_creates_file",
+    "TestHf3fsMockClient::test_batch_write_and_read_dtype[float32]",
+    "TestHf3fsMockClient::test_batch_write_and_read_dtype[float16]",
+    "TestHf3fsMockClient::test_batch_write_and_read_dtype[bfloat16]",
+    "TestHf3fsMockClient::test_batch_read_empty_file_returns_error",
+    "TestHf3fsMockClient::test_batch_write_out_of_bounds_returns_error",
+    "TestHf3fsMockClient::test_multiple_tensors_rw",
+    "TestHf3fsMockClient::test_flush_and_close_no_error",
+    "TestHF3FSKVConnectorStats::test_initial_is_empty",
+    "TestHF3FSKVConnectorStats::test_record_success_duration[save]",
+    "TestHF3FSKVConnectorStats::test_record_success_duration[load]",
+    "TestHF3FSKVConnectorStats::test_record_failed_task[save]",
+    "TestHF3FSKVConnectorStats::test_record_failed_task[load]",
+    "TestHF3FSKVConnectorStats::test_aggregate_two_stats",
+    "TestHF3FSKVConnectorStats::test_reduce_with_data",
+    "TestHF3FSKVConnectorStats::test_clone_and_reset",
+]
+CUDA = "TestHF3FSLoadErrors::test_failed_batch_reported_when_last_batch_succeeds"
+NEW = [f"TestHF3FSLoadErrors::test_failed_load_reports_block_ids[{p}]" for p in ("missing_key", "lookup_raises", "short_read")] + [CUDA]
+
+args = sys.argv[1:]
+if args not in ([FILE, "-k", "TestHF3FSLoadErrors", "-rA"], [FILE, "-rA"]):
+    print(f"fake pytest: unexpected arguments {args}", file=sys.stderr)
+    sys.exit(4)
+mode = os.environ.get("FAKE_MODE", "")
+if mode == "hang":
+    time.sleep(3600)
+has_tests = "class TestHF3FSLoadErrors" in open(FILE).read()
+fixed = "take_load_error_block_ids" in open(CONNECTOR).read()
+selected = "-k" in args
+tests = (NEW if has_tests else []) if selected else OLD + (NEW if has_tests else [])
+deselected = len(OLD) if selected else 0
+
+print("============================= test session starts ==============================")
+print(f"collected {len(OLD) + (len(NEW) if has_tests else 0)} items")
+if mode == "nosummary":
+    print("!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!")
+    sys.exit(2)
+outcome = {}
+for t in tests:
+    if t in NEW:
+        outcome[t] = "PASSED" if fixed else "FAILED"
+    else:
+        outcome[t] = "PASSED"
+if CUDA in outcome:
+    if mode == "skip":
+        outcome[CUDA] = "SKIPPED"
+    elif mode == "fixfail" and fixed:
+        outcome[CUDA] = "FAILED"
+    elif mode == "basepass" and not fixed:
+        outcome[CUDA] = "PASSED"
+    elif mode == "error" and fixed:
+        outcome[CUDA] = "ERROR"
+failed = [t for t in tests if outcome[t] == "FAILED"]
+if failed:
+    print("=================================== FAILURES ===================================")
+    for t in failed:
+        print(f"_____ {t.split('::', 1)[0]}.{t.split('::', 1)[1]} _____")
+        print("E       assert set() == {3, 5}")
+print("=========================== short test summary info ============================")
+for t in tests:
+    o = outcome[t]
+    if o == "SKIPPED":
+        print(f"SKIPPED [1] {FILE}:384: a successful load scatters with a Triton kernel")
+    else:
+        print(f"{o} {FILE}::{t}")
+counts = []
+for word, o in (("failed", "FAILED"), ("passed", "PASSED"), ("skipped", "SKIPPED"), ("error", "ERROR")):
+    n = sum(1 for t in tests if outcome[t] == o)
+    if n:
+        counts.append(f"{n} {word}")
+if deselected:
+    counts.append(f"{deselected} deselected")
+body = ", ".join(counts) or "no tests ran"
+print(f"============ {body}, 1 warning in 7.53s ============")
+if not tests:
+    sys.exit(5)
+sys.exit(1 if failed or any(o == "ERROR" for o in outcome.values()) else 0)

@@ -1,0 +1,7 @@
+#!/bin/bash
+# A fake nvidia-smi for the vLLM #69058 kit's offline test, answering the two queries run.sh makes.
+case "$*" in
+  *--query-gpu*) printf 'name, memory.total [MiB], driver_version\nNVIDIA A10G, 23028 MiB, 580.95.05\n' ;;
+  -L) echo "GPU 0: NVIDIA A10G (UUID: GPU-00000000-0000-0000-0000-000000000000)" ;;
+  *) echo "fake nvidia-smi: unexpected arguments $*" >&2; exit 1 ;;
+esac
