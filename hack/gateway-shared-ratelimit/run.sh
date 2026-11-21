@@ -91,7 +91,14 @@ run k apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/d
 run k -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s || die "kueue Available"
 kustomize build config/crd | k apply --server-side -f - >>"$LOG" 2>&1 || die "CRDs"
 k create namespace "$NS" --dry-run=client -o yaml | k apply -f - >>"$LOG" 2>&1
-kustomize build config/operator | k apply --server-side -f - >>"$LOG" 2>&1 || die "operator"
+# Kueue's Deployment turns Available before its webhook serves, and the webhook mutates every Deployment applied
+# here, so the first apply is retried until the webhook answers; a real refusal still fails all thirty attempts.
+applied=0
+for _ in $(seq 1 30); do
+  if kustomize build config/operator | k apply --server-side -f - >>"$LOG" 2>&1; then applied=1; break; fi
+  sleep 5
+done
+[ "$applied" = 1 ] || die "operator"
 OPDEP=$(k -n "$NS" get deploy -o name | grep controller-manager | head -1)
 run k -n "$NS" set image "$OPDEP" "*=controller:$TAG" || die "operator image set"
 run k -n "$NS" rollout status "$OPDEP" --timeout=180s || die "operator rollout"
