@@ -204,6 +204,12 @@ side() {
   ! git -C vllm diff --quiet HEAD -- "$TEST_FILE" || stop "the $1 side lacks the diff's tests"
   { git -C vllm status --short --untracked-files=no; ( cd vllm && sha256sum "$TEST_FILE" "$CONNECTOR" "$COMMON" ); git -C vllm diff --stat HEAD; } > "$OUT/tree-$1.txt" 2>&1
 }
+# When (c) cannot run, the whole file must not run its end-to-end class either.
+# A failed download would leave it waiting on the hub, and a wrong revision or weight would run it on an unchecked model with the hub online.
+if [ -e "$OUT/c-not-run.txt" ]; then
+  CMD_B=(pytest "$TEST_FILE" -k "not TestHF3FSLoadFailureEndToEnd" -rA)
+  echo "command_b_run=${CMD_B[*]} (the end-to-end class deselected, since (c) is not run)" >> "$OUT/settings.txt"
+fi
 # Command (a) runs on both sides first and (c) next, so a run the budget cuts short loses the whole-file runs, which repeat both.
 for cmd in a c b; do
   [ "$cmd" = c ] && [ -e "$OUT/c-not-run.txt" ] && { echo "test-c skipped: $(cat "$OUT/c-not-run.txt")" >> "$OUT/status.txt"; continue; }

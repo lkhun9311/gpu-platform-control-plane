@@ -47,6 +47,9 @@ C_DECIDING = (
     ("assert retry.token_ids == cold.token_ids", re.compile(r"^>\s+assert retry\.token_ids == cold\.token_ids\s*$")),
     ("check_logprobs_close", re.compile(r"^>\s+check_logprobs_close\(\s*$")),
 )
+# A deciding failure is an assertion failing, which pytest prints as an E line starting with "assert" or "AssertionError".
+# A TypeError raised inside check_logprobs_close, for example, is the harness breaking, not the outputs differing.
+ASSERT_E_RE = re.compile(r"^E\s+(AssertionError\b|assert )")
 # Harness causes the runtime session named, matched on the failure's own text, first match wins.
 HARNESS_CAUSES = (
     ("timeout in the 60 s wait for stored keys", re.compile(r"condition not met before the timeout")),
@@ -156,7 +159,7 @@ def read_status(out):
     return rcs
 
 
-def check_run(side, cmd, run, rc):
+def check_run(side, cmd, run, rc, b_needs=JUDGED):
     """Return the reasons one run cannot be judged, or an empty list."""
     gaps = []
     name = f"{side}-{cmd}"
@@ -197,8 +200,8 @@ def check_run(side, cmd, run, rc):
     ids = set(run["outcomes"])
     if cmd == "a" and ids != EXPECTED_A:
         gaps.append(f"{name}: ran {sorted(ids)}, not the eight tests the diff adds")
-    if cmd == "b" and not JUDGED <= ids:
-        gaps.append(f"{name}: the whole file lacks {sorted(JUDGED - ids)}")
+    if cmd == "b" and not b_needs <= ids:
+        gaps.append(f"{name}: the whole file lacks {sorted(b_needs - ids)}")
     if cmd == "c" and ids != EXPECTED_C:
         gaps.append(f"{name}: ran {sorted(ids)}, not the two end-to-end tests")
     return gaps
@@ -211,8 +214,12 @@ def c_state(run, test):
         return {"state": "PASSED"}
     lines = run["sections"].get(test, [])
     if outcome == "FAILED":
+        # pytest prints the test's own frame first, so the first ">" line is the statement in the test that raised.
+        # An inner frame's ">" line is a helper's or vLLM's, and never decides the test even if its text looks like one.
+        own = next((line for line in lines if line.startswith(">")), "")
+        asserted = any(ASSERT_E_RE.match(line) for line in lines)
         for label, pattern in C_DECIDING:
-            if any(pattern.match(line) for line in lines):
+            if pattern.match(own) and asserted:
                 return {"state": "FAILED", "at": label}
     text = "\n".join(lines)
     first = next((line.strip() for line in lines if line.startswith("E ")), None) or f"{outcome} with no E line"
@@ -261,7 +268,9 @@ def judge(out):
                 }
     for side in SIDES:
         for cmd in ("a", "b"):
-            rec["gaps"].extend(check_run(side, cmd, runs[(side, cmd)], rcs.get(f"test-{side}-{cmd}")))
+            # When (c) could not run, run.sh deselects the end-to-end class from (b) too, so (b) then owes only the eight.
+            b_needs = EXPECTED_A if os.path.exists(os.path.join(out, "c-not-run.txt")) else JUDGED
+            rec["gaps"].extend(check_run(side, cmd, runs[(side, cmd)], rcs.get(f"test-{side}-{cmd}"), b_needs))
     for cmd in ("a", "b"):
         b, f = runs[("base", cmd)], runs[("fix", cmd)]
         if b is not None and f is not None and set(b["outcomes"]) != set(f["outcomes"]):
