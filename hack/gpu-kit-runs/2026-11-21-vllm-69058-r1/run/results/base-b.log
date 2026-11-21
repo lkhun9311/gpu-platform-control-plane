@@ -1,0 +1,328 @@
+/opt/kit/work/.venv/lib/python3.12/site-packages/pytest_asyncio/plugin.py:299: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /opt/kit/work/vllm
+configfile: pyproject.toml
+plugins: anyio-4.16.0, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 22 items
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py ................FFFFF [ 95%]
+F                                                                        [100%]
+
+=================================== FAILURES ===================================
+_____ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[missing_key] ______
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadErrors object at 0x77f531140920>
+load_connector = (<vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector.HF3FSKVConnector object at 0x77f4dc1c60c0>, <tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x77f53143a990>)
+get_key_locations = <function TestHF3FSLoadErrors.<lambda> at 0x77f53114d4e0>
+
+    @pytest.mark.parametrize(
+        "get_key_locations",
+        [
+            lambda keys: [None] * len(keys),
+            _raise_lookup_error,
+            # A page past the end of the file makes the read come back short.
+            lambda keys: [NUM_FILE_PAGES] * len(keys),
+        ],
+        ids=["missing_key", "lookup_raises", "short_read"],
+    )
+    def test_failed_load_reports_block_ids(self, load_connector, get_key_locations):
+        connector, metadata = load_connector
+        metadata.get_key_locations_replies.append(get_key_locations)
+    
+        _load_until_finished(connector, "req-0", [3, 5])
+    
+>       assert connector.get_block_ids_with_load_errors() == {3, 5}
+E       assert set() == {3, 5}
+E         
+E         Extra items in the right set:
+E         3
+E         5
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:419: AssertionError
+---------------------------- Captured stderr setup -----------------------------
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+------------------------------ Captured log setup ------------------------------
+WARNING  huggingface_hub.utils._http:_http.py:1023 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+WARNING  vllm.transformers_utils.config:config.py:1637 Could not retrieve safetensors metadata for facebook/opt-125m (Hub fetch failed and the cached snapshot holds no weights yet).
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Blocks not found for Loaded request req-0
+____ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises] _____
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadErrors object at 0x77f5311431d0>
+load_connector = (<vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector.HF3FSKVConnector object at 0x77f4d57ea7e0>, <tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x77f50e4fae10>)
+get_key_locations = <function _raise_lookup_error at 0x77f53114d3a0>
+
+    @pytest.mark.parametrize(
+        "get_key_locations",
+        [
+            lambda keys: [None] * len(keys),
+            _raise_lookup_error,
+            # A page past the end of the file makes the read come back short.
+            lambda keys: [NUM_FILE_PAGES] * len(keys),
+        ],
+        ids=["missing_key", "lookup_raises", "short_read"],
+    )
+    def test_failed_load_reports_block_ids(self, load_connector, get_key_locations):
+        connector, metadata = load_connector
+        metadata.get_key_locations_replies.append(get_key_locations)
+    
+        _load_until_finished(connector, "req-0", [3, 5])
+    
+>       assert connector.get_block_ids_with_load_errors() == {3, 5}
+E       assert set() == {3, 5}
+E         
+E         Extra items in the right set:
+E         3
+E         5
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:419: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Task execution error: metadata server unreachable for Loaded request req-0
+______ TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read] ______
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadErrors object at 0x77f531143290>
+load_connector = (<vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector.HF3FSKVConnector object at 0x77f4d5616570>, <tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x77f4d57eb740>)
+get_key_locations = <function TestHF3FSLoadErrors.<lambda> at 0x77f53114d580>
+
+    @pytest.mark.parametrize(
+        "get_key_locations",
+        [
+            lambda keys: [None] * len(keys),
+            _raise_lookup_error,
+            # A page past the end of the file makes the read come back short.
+            lambda keys: [NUM_FILE_PAGES] * len(keys),
+        ],
+        ids=["missing_key", "lookup_raises", "short_read"],
+    )
+    def test_failed_load_reports_block_ids(self, load_connector, get_key_locations):
+        connector, metadata = load_connector
+        metadata.get_key_locations_replies.append(get_key_locations)
+    
+        _load_until_finished(connector, "req-0", [3, 5])
+    
+>       assert connector.get_block_ids_with_load_errors() == {3, 5}
+E       assert set() == {3, 5}
+E         
+E         Extra items in the right set:
+E         3
+E         5
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:419: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Read operation failed for Loaded request req-0
+___ TestHF3FSLoadErrors.test_failed_batch_reported_when_last_batch_succeeds ____
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSLoadErrors object at 0x77f531143500>
+load_connector = (<vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector.HF3FSKVConnector object at 0x77f4d5614bf0>, <tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x77f50e4fb230>)
+
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(),
+        reason="a successful load scatters with a Triton kernel",
+    )
+    def test_failed_batch_reported_when_last_batch_succeeds(self, load_connector):
+        connector, metadata = load_connector
+        block_ids = list(range(1, DEFAULT_MAX_IO_ENTRIES + 2))
+        # The load is split into two batches.
+        # The first batch misses and the second batch reads page 0.
+        metadata.get_key_locations_replies += [
+            lambda keys: [None] * len(keys),
+            lambda keys: [0] * len(keys),
+        ]
+    
+        _load_until_finished(connector, "req-0", block_ids)
+    
+>       assert connector.get_block_ids_with_load_errors() == set(
+            block_ids[:DEFAULT_MAX_IO_ENTRIES]
+        )
+E       AssertionError: assert set() == {1, 2, 3, 4, 5, 6, ...}
+E         
+E         Extra items in the right set:
+E         1
+E         2
+E         3
+E         4
+E         5...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:439: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+------------------------------ Captured log call -------------------------------
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Blocks not found for Loaded request req-0
+__ TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail] __
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSSchedulerLoadFailure object at 0x77f5311438c0>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-2/test_failed_load_honors_failur0')
+storage_services = (<tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x77f4d57eae10>, 'cuda')
+make_worker_connector = <function make_worker_connector.<locals>.make at 0x77f4d57e7e20>
+policy = 'fail'
+
+    @pytest.mark.parametrize("policy", ["fail", "recompute"])
+    def test_failed_load_honors_failure_policy(
+        self, tmp_path, storage_services, make_worker_connector, policy
+    ):
+        metadata, _ = storage_services
+        # Every key is reported as stored, but every read comes back short.
+        metadata.default_reply = lambda keys: [NUM_FILE_PAGES] * len(keys)
+        num_blocks = 64
+        config = create_vllm_config(
+            kv_connector="HF3FSKVConnector",
+            kv_role="kv_both",
+            block_size=BLOCK_SIZE,
+            max_num_batched_tokens=256,
+            kv_load_failure_policy=policy,
+            kv_connector_extra_config=_hf3fs_extra_config(tmp_path),
+        )
+        with patch("signal.signal"):
+            scheduler = create_scheduler(config, num_blocks=num_blocks)
+        atexit.unregister(scheduler.connector.close)
+        worker = make_worker_connector(config, scheduler.kv_cache_config, num_blocks)
+    
+        num_prompt_tokens = 4 * BLOCK_SIZE + 1
+        request = create_request(num_tokens=num_prompt_tokens, block_size=BLOCK_SIZE)
+        scheduler.add_request(request)
+        scheduler_output = scheduler.schedule()
+        assert request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+    
+        worker.bind_connector_metadata(scheduler_output.kv_connector_metadata)
+        worker.start_load_kv(None)
+        worker.clear_connector_metadata()
+        _wait_for_finished_recving(worker, request.request_id)
+        model_runner_output = create_model_runner_output(
+            [],
+            finished_recving={request.request_id},
+            invalid_block_ids=worker.get_block_ids_with_load_errors(),
+        )
+        scheduler.update_from_output(scheduler_output, model_runner_output)
+    
+        if policy == "fail":
+>           assert request.status == RequestStatus.FINISHED_ERROR
+E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11>
+E            +  where <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> = <vllm.v1.request.Request object at 0x77f4c4301cd0>.status
+E            +  and   <RequestStatus.FINISHED_ERROR: 11> = RequestStatus.FINISHED_ERROR
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:486: AssertionError
+----------------------------- Captured stderr call -----------------------------
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 1837.01it/s]
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Read operation failed for Loaded request id-1
+_ TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[recompute] _
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_connector.TestHF3FSSchedulerLoadFailure object at 0x77f531143a40>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-2/test_failed_load_honors_failur1')
+storage_services = (<tests.v1.kv_connector.unit.test_hf3fs_connector.FakeMetadataService object at 0x77f4d41e7650>, 'cuda')
+make_worker_connector = <function make_worker_connector.<locals>.make at 0x77f4d56ad3a0>
+policy = 'recompute'
+
+    @pytest.mark.parametrize("policy", ["fail", "recompute"])
+    def test_failed_load_honors_failure_policy(
+        self, tmp_path, storage_services, make_worker_connector, policy
+    ):
+        metadata, _ = storage_services
+        # Every key is reported as stored, but every read comes back short.
+        metadata.default_reply = lambda keys: [NUM_FILE_PAGES] * len(keys)
+        num_blocks = 64
+        config = create_vllm_config(
+            kv_connector="HF3FSKVConnector",
+            kv_role="kv_both",
+            block_size=BLOCK_SIZE,
+            max_num_batched_tokens=256,
+            kv_load_failure_policy=policy,
+            kv_connector_extra_config=_hf3fs_extra_config(tmp_path),
+        )
+        with patch("signal.signal"):
+            scheduler = create_scheduler(config, num_blocks=num_blocks)
+        atexit.unregister(scheduler.connector.close)
+        worker = make_worker_connector(config, scheduler.kv_cache_config, num_blocks)
+    
+        num_prompt_tokens = 4 * BLOCK_SIZE + 1
+        request = create_request(num_tokens=num_prompt_tokens, block_size=BLOCK_SIZE)
+        scheduler.add_request(request)
+        scheduler_output = scheduler.schedule()
+        assert request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+    
+        worker.bind_connector_metadata(scheduler_output.kv_connector_metadata)
+        worker.start_load_kv(None)
+        worker.clear_connector_metadata()
+        _wait_for_finished_recving(worker, request.request_id)
+        model_runner_output = create_model_runner_output(
+            [],
+            finished_recving={request.request_id},
+            invalid_block_ids=worker.get_block_ids_with_load_errors(),
+        )
+        scheduler.update_from_output(scheduler_output, model_runner_output)
+    
+        if policy == "fail":
+            assert request.status == RequestStatus.FINISHED_ERROR
+            return
+    
+        # The rerun recomputes the whole prompt instead of loading it again.
+        scheduler_output = scheduler.schedule()
+        assert request.status == RequestStatus.RUNNING
+>       assert scheduler_output.num_scheduled_tokens == {
+            request.request_id: num_prompt_tokens
+        }
+E       AssertionError: assert {'id-2': 1} == {'id-2': 65}
+E         
+E         Differing items:
+E         {'id-2': 1} != {'id-2': 65}
+E         Use -v to get more diff
+
+tests/v1/kv_connector/unit/test_hf3fs_connector.py:492: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  vllm.config.vllm:vllm.py:2334 Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+WARNING  vllm.distributed.kv_transfer.kv_connector.v1.base:base.py:249 Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+ERROR    vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector:hf3fs_connector.py:423 Read operation failed for Loaded request id-2
+=============================== warnings summary ===============================
+tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float32]
+  /opt/kit/work/vllm/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/hf3fs_mock_client.py:75: UserWarning: The given buffer is not writable, and PyTorch does not support non-writable tensors. This means you can write to the underlying (supposedly non-writable) buffer using the tensor. You may want to copy the buffer to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at /__w/pytorch/pytorch/torch/csrc/utils/tensor_new.cpp:1556.)
+    return torch.frombuffer(buffer_data, dtype=dtype)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_init_creates_file
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float32]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[float16]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_and_read_dtype[bfloat16]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_read_empty_file_returns_error
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_batch_write_out_of_bounds_returns_error
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_multiple_tensors_rw
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHf3fsMockClient::test_flush_and_close_no_error
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_initial_is_empty
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_success_duration[save]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_success_duration[load]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_failed_task[save]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_record_failed_task[load]
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_aggregate_two_stats
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_reduce_with_data
+PASSED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSKVConnectorStats::test_clone_and_reset
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[missing_key]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[lookup_raises]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[short_read]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_batch_reported_when_last_batch_succeeds
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]
+FAILED tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]
+=================== 6 failed, 16 passed, 1 warning in 19.85s ===================

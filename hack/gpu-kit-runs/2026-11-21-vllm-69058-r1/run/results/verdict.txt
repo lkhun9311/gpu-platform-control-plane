@@ -1,0 +1,19 @@
+gpu: NVIDIA A10G torch: 2.14.0+cu130 cuda: 13.0 triton: 3.8.0
+CUDA-only test test_failed_batch_reported_when_last_batch_succeeds: base FAILED, fix PASSED
+base-a (exit 1): ================= 6 failed, 16 deselected, 1 warning in 32.96s =================
+  TestHF3FSLoadErrors.test_failed_load_reports_block_ids[missing_key]: E       assert set() == {3, 5} | E
+  TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises]: E       assert set() == {3, 5} | E
+  TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read]: E       assert set() == {3, 5} | E
+  TestHF3FSLoadErrors.test_failed_batch_reported_when_last_batch_succeeds: E       AssertionError: assert set() == {1, 2, 3, 4, 5, 6, ...} | E
+  TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail]: E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11> | E            +  where <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> = <vllm.v1.request.Request object at 0x7c0c5c3a4e30>.status
+  TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[recompute]: E       AssertionError: assert {'id-2': 1} == {'id-2': 65} | E
+base-b (exit 1): =================== 6 failed, 16 passed, 1 warning in 19.85s ===================
+  TestHF3FSLoadErrors.test_failed_load_reports_block_ids[missing_key]: E       assert set() == {3, 5} | E
+  TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises]: E       assert set() == {3, 5} | E
+  TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read]: E       assert set() == {3, 5} | E
+  TestHF3FSLoadErrors.test_failed_batch_reported_when_last_batch_succeeds: E       AssertionError: assert set() == {1, 2, 3, 4, 5, 6, ...} | E
+  TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail]: E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11> | E            +  where <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> = <vllm.v1.request.Request object at 0x77f4c4301cd0>.status
+  TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[recompute]: E       AssertionError: assert {'id-2': 1} == {'id-2': 65} | E
+fix-a (exit 0): ================= 6 passed, 16 deselected, 1 warning in 16.18s =================
+fix-b (exit 0): ======================== 22 passed, 1 warning in 19.79s ========================
+VERDICT: AS EXPECTED

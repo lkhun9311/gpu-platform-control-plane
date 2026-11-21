@@ -1,0 +1,8 @@
+vllm_sha=2f170a0fed20fd84dfcf6da2a3a8188a32f67e4e
+vllm_repo=https://github.com/vllm-project/vllm.git
+diff_sha256_pin=6a5ad525fa1f7192a3030d4b87dcf6a3e1d59229b1f164e9004f2dec8392974c
+budget_s=1500
+pytest_cap_s=300
+command_a=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -k TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure -rA
+command_b=pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -rA
+base=the base commit with only the diff's tests/ part applied; fix=the base commit with the whole diff
