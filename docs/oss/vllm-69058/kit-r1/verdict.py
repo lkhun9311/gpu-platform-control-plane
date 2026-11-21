@@ -13,11 +13,13 @@ import sys
 
 FILE = "tests/v1/kv_connector/unit/test_hf3fs_connector.py"
 CLASS = FILE + "::TestHF3FSLoadErrors::"
+SCHED = FILE + "::TestHF3FSSchedulerLoadFailure::"
 CUDA_TEST = CLASS + "test_failed_batch_reported_when_last_batch_succeeds"
-# The four tests that command (a) selects.
+# The six tests that command (a) selects, all added by the diff.
 EXPECTED_A = frozenset(
     [CLASS + "test_failed_load_reports_block_ids[" + p + "]" for p in ("missing_key", "lookup_raises", "short_read")]
     + [CUDA_TEST]
+    + [SCHED + "test_failed_load_honors_failure_policy[" + p + "]" for p in ("fail", "recompute")]
 )
 SIDES = ("base", "fix")
 CMDS = ("a", "b")
@@ -33,7 +35,9 @@ EXPECTED_FAILED = {
 SUMMARY_RE = re.compile(r"^=+ (.+) in ([0-9.]+)s(?: \([^)]*\))? =+$")
 OUTCOME_RE = re.compile(r"^(PASSED|FAILED|ERROR|XFAIL|XPASS) (\S+)(?: - .*)?$")
 SKIPPED_RE = re.compile(r"^SKIPPED \[(\d+)\] (.*)$")
-HEADER_RE = re.compile(r"^_{3,} (\S.*?) _{3,}$")
+# pytest pads a failure header to the terminal width, so a long test name gets as few as one underscore on each side.
+# A name never starts with an underscore, which keeps the traceback's "_ _ _" frame separators from reading as a header.
+HEADER_RE = re.compile(r"^_+ ([^_\s].*?) _+$")
 COUNT_RE = re.compile(r"(\d+) (passed|failed|skipped|deselected|errors?|xfailed|xpassed|warnings?)")
 
 
@@ -140,7 +144,7 @@ def check_run(side, cmd, run, rc):
         gaps.append(f"{name}: pytest exited {rc} with {failed} failed")
     ids = set(run["outcomes"])
     if cmd == "a" and ids != EXPECTED_A:
-        gaps.append(f"{name}: ran {sorted(ids)}, not the four TestHF3FSLoadErrors tests")
+        gaps.append(f"{name}: ran {sorted(ids)}, not the six tests the diff adds")
     if cmd == "b" and not EXPECTED_A <= ids:
         gaps.append(f"{name}: the whole file lacks {sorted(EXPECTED_A - ids)}")
     return gaps
@@ -186,6 +190,14 @@ def judge(out):
             gaps.append(f"{cmd}: base and fix ran different tests")
     cuda = {side: (runs[(side, "a")] or {"outcomes": {}})["outcomes"].get(CUDA_TEST, "missing") for side in SIDES}
     rec["cuda_only_test"] = cuda
+    # A test outside the diff's six that the fix changes is a finding of its own, named even when other gaps leave the verdict open.
+    rec["findings"] = findings = []
+    b, f = runs[("base", "b")], runs[("fix", "b")]
+    if b is not None and f is not None:
+        for t in sorted((set(b["outcomes"]) | set(f["outcomes"])) - EXPECTED_A):
+            ob, of = b["outcomes"].get(t, "missing"), f["outcomes"].get(t, "missing")
+            if ob != of:
+                findings.append(f"{t}: base {ob}, fix {of}")
     if gaps:
         return rec
     for (side, cmd), want in EXPECTED_FAILED.items():
@@ -198,7 +210,7 @@ def judge(out):
                 rec["deviations"].append(f"{side}-{cmd}: failed but expected to pass: {extra}")
             if lacking:
                 rec["deviations"].append(f"{side}-{cmd}: passed but expected to fail: {lacking}")
-    rec["verdict"] = "NOT AS EXPECTED" if rec["deviations"] else "AS EXPECTED"
+    rec["verdict"] = "NOT AS EXPECTED" if rec["deviations"] or findings else "AS EXPECTED"
     return rec
 
 
@@ -217,6 +229,8 @@ def render(rec):
         lines.append(f"GAP: {g}")
     for d in rec["deviations"]:
         lines.append(f"DEVIATION: {d}")
+    for x in rec["findings"]:
+        lines.append(f"FINDING outside the six: {x}")
     lines.append(f"VERDICT: {rec['verdict']}")
     return lines
 

@@ -3,11 +3,13 @@
 # hack/gpu-kit-session.sh runs this unmodified on one A10G with OUT set; it can also run by hand on one CUDA GPU with uv on PATH.
 #
 # The runtime session's spec, on vLLM 2f170a0fed with the fix in local-fix.diff (sha256 pinned below):
-#   (a) pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -k TestHF3FSLoadErrors -rA
+#   (a) pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -k "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure" -rA
 #   (b) pytest tests/v1/kv_connector/unit/test_hf3fs_connector.py -rA
 # each run once on base and once on base plus the diff, with the identical command.
 # The tests are part of the diff, so "base" is the base commit with only the diff's tests/ part applied, and "fix" is the whole diff.
-# The expectation is that test_failed_batch_reported_when_last_batch_succeeds, which is skipped without CUDA, fails on base and passes with the fix.
+# The expectation is that the six tests (a) selects fail on base and pass with the fix.
+# One of them, test_failed_batch_reported_when_last_batch_succeeds, is skipped without CUDA and has never run on a GPU.
+# In the whole file every other test must pass on both sides, and one whose outcome the fix changes is reported as a finding.
 # A skip, an error, a missing summary or a run without CUDA makes the verdict INCOMPLETE, never a pass.
 # Every step's exit code goes to $OUT/status.txt, and verdict.py writes $OUT/verdict.json; this script's exit status is the verdict's (0 as expected, 2 not, 3 incomplete, 1 stopped).
 #
@@ -25,8 +27,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${OUT:-$HERE/results}
 VLLM_SHA=2f170a0fed20fd84dfcf6da2a3a8188a32f67e4e
 DIFF="$HERE/local-fix.diff"
-# The sha256 of storage commit a3387773's local-fix.diff, which is the diff the runtime session handed over.
-DIFF_SHA256=d7f019347abd396feb5d20078420392be6c5540035c03b01a0c03f5e545123cf
+# The sha256 of local-fix.diff at storage commit 0f0ecadc, the draft with the recompute guard that the runtime session re-pinned.
+DIFF_SHA256=6a5ad525fa1f7192a3030d4b87dcf6a3e1d59229b1f164e9004f2dec8392974c
 VLLM_REPO=https://github.com/vllm-project/vllm.git
 BUDGET_S=${BUDGET_S:-1500}
 BUDGET_MAX_S=1500
@@ -35,7 +37,8 @@ PYTEST_CAP_S=${PYTEST_CAP_S:-300}
 RESERVE_S=60
 TEST_FILE=tests/v1/kv_connector/unit/test_hf3fs_connector.py
 CONNECTOR=vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
-CMD_A=(pytest "$TEST_FILE" -k TestHF3FSLoadErrors -rA)
+COMMON=vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py
+CMD_A=(pytest "$TEST_FILE" -k "TestHF3FSLoadErrors or TestHF3FSSchedulerLoadFailure" -rA)
 CMD_B=(pytest "$TEST_FILE" -rA)
 START=$(date +%s)
 
@@ -140,15 +143,16 @@ side() {
   git -C vllm diff --quiet HEAD || stop "the checkout is not clean before $1"
   if [ "$1" = base ]; then
     git -C vllm apply --include='tests/*' "$DIFF" || stop "the diff's tests/ part did not apply"
-    git -C vllm diff --quiet HEAD -- "$CONNECTOR" || stop "the base side changed the connector"
+    # The diff also touches utils/common.py, so the base side checks that no file under vllm/ changed, not only the connector.
+    git -C vllm diff --quiet HEAD -- vllm/ || stop "the base side changed code under vllm/"
   else
     git -C vllm apply "$DIFF" || stop "the diff did not apply"
     ! git -C vllm diff --quiet HEAD -- "$CONNECTOR" || stop "the fix side left the connector unchanged"
   fi
   ! git -C vllm diff --quiet HEAD -- "$TEST_FILE" || stop "the $1 side lacks the diff's tests"
-  { git -C vllm status --short --untracked-files=no; ( cd vllm && sha256sum "$TEST_FILE" "$CONNECTOR" ); git -C vllm diff --stat HEAD; } > "$OUT/tree-$1.txt" 2>&1
+  { git -C vllm status --short --untracked-files=no; ( cd vllm && sha256sum "$TEST_FILE" "$CONNECTOR" "$COMMON" ); git -C vllm diff --stat HEAD; } > "$OUT/tree-$1.txt" 2>&1
 }
-# Command (a) runs on both sides before (b), so a run the budget cuts short still has the four tests on both.
+# Command (a) runs on both sides before (b), so a run the budget cuts short still has the six tests on both.
 for cmd in a b; do
   for s in base fix; do
     side "$s"

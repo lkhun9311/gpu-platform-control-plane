@@ -1,12 +1,13 @@
 diff --git a/tests/v1/kv_connector/unit/test_hf3fs_connector.py b/tests/v1/kv_connector/unit/test_hf3fs_connector.py
-index de4d532798..4b0a528073 100644
+index de4d532798..0339319580 100644
 --- a/tests/v1/kv_connector/unit/test_hf3fs_connector.py
 +++ b/tests/v1/kv_connector/unit/test_hf3fs_connector.py
-@@ -3,21 +3,35 @@
+@@ -3,21 +3,44 @@
  """Tests for HF3FS KV Connector high-level components:
  - TestHf3fsMockClient      : file-backed mock client I/O correctness
  - TestHF3FSKVConnectorStats: metric collection, aggregation, serialisation
 +- TestHF3FSLoadErrors      : failed loads are reported as load errors
++- TestHF3FSSchedulerLoadFailure: the scheduler applies the failure policy
  """
  
 +import atexit
@@ -36,10 +37,18 @@ index de4d532798..4b0a528073 100644
      Hf3fsClient as MockHf3fsClient,
  )
 +from vllm.v1.kv_cache_interface import KVCacheConfig
++from vllm.v1.request import RequestStatus
++
++from .utils import (
++    create_model_runner_output,
++    create_request,
++    create_scheduler,
++    create_vllm_config,
++)
  
  # ---------------------------------------------------------------------------
  # Helpers
-@@ -231,3 +245,158 @@ class TestHF3FSKVConnectorStats:
+@@ -231,3 +254,242 @@ class TestHF3FSKVConnectorStats:
          clone = hf3fs_stats.clone_and_reset()
          assert clone.data["num_transfer_task"] == 2
          assert hf3fs_stats.is_empty()
@@ -63,69 +72,106 @@ index de4d532798..4b0a528073 100644
 +
 +    def __init__(self):
 +        self.get_key_locations_replies: list = []
++        # Used once the queued replies run out.
++        self.default_reply = None
++        self.num_location_lookups = 0
 +
 +    def initialize(self, *args, **kwargs):
-+        """Accept the worker registration."""
++        """Accept the scheduler and worker registrations."""
++
++    def batch_key_exists(self, keys):
++        """Report every key as stored."""
++        return [True] * len(keys)
 +
 +    def get_key_locations(self, rank, keys):
-+        """Serve the next queued reply, or raise it."""
-+        reply = self.get_key_locations_replies.pop(0)
-+        if isinstance(reply, Exception):
-+            raise reply
-+        return reply(keys)
++        """Serve the next queued reply, or the default reply."""
++        self.num_location_lookups += 1
++        if self.get_key_locations_replies:
++            return self.get_key_locations_replies.pop(0)(keys)
++        return self.default_reply(keys)
++
++
++def _hf3fs_extra_config(tmp_path) -> dict:
++    return {
++        "hf3fs_storage_path": str(tmp_path),
++        "hf3fs_file_size": PAGE_BYTES * NUM_FILE_PAGES,
++        "hf3fs_client_numjobs": 1,
++        "hf3fs_max_device_buffer_count": DEFAULT_MAX_IO_ENTRIES,
++    }
 +
 +
 +@pytest.fixture
-+def load_connector(tmp_path, monkeypatch, dist_init):
-+    """A worker-side connector with real queues, buffers and file-backed I/O."""
++def storage_services(monkeypatch):
++    """Replace only the external metadata service and the 3FS file system."""
 +    metadata = FakeMetadataService()
 +    monkeypatch.setattr(hf3fs_connector, "Hf3fsMetadataClient", lambda: metadata)
 +    monkeypatch.setattr(hf3fs_connector, "Hf3fsClient", MockHf3fsClient)
 +    if torch.cuda.is_available():
-+        device = "cuda"
-+    else:
-+        # The load worker needs CUDA streams and an accelerator device.
-+        # On CPU they are no-ops, and a load fails before it scatters.
-+        device = "cpu"
-+        monkeypatch.setattr(torch.cuda, "Stream", MagicMock)
-+        monkeypatch.setattr(torch.cuda, "Event", MagicMock)
-+        monkeypatch.setattr(torch.accelerator, "set_device_index", lambda _: None)
++        return metadata, "cuda"
++    # The load worker needs CUDA streams and an accelerator device.
++    # On CPU they are no-ops, and a load fails before it scatters.
++    monkeypatch.setattr(torch.cuda, "Stream", MagicMock)
++    monkeypatch.setattr(torch.cuda, "Event", MagicMock)
++    monkeypatch.setattr(torch.accelerator, "set_device_index", lambda _: None)
++    return metadata, "cpu"
 +
++
++@pytest.fixture
++def make_worker_connector(storage_services, dist_init):
++    """Build worker-side connectors with real queues, buffers and file I/O."""
++    _, device = storage_services
++    connectors = []
++
++    def make(config, kv_cache_config, num_blocks):
++        with patch("signal.signal"):
++            connector = HF3FSKVConnector(
++                config, KVConnectorRole.WORKER, kv_cache_config
++            )
++        connectors.append(connector)
++        kv_cache = torch.zeros(
++            num_blocks, NUM_HEADS, BLOCK_SIZE, HEAD_DIM, device=device
++        )
++        connector.register_kv_caches({"layer.0": kv_cache})
++        return connector
++
++    yield make
++    for connector in connectors:
++        connector.close()
++        atexit.unregister(connector.close)
++
++
++@pytest.fixture
++def load_connector(tmp_path, storage_services, make_worker_connector):
++    """A worker-side connector and the metadata service it reads."""
 +    config = VllmConfig(
 +        model_config=ModelConfig(model="facebook/opt-125m", skip_tokenizer_init=True),
 +        cache_config=CacheConfig(block_size=BLOCK_SIZE),
 +        kv_transfer_config=KVTransferConfig(
 +            kv_connector="HF3FSKVConnector",
 +            kv_role="kv_both",
-+            kv_connector_extra_config={
-+                "hf3fs_storage_path": str(tmp_path),
-+                "hf3fs_file_size": PAGE_BYTES * NUM_FILE_PAGES,
-+                "hf3fs_client_numjobs": 1,
-+                "hf3fs_max_device_buffer_count": DEFAULT_MAX_IO_ENTRIES,
-+            },
++            kv_connector_extra_config=_hf3fs_extra_config(tmp_path),
 +        ),
 +    )
-+    with patch("signal.signal"):
-+        connector = HF3FSKVConnector(
-+            config,
-+            KVConnectorRole.WORKER,
-+            KVCacheConfig(
-+                num_blocks=NUM_GPU_BLOCKS, kv_cache_tensors=[], kv_cache_groups=[]
-+            ),
-+        )
-+    kv_cache = torch.zeros(
-+        NUM_GPU_BLOCKS, NUM_HEADS, BLOCK_SIZE, HEAD_DIM, device=device
++    kv_cache_config = KVCacheConfig(
++        num_blocks=NUM_GPU_BLOCKS, kv_cache_tensors=[], kv_cache_groups=[]
 +    )
-+    try:
-+        connector.register_kv_caches({"layer.0": kv_cache})
-+        yield connector, metadata
-+    finally:
-+        connector.close()
-+        atexit.unregister(connector.close)
++    connector = make_worker_connector(config, kv_cache_config, NUM_GPU_BLOCKS)
++    return connector, storage_services[0]
 +
 +
-+def _load_until_finished(connector, request_id, block_ids, timeout=10.0):
-+    """Start a load and poll get_finished until it reports the request."""
++def _wait_for_finished_recving(connector, request_id, timeout=10.0):
++    """Poll get_finished until it reports the request as received."""
++    deadline = time.monotonic() + timeout
++    while True:
++        _, finished_recving = connector.get_finished(set())
++        if request_id in finished_recving:
++            return
++        assert time.monotonic() < deadline, f"load of {request_id} never finished"
++        time.sleep(0.01)
++
++
++def _load_until_finished(connector, request_id, block_ids):
++    """Start a load and wait until it is reported finished."""
 +    metadata = HF3FSConnectorMetadata()
 +    metadata.add_request(
 +        HF3FSRequestMetadata(
@@ -142,14 +188,7 @@ index de4d532798..4b0a528073 100644
 +    connector.bind_connector_metadata(metadata)
 +    connector.start_load_kv(None)
 +    connector.clear_connector_metadata()
-+
-+    deadline = time.monotonic() + timeout
-+    while True:
-+        _, finished_recving = connector.get_finished(set())
-+        if request_id in finished_recving:
-+            return
-+        assert time.monotonic() < deadline, f"load of {request_id} never finished"
-+        time.sleep(0.01)
++    _wait_for_finished_recving(connector, request_id)
 +
 +
 +def _raise_lookup_error(keys):
@@ -198,11 +237,73 @@ index de4d532798..4b0a528073 100644
 +        assert connector.get_block_ids_with_load_errors() == set(
 +            block_ids[:DEFAULT_MAX_IO_ENTRIES]
 +        )
++
++
++class TestHF3FSSchedulerLoadFailure:
++    """The scheduler sees a failed HF3FS load through the real connectors."""
++
++    @pytest.mark.parametrize("policy", ["fail", "recompute"])
++    def test_failed_load_honors_failure_policy(
++        self, tmp_path, storage_services, make_worker_connector, policy
++    ):
++        metadata, _ = storage_services
++        # Every key is reported as stored, but every read comes back short.
++        metadata.default_reply = lambda keys: [NUM_FILE_PAGES] * len(keys)
++        num_blocks = 64
++        config = create_vllm_config(
++            kv_connector="HF3FSKVConnector",
++            kv_role="kv_both",
++            block_size=BLOCK_SIZE,
++            max_num_batched_tokens=256,
++            kv_load_failure_policy=policy,
++            kv_connector_extra_config=_hf3fs_extra_config(tmp_path),
++        )
++        with patch("signal.signal"):
++            scheduler = create_scheduler(config, num_blocks=num_blocks)
++        atexit.unregister(scheduler.connector.close)
++        worker = make_worker_connector(config, scheduler.kv_cache_config, num_blocks)
++
++        num_prompt_tokens = 4 * BLOCK_SIZE + 1
++        request = create_request(num_tokens=num_prompt_tokens, block_size=BLOCK_SIZE)
++        scheduler.add_request(request)
++        scheduler_output = scheduler.schedule()
++        assert request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
++
++        worker.bind_connector_metadata(scheduler_output.kv_connector_metadata)
++        worker.start_load_kv(None)
++        worker.clear_connector_metadata()
++        _wait_for_finished_recving(worker, request.request_id)
++        model_runner_output = create_model_runner_output(
++            [],
++            finished_recving={request.request_id},
++            invalid_block_ids=worker.get_block_ids_with_load_errors(),
++        )
++        scheduler.update_from_output(scheduler_output, model_runner_output)
++
++        if policy == "fail":
++            assert request.status == RequestStatus.FINISHED_ERROR
++            return
++
++        # The rerun recomputes the whole prompt instead of loading it again.
++        scheduler_output = scheduler.schedule()
++        assert request.status == RequestStatus.RUNNING
++        assert scheduler_output.num_scheduled_tokens == {
++            request.request_id: num_prompt_tokens
++        }
++        assert metadata.num_location_lookups == 1
 diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
-index 497eeecc0d..d2b28742e7 100644
+index 497eeecc0d..5f821e20d8 100644
 --- a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
 +++ b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
-@@ -113,7 +113,9 @@ class AsyncOperationManager:
+@@ -66,6 +66,7 @@ from vllm.v1.core.kv_cache_manager import KVCacheBlocks
+ from vllm.v1.core.sched.output import SchedulerOutput
+ from vllm.v1.kv_cache_interface import KVCacheConfig
+ from vllm.v1.metrics.utils import create_metric_per_engine
++from vllm.v1.outputs import KVConnectorOutput
+ from vllm.v1.request import Request
+ 
+ HF3FS_AVAILABLE = True
+@@ -113,7 +114,9 @@ class AsyncOperationManager:
  
          # Operation tracking
          self._save_futures: dict[str, list[Future]] = {}
@@ -213,7 +314,7 @@ index 497eeecc0d..d2b28742e7 100644
          self._pending_finished_requests: set[str] = set()
  
          # Initialize resources
-@@ -183,7 +185,7 @@ class AsyncOperationManager:
+@@ -183,7 +186,7 @@ class AsyncOperationManager:
          future: Future[Any] = Future()
          task = (request_id, block_ids, block_hashes, future)
          self._load_queue.put(task)
@@ -222,7 +323,7 @@ index 497eeecc0d..d2b28742e7 100644
          return future
  
      def get_finished_operations(
-@@ -228,12 +230,23 @@ class AsyncOperationManager:
+@@ -228,12 +231,23 @@ class AsyncOperationManager:
      def _check_completed_loads(self) -> set[str]:
          """Check for completed load operations."""
          completed = set()
@@ -250,7 +351,7 @@ index 497eeecc0d..d2b28742e7 100644
      def _all_saves_done(self, request_id: str) -> bool:
          """Check if all save operations for a request are completed."""
          return all(future.done() for future in self._save_futures[request_id])
-@@ -669,6 +682,9 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+@@ -669,6 +683,9 @@ class HF3FSKVConnector(KVConnectorBase_V1):
      ) -> tuple[set[str] | None, set[str] | None]:
          return self._async_manager.get_finished_operations(finished_req_ids)
  
@@ -260,3 +361,43 @@ index 497eeecc0d..d2b28742e7 100644
      def get_kv_connector_stats(self) -> Optional["KVConnectorStats"]:
          """Get the KV connector stats collected during the last interval."""
          # Clear stats for next iteration
+@@ -690,6 +707,16 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+     ) -> tuple[bool, dict[str, Any] | None]:
+         return True, None
+ 
++    def update_connector_output(self, connector_output: KVConnectorOutput) -> None:
++        invalid_block_ids = connector_output.invalid_block_ids
++        if not invalid_block_ids:
++            return
++        for state in self._scheduling_states.values():
++            if state.load_op is not None and not invalid_block_ids.isdisjoint(
++                state.load_op.need_fetch_block_ids
++            ):
++                state.load_failed = True
++
+     def get_num_new_matched_tokens(
+         self, request: "Request", num_computed_tokens: int
+     ) -> tuple[int, bool]:
+@@ -703,7 +730,8 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+                 len(request.prompt_token_ids) - 1
+             )
+ 
+-            if num_tokens_to_check <= num_computed_tokens:
++            # A persistent fault would otherwise fail the same load forever.
++            if state.load_failed or num_tokens_to_check <= num_computed_tokens:
+                 state.load_op = LoadBlockInfo(
+                     num_computed_blocks=num_computed_tokens // self._block_size,
+                     num_blocks_to_load=0,
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py
+index d0e20bc94c..fc91b7b4f4 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py
+@@ -55,6 +55,8 @@ class RequestSchedulingState:
+ 
+     # Load operation info
+     load_op: LoadBlockInfo | None = None
++    # Set when a load fails, so a rerun does not read the same keys again.
++    load_failed: bool = False
+ 
+     # Scheduling phase
+     phase: str = "NEW"  # NEW -> WAITING_TO_LOAD -> ACTIVE -> FINISHED
