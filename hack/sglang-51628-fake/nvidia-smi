@@ -1,0 +1,8 @@
+#!/bin/bash
+# A fake nvidia-smi for the SGLang #51628 kit's offline test: one A10G, with the driver FAKE_DRIVER or 580.
+case "$*" in
+  *name,memory.total,driver_version*) echo "name, memory.total [MiB], driver_version"; echo "NVIDIA A10G, 23028 MiB, ${FAKE_DRIVER:-580.95.05}" ;;
+  *memory.used*) echo "120 MiB" ;;
+  *name*) echo "NVIDIA A10G" ;;
+  *) echo "fake nvidia-smi" ;;
+esac

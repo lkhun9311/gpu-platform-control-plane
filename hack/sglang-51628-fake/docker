@@ -1,0 +1,47 @@
+#!/bin/bash
+# A fake docker for the SGLang #51628 kit's offline test.
+# `run` runs the entrypoint on the host, with every -v mount's container path in its arguments rewritten to the host path,
+# so measure.sh sees the same three directories run.sh gave it.
+# The container's python3 is FAKE_VENV's, whose site-packages hold the fake sglang, triton, torch and huggingface_hub.
+# Every call is appended to $FAKE_DIR/docker-calls.
+set -u
+echo "$*" >> "${FAKE_DIR:?}/docker-calls"
+DIGEST=${FAKE_DIGEST:-sha256:d7976d3a5963ea29eb34a3d94dd2304b3b9a8245da78add7ada9cb15bf77a641}
+case "${1:-}" in
+  info) echo '{"nvidia":{"path":"nvidia-container-runtime"},"runc":{"path":"runc"}}' ;;
+  pull) [ "${FAKE_PULL_FAIL:-}" = 1 ] && { echo "fake pull failed" >&2; exit 1; }; echo "pulled $2" ;;
+  image)
+    case "$*" in
+      *RepoDigests*) echo "[\"lmsysorg/sglang@$DIGEST\"]" ;;
+      *revision*) echo "${FAKE_REVISION:-03fde9cc392a5f84a54a365635ffed0061cdf1b8}" ;;
+      *) echo "{}" ;;
+    esac ;;
+  rm) exit 0 ;;
+  ps) exit 0 ;;
+  run)
+    shift
+    maps=() entry=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --rm) shift ;;
+        --name | --gpus | --ipc | --network) shift 2 ;;
+        -v) IFS=: read -r h c _ <<<"$2"; maps+=("$h:$c"); shift 2 ;;
+        --entrypoint) entry=$2; shift 2 ;;
+        -*) echo "fake docker: unknown run flag $1" >&2; exit 125 ;;
+        *) break ;;
+      esac
+    done
+    shift # the image
+    args=()
+    for a in "$@"; do
+      for m in "${maps[@]}"; do
+        h=${m%%:*}; c=${m#*:}
+        if [ "$a" = "$c" ]; then a=$h; elif [ "${a#"$c"/}" != "$a" ]; then a="$h/${a#"$c"/}"; fi
+      done
+      args+=("$a")
+    done
+    mkdir -p "$FAKE_DIR/root"
+    exec env SGL51628_ROOT="$FAKE_DIR/root" SGL51628_OFFLINE_TEST=1 SGLANG_BUILD_COMMIT=03fde9cc392a5f84a54a365635ffed0061cdf1b8 \
+      PATH="${FAKE_VENV:?}/bin:$PATH" "$entry" "${args[@]}" ;;
+  *) echo "fake docker: unknown command $1" >&2; exit 125 ;;
+esac
