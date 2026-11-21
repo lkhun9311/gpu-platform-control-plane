@@ -23,8 +23,9 @@ STORAGE="$HOME/workspace/storage"
 STORAGE_REF=a3387773:open-source/contributions/vllm/hf3fs-load-errors-69058/local-fix.diff
 # Scratch space lives on disk, since /tmp is RAM-backed on the development machine.
 SCRATCH="${SCRATCH:-$HOME/.cache/vllm-69058}"
-mkdir -p "$SCRATCH"
-WORK=$(mktemp -d -p "$SCRATCH")
+mkdir -p "$SCRATCH" || exit 1
+# An empty WORK would turn every "$WORK/..." below, the cleanup's removals included, into a path at the root.
+WORK=$(mktemp -d -p "$SCRATCH") && [ -n "$WORK" ] && [ -d "$WORK" ] || { echo "could not make a scratch directory under $SCRATCH" >&2; exit 1; }
 cleanup() {
   # Worktrees the e2e runs added to the local vLLM repository are removed even when a run stopped before its own cleanup.
   for w in "$WORK"/e2e-*/cwd/vllm "$WORK/apply"; do
@@ -42,8 +43,9 @@ mcheck() { if [ -n "$m" ]; then check "$@"; else echo "FAIL $1 (the mutant was n
 mutant() {
   local d
   d="$WORK/m-$(printf '%s' "$1" | tr -c 'A-Za-z0-9' '-')"
-  cp -r "$KIT" "$d"
-  sed -i "$3" "$d/$2"
+  # A copy or edit that failed would leave no mutant, and a check that cannot load it would read as caught.
+  cp -r "$KIT" "$d" || return 1
+  sed -i "$3" "$d/$2" || return 1
   cmp -s "$KIT/$2" "$d/$2" && { echo "the mutant $1 changed nothing" >&2; return 1; }
   echo "$d"
 }
@@ -102,6 +104,8 @@ check "a positional argument is refused, and nothing is written" "! dry '$KIT' e
 check "BUDGET_S=1501, which would stretch the bill, is refused" "! dry '$KIT' -- BUDGET_S=1501 && command grep -qF 'at most 1500' '$WORK/dry.out'"
 check "BUDGET_S that is not whole seconds is refused" "! dry '$KIT' -- BUDGET_S=10m"
 check "BUDGET_S at or below the verdict reserve is refused" "! dry '$KIT' -- BUDGET_S=60"
+check "BUDGET_S with a leading zero, which bash would read as octal, is refused" "! dry '$KIT' -- BUDGET_S=0900 && ! dry '$KIT' -- BUDGET_S=01500"
+check "PYTEST_CAP_S with a leading zero is refused" "! dry '$KIT' -- PYTEST_CAP_S=090 && command grep -qF 'without a leading zero' '$WORK/dry.out'"
 check "PYTEST_CAP_S under 30 is refused" "! dry '$KIT' -- PYTEST_CAP_S=5 && command grep -qF 'at least 30' '$WORK/dry.out'"
 check "BUDGET_S=900 is accepted" "dry '$KIT' -- BUDGET_S=900 && command grep -qx 'budget_s=900' '$WORK/dry/settings.txt'"
 mkdir -p "$WORK/used" && echo old >"$WORK/used/base-a.log"
@@ -109,6 +113,8 @@ env -i PATH="$PATH" HOME="$HOME" KIT_DRY_RUN=1 OUT="$WORK/used" bash "$KIT/run.s
 check "an OUT that holds an earlier run is refused" "[ $rc != 0 ] && command grep -qF 'is not empty' '$WORK/used.out'"
 m=$(mutant budgetcap run.sh 's/^BUDGET_MAX_S=1500$/BUDGET_MAX_S=3000/')
 mcheck "mutant: a run.sh that takes BUDGET_S=1501 is caught" "! { ! dry '$m' -- BUDGET_S=1501 && command grep -qF 'at most' '$WORK/dry.out'; }"
+m=$(mutant octal run.sh 's/^\[\[ \$BUDGET_S =~ \^\[1-9\]\[0-9\]\*\$ \]\]/[[ $BUDGET_S =~ ^[0-9]+$ ]]/')
+mcheck "mutant: a run.sh that takes BUDGET_S=01500 is caught" "! { ! dry '$m' -- BUDGET_S=0900 && ! dry '$m' -- BUDGET_S=01500; }"
 m=$(mutant args run.sh 's/^\[ \$# = 0 \] ||/true ||/')
 mcheck "mutant: a run.sh that ignores an argument is caught" "! { ! dry '$m' extra && command grep -qF 'takes no arguments' '$WORK/dry.out'; }"
 
