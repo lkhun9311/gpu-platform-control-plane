@@ -1,13 +1,14 @@
 diff --git a/tests/v1/kv_connector/unit/test_hf3fs_connector.py b/tests/v1/kv_connector/unit/test_hf3fs_connector.py
-index de4d532798..899bc66ec0 100644
+index de4d532798..b8d28b50e4 100644
 --- a/tests/v1/kv_connector/unit/test_hf3fs_connector.py
 +++ b/tests/v1/kv_connector/unit/test_hf3fs_connector.py
-@@ -3,21 +3,49 @@
+@@ -3,21 +3,55 @@
  """Tests for HF3FS KV Connector high-level components:
  - TestHf3fsMockClient      : file-backed mock client I/O correctness
  - TestHF3FSKVConnectorStats: metric collection, aggregation, serialisation
 +- TestHF3FSLoadErrors      : failed loads are reported as load errors
 +- TestHF3FSSchedulerLoadFailure: the scheduler applies the failure policy
++- TestHF3FSLoadFailureEndToEnd: the same through `LLM` on a GPU
  """
  
 +import atexit
@@ -20,6 +21,8 @@ index de4d532798..899bc66ec0 100644
  import pytest
  import torch
  
++from tests.models.utils import check_logprobs_close
++from vllm import SamplingParams
 +from vllm.config import CacheConfig, KVTransferConfig, ModelConfig, VllmConfig
 +from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorRole
 +from vllm.distributed.kv_transfer.kv_connector.v1.hf3fs import hf3fs_connector
@@ -28,6 +31,9 @@ index de4d532798..899bc66ec0 100644
 +    HF3FSKVConnector,
      HF3FSKVConnectorStats,
  )
++from vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_metadata_server import (
++    GlobalMetadataState,
++)
 +from vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.common import (
 +    HF3FSConnectorMetadata,
 +    HF3FSRequestMetadata,
@@ -53,7 +59,7 @@ index de4d532798..899bc66ec0 100644
  
  # ---------------------------------------------------------------------------
  # Helpers
-@@ -231,3 +259,335 @@ class TestHF3FSKVConnectorStats:
+@@ -231,3 +265,495 @@ class TestHF3FSKVConnectorStats:
          clone = hf3fs_stats.clone_and_reset()
          assert clone.data["num_transfer_task"] == 2
          assert hf3fs_stats.is_empty()
@@ -325,7 +331,9 @@ index de4d532798..899bc66ec0 100644
 +        }
 +        assert metadata.num_location_lookups == 1
 +
-+    def test_failed_later_batch_keeps_valid_prefix(self, tmp_path, storage_services):
++    def test_failed_later_batch_keeps_prefix_and_saves_the_rest(
++        self, tmp_path, storage_services
++    ):
 +        # A successful batch needs a GPU, so the worker result is written here.
 +        _, scheduler = _hf3fs_scheduler(tmp_path, "recompute")
 +        num_loaded_blocks = DEFAULT_MAX_IO_ENTRIES + 2
@@ -351,6 +359,10 @@ index de4d532798..899bc66ec0 100644
 +        assert scheduler_output.num_scheduled_tokens == {
 +            request.request_id: num_prompt_tokens - num_valid_tokens
 +        }
++        # Saves start after the kept prefix, so the failed entries are replaced.
++        (save,) = scheduler_output.kv_connector_metadata.requests
++        assert save.save_block_op is not None
++        assert save.save_block_op.skip_leading_blocks == DEFAULT_MAX_IO_ENTRIES
 +
 +    def test_reused_blocks_do_not_mark_a_finished_load(
 +        self, tmp_path, storage_services
@@ -389,8 +401,162 @@ index de4d532798..899bc66ec0 100644
 +            num_hit_tokens,
 +            True,
 +        )
++
++
++# ===========================================================================
++# TestHF3FSLoadFailureEndToEnd
++# ===========================================================================
++
++E2E_MODEL = "facebook/opt-125m"
++E2E_MAX_TOKENS = 16
++E2E_NUM_GPU_BLOCKS = 64
++
++
++class InProcessMetadataService:
++    """The in-tree metadata server state, served in process instead of over HTTP."""
++
++    def __init__(self):
++        self.state = GlobalMetadataState()
++
++    def initialize(self, rank, num_pages=0, role="worker"):
++        if role == "worker":
++            self.state.initialize_rank(rank, num_pages)
++
++    def allocate_pages_for_keys(self, rank, keys):
++        return list(self.state.allocate_pages_for_keys(rank, keys).items())
++
++    def confirm_write_for_keys(self, rank, key_confirmations, pages_to_release=None):
++        self.state.confirm_write_for_keys(rank, key_confirmations, pages_to_release)
++
++    def batch_key_exists(self, keys):
++        return self.state.batch_key_exists(keys)
++
++    def get_key_locations(self, rank, keys):
++        return self.state.get_key_locations(rank, keys)
++
++    def num_stored_keys(self) -> int:
++        with self.state.global_lock:
++            return sum(m.is_complete() for m in self.state.key_metadata.values())
++
++
++class StorageFaults:
++    """Switches the file-backed 3FS client to failing every read."""
++
++    def __init__(self):
++        self.fail_reads = False
++        self.num_failed_reads = 0
++
++
++@pytest.fixture
++def in_process_storage(monkeypatch):
++    """Replace only the external metadata server and the 3FS file system."""
++    # The engine and its worker must share this process to share the fakes.
++    monkeypatch.setenv("VLLM_ENABLE_V1_MULTIPROCESSING", "0")
++    metadata = InProcessMetadataService()
++    faults = StorageFaults()
++
++    class FaultyFileClient(MockHf3fsClient):
++        def batch_read(self, offsets, tensors):
++            if faults.fail_reads:
++                faults.num_failed_reads += 1
++                return [-1] * len(offsets)
++            return super().batch_read(offsets, tensors)
++
++    monkeypatch.setattr(hf3fs_connector, "Hf3fsMetadataClient", lambda: metadata)
++    monkeypatch.setattr(hf3fs_connector, "Hf3fsClient", FaultyFileClient)
++    return metadata, faults
++
++
++def _e2e_prompts() -> tuple[str, list[str]]:
++    target = " ".join(f"Item {i} costs {i * 7} dollars." for i in range(40))
++    # Together the fillers need more blocks than the GPU has.
++    # They evict the target from the local prefix cache and overwrite its blocks.
++    fillers = [
++        " ".join(f"Filler {j} line {i} says hello." for i in range(40))
++        for j in range(6)
++    ]
++    return target, fillers
++
++
++def _greedy_output(llm, prompt):
++    params = SamplingParams(temperature=0, max_tokens=E2E_MAX_TOKENS, logprobs=5)
++    return llm.generate([prompt], params, use_tqdm=False)[0].outputs[0]
++
++
++def _wait_until(condition, timeout=60.0):
++    deadline = time.monotonic() + timeout
++    while not condition():
++        assert time.monotonic() < deadline, "condition not met before the timeout"
++        time.sleep(0.05)
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA GPU")
++class TestHF3FSLoadFailureEndToEnd:
++    """A failed HF3FS read must not turn into a cache hit through `LLM`."""
++
++    @pytest.mark.parametrize("policy", ["fail", "recompute"])
++    def test_failed_read_honors_policy(
++        self, vllm_runner, tmp_path, in_process_storage, policy
++    ):
++        metadata, faults = in_process_storage
++        target, fillers = _e2e_prompts()
++        common_kwargs = dict(
++            max_model_len=1024,
++            block_size=BLOCK_SIZE,
++            enforce_eager=True,
++            gpu_memory_utilization=0.3,
++            num_gpu_blocks_override=E2E_NUM_GPU_BLOCKS,
++            enable_prefix_caching=True,
++        )
++
++        with vllm_runner(E2E_MODEL, **common_kwargs) as runner:
++            reference = _greedy_output(runner.llm, target)
++
++        transfer_config = KVTransferConfig(
++            kv_connector="HF3FSKVConnector",
++            kv_role="kv_both",
++            kv_load_failure_policy=policy,
++            kv_connector_extra_config={
++                "hf3fs_storage_path": str(tmp_path),
++                "hf3fs_file_size": 256 * 1024 * 1024,
++                "hf3fs_client_numjobs": 2,
++            },
++        )
++        with (
++            patch("signal.signal"),
++            vllm_runner(
++                E2E_MODEL, kv_transfer_config=transfer_config, **common_kwargs
++            ) as runner,
++        ):
++            llm = runner.llm
++            cold = _greedy_output(llm, target)
++            num_target_blocks = len(llm.get_tokenizer().encode(target)) // BLOCK_SIZE
++            _wait_until(lambda: metadata.num_stored_keys() >= num_target_blocks)
++            llm.generate(
++                fillers,
++                SamplingParams(temperature=0, max_tokens=1),
++                use_tqdm=False,
++            )
++
++            faults.fail_reads = True
++            retry = _greedy_output(llm, target)
++            # The target came back from HF3FS, and that read failed.
++            assert faults.num_failed_reads > 0
++
++        if policy == "fail":
++            assert retry.finish_reason == "error"
++            return
++        assert retry.finish_reason == "length"
++        # Recomputing must give the output of the same engine without storage.
++        assert retry.token_ids == cold.token_ids
++        check_logprobs_close(
++            outputs_0_lst=[(reference.token_ids, reference.text, reference.logprobs)],
++            outputs_1_lst=[(retry.token_ids, retry.text, retry.logprobs)],
++            name_0="no_connector",
++            name_1="hf3fs_recompute",
++        )
 diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
-index 497eeecc0d..1eb7185cfc 100644
+index 497eeecc0d..137b31663c 100644
 --- a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
 +++ b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
 @@ -66,6 +66,7 @@ from vllm.v1.core.kv_cache_manager import KVCacheBlocks
@@ -492,7 +658,7 @@ index 497eeecc0d..1eb7185cfc 100644
  
      def get_kv_connector_stats(self) -> Optional["KVConnectorStats"]:
          """Get the KV connector stats collected during the last interval."""
-@@ -688,8 +721,24 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+@@ -688,8 +721,31 @@ class HF3FSKVConnector(KVConnectorBase_V1):
          request: "Request",
          block_ids: list[int],
      ) -> tuple[bool, dict[str, Any] | None]:
@@ -509,15 +675,22 @@ index 497eeecc0d..1eb7185cfc 100644
 +            # Finished loads may have released them to other requests.
 +            for request_id, block_ids in self._loading_block_ids.items():
 +                state = self._scheduling_states.get(request_id)
-+                if state is not None and not invalid_block_ids.isdisjoint(block_ids):
-+                    state.load_failed = True
++                failed = [i for i, b in enumerate(block_ids) if b in invalid_block_ids]
++                if state is None or state.load_op is None or not failed:
++                    continue
++                state.load_failed = True
++                # The scheduler keeps only the blocks before the first failed one.
++                # Saves then start there, so the recomputed blocks are stored again.
++                state.load_op.num_blocks_to_load = min(
++                    state.load_op.num_blocks_to_load, failed[0]
++                )
 +        for request_id in connector_output.finished_recving or ():
 +            self._loading_block_ids.pop(request_id, None)
 +
      def get_num_new_matched_tokens(
          self, request: "Request", num_computed_tokens: int
      ) -> tuple[int, bool]:
-@@ -703,7 +752,8 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+@@ -703,7 +759,8 @@ class HF3FSKVConnector(KVConnectorBase_V1):
                  len(request.prompt_token_ids) - 1
              )
  
@@ -527,7 +700,7 @@ index 497eeecc0d..1eb7185cfc 100644
                  state.load_op = LoadBlockInfo(
                      num_computed_blocks=num_computed_tokens // self._block_size,
                      num_blocks_to_load=0,
-@@ -783,6 +833,8 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+@@ -783,6 +840,8 @@ class HF3FSKVConnector(KVConnectorBase_V1):
      ) -> KVConnectorMetadata:
          """Build connector metadata for scheduling step."""
          metadata = HF3FSConnectorMetadata()
@@ -536,7 +709,7 @@ index 497eeecc0d..1eb7185cfc 100644
  
          for request_id in scheduler_output.finished_req_ids:
              self._scheduling_states.pop(request_id, None)
-@@ -824,6 +876,9 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+@@ -824,6 +883,9 @@ class HF3FSKVConnector(KVConnectorBase_V1):
              if request_metadata:
                  metadata.add_request(request_metadata)
                  state.phase = "ACTIVE"
