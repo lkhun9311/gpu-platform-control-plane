@@ -156,11 +156,22 @@ def judge(out):
             rec["gaps"].append(f"{parsed['counts']['skipped']} skipped, and a skip on the GPU is not a diagnostic")
         if not any("DIAG" in x for x in parsed["lines"]) and parsed["summary"] and any(parsed["outcomes"].values()):
             rec["gaps"].append("a case failed but the log has no DIAG line, so the diagnostic patch did not run")
+        earlier_fault = None
         for case in CASES:
-            rec["cases"][case] = case_record(parsed, case)
+            c = rec["cases"][case] = case_record(parsed, case)
             # Without -x both cases run, so one the summary does not account for means the run did not finish.
-            if rec["cases"][case]["outcome"] == "not run or unknown":
+            if c["outcome"] == "not run or unknown":
                 rec["gaps"].append(f"case [{case}] has no outcome in the summary")
+            # Both cases share one process, and a CUDA illegal address is sticky, so a later case can fail on the earlier case's fault.
+            # Such a case is named, and it counts only if its own captured output shows its own DIAG trail.
+            if earlier_fault:
+                c["after_earlier_fault"] = f"ran after [{earlier_fault}]'s illegal memory access in the same process; its failure may not be its own"
+            own_diag = any("DIAG" in g.split(":", 1)[1] for g in c["grep"])
+            if c["outcome"] not in ("passed", "not run or unknown") and not own_diag:
+                rec["gaps"].append(f"case [{case}] failed with no DIAG line of its own"
+                                   + (f"; it ran after [{earlier_fault}]'s illegal memory access in the same process" if earlier_fault else ""))
+            if c["first_illegal"] and not earlier_fault:
+                earlier_fault = case
     rec["verdict"] = "INCOMPLETE" if rec["gaps"] else "COMPLETE"
     return rec
 
@@ -172,6 +183,8 @@ def render(rec):
     lines.append(f"summary (exit {rec.get('exit')}): {rec.get('summary')}")
     for case, c in rec["cases"].items():
         lines.append(f"case [{case}]: {c['outcome']}" + (f" ({c['note']})" if c.get("note") else ""))
+        if c.get("after_earlier_fault"):
+            lines.append(f"  caution: {c['after_earlier_fault']}")
         lines.append(f"  first illegal memory access: {c['first_illegal']}")
         lines.append(f"  last DIAG sync ok before it: {c['last_sync_before_illegal']}")
         lines.append(f"  DIAG save out of range: {c['out_of_range'] or 'none'}")
