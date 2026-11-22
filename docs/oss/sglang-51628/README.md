@@ -126,3 +126,45 @@ SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.2xlarge OUT=hack/gpu-ki
 
 r2's pull took 737 s and its MAIN arm 1,411 s, so r3 should end in about 2,300 s of its 3,150 s budget; the session's worst case is still $0.9696.
 The offline checks are `bash hack/sglang-51628-kit-r3-test.sh`.
+
+## Kit r4
+
+The runtime session's fix, `prewarm.patch` (local commit 40ca3cd5 on SGLang main cb337923, sha256 `6aa4b47c…24f9`), prewarms the Mamba2 prefill scan with initial states at startup.
+`kit-r4` is an A/B of it on one instance, one fresh container per arm, BASE then FIX.
+(The runtime session called this kit r3; `kit-r3` was already the CONTROL arm run of 2026-11-21, so this one is r4.)
+
+No published image is built from cb337923 (the nearest nightly, e96e9675, is 48 commits behind it), so both arms run r2's image with a cb337923 tree installed over it:
+
+- `run.sh` fetches cb337923 by commit id with git, copies it, and applies the patch to the copy with `git apply --index`.
+  It records each tree's commit, `git write-tree` hash and `git diff --numstat` against cb337923 (`source-<arm>-before.txt`), and stops unless BASE is tree `55785ea9…` with no diff and FIX is tree `dfdd29ff…` (40ca3cd5's tree) with the patch's numstat: 43, 79, 8/1 and 158 lines.
+  The same record is taken again after each arm, and the verdict re-checks both.
+- Every container runs `pip install --no-deps --no-build-isolation -e python` from its tree, then shows that python imports `sglang` from that tree; the compile hook now also records each kernel's source file, and the verdict refuses an arm whose Mamba2 kernels came from anywhere else.
+- A prep container installs the BASE tree, downloads the model and builds SGLang's Rust TreeCore extension from the tree with the loader's own source build.
+  r2's server ran the Rust TreeCore the image bundles for 03fde9cc; a tree installed over the image has no bundled build and the image runs with `SGLANG_RUST_BUILD_MODE=never`, so without this the server would quietly fall back to the Python TreeCore.
+  The arms copy the built artifact into their fresh HOME, and the servers get `RUSTUP_HOME` and `CARGO_HOME` so the loader can fingerprint it.
+  If the build fails, both arms run the Python TreeCore, and the verdict prints that as a departure from r2.
+- FIX first runs `python -m pytest test/registered/unit/layers/test_mamba2_prefill_prewarm.py -q` on a Triton cache of its own (expected: 3 passed).
+- Each server: r2's command, empty Triton cache, fresh HOME, default compile threshold; then r2's warmup burst (64 prompts at c32, seed 42) and three c16 runs (32 prompts, seeds 161 to 163). r2's c1 and c128 runs are dropped.
+- Gates: both arms must log "Disable prefill CUDA graph because some layers do not apply Standard GQA" and capture no prefill graph; FIX must also log "Prewarmed the Mamba2 prefill scan for N layer geometries in X s.". An arm that fails sends no traffic, and FIX is not run after a BASE that did not reach traffic.
+
+`kit-r4/verdict.py` (rules fixed before any run):
+
+| Verdict | When |
+|---|---|
+| IMPROVED | both gates passed, FIX's tests gave 3 passed, and FIX's Mamba2 compiles after ready are at most half of BASE's and at least 5 fewer |
+| NO CHANGE | both gates passed and that rule does not hold, or the tests did not pass; the reason is printed |
+| NOT RUN | a gate failed (exit 4); or the comparison is not the specified one (exit 3): a tree off its pins, the patch hash, kernels from another tree, BASE logging the prewarm line, the arms on different TreeCores, or a missing record |
+
+It prints, per arm: launch to ready and FIX's prewarm seconds; Mamba2 compiles before and after ready, and after ready per kernel per burst, counted as r2 counted them; the warmup burst's TTFT mean and p99 with n; and each c16 run's median ITL and output tokens/s, which are data and not a condition of the verdict.
+
+Run from the repository root, with the kit committed:
+
+```bash
+SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.2xlarge OUT=hack/gpu-kit-runs/<date>-sglang-51628-r4 \
+  bash hack/gpu-kit-session.sh docs/oss/sglang-51628/kit-r4
+```
+
+BUDGET_S stays 3,150 s: the pull (r2 737 s, r3 438 s), the fetch, the prep (bounded at 900 s), then two arms of about 650 to 800 s each, with each arm bounded at 900 s and BASE's deadline leaving FIX a whole arm.
+The run stops before the prep unless 1,920 s remain.
+The session's worst case is unchanged, $0.9696 (4,020 s at $0.8683/h all in).
+The offline checks are `bash hack/sglang-51628-kit-r4-test.sh`.

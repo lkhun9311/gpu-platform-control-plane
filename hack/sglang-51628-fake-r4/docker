@@ -1,0 +1,9 @@
+#!/bin/bash
+# The fake docker of the SGLang #51628 kit r4's offline test: the shared fake docker, plus a fresh container per run.
+# Each real container starts from the image, so an editable install one container made is gone in the next.
+# The fake containers share one venv, so `run` removes the editable install the fake pip wrote before handing over.
+set -u
+if [ "${1:-}" = run ]; then
+  rm -f "${FAKE_VENV:?}"/lib/python*/site-packages/__editable__.sglang*.pth
+fi
+exec "$(dirname "$(readlink -f "$0")")/../sglang-51628-fake/docker" "$@"
