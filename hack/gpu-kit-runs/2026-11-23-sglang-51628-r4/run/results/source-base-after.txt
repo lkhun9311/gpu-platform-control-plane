@@ -1,0 +1,6 @@
+commit=cb337923d576f48a4accba439af9cfbc9b720a2c
+tree=55785ea97d04f50423b5297f78d2292fff321a53
+worktree_matches_index=yes
+untracked=0
+numstat_begin
+numstat_end

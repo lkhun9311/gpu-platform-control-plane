@@ -1,0 +1,3 @@
+# ninja log v7
+0	8296	1795369708058454026	cuda_0.o	16eae92a67ed1818
+8296	8356	1795369716353982974	sgl_kernel_jit_sampling_argmax_fp32_t_false.so	22572bd9cf1079e8

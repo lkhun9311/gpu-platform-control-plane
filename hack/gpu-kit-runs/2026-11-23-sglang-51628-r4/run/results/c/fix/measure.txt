@@ -1,0 +1,26 @@
+mode=fix
+started=1795370119
+src=/src/sglang
+bursts=warmup:32:64:42 c16-r1:16:32:161 c16-r2:16:32:162 c16-r3:16:32:163
+treecore_arg=rust
+image_build_commit=03fde9cc392a5f84a54a365635ffed0061cdf1b8
+gpu_name=NVIDIA A10G
+scm_install_rc=0
+install_rc=0
+sglang_dir=/src/sglang/python/sglang
+sglang_version=0.0.0.dev1+gcb337923
+install=ok
+rust_env=RUSTUP_HOME=/root/.rustup CARGO_HOME=/root/.cargo
+hook_pth=/opt/sglang/lib/python3.12/site-packages/sgl51628_compile_hook.pth
+probe_rc=0
+probe_hook=ok
+sha256_model-00001-of-00002.safetensors=77ec45e9fe138d04e0e89900ca952d673837984b66f7809c7ed5cb7eb742b611
+sha256_model-00002-of-00002.safetensors=9377b88ee9b8007cd9b955b5d2d7820b7214799806d96984c1f3126f8b5db13e
+sha256_tokenizer.json=3277c00fe5fb3963b3cb7c07b7f183722d2af4d775a4aea7cfb3684d7cccbc2f
+model_repo=nvidia/Nemotron-H-4B-Instruct-128K
+model_revision=f3c0b6c3b7fcb39e132b6007386e33a586d6e6cb
+model=ok
+pytest_rc=0
+pytest_summary=3 passed in 40.40s
+arm_rc=0
+ended=1795370720

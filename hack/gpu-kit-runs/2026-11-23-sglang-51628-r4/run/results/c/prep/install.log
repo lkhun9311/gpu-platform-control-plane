@@ -1,0 +1,123 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+ModuleNotFoundError: No module named 'setuptools_scm'
+Collecting setuptools-scm==8.3.1
+  Downloading setuptools_scm-8.3.1-py3-none-any.whl.metadata (7.0 kB)
+Downloading setuptools_scm-8.3.1-py3-none-any.whl (43 kB)
+Installing collected packages: setuptools-scm
+Successfully installed setuptools-scm-8.3.1
+Obtaining file:///src/sglang/python
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+  /opt/sglang/lib/python3.12/site-packages/setuptools/config/expand.py:128: BuildBackendWarning: File '/src/sglang/python/README.md' cannot be found
+    for path in _filter_existing_files(_filepaths)
+  /opt/sglang/lib/python3.12/site-packages/setuptools/config/_apply_pyprojecttoml.py:82: BuildBackendWarning: `project.license` as a TOML table is deprecated
+  !!
+  
+          ********************************************************************************
+          Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+  
+          By 2027-Feb-18, you need to update your project and remove deprecated calls
+          or your builds will no longer be supported.
+  
+          See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+          ********************************************************************************
+  
+  !!
+    corresp(dist, value, root_dir)
+  /opt/sglang/lib/python3.12/site-packages/setuptools/config/expand.py:128: BuildBackendWarning: File '/src/sglang/python/LICENSE' cannot be found
+    for path in _filter_existing_files(_filepaths)
+  /opt/sglang/lib/python3.12/site-packages/setuptools/config/_apply_pyprojecttoml.py:61: BuildBackendWarning: License classifiers are deprecated.
+  !!
+  
+          ********************************************************************************
+          Please consider removing the following classifiers in favor of a SPDX license expression:
+  
+          License :: OSI Approved :: Apache Software License
+  
+          See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+          ********************************************************************************
+  
+  !!
+    dist._finalize_license_expression()
+  /opt/sglang/lib/python3.12/site-packages/setuptools/dist.py:765: BuildBackendWarning: License classifiers are deprecated.
+  !!
+  
+          ********************************************************************************
+          Please consider removing the following classifiers in favor of a SPDX license expression:
+  
+          License :: OSI Approved :: Apache Software License
+  
+          See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+          ********************************************************************************
+  
+  !!
+    self._finalize_license_expression()
+Building wheels for collected packages: sglang
+  Building editable for sglang (pyproject.toml): started
+  Building editable for sglang (pyproject.toml): finished with status 'done'
+  /opt/sglang/lib/python3.12/site-packages/setuptools/config/expand.py:128: BuildBackendWarning: File '/src/sglang/python/README.md' cannot be found
+    for path in _filter_existing_files(_filepaths)
+  /opt/sglang/lib/python3.12/site-packages/setuptools/config/_apply_pyprojecttoml.py:82: BuildBackendWarning: `project.license` as a TOML table is deprecated
+  !!
+  
+          ********************************************************************************
+          Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+  
+          By 2027-Feb-18, you need to update your project and remove deprecated calls
+          or your builds will no longer be supported.
+  
+          See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+          ********************************************************************************
+  
+  !!
+    corresp(dist, value, root_dir)
+  /opt/sglang/lib/python3.12/site-packages/setuptools/config/expand.py:128: BuildBackendWarning: File '/src/sglang/python/LICENSE' cannot be found
+    for path in _filter_existing_files(_filepaths)
+  /opt/sglang/lib/python3.12/site-packages/setuptools/config/_apply_pyprojecttoml.py:61: BuildBackendWarning: License classifiers are deprecated.
+  !!
+  
+          ********************************************************************************
+          Please consider removing the following classifiers in favor of a SPDX license expression:
+  
+          License :: OSI Approved :: Apache Software License
+  
+          See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+          ********************************************************************************
+  
+  !!
+    dist._finalize_license_expression()
+  /opt/sglang/lib/python3.12/site-packages/setuptools/dist.py:765: BuildBackendWarning: License classifiers are deprecated.
+  !!
+  
+          ********************************************************************************
+          Please consider removing the following classifiers in favor of a SPDX license expression:
+  
+          License :: OSI Approved :: Apache Software License
+  
+          See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+          ********************************************************************************
+  
+  !!
+    self._finalize_license_expression()
+  /opt/sglang/lib/python3.12/site-packages/setuptools/command/editable_wheel.py:354: BuildBackendWarning: Editable installation.
+  !!
+  
+          ********************************************************************************
+          Please be careful with folders in your working directory with the same
+          name as your package as they may take precedence during imports.
+          ********************************************************************************
+  
+  !!
+    with strategy, WheelFile(wheel_path, "w") as wheel_obj:
+  Created wheel for sglang: filename=sglang-0.0.0.dev1+gcb337923-0.editable-py3-none-any.whl size=8482 sha256=0f6ad4df6202f482e3cf8f17befdf501876be1cc0b49d57ade2e17dcffb6b257
+  Stored in directory: /tmp/pip-ephem-wheel-cache-v615k6i5/wheels/07/86/91/58db861460122c9e9e8a783d5364afd222b908b53a94faab35
+Successfully built sglang
+Installing collected packages: sglang
+  Attempting uninstall: sglang
+    Found existing installation: sglang 0.0.0.dev1+g03fde9cc3
+    Uninstalling sglang-0.0.0.dev1+g03fde9cc3:
+      Successfully uninstalled sglang-0.0.0.dev1+g03fde9cc3
+Successfully installed sglang-0.0.0.dev1+gcb337923

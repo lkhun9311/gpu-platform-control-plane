@@ -1,0 +1,10 @@
+2026-11-22T17:55:23Z measure fix: setuptools-scm is not in the image; installing the pinned one
+2026-11-22T17:55:25Z measure fix: pip install --no-deps -e python from /src/sglang
+2026-11-22T17:55:36Z measure fix: probe: two fresh kernels must each leave a compile record
+2026-11-22T17:55:46Z measure fix: python -m pytest test/registered/unit/layers/test_mamba2_prefill_prewarm.py -q
+2026-11-22T17:56:30Z measure fix: server on an empty Triton cache
+2026-11-22T17:59:20Z measure fix: warmup (concurrency 32, 64 prompts, seed 42)
+2026-11-22T18:01:36Z measure fix: c16-r1 (concurrency 16, 32 prompts, seed 161)
+2026-11-22T18:02:49Z measure fix: c16-r2 (concurrency 16, 32 prompts, seed 162)
+2026-11-22T18:04:00Z measure fix: c16-r3 (concurrency 16, 32 prompts, seed 163)
+2026-11-22T18:05:20Z measure fix: done

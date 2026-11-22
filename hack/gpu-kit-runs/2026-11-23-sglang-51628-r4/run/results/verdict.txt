@@ -1,0 +1,6 @@
+VERDICT: NOT RUN
+NOT RUN: base: the server ran TreeCore UnifiedTreeCore, not the prep's RustUnifiedTreeCore; fix: the server ran TreeCore UnifiedTreeCore, not the prep's RustUnifiedTreeCore
+TREECORE: rust
+GATE BASE: pass: [2026-11-22 17:47:01 PID386] Disable prefill CUDA graph because some layers do not apply Standard GQA
+GATE FIX: pass: [2026-11-22 17:58:24 PID401] Disable prefill CUDA graph because some layers do not apply Standard GQA
+TESTS FIX: pass: 3 passed in 40.40s (exit 0)

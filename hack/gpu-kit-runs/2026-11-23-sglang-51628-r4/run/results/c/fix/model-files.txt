@@ -1,0 +1,10 @@
+1553 ./config.json
+12119 ./configuration_nemotron_h.py
+133 ./generation_config.json
+4994177904 ./model-00001-of-00002.safetensors
+3984302576 ./model-00002-of-00002.safetensors
+78257 ./modeling_nemotron_h.py
+24495 ./model.safetensors.index.json
+422 ./special_tokens_map.json
+177632 ./tokenizer_config.json
+17078330 ./tokenizer.json

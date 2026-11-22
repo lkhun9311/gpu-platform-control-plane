@@ -1,0 +1,11 @@
+image=lmsysorg/sglang@sha256:d7976d3a5963ea29eb34a3d94dd2304b3b9a8245da78add7ada9cb15bf77a641
+image_sha=03fde9cc392a5f84a54a365635ffed0061cdf1b8
+sglang_sha=cb337923d576f48a4accba439af9cfbc9b720a2c
+base_tree=55785ea97d04f50423b5297f78d2292fff321a53
+fix_tree=dfdd29ffd25da3b19d3d4cfb6a366418d1ae9b0b
+patch_sha256=6aa4b47ca4aa314d0cae6d35e8894df0caa1e7565b403f028eda50a7d94624f9
+model=nvidia/Nemotron-H-4B-Instruct-128K@f3c0b6c3b7fcb39e132b6007386e33a586d6e6cb
+server=python -m sglang.launch_server --model-path <model> --trust-remote-code
+traffic=sglang.benchmark.serving random-ids 1024 in, 512 out, range ratio 1.0; warmup 64 at c32, then 3 runs at c16 (32)
+arms=base then fix, one fresh container each
+budget_s=3250

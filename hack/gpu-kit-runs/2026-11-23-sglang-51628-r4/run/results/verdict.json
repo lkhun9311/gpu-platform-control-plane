@@ -1,0 +1,1139 @@
+{
+ "base": {
+  "arm": "base",
+  "bursts": [
+   {
+    "concurrency": 32,
+    "end": 1795369894.2827086,
+    "label": "warmup",
+    "prompts": 64,
+    "rc": "0",
+    "result": {
+     "mean_ttft_ms": 49988.39140284369,
+     "median_itl_ms": 21.764466999911747,
+     "median_ttft_ms": 49126.11777899997,
+     "n": 64,
+     "output_throughput": 214.99168847381193,
+     "p99_ttft_ms": 82729.37928519999
+    },
+    "seed": 42,
+    "start": 1795369728.8335457
+   },
+   {
+    "concurrency": 16,
+    "end": 1795369967.5658228,
+    "label": "c16-r1",
+    "prompts": 32,
+    "rc": "0",
+    "result": {
+     "mean_ttft_ms": 13936.277625249972,
+     "median_itl_ms": 21.75325099995007,
+     "median_ttft_ms": 13120.081673499953,
+     "n": 32,
+     "output_throughput": 262.5328506325268,
+     "p99_ttft_ms": 27685.752083969972
+    },
+    "seed": 161,
+    "start": 1795369894.2896848
+   },
+   {
+    "concurrency": 16,
+    "end": 1795370037.7002795,
+    "label": "c16-r2",
+    "prompts": 32,
+    "rc": "0",
+    "result": {
+     "mean_ttft_ms": 12560.79886812499,
+     "median_itl_ms": 21.7545869999185,
+     "median_ttft_ms": 13135.218841499864,
+     "n": 32,
+     "output_throughput": 275.17485961765186,
+     "p99_ttft_ms": 24906.410006609953
+    },
+    "seed": 162,
+    "start": 1795369967.5727248
+   },
+   {
+    "concurrency": 16,
+    "end": 1795370108.9214861,
+    "label": "c16-r3",
+    "prompts": 32,
+    "rc": "0",
+    "result": {
+     "mean_ttft_ms": 13130.723686375006,
+     "median_itl_ms": 21.75568700022268,
+     "median_ttft_ms": 13515.506254999991,
+     "n": 32,
+     "output_throughput": 269.888561746106,
+     "p99_ttft_ms": 26316.239357849987
+    },
+    "seed": 163,
+    "start": 1795370037.707233
+   }
+  ],
+  "gate": "pass",
+  "gate_line": "[2026-11-22 17:47:01 PID386] Disable prefill CUDA graph because some layers do not apply Standard GQA",
+  "launch_to_ready_s": 167.9369626045227,
+  "mamba2_after_ready": [
+   {
+    "after_ready_s": 9.674643754959106,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.093783,
+    "t": 1795369738.4960773
+   },
+   {
+    "after_ready_s": 11.85629153251648,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.102253,
+    "t": 1795369740.677725
+   },
+   {
+    "after_ready_s": 12.066159963607788,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.103602,
+    "t": 1795369740.8875935
+   },
+   {
+    "after_ready_s": 12.280811548233032,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.108155,
+    "t": 1795369741.102245
+   },
+   {
+    "after_ready_s": 12.497886180877686,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.110833,
+    "t": 1795369741.3193197
+   },
+   {
+    "after_ready_s": 12.720535278320312,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.116351,
+    "t": 1795369741.5419688
+   },
+   {
+    "after_ready_s": 12.961232662200928,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.135602,
+    "t": 1795369741.7826662
+   },
+   {
+    "after_ready_s": 13.544649600982666,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.476008,
+    "t": 1795369742.3660831
+   },
+   {
+    "after_ready_s": 14.221954584121704,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.567763,
+    "t": 1795369743.0433881
+   },
+   {
+    "after_ready_s": 14.927721500396729,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.597771,
+    "t": 1795369743.749155
+   },
+   {
+    "after_ready_s": 15.659769773483276,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.622542,
+    "t": 1795369744.4812033
+   },
+   {
+    "after_ready_s": 16.43424415588379,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.664901,
+    "t": 1795369745.2556777
+   },
+   {
+    "after_ready_s": 17.561505794525146,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.017467,
+    "t": 1795369746.3829393
+   },
+   {
+    "after_ready_s": 18.462364435195923,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.793518,
+    "t": 1795369747.283798
+   },
+   {
+    "after_ready_s": 19.66629433631897,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.096418,
+    "t": 1795369748.4877279
+   },
+   {
+    "after_ready_s": 20.373820066452026,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.600242,
+    "t": 1795369749.1952536
+   },
+   {
+    "after_ready_s": 21.67475914955139,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.193486,
+    "t": 1795369750.4961927
+   },
+   {
+    "after_ready_s": 22.68268585205078,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.899529,
+    "t": 1795369751.5041194
+   },
+   {
+    "after_ready_s": 23.46058416366577,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.669809,
+    "t": 1795369752.2820177
+   },
+   {
+    "after_ready_s": 25.03440833091736,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.465629,
+    "t": 1795369753.8558419
+   },
+   {
+    "after_ready_s": 27.49690294265747,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 2.353191,
+    "t": 1795369756.3183365
+   },
+   {
+    "after_ready_s": 28.768842458724976,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.269792,
+    "t": 1795369757.590276
+   },
+   {
+    "after_ready_s": 30.2791268825531,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.399448,
+    "t": 1795369759.1005604
+   },
+   {
+    "after_ready_s": 31.606532335281372,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.215898,
+    "t": 1795369760.4279659
+   },
+   {
+    "after_ready_s": 33.292025089263916,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.576107,
+    "t": 1795369762.1134586
+   },
+   {
+    "after_ready_s": 33.805724143981934,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.403422,
+    "t": 1795369762.6271577
+   },
+   {
+    "after_ready_s": 34.34125828742981,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.429195,
+    "t": 1795369763.1626918
+   },
+   {
+    "after_ready_s": 34.85281944274902,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.405155,
+    "t": 1795369763.674253
+   },
+   {
+    "after_ready_s": 35.47945475578308,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.520467,
+    "t": 1795369764.3008883
+   },
+   {
+    "after_ready_s": 36.336546182632446,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.75066,
+    "t": 1795369765.1579797
+   },
+   {
+    "after_ready_s": 37.1481773853302,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.705019,
+    "t": 1795369765.969611
+   },
+   {
+    "after_ready_s": 37.86939573287964,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.614646,
+    "t": 1795369766.6908293
+   },
+   {
+    "after_ready_s": 38.60719060897827,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.631386,
+    "t": 1795369767.4286242
+   },
+   {
+    "after_ready_s": 39.44242334365845,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.728463,
+    "t": 1795369768.263857
+   },
+   {
+    "after_ready_s": 40.343096017837524,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/causal_conv1d_triton.py",
+    "module": "sglang.kernels.ops.mamba.causal_conv1d_triton",
+    "name": "_causal_conv1d_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.403121,
+    "t": 1795369769.1645296
+   },
+   {
+    "after_ready_s": 40.57473278045654,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_cumsum_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.229716,
+    "t": 1795369769.3961663
+   },
+   {
+    "after_ready_s": 40.91252541542053,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.335946,
+    "t": 1795369769.733959
+   },
+   {
+    "after_ready_s": 41.008429765701294,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.094019,
+    "t": 1795369769.8298633
+   },
+   {
+    "after_ready_s": 41.429309606552124,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_bmm.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_bmm",
+    "name": "_bmm_chunk_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.41905,
+    "t": 1795369770.2507432
+   },
+   {
+    "after_ready_s": 41.953973054885864,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.522626,
+    "t": 1795369770.7754066
+   },
+   {
+    "after_ready_s": 42.35276937484741,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.396678,
+    "t": 1795369771.174203
+   },
+   {
+    "after_ready_s": 43.35858106613159,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.154007,
+    "t": 1795369772.1800146
+   },
+   {
+    "after_ready_s": 44.380271434783936,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.019461,
+    "t": 1795369773.201705
+   },
+   {
+    "after_ready_s": 56.851285457611084,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 0.125506,
+    "t": 1795369785.672719
+   },
+   {
+    "after_ready_s": 57.88120150566101,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 386,
+    "seconds": 1.027648,
+    "t": 1795369786.702635
+   },
+   {
+    "after_ready_s": 173.40310287475586,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 386,
+    "seconds": 0.086495,
+    "t": 1795369902.2245364
+   },
+   {
+    "after_ready_s": 175.28736329078674,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 386,
+    "seconds": 0.104484,
+    "t": 1795369904.1087968
+   },
+   {
+    "after_ready_s": 176.29845309257507,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 386,
+    "seconds": 1.008788,
+    "t": 1795369905.1198866
+   },
+   {
+    "after_ready_s": 176.70317554473877,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "c16-r1",
+    "pid": 386,
+    "seconds": 0.402391,
+    "t": 1795369905.524609
+   },
+   {
+    "after_ready_s": 177.61562490463257,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 386,
+    "seconds": 0.126492,
+    "t": 1795369906.4370584
+   },
+   {
+    "after_ready_s": 178.65948247909546,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 386,
+    "seconds": 1.041616,
+    "t": 1795369907.480916
+   },
+   {
+    "after_ready_s": 343.12790179252625,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "c16-r3",
+    "pid": 386,
+    "seconds": 0.117558,
+    "t": 1795370071.9493353
+   },
+   {
+    "after_ready_s": 344.164502620697,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "c16-r3",
+    "pid": 386,
+    "seconds": 1.034373,
+    "t": 1795370072.9859362
+   }
+  ],
+  "mamba2_after_ready_count": 53,
+  "mamba2_after_ready_s": 33.088485999999996,
+  "mamba2_before_ready_count": 69,
+  "mamba2_per_kernel_per_burst": {
+   "_bmm_chunk_fwd_kernel": {
+    "warmup": [
+     1,
+     0.41905
+    ]
+   },
+   "_causal_conv1d_fwd_kernel": {
+    "warmup": [
+     1,
+     0.403121
+    ]
+   },
+   "_chunk_cumsum_fwd_kernel": {
+    "warmup": [
+     1,
+     0.229716
+    ]
+   },
+   "_chunk_scan_fwd_kernel": {
+    "c16-r1": [
+     2,
+     2.0504040000000003
+    ],
+    "c16-r3": [
+     1,
+     1.034373
+    ],
+    "warmup": [
+     21,
+     21.049253999999998
+    ]
+   },
+   "_chunk_state_fwd_kernel": {
+    "warmup": [
+     1,
+     0.335946
+    ]
+   },
+   "_chunk_state_varlen_kernel": {
+    "c16-r1": [
+     1,
+     0.402391
+    ],
+    "warmup": [
+     10,
+     5.585090999999999
+    ]
+   },
+   "_state_passing_fwd_kernel": {
+    "c16-r1": [
+     3,
+     0.317471
+    ],
+    "c16-r3": [
+     1,
+     0.117558
+    ],
+    "warmup": [
+     10,
+     1.144111
+    ]
+   }
+  },
+  "measure": {
+   "pytest_rc": null,
+   "pytest_summary": null,
+   "sglang_dir": "/src/sglang/python/sglang",
+   "sglang_version": "0.0.0.dev1+gcb337923",
+   "src": "/src/sglang"
+  },
+  "missing": [
+   "the server ran TreeCore UnifiedTreeCore, not the prep's RustUnifiedTreeCore"
+  ],
+  "prewarm": null,
+  "status": "NOT RUN",
+  "treecore": "UnifiedTreeCore"
+ },
+ "fix": {
+  "arm": "fix",
+  "bursts": [
+   {
+    "concurrency": 32,
+    "end": 1795370496.7721431,
+    "label": "warmup",
+    "prompts": 64,
+    "rc": "0",
+    "result": {
+     "mean_ttft_ms": 36239.556508234404,
+     "median_itl_ms": 21.76400600001216,
+     "median_ttft_ms": 37405.16246000004,
+     "n": 64,
+     "output_throughput": 262.3198995697967,
+     "p99_ttft_ms": 55235.50132208005
+    },
+    "seed": 42,
+    "start": 1795370360.887767
+   },
+   {
+    "concurrency": 16,
+    "end": 1795370569.9669406,
+    "label": "c16-r1",
+    "prompts": 32,
+    "rc": "0",
+    "result": {
+     "mean_ttft_ms": 13893.502154468713,
+     "median_itl_ms": 21.753899000032106,
+     "median_ttft_ms": 13116.285661000005,
+     "n": 32,
+     "output_throughput": 262.9590509945964,
+     "p99_ttft_ms": 27595.10400637997
+    },
+    "seed": 161,
+    "start": 1795370496.7791276
+   },
+   {
+    "concurrency": 16,
+    "end": 1795370640.0464656,
+    "label": "c16-r2",
+    "prompts": 32,
+    "rc": "0",
+    "result": {
+     "mean_ttft_ms": 12559.08900743755,
+     "median_itl_ms": 21.753649999936897,
+     "median_ttft_ms": 13131.212768000069,
+     "n": 32,
+     "output_throughput": 275.1975891790346,
+     "p99_ttft_ms": 24904.112167940086
+    },
+    "seed": 162,
+    "start": 1795370569.9738717
+   },
+   {
+    "concurrency": 16,
+    "end": 1795370711.1792436,
+    "label": "c16-r3",
+    "prompts": 32,
+    "rc": "0",
+    "result": {
+     "mean_ttft_ms": 13108.250009718788,
+     "median_itl_ms": 21.755253999799606,
+     "median_ttft_ms": 13492.725069500011,
+     "n": 32,
+     "output_throughput": 270.1092327673981,
+     "p99_ttft_ms": 26272.5954000398
+    },
+    "seed": 163,
+    "start": 1795370640.0537388
+   }
+  ],
+  "gate": "pass",
+  "gate_line": "[2026-11-22 17:58:24 PID401] Disable prefill CUDA graph because some layers do not apply Standard GQA",
+  "launch_to_ready_s": 170.00234365463257,
+  "mamba2_after_ready": [
+   {
+    "after_ready_s": 9.91564679145813,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.112565,
+    "t": 1795370370.7913823
+   },
+   {
+    "after_ready_s": 10.917312860488892,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.999363,
+    "t": 1795370371.7930484
+   },
+   {
+    "after_ready_s": 11.71351146697998,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/causal_conv1d_triton.py",
+    "module": "sglang.kernels.ops.mamba.causal_conv1d_triton",
+    "name": "_causal_conv1d_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.413917,
+    "t": 1795370372.589247
+   },
+   {
+    "after_ready_s": 11.946004867553711,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_cumsum_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.230563,
+    "t": 1795370372.8217404
+   },
+   {
+    "after_ready_s": 12.288938522338867,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.340841,
+    "t": 1795370373.164674
+   },
+   {
+    "after_ready_s": 12.382412910461426,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.091261,
+    "t": 1795370373.2581484
+   },
+   {
+    "after_ready_s": 12.837090492248535,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_bmm.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_bmm",
+    "name": "_bmm_chunk_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.452868,
+    "t": 1795370373.712826
+   },
+   {
+    "after_ready_s": 13.735039472579956,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.895894,
+    "t": 1795370374.610775
+   },
+   {
+    "after_ready_s": 14.128066062927246,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.39077,
+    "t": 1795370375.0038016
+   },
+   {
+    "after_ready_s": 27.441625595092773,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 0.122047,
+    "t": 1795370388.317361
+   },
+   {
+    "after_ready_s": 28.443899869918823,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "warmup",
+    "pid": 401,
+    "seconds": 1.000007,
+    "t": 1795370389.3196354
+   },
+   {
+    "after_ready_s": 143.85581874847412,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 401,
+    "seconds": 0.091712,
+    "t": 1795370504.7315543
+   },
+   {
+    "after_ready_s": 145.73826098442078,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 401,
+    "seconds": 0.103598,
+    "t": 1795370506.6139965
+   },
+   {
+    "after_ready_s": 146.74153184890747,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 401,
+    "seconds": 1.001026,
+    "t": 1795370507.6172674
+   },
+   {
+    "after_ready_s": 147.1575891971588,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_state.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_state",
+    "name": "_chunk_state_varlen_kernel",
+    "phase": "c16-r1",
+    "pid": 401,
+    "seconds": 0.41376,
+    "t": 1795370508.0333247
+   },
+   {
+    "after_ready_s": 148.05755066871643,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 401,
+    "seconds": 0.120262,
+    "t": 1795370508.9332862
+   },
+   {
+    "after_ready_s": 149.02667260169983,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "c16-r1",
+    "pid": 401,
+    "seconds": 0.966821,
+    "t": 1795370509.9024081
+   },
+   {
+    "after_ready_s": 313.3751165866852,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_state_passing.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_state_passing",
+    "name": "_state_passing_fwd_kernel",
+    "phase": "c16-r3",
+    "pid": 401,
+    "seconds": 0.116436,
+    "t": 1795370674.250852
+   },
+   {
+    "after_ready_s": 314.3728048801422,
+    "cache_hit": false,
+    "file": "/src/sglang/python/sglang/kernels/ops/mamba/triton_ops/ssd_chunk_scan.py",
+    "module": "sglang.kernels.ops.mamba.triton_ops.ssd_chunk_scan",
+    "name": "_chunk_scan_fwd_kernel",
+    "phase": "c16-r3",
+    "pid": 401,
+    "seconds": 0.99547,
+    "t": 1795370675.2485404
+   }
+  ],
+  "mamba2_after_ready_count": 19,
+  "mamba2_after_ready_s": 8.859181,
+  "mamba2_before_ready_count": 103,
+  "mamba2_per_kernel_per_burst": {
+   "_bmm_chunk_fwd_kernel": {
+    "warmup": [
+     1,
+     0.452868
+    ]
+   },
+   "_causal_conv1d_fwd_kernel": {
+    "warmup": [
+     1,
+     0.413917
+    ]
+   },
+   "_chunk_cumsum_fwd_kernel": {
+    "warmup": [
+     1,
+     0.230563
+    ]
+   },
+   "_chunk_scan_fwd_kernel": {
+    "c16-r1": [
+     2,
+     1.967847
+    ],
+    "c16-r3": [
+     1,
+     0.99547
+    ],
+    "warmup": [
+     3,
+     2.895264
+    ]
+   },
+   "_chunk_state_fwd_kernel": {
+    "warmup": [
+     1,
+     0.340841
+    ]
+   },
+   "_chunk_state_varlen_kernel": {
+    "c16-r1": [
+     1,
+     0.41376
+    ],
+    "warmup": [
+     1,
+     0.39077
+    ]
+   },
+   "_state_passing_fwd_kernel": {
+    "c16-r1": [
+     3,
+     0.31557199999999996
+    ],
+    "c16-r3": [
+     1,
+     0.116436
+    ],
+    "warmup": [
+     3,
+     0.325873
+    ]
+   }
+  },
+  "measure": {
+   "pytest_rc": "0",
+   "pytest_summary": "3 passed in 40.40s",
+   "sglang_dir": "/src/sglang/python/sglang",
+   "sglang_version": "0.0.0.dev1+gcb337923",
+   "src": "/src/sglang"
+  },
+  "missing": [
+   "the server ran TreeCore UnifiedTreeCore, not the prep's RustUnifiedTreeCore"
+  ],
+  "prewarm": [
+   1,
+   68.4
+  ],
+  "status": "NOT RUN",
+  "tests": {
+   "rc": "0",
+   "status": "pass",
+   "summary": "3 passed in 40.40s"
+  },
+  "treecore": "UnifiedTreeCore"
+ },
+ "missing": [
+  "base: the server ran TreeCore UnifiedTreeCore, not the prep's RustUnifiedTreeCore",
+  "fix: the server ran TreeCore UnifiedTreeCore, not the prep's RustUnifiedTreeCore"
+ ],
+ "pins": {
+  "base": "55785ea97d04f50423b5297f78d2292fff321a53",
+  "fix": "dfdd29ffd25da3b19d3d4cfb6a366418d1ae9b0b",
+  "offline": false,
+  "sha": "cb337923d576f48a4accba439af9cfbc9b720a2c"
+ },
+ "rule": {
+  "clear_min_drop": 5,
+  "clear_ratio": 0.5,
+  "tests": 3
+ },
+ "say": "NOT RUN: base: the server ran TreeCore UnifiedTreeCore, not the prep's RustUnifiedTreeCore; fix: the server ran TreeCore UnifiedTreeCore, not the prep's RustUnifiedTreeCore",
+ "treecore": {
+  "chosen": "rust",
+  "fallback": null
+ },
+ "verdict": "NOT RUN"
+}

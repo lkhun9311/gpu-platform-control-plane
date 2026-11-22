@@ -1,0 +1,11 @@
+2026-11-22T17:45:37Z measure base: setuptools-scm is not in the image; installing the pinned one
+2026-11-22T17:45:38Z measure base: pip install --no-deps -e python from /src/sglang
+2026-11-22T17:45:48Z measure base: probe: two fresh kernels must each leave a compile record
+2026-11-22T17:46:00Z measure base: server on an empty Triton cache
+2026-11-22T17:48:48Z measure base: warmup (concurrency 32, 64 prompts, seed 42)
+2026-11-22T17:51:34Z measure base: c16-r1 (concurrency 16, 32 prompts, seed 161)
+2026-11-22T17:52:47Z measure base: c16-r2 (concurrency 16, 32 prompts, seed 162)
+2026-11-22T17:53:57Z measure base: c16-r3 (concurrency 16, 32 prompts, seed 163)
+/in/measure.sh: line 217:   228 Killed                  ( cd / && exec setsid "${cmd[@]}" ) > "$A/server.log" 2>&1
+2026-11-22T17:55:17Z measure base: done
+base exit=0 t=1579

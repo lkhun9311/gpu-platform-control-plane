@@ -1,0 +1,5 @@
+2026-11-22T17:42:42Z measure prep: setuptools-scm is not in the image; installing the pinned one
+2026-11-22T17:42:44Z measure prep: pip install --no-deps -e python from /src/sglang
+2026-11-22T17:42:56Z measure prep: download nvidia/Nemotron-H-4B-Instruct-128K at f3c0b6c3b7fcb39e132b6007386e33a586d6e6cb
+2026-11-22T17:43:41Z measure prep: build the Rust TreeCore extension from /src/sglang
+prep exit=0 t=993

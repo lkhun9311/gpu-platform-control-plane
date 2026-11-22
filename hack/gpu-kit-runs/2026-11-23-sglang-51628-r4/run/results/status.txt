@@ -1,0 +1,10 @@
+gpu exit=0 t=0
+pull exit=0 t=783
+image-identity exit=0 t=783
+fetch exit=0 t=793
+patch exit=0 t=795
+source-pins exit=0 t=795
+prep exit=0 t=993
+base exit=0 t=1579
+fix exit=0 t=2182
+verdict exit=3 t=2182

@@ -1,0 +1,5 @@
+ .../layers/attention/hybrid_linear_attn_backend.py |  43 ++++++
+ python/sglang/srt/layers/attention/mamba/mamba.py  |  79 +++++++++++
+ .../srt/model_executor/runner/base_runner.py       |   9 +-
+ .../unit/layers/test_mamba2_prefill_prewarm.py     | 158 +++++++++++++++++++++
+ 4 files changed, 288 insertions(+), 1 deletion(-)

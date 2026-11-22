@@ -1,0 +1,28 @@
+#include <flashinfer/attention/prefill.cuh>
+#include "batch_prefill_config.inc"
+
+namespace flashinfer {
+
+constexpr auto use_custom_mask = MaskMode::kCausal == MaskMode::kCustom;
+
+
+
+
+template cudaError_t BatchPrefillWithPagedKVCacheDispatched<
+    /*SAME_KV_STRIDES=*/false, /*CTA_TILE_Q=*/16,
+    128, 128, PosEncodingMode::kNone, false, MaskMode::kCausal, false,
+    DefaultAttention<use_custom_mask, false, false, false>, PagedParams>(PagedParams params, nv_bfloat16* tmp_v, float* tmp_s, bool enable_pdl, cudaStream_t stream);
+
+template cudaError_t BatchPrefillWithPagedKVCacheDispatched<
+    /*SAME_KV_STRIDES=*/false, /*CTA_TILE_Q=*/64,
+    128, 128, PosEncodingMode::kNone, false, MaskMode::kCausal, false,
+    DefaultAttention<use_custom_mask, false, false, false>, PagedParams>(PagedParams params, nv_bfloat16* tmp_v, float* tmp_s, bool enable_pdl, cudaStream_t stream);
+
+template cudaError_t BatchPrefillWithPagedKVCacheDispatched<
+    /*SAME_KV_STRIDES=*/false, /*CTA_TILE_Q=*/128,
+    128, 128, PosEncodingMode::kNone, false, MaskMode::kCausal, false,
+    DefaultAttention<use_custom_mask, false, false, false>, PagedParams>(PagedParams params, nv_bfloat16* tmp_v, float* tmp_s, bool enable_pdl, cudaStream_t stream);
+
+
+
+};  // namespace flashinfer

@@ -1,0 +1,4 @@
+evidence=returned
+termination=confirmed
+kit_rc=3
+instance=i-0720e3ccafb4ae864 zone=ap-northeast-2c launch_time=2026-11-22T17:27:44+00:00

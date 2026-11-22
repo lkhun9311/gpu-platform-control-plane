@@ -1,0 +1,10 @@
+triton_cache_entries_at_start=0
+launch_epoch=1795370190.873391967
+ready_line_epoch=1795370358.806056955
+health_epoch=1795370360.874193253
+ready_epoch=1795370360.875735511
+gate_line=[2026-11-22 17:58:24 PID401] Disable prefill CUDA graph because some layers do not apply Standard GQA
+capture_line=none
+prewarm_line=[2026-11-22 17:58:24 PID401] Prewarmed the Mamba2 prefill scan for 1 layer geometries in 68.4 s.
+gate=pass
+stopped_epoch=1795370720.224226303
