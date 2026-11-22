@@ -196,6 +196,14 @@ t0=$(date +%s); e2e "$KIT" hang FAKE_MODE=hang BUDGET_S=100 ARM_CAP_S=30; rc=$?;
 check "hang: each process is cut at its cap or the budget left, and run.sh ends inside BUDGET_S ($took s)" \
   "[ $rc = 3 ] && command grep -qx 'test-control exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' \
    && { command grep -qx 'test-fix exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' || stopped hang 'the budget ran out before test-fix'; } && v hang INCOMPLETE && [ $took -le 100 ]"
+# lastend NAME: the t= of the last timed step, which must come before BUDGET_S less the reserve the verdict and checksums need.
+lastend() { command grep -E '^test-[a-z]+ exit=' "$WORK/e2e-$1/out/status.txt" | tail -n 1 | sed 's/.* t=//'; }
+e2e "$KIT" hangterm FAKE_MODE=hangterm BUDGET_S=100 ARM_CAP_S=40; rc=$?
+check "hangterm: a process that ignores SIGTERM is killed after the grace, and the last step still ends by BUDGET_S less the reserve ($(lastend hangterm) s)" \
+  "[ $rc = 1 ] && command grep -qx 'test-control exit=137 t=[0-9]*' '$WORK/e2e-hangterm/out/status.txt' && [ \"\$(lastend hangterm)\" -le 40 ]"
+m=$(mutant nograce run.sh 's/^  local left=\$(( BUDGET_S - RESERVE_S - KILL_GRACE_S - /  local left=$(( BUDGET_S - RESERVE_S - /')
+[ -n "$m" ] && e2e "$m" m-nograce FAKE_MODE=hangterm BUDGET_S=100 ARM_CAP_S=40
+mcheck "mutant: a step budget that leaves out the kill grace overruns the reserve and is caught" "[ \"\$(lastend m-nograce)\" -gt 40 ]"
 for p in tests-only fix-and-tests; do
   cp -r "$KIT" "$WORK/tampered-$p" && printf '\n' >>"$WORK/tampered-$p/$p.patch"
   e2e "$WORK/tampered-$p" "tampered-$p"; rc=$?
@@ -246,7 +254,7 @@ mcheck "mutant: test runs without -s do not report CONFIRMED" "[ -f '$WORK/e2e-m
 m=$(mutant offline run.sh 's/^export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1$/true/')
 [ -n "$m" ] && e2e "$m" m-offline FAKE_EXPECT_OFFLINE=1
 mcheck "mutant: a run.sh that leaves the hub online for the tests does not report CONFIRMED" "! v m-offline CONFIRMED"
-m=$(mutant notimeout run.sh 's/^  timeout --kill-after=10 "\$cap" "\$@" > "\$log" 2>&1$/  "$@" > "$log" 2>\&1/')
+m=$(mutant notimeout run.sh 's/^  timeout --kill-after="\$KILL_GRACE_S" "\$cap" "\$@" > "\$log" 2>&1$/  "$@" > "$log" 2>\&1/')
 [ -n "$m" ] && { E2E_OUTER_S=90 e2e "$m" m-notimeout FAKE_MODE=hang BUDGET_S=100 ARM_CAP_S=30; rc=$?; }
 mcheck "mutant: a step without its timeout overruns the budget and is caught" "[ \"\${rc:-0}\" = 124 ]"
 

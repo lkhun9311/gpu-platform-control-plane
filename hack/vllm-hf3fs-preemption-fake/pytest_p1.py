@@ -22,11 +22,13 @@ FAKE_MODE bends the run:
   fixload         FIX cannot load the model offline;
   skip            the GPU test is skipped in both, as without CUDA;
   nosummary       FIX dies before its summary;
-  hang            every run never returns.
+  hang            every run never returns;
+  hangterm        every run never returns and ignores SIGTERM, so only the kill after the grace ends it.
 Each run appends its arm to FAKE_ORDER_LOG when it is set, so the offline test can check the order.
 """
 
 import os
+import signal
 import sys
 import time
 
@@ -56,7 +58,9 @@ if os.environ.get("FAKE_ORDER_LOG"):
     with open(os.environ["FAKE_ORDER_LOG"], "a") as f:
         f.write(arm + "\n")
 mode = os.environ.get("FAKE_MODE", "")
-if mode == "hang":
+if mode in ("hang", "hangterm"):
+    if mode == "hangterm":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     time.sleep(3600)
 
 # Each GPU outcome: (held, reused, timed_out, errors, failure E lines) or a special word.

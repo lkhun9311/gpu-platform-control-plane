@@ -79,6 +79,8 @@ WHEEL_COMMIT=e29c741da8d11e2ae7ba381bb78b6f703812cae1
 WHEEL_BLOCKING_PATHS=(csrc cmake CMakeLists.txt pyproject.toml vllm/_custom_ops.py vllm/_cpu_ops.py)
 # Left for verdict.py and the checksums after the last timed step.
 RESERVE_S=60
+# How long timeout waits after SIGTERM before SIGKILL, for every timed step.
+KILL_GRACE_S=10
 # The two processes in order.
 RUNS=(control fix)
 # cmd: the runtime session's command for one arm.
@@ -102,11 +104,12 @@ if [ -n "$(ls -A "$OUT")" ]; then echo "OUT=$OUT is not empty; each run writes a
 finish() {
   local py=python
   command -v python > /dev/null || py=python3
-  timeout --kill-after=5 30 "$py" "$HERE/verdict.py" "$OUT" > "$OUT/verdict.txt" 2>&1
+  # The two timed commands here, with their kill graces, take at most 25 + 5 + 20 + 5 = 55 s, inside RESERVE_S.
+  timeout --kill-after=5 25 "$py" "$HERE/verdict.py" "$OUT" > "$OUT/verdict.txt" 2>&1
   VERDICT_RC=$?
   echo "verdict exit=$VERDICT_RC t=$(( $(date +%s) - START ))" >> "$OUT/status.txt"
   cat "$OUT/verdict.txt"
-  ( cd "$OUT" && find . -type f ! -name SHA256SUMS | LC_ALL=C sort | timeout --kill-after=5 30 xargs -d '\n' sha256sum > SHA256SUMS )
+  ( cd "$OUT" && find . -type f ! -name SHA256SUMS | LC_ALL=C sort | timeout --kill-after=5 20 xargs -d '\n' sha256sum > SHA256SUMS )
 }
 VERDICT_RC=1
 stop() { # the reason; the run ends here and says why
@@ -120,10 +123,11 @@ stop() { # the reason; the run ends here and says why
 step() {
   local name=$1 cap=$2 log=/dev/stdout; shift 2
   if [ "${1:-}" = --log ]; then log=$2; shift 2; fi
-  local left=$(( BUDGET_S - RESERVE_S - ($(date +%s) - START) ))
+  # A command that ignores SIGTERM runs KILL_GRACE_S past its cap, so the grace comes out of what is left.
+  local left=$(( BUDGET_S - RESERVE_S - KILL_GRACE_S - ($(date +%s) - START) ))
   [ "$left" -gt 0 ] || stop "the budget ran out before $name"
   [ "$cap" -le "$left" ] || cap=$left
-  timeout --kill-after=10 "$cap" "$@" > "$log" 2>&1
+  timeout --kill-after="$KILL_GRACE_S" "$cap" "$@" > "$log" 2>&1
   local rc=$?
   echo "$name exit=$rc t=$(( $(date +%s) - START ))" | tee -a "$OUT/status.txt"
   return $rc
