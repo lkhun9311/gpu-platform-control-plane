@@ -39,9 +39,16 @@ def one(url, key, model, timeout_s, raw):
         return result
     result["status"] = resp.status
     raw.write(f"--- HTTP {resp.status}\n")
+    # The socket timeout bounds each read, not the response, so a stream that keeps sending and never ends would
+    # hold the smoke, and with it the restore, until the job's own timeout.
+    deadline = t0 + timeout_s
     with resp:
         try:
             for line in resp:
+                if time.monotonic() > deadline:
+                    result["error"] = f"stream still open after {timeout_s:.0f} s"
+                    raw.write(f"\n--- {result['error']}\n")
+                    break
                 text = line.decode(errors="replace")
                 raw.write(text)
                 if not text.startswith("data: "):
