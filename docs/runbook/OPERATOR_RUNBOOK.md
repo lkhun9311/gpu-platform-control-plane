@@ -264,7 +264,8 @@ Read the dashboard's Gateway row first. Each panel answers one question, and two
 | Responses cut short after starting | started responses ended early, by `cause`; no status label | here, as `upstream_aborted` |
 | Gateway TTFB | first byte, a lower bound on time to first token, not TTFT | |
 
-A panel showing "no series" means the counter has never been incremented since the gateway started, not a measured zero.
+A panel showing "no series" is not a measured zero: either the counter has never been incremented since the gateway started, or Prometheus is not scraping the gateway at all.
+The "Gateway scrape targets up" panel tells the two apart; read it before reading an empty panel as good news.
 
 The two serving alerts are in `config/prometheus/gateway_rules.yaml`:
 `GatewayUpstreamErrorsReachingClients` fires when a model's final-5xx rate over 5 minutes stays above 0.1 per second for 5 minutes;
@@ -283,9 +284,11 @@ What happens, in order:
   A backend with no Pod for minutes does fire it; [the kind rehearsal](../../hack/gateway-alert-delivery.md) records the fault, the firing and the resolved notification at a webhook receiver.
 
 Steps:
-1. `kubectl -n <ns> get inferencedeployment <name> -o jsonpath='{.spec.replicas}{"\n"}'`: a 0 here was set by someone, and the controller holds it; scaling the Deployment by hand is undone within one reconcile.
+1. `kubectl -n <ns> get inferencedeployment <name> -o jsonpath='{.spec.replicasOwner} {.spec.replicas}{"\n"}'`, then `kubectl -n <ns> get deploy <name> -o jsonpath='{.spec.replicas}{"\n"}'`.
+   With `replicasOwner` absent or `Controller`, the controller writes the Deployment's replicas from `spec.replicas` on every reconcile: a 0 there was set by someone, and scaling the Deployment by hand is undone.
+   With `External`, an autoscaler owns the Deployment's replicas and `spec.replicas` is only the starting count; a Deployment at 0 is that autoscaler's decision, so read the autoscaler.
 2. `kubectl -n <ns> get pods -l app.kubernetes.io/instance=<name> -o wide`, then `kubectl -n <ns> describe pod <pod>` for the last state (`OOMKilled`, `Evicted`, `Error`) and `kubectl -n <ns> logs <pod> --previous` for an engine that keeps restarting.
-3. `kubectl -n <ns> get endpointslices -l kubernetes.io/service-name=<name>`: the gateway can reach the model only once an endpoint here reads ready.
+3. `kubectl -n <ns> get endpointslices -l kubernetes.io/service-name=<name> -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]} ready={.conditions.ready}{"\n"}{end}'`: the gateway can reach the model only once an endpoint reads `ready=true`; the default table lists unready addresses too.
 4. A Pod on a node that went `NotReady` is a node problem first: section 3 for a GPU fault, section 4's machine steps for a lost machine.
 5. Tell the tenant that streams in flight at the time were cut and the gateway does not replay a started stream; their client has to retry.
 
