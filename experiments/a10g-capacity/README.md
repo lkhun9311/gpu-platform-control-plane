@@ -18,6 +18,24 @@ No GPU result exists yet; this directory holds the contract, the kit, its offlin
 | `../../hack/a10g-capacity-kit-test.sh` | The offline gate: tests, fixtures, mutants, pins, refusals, and the full kit against the benchharness stub |
 | `../../hack/a10g-gateway-kind.sh` | Gateway processing latency on kind, with a stub backend, admission off, an explicit non-limiting rate limit and the recorder off |
 
+## Gateway processing latency on kind
+
+Record: [`hack/a10g-gateway-kind/20261122T164207Z/`](../../hack/a10g-gateway-kind/20261122T164207Z/), at commit `e1d98396`, with `settings.txt`, the raw rows and `latency.txt`.
+One kind node, the deployed gateway (500m CPU limit) with `--admission-mode=off`, the InferenceDeployment's admission Off, an explicit rate limit of 600,000 requests a minute with a 10,000 burst, and no request recorder.
+The stub answers 128 frames after 20 ms at 8 ms apart, with no concurrency limit; the workload is the contract's, 60 s per stage, and both arms replay the same arrivals.
+
+| Rate | n per arm | TTFT p99, gateway / direct | TTFT p99 difference | TTFT p50 difference | E2E p99 difference |
+|---:|---:|---|---:|---:|---:|
+| 3 req/s | 185 | 22.27 / 21.47 ms | 0.81 ms | 0.28 ms | 0.30 ms |
+| 8 req/s | 498 | 22.16 / 21.30 ms | 0.86 ms | 0.25 ms | -0.29 ms |
+| 16 req/s | 968 | 21.78 / 21.20 ms | 0.58 ms | 0.24 ms | 5.24 ms |
+| 28 req/s | 1,755 | 21.66 / 21.00 ms | 0.66 ms | 0.23 ms | 3.63 ms |
+| 42 req/s | 2,478 | 21.68 / 21.13 ms | 0.55 ms | 0.18 ms | -3.82 ms |
+
+Every request of every stage completed.
+A difference is between two quantiles of two runs with the same arrivals, not a per-request overhead, and the E2E differences change sign across rates, so this single run does not resolve an E2E difference of a few milliseconds.
+This is the gateway's share on a CPU node with a stub; it is never added to a GPU figure, and it says nothing about the gateway under admission other than Off.
+
 ## Launching a session
 
 The runner is `hack/gpu-kit-session.sh`, which is on `feat/llmd-1598-real-gpu-ab` and not yet on `dev`, so it runs from a clean checkout of that branch.
