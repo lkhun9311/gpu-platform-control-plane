@@ -7,8 +7,8 @@
 # Every step's exit code goes to $OUT/status.txt.
 # The exit status is the verdict's: 0 the apparatus holds, 3 incomplete, 4 the apparatus failed, 1 a stop before the verdict.
 #
-# Settings (KIT_ENV through the session): STAGE (required: pilot, the first pilot's plan of 2026-11-21, or pilot2, the
-# knee-bracketing second pilot), BUDGET_S (default 3150, at most 3250).
+# Settings (KIT_ENV through the session): STAGE (required: pilot, the first pilot's plan of 2026-11-21, pilot2, the
+# knee-bracketing second pilot, or pilot3, the K-only third pilot), BUDGET_S (default 3150, at most 3250).
 # Offline test only: KIT_OFFLINE_TEST=1 with KIT_TEST_BIN (a directory holding epp-a1, epp-a2 and envoy) skips the GPU and every
 # download and runs the same pilot.py and verdict.py against fake engines.
 set -uo pipefail
@@ -73,7 +73,8 @@ PY=python3
 case "$STAGE" in
   pilot) PLAN_TEXT="calibration, isolated TTFT, A3 ramps A B W942, logging v2/v5 on A and K, A2 and A3 on A, B pressure (pilot.py run())" ;;
   pilot2) PLAN_TEXT="A1 and A3 ramps on A and B and A1 on W942 at -v=2 from 64/s, K, K-equal and K-stagger under A1 primed (pilot.py run_pilot2())" ;;
-  *) stop "STAGE='$STAGE': set STAGE=pilot or STAGE=pilot2" ;;
+  pilot3) PLAN_TEXT="K only at -v=2: primed K under A1, A2 and A3, K-equal and K-stagger under A1, upstream-body visibility bound (pilot.py run_pilot3())" ;;
+  *) stop "STAGE='$STAGE': set STAGE=pilot, STAGE=pilot2 or STAGE=pilot3" ;;
 esac
 # The arms, the model, the engine flags and the plan are the design's, so a setting that would move one is refused rather than ignored.
 for v in KIT_ROUTER_SHA KIT_PR_SHA KIT_MODEL KIT_VLLM KIT_ARMS KIT_PLAN KIT_RATES KIT_SEEDS KIT_PEAK; do

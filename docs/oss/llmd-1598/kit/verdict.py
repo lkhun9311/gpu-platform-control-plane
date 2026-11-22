@@ -114,6 +114,15 @@ def judge_cell(cdir):
                      "early": analysis.early_decisions(br, epp["picked"] if v5 else {}, envoy) if primed else None,
                      "completed": all(analysis.completed(r) for r in br), "makespan_s": perf["makespan"],
                      "ttft_p95_s": analysis.nearest_rank(perf["ttft"], 95)}
+            if meta.get("k_preloads", True):
+                entry["preloads"] = analysis.preload_conditions(br, pr, envoy)
+                entry["preload_body_missing"] = not entry["preloads"]["body_times"]
+                # Headers against body: how far the second pilot's bound was from the one now used, per preload.
+                entry["preload_header_to_body_ms"] = [
+                    None if analysis.envoy_first_byte_t(envoy.get(q["rid"]) or {}) is None
+                    or analysis.envoy_first_body_t(envoy.get(q["rid"]) or {}) is None
+                    else round((analysis.envoy_first_body_t(envoy[q["rid"]]) - analysis.envoy_first_byte_t(envoy[q["rid"]])) * 1e3, 3)
+                    for q in pr]
             if primed:
                 entry["apparatus"] = analysis.apparatus_fault(entry, span)
             if meta.get("stagger"):
@@ -153,6 +162,8 @@ def main(out):
         return 3
     if state.get("stage") == "pilot2":
         return main_pilot2(out, state)
+    if state.get("stage") == "pilot3":
+        return main_pilot3(out, state)
     cells = {}
     for name in state.get("cells", []):
         try:
@@ -280,6 +291,83 @@ def main_pilot2(out, state):
         lines.append(f"anchor {block}: {a['anchor']} ({a['why']}); grid {a['grid']}; ramps {a['ramps']}")
     lines.append(f"K: {v['k']}")
     lines.append(f"B lost reuse under A1 by rate: {v['b_lost_reuse_a1']}")
+    print("\n".join(lines))
+    with open(os.path.join(out, "verdict.txt"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return rc
+
+
+
+PLAN3 = ["K-A1", "K-A2", "K-A3", "Kequal-A1", "Kstagger-A1"]
+
+
+def p3_acceptance(cells):
+    """The K-only session's rules, frozen before it runs (the spec's fifth revision): in every K cell with preloads, every
+    burst's three preloads on three distinct engines, forwarded before the release and with an upstream body time; no
+    early decision in any primed cell (the per-cell release check also needs 90% of releases within 2 ms); and at least
+    9 of 12 bursts valid in both A1 and A2 on the same burst IDs. K-stagger's frozen feasibility rule is reported beside
+    them and decides only whether K-stagger joins the main run."""
+    out, ok = {}, True
+    for n in ("K-A1", "K-A2", "K-A3", "Kstagger-A1"):
+        bursts = (cells.get(n) or {}).get("bursts") or []
+        cond = [b.get("preloads") or {} for b in bursts]
+        good = bool(bursts) and all(c.get("distinct") and c.get("registered") and c.get("body_times") for c in cond)
+        out[f"{n} preloads"] = good
+        ok = ok and good
+    for n in PLAN3:
+        bursts = (cells.get(n) or {}).get("bursts") or []
+        good = bool(bursts) and all(b.get("early") == 0 for b in bursts)
+        out[f"{n} no early decision"] = good
+        ok = ok and good
+
+    def by_id(n):
+        return {b["burst"]: b for b in (cells.get(n) or {}).get("bursts") or []}
+
+    pair = analysis.paired_bursts(by_id("K-A1"), by_id("K-A2"))
+    out["A1/A2 jointly valid"] = [len(pair["paired_valid"]), pair["bursts"]]
+    out["A1/A2 coverage"] = bool(pair["covered"])
+    ok = ok and bool(pair["covered"])
+    out["Kstagger usable"] = (cells.get("Kstagger-A1") or {}).get("stagger_usable")
+    return ok, out
+
+
+def main_pilot3(out, state):
+    """Judge the K-only session: apparatus checks on every cell, then p3_acceptance.
+
+    Exit 0 the apparatus holds and the acceptance rules pass; 3 incomplete (a cell missing, the run stopped, or a rule not
+    met); 4 an apparatus check failed."""
+    cells = {}
+    for name in state.get("cells", []):
+        try:
+            cells[name] = judge_cell(os.path.join(out, "cells", name))
+        except Exception as e:  # noqa: BLE001 - a cell that cannot be judged is reported, not skipped silently
+            cells[name] = {"cell": name, "error": f"{type(e).__name__}: {e}", "checks": {"judged": False}}
+    failed = {n: [k for k, ok in c["checks"].items() if not ok] for n, c in cells.items()}
+    failed = {n: f for n, f in failed.items() if f}
+    missing = [n for n in PLAN3 if n not in cells]
+    accepted, rules = p3_acceptance(cells)
+    v = {"stage": "pilot3", "cells": cells, "timings": state.get("timings"), "skipped": state.get("skipped"),
+         "stopped": state.get("stopped"), "apparatus_failures": failed, "plan_cells_missing": missing, "acceptance": rules,
+         "k": {n: {k: cells[n].get(k) for k in ("valid_bursts", "mean_largest_valid", "fluid_reference", "sequential_reference",
+                                                "invalid_reasons", "stagger_usable")}
+               for n in PLAN3 if n in cells and "bursts" in cells[n]}}
+    if failed:
+        rc, word = 4, "APPARATUS FAILED"
+    elif state.get("stopped") or missing or not accepted:
+        rc, word = 3, "INCOMPLETE"
+    else:
+        rc, word = 0, "APPARATUS HOLDS"
+    v["verdict"] = word
+    with open(os.path.join(out, "verdict.json"), "w") as f:
+        json.dump(v, f, indent=1, sort_keys=True, default=str)
+    lines = [f"verdict: {word}"]
+    lines += [f"  {n}: failed {', '.join(f)}" for n, f in sorted(failed.items())]
+    if missing:
+        lines.append(f"  plan cells not run: {', '.join(missing)}")
+    if state.get("stopped"):
+        lines.append(f"  stopped: {state['stopped']}")
+    lines.append(f"acceptance: {rules}")
+    lines.append(f"K: {v['k']}")
     print("\n".join(lines))
     with open(os.path.join(out, "verdict.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")

@@ -212,7 +212,10 @@ def recover_endpoints(rows, envoy):
 
 
 def envoy_first_byte_t(rec):
-    """When the upstream's first response byte reached Envoy: its forward time plus the upstream TTFB, or None."""
+    """When the upstream's first response byte reached Envoy: its forward time plus the upstream TTFB, or None.
+
+    For a streamed vLLM response that byte is the response headers, sent at once (1.4 to 6.0 ms after forwarding in the
+    second pilot), not the first token; it is logged for comparison and is not the visibility bound."""
     f = envoy_forward_t(rec)
     try:
         return None if f is None else f + float(rec["ttfb_us"]) / 1e6
@@ -220,11 +223,41 @@ def envoy_first_byte_t(rec):
         return None
 
 
+def envoy_first_body_t(rec):
+    """When the upstream's first response body byte reached Envoy (US_RX_BODY_BEG): its forward time plus body_us, or None."""
+    f = envoy_forward_t(rec)
+    try:
+        return None if f is None else f + float(rec["body_us"]) / 1e6
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def preload_visible_until(p, envoy):
-    """The last moment a preload can be relied on as in-flight load: the earlier of Envoy's upstream first byte and the
-    client's first event, whichever are recorded."""
-    ts = [t for t in (envoy_first_byte_t(envoy.get(p["rid"]) or {}), p.get("first_event_t")) if t is not None]
-    return min(ts) if ts else None
+    """The last moment a preload can be relied on as in-flight load: the earlier of Envoy's first upstream body byte and
+    the client's first event.
+
+    The pinned EPP frees a preload's in-flight tokens on the response body's start (HandleResponseBody, StartOfStream),
+    which it sees only after Envoy has received that byte, so the bound cannot be later than the free.
+    The second pilot used Envoy's first byte of any kind, which is the headers vLLM sends at once, and voided every burst.
+    None when Envoy's body time is missing: the bound is never taken from the client alone."""
+    body = envoy_first_body_t(envoy.get(p["rid"]) or {})
+    if body is None:
+        return None
+    first = p.get("first_event_t")
+    return body if first is None else min(body, first)
+
+
+def preload_conditions(burst_rows, preload_rows, envoy):
+    """The second-pilot findings a K-only session checks per burst: three preloads on three distinct engines, all
+    forwarded by Envoy before the burst's first last byte was written, and an upstream body time for every preload."""
+    eps = [p.get("endpoint") for p in preload_rows]
+    fwd = [envoy_forward_t(envoy.get(p["rid"]) or {}) for p in preload_rows]
+    starts = [r.get("send_begin_abs", r.get("sent_abs")) for r in burst_rows]
+    body = [envoy_first_body_t(envoy.get(p["rid"]) or {}) for p in preload_rows]
+    return {"distinct": len(preload_rows) == 3 and None not in eps and len(set(eps)) == 3,
+            "registered": bool(preload_rows) and None not in fwd and None not in starts and bool(starts)
+            and max(fwd) < min(starts),
+            "body_times": bool(preload_rows) and None not in body}
 
 
 def envoy_forward_t(rec):
@@ -308,8 +341,8 @@ def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy, max_spa
     """K's burst is valid only if the scorer saw all three engines loaded for the whole burst: the three preloads went to
     three distinct engines, all three were registered (PreRequest) before any burst request left the client, and every
     burst request was decided before any preload stopped counting as load.
-    The EPP frees a preload's in-flight tokens on its response, which reaches Envoy before the client, so the bound is the
-    earlier of Envoy's upstream first byte and the client's first event; the client's alone was not conservative.
+    The EPP frees a preload's in-flight tokens when the response body starts, which reaches Envoy before the client, so the
+    bound is preload_visible_until: the earlier of Envoy's first upstream body byte and the client's first event.
     K-equal sends no preloads (`with_preloads` False), so only the release conditions below apply to it; the first version
     held it to the preload conditions too, which no K-equal burst could ever meet.
 
@@ -323,9 +356,9 @@ def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy, max_spa
         eps = [p.get("endpoint") for p in preload_rows]
         if len(preload_rows) != 3 or None in eps or len(set(eps)) != 3:
             return False, "preloads not on three distinct engines", None
+        if any(envoy_first_body_t(envoy.get(p["rid"]) or {}) is None for p in preload_rows):
+            return False, "a registration, decision or send time is missing", None
         firsts = [preload_visible_until(p, envoy) for p in preload_rows]
-        if any(f is None for f in firsts):
-            return False, "a preload produced no event", None
     elif preload_rows:
         return False, "a burst registered with no preloads has preload rows", None
     rids = [r["rid"] for r in burst_rows + preload_rows]
@@ -418,7 +451,7 @@ def apparatus_fault(entry, span_limit):
     arm's outcome (preload placement) and hide a release fault behind it; None when the apparatus did what it says."""
     if entry.get("early"):
         return "a burst request was decided before its release"
-    if entry.get("release_span_s") is None:
+    if entry.get("release_span_s") is None or entry.get("preload_body_missing"):
         return "a registration, decision or send time is missing"
     if span_limit is not None and entry["release_span_s"] > span_limit:
         return "the release was spread over more than the registered span"

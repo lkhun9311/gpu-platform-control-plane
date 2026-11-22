@@ -38,10 +38,12 @@ RAMP_AB = [10, 20, 40, 80]
 # Seven rungs reach 244/s: A1 at 72/s ran 36/s on each of its two engines with 10.6 of 16 slots busy and a queue, which puts
 # A3, spreading the same requests over four, near 150/s; the top rungs leave room for that estimate to be low.
 LADDER2 = {"A": [64, 80, 100, 125, 156, 195, 244], "B": [64, 80, 100, 125, 156, 195, 244], "W942": [1.75, 2.9, 4.4]}
-STAGES = ("pilot", "pilot2")
+STAGES = ("pilot", "pilot2", "pilot3")
 # The second pilot draws its prompts and arrivals from seeds the main run does not use (main: 1, 2, 3 and 941, 942, 943), so
 # no main schedule is seen before the main run; the first pilot already used seeds 1 and 942, which the amendment records.
 P2_SEED, P2_W942_SEED = 4, 944
+# The K-only third pilot's seed: not a main seed (1, 2, 3) and not the second pilot's (4).
+P3_SEED = 5
 
 
 def cell_bound(kind, block, reqs=None, stagger=0.0):
@@ -392,6 +394,20 @@ class Pilot:
         self.state["timings"]["plan_s"] = round(time.time() - t0, 1)
         self.save()
 
+    def run_pilot3(self):
+        """The K-only third pilot: primed K under A1, A2 and A3, then K-equal and K-stagger under A1, at -v=2, judged with
+        the upstream-body visibility bound the second pilot showed is needed (the spec's fifth revision)."""
+        t0 = time.time()
+        self.state["calibration"].update(W.REGISTERED)
+        self.start_engines("AK")
+        for arm in ("A1", "A2", "A3"):
+            self.cell(f"K-{arm}", arm, "K", verbosity=2, kind="K", seed=P3_SEED)
+        self.cell("Kequal-A1", "A1", "K", verbosity=2, kind="K", seed=P3_SEED, k_preloads=False)
+        self.cell("Kstagger-A1", "A1", "K", verbosity=2, kind="K", seed=P3_SEED, stagger=W.K_STAGGER_S)
+        self.stop_engines()
+        self.state["timings"]["plan_s"] = round(time.time() - t0, 1)
+        self.save()
+
     def run(self):
         t0 = time.time()
         self.start_engines("AK")
@@ -457,7 +473,7 @@ def main():
     p.state["nofile"] = list(resource.getrlimit(resource.RLIMIT_NOFILE))
     rc = 0
     try:
-        p.run() if a.stage == "pilot" else p.run_pilot2()
+        {"pilot": p.run, "pilot2": p.run_pilot2, "pilot3": p.run_pilot3}[a.stage]()
     except Exception as e:  # noqa: BLE001 - the verdict reads what was measured before the stop
         p.state["stopped"] = f"{type(e).__name__}: {e}"
         p.log(f"STOPPED {p.state['stopped']}")

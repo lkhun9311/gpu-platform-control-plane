@@ -54,7 +54,7 @@ no_leftovers "mutants"
 # ---------------------------------------------------------------- 3
 bash -n "$KIT/run.sh" && ok "run.sh parses" || bad "run.sh does not parse"
 o=$WORK/dry; mkdir -p "$o"
-for st in pilot pilot2; do
+for st in pilot pilot2 pilot3; do
   o=$WORK/dry-$st; mkdir -p "$o"
   OUT=$o STAGE=$st KIT_DRY_RUN=1 bash "$KIT/run.sh" > "$WORK/dry-$st.log" 2>&1 && grep -q 'settings accepted' "$WORK/dry-$st.log" \
     && grep -q "^stage=$st$" "$o/settings.txt" && ok "dry run accepts STAGE=$st" || bad "dry run STAGE=$st"
@@ -98,10 +98,10 @@ fi
 [ "$(sha256sum "$BIN/envoy" | cut -d' ' -f1)" = "$ENVOY_SHA256" ] && ok "envoy matches the pinned sha256" || { bad "envoy sha256"; exit 1; }
 ok "EPP binaries: $(sha256sum "$BIN/epp-a1" "$BIN/epp-a2" | awk '{print substr($1,1,12)}' | tr '\n' ' ')"
 
-e2e() { # label, expected exit, budget, faults, a check on the verdict, then the stage and the fake engines' ITL
-  local label=$1 want=$2 budget=$3 faults=$4 expect=$5 stage=${6:-pilot} itl=${7:-4}
+e2e() { # label, expected exit, budget, faults, a check on the verdict, then the stage, the fake engines' ITL and the time scale
+  local label=$1 want=$2 budget=$3 faults=$4 expect=$5 stage=${6:-pilot} itl=${7:-4} scale=${8:-0.2}
   local o=$WORK/e2e-$label
-  TMPDIR=$TT OUT=$o STAGE=$stage KIT_TEST_ITL_MS=$itl KIT_OFFLINE_TEST=1 KIT_TEST_BIN=$BIN KIT_TEST_FAKE=$PWD/$TEST/fake_engine.py KIT_TEST_BUDGET_S=$budget \
+  TMPDIR=$TT OUT=$o STAGE=$stage KIT_TEST_ITL_MS=$itl KIT_TEST_SCALE=$scale KIT_OFFLINE_TEST=1 KIT_TEST_BIN=$BIN KIT_TEST_FAKE=$PWD/$TEST/fake_engine.py KIT_TEST_BUDGET_S=$budget \
     KIT_TEST_FAULTS="$faults" bash "$KIT/run.sh" > "$o.log" 2>&1
   local rc=$?
   if [ "$rc" = "$want" ] && grep -qE "$expect" "$o/verdict.txt" 2>/dev/null; then
@@ -119,6 +119,11 @@ e2e reset-fails 4 150 "reset_fails" 'failed .*reset'
 # The second pilot on fake engines slow enough (25 ms a token) that both ladders find a knee: the verdict must hold with an
 # anchor for every block, and K's primed bursts must have gone out within the registered span.
 e2e pilot2 0 1500 "" '^verdict: APPARATUS HOLDS' pilot2 25
+# The K-only third pilot on fake engines that, like vLLM, send headers at once and the body after prefill: under the second
+# pilot's header bound every preloaded burst would be invalid; under the body bound the acceptance rules must pass.
+# At scale 0.5 each K cell keeps all 12 bursts, so the 90%-within-2-ms release rule is judged as on the GPU, where one slow
+# release on this shared host is one burst in twelve rather than one in four.
+e2e pilot3 0 900 "" '^verdict: APPARATUS HOLDS' pilot3 4 0.5
 
 echo
 no_leftovers "the end-to-end runs"

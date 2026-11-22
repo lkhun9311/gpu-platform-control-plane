@@ -40,15 +40,19 @@ bash hack/llmd-1598-kit-test.sh
 - `pilot`: the first pilot's plan, which ran on 2026-11-21 (`hack/gpu-kit-runs/2026-11-21-llmd-1598-pilot`; K is now released primed, with 12 bursts).
 - `pilot2`: the second pilot of the spec's third revision: A1 and A3 ramps on A and B and A1's on W942 at `-v=2`, from 64/s in x1.25 steps, each arm stopping at its first failure; K, K-equal and K-stagger (4 ms, a feasibility probe judged by frozen rules) under A1 with the primed release; on seeds 4 and 944, which the main run does not use. Its verdict exits 0 only with a grid anchor (the lowest bracketed knee) for A, B and W942 and at least one valid K and K-equal burst.
 
+- `pilot3`: the K-only third pilot of the spec's fifth revision: primed K under A1, A2 and A3, K-equal and K-stagger under A1, on seed 5, with preload visibility bounded by Envoy's first upstream body byte. Its verdict exits 0 only when the frozen acceptance rules hold (three distinct preload engines registered before release with body times, no early decision, 90% of releases within 2 ms, 9 of 12 jointly valid A1/A2 bursts).
+
 `TMPDIR` moves the offline gate's scratch off `/tmp` when it is short of space or inodes.
 
 The main sessions (X1 to X3, Y1 to Y3) are written after P2, from P2's registered grid.
 
-## Launch of the second pilot (not run; needs the owner's go)
+## Launch of the K-only third pilot (not run; needs the owner's go)
+
+The second pilot ran on 2026-11-22 (`hack/gpu-kit-runs/2026-11-22-llmd-1598-pilot2`).
 
 ```
-SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.12xlarge OUT=hack/gpu-kit-runs/<date>-llmd-1598-pilot2 \
-  KIT_ENV='STAGE=pilot2;BUDGET_S=3250' bash hack/gpu-kit-session.sh docs/oss/llmd-1598/kit
+SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.12xlarge OUT=hack/gpu-kit-runs/<date>-llmd-1598-pilot3 \
+  KIT_ENV='STAGE=pilot3;BUDGET_S=3250' bash hack/gpu-kit-session.sh docs/oss/llmd-1598/kit
 ```
 
 Worst case: the runner's g5.12xlarge constants, a $3.48/h Spot cap plus $0.0683/h of disk and IPv4, billed to the 4,020 s termination deadline, **$3.9623**, under its $4.00 per-session cap, which it checks before buying.

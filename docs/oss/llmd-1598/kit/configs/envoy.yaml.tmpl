@@ -27,6 +27,7 @@ static_resources:
                   code: "%RESPONSE_CODE%"
                   flags: "%RESPONSE_FLAGS%"
                   ttfb_us: "%COMMON_DURATION(US_TX_BEG:US_RX_BEG:us)%"
+                  body_us: "%COMMON_DURATION(US_TX_BEG:US_RX_BODY_BEG:us)%"
                   route_us: "%COMMON_DURATION(DS_RX_BEG:US_TX_BEG:us)%"
                   total_ms: "%DURATION%"
           route_config:

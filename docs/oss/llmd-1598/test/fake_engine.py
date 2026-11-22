@@ -141,6 +141,15 @@ def make_handler(eng):
             if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
                 return self._send(400, json.dumps({"error": "this fake takes token-ID prompts only", "got": str(raw[:300])}))
             mt = int(req.get("max_tokens", 16))
+            # vLLM's streaming response sends its status and headers before the request is even scheduled.
+            # Its body starts only with the first token.
+            # The first version of this fake sent headers after prefill, which hid that Envoy's first upstream byte is the
+            # headers, and let the second pilot's bound pass offline and void every GPU burst.
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            self.wfile.flush()
             with eng.lock:
                 eng.waiting += 1
             eng.slots.acquire()
@@ -150,10 +159,6 @@ def make_handler(eng):
             try:
                 cached = eng.admit(ids)
                 time.sleep((len(ids) - cached) * eng.prefill_us / 1e6)
-                self.send_response(200)
-                self.send_header("Content-Type", "text/event-stream")
-                self.send_header("Transfer-Encoding", "chunked")
-                self.end_headers()
 
                 def chunk(obj):
                     data = ("data: " + (obj if isinstance(obj, str) else json.dumps(obj)) + "\n\n").encode()

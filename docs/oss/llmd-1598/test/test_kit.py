@@ -23,6 +23,17 @@ import workloads as W  # noqa: E402
 INF = float("inf")
 
 
+def vllm_rec(start, route_us, first, **extra):
+    """An Envoy access record shaped like a streamed vLLM response: headers 1.5 ms after forwarding, as the second pilot
+    measured, and the body's first byte 0.1 ms before the client's first event at `first`."""
+    fwd = float(start) + float(route_us) / 1e6
+    rec = {"start": str(start), "route_us": str(route_us), "ttfb_us": "1500"}
+    if first is not None:
+        rec["body_us"] = str(round((first - fwd) * 1e6 - 100))
+    rec.update(extra)
+    return rec
+
+
 def scratch(test):
     """A temporary directory removed when the test ends, pass or fail.
 
@@ -238,23 +249,27 @@ class Bursts(unittest.TestCase):
         picked = {str(i): 0.6 for i in range(4)}
         picked.update({p["rid"]: 0.05 for p in pre})
         prereq = {p["rid"]: 0.1 for p in pre}
-        ok, why, basis = A.burst_valid(burst, pre, picked, prereq, {})
+        # The EPP's times decide the picks; the preloads' visibility still comes from Envoy's body times.
+        env = {p["rid"]: vllm_rec(0.0, 100000, 1.0) for p in pre}
+        ok, why, basis = A.burst_valid(burst, pre, picked, prereq, env)
         self.assertTrue(ok, why)
         self.assertEqual(basis, "epp")
-        self.assertFalse(A.burst_valid(burst, pre, dict(picked, **{"0": 1.2}), prereq, {})[0])
-        self.assertFalse(A.burst_valid(burst, pre, picked, dict(prereq, p2=0.55), {})[0])
+        self.assertFalse(A.burst_valid(burst, pre, dict(picked, **{"0": 1.2}), prereq, env)[0])
+        self.assertFalse(A.burst_valid(burst, pre, picked, dict(prereq, p2=0.55), env)[0])
         same = [dict(p, endpoint="e1") for p in pre]
-        self.assertFalse(A.burst_valid(burst, same, picked, prereq, {})[0])
+        self.assertFalse(A.burst_valid(burst, same, picked, prereq, env)[0])
+        # No Envoy body time for a preload: invalid for the apparatus, never bounded by the client alone.
+        self.assertEqual(A.burst_valid(burst, pre, picked, prereq, {})[1], "a registration, decision or send time is missing")
 
     def test_burst_valid_on_envoy_bounds(self):
         pre, burst = self.burst()
-        env = {p["rid"]: {"start": "0.0", "route_us": "100000"} for p in pre}
+        env = {p["rid"]: vllm_rec(0.0, 100000, 1.0) for p in pre}
         env.update({r["rid"]: {"start": "0.5", "route_us": "2000"} for r in burst})
         ok, why, basis = A.burst_valid(burst, pre, {}, {}, env)
         self.assertTrue(ok, why)
         self.assertEqual(basis, "envoy")
         # A preload forwarded after the burst left the client: the scorer may not have seen it.
-        self.assertFalse(A.burst_valid(burst, pre, {}, {}, dict(env, p1={"start": "0.45", "route_us": "100000"}))[0])
+        self.assertFalse(A.burst_valid(burst, pre, {}, {}, dict(env, p1=vllm_rec(0.45, 100000, 1.0)))[0])
         # A burst request forwarded after a preload's first event.
         self.assertFalse(A.burst_valid(burst, pre, {}, {}, dict(env, **{"3": {"start": "0.9", "route_us": "200000"}}))[0])
         # A missing record never passes.
@@ -499,16 +514,42 @@ class AfterPilot(unittest.TestCase):
         self.assertFalse(A.stagger_usable([True] * 12, [True] * 12, 94, 100))
         self.assertFalse(A.stagger_usable([], [], 0, 0))
 
-    def test_preload_visibility_uses_envoys_first_byte(self):
+    def test_preload_visibility_uses_envoys_first_body_byte(self):
         pre = [row(rid=f"p{i}", endpoint=f"e{i + 1}", sent=0.0, first=1.0) for i in range(3)]
         burst = [row(rid=str(i), sent=0.5) for i in range(4)]
-        env = {p["rid"]: {"start": "0.0", "route_us": "100000", "ttfb_us": "800000"} for p in pre}
+        # As in the second pilot: headers 1.5 ms after forwarding (0.1015 s), the body only with the first token near 1.0 s.
+        env = {p["rid"]: vllm_rec(0.0, 100000, 1.0) for p in pre}
         env.update({r["rid"]: {"start": "0.4", "route_us": "104000"} for r in burst})
         self.assertTrue(A.burst_valid(burst, pre, {}, {}, env)[0])
-        # The preload's first byte reached Envoy at 0.5 s, before the burst's decisions at 0.504 s, although the client saw
-        # it only at 1.0 s: the EPP may already have freed it.
-        early = dict(env, p1={"start": "0.0", "route_us": "100000", "ttfb_us": "400000"})
+        # The second pilot's bound took the headers and voided this valid burst.
+        self.assertAlmostEqual(A.envoy_first_byte_t(env["p0"]), 0.1015, places=6)
+        # With no Envoy body time there is no bound, not the client's event alone.
+        self.assertIsNone(A.preload_visible_until(pre[0], {"p0": {"start": "0.0", "route_us": "100000", "ttfb_us": "1500"}}))
+        self.assertAlmostEqual(A.preload_visible_until(pre[0], env), 0.9999, places=4)
+        # The body's first byte reached Envoy at 0.5 s, before the burst's decisions at 0.504 s, although the client saw it
+        # only at 1.0 s: the EPP may already have freed it.
+        early = dict(env, p1={"start": "0.0", "route_us": "100000", "ttfb_us": "1500", "body_us": "400000"})
         self.assertEqual(A.burst_valid(burst, pre, {}, {}, early)[1], "a burst request was decided after a preload's first response byte")
+        # The client's event bounds it when it comes first.
+        self.assertAlmostEqual(A.preload_visible_until(dict(pre[0], first_event_t=0.3), env), 0.3)
+
+    def test_access_log_has_the_body_field(self):
+        with open(os.path.join(KIT, "configs", "envoy.yaml.tmpl")) as f:
+            t = f.read()
+        self.assertIn('body_us: "%COMMON_DURATION(US_TX_BEG:US_RX_BODY_BEG:us)%"', t)
+        self.assertIn('ttfb_us: "%COMMON_DURATION(US_TX_BEG:US_RX_BEG:us)%"', t)
+
+    def test_preload_conditions(self):
+        pre = [row(rid=f"p{i}", endpoint=f"e{i + 1}", sent=0.0, first=1.0) for i in range(3)]
+        burst = [dict(row(rid=str(i), sent=0.5), send_begin_abs=0.5) for i in range(4)]
+        env = {p["rid"]: vllm_rec(0.0, 100000, 1.0) for p in pre}
+        self.assertEqual(A.preload_conditions(burst, pre, env), {"distinct": True, "registered": True, "body_times": True})
+        self.assertFalse(A.preload_conditions(burst, [dict(p, endpoint="e1") for p in pre], env)["distinct"])
+        self.assertFalse(A.preload_conditions(burst, pre, dict(env, p2=vllm_rec(0.45, 100000, 1.0)))["registered"])
+        no_body = dict(env, p0={"start": "0.0", "route_us": "100000", "ttfb_us": "1500"})
+        self.assertFalse(A.preload_conditions(burst, pre, no_body)["body_times"])
+        self.assertEqual(A.apparatus_fault({"early": 0, "release_span_s": 0.0005, "preload_body_missing": True}, 0.002),
+                         "a registration, decision or send time is missing")
 
     def test_balanced_replays(self):
         units = [("0.9", {941: 140, 942: 145, 943: 136}), ("0.9", {941: 140, 942: 145, 943: 136}),
@@ -557,7 +598,7 @@ class AfterPilot(unittest.TestCase):
     def test_burst_release_rules(self):
         pre = [row(rid=f"p{i}", endpoint=f"e{i + 1}", sent=0.0, first=1.0) for i in range(3)]
         burst = [row(rid=str(i), sent=0.5 + i * 0.0002) for i in range(4)]
-        env = {p["rid"]: {"start": "0.0", "route_us": "100000"} for p in pre}
+        env = {p["rid"]: vllm_rec(0.0, 100000, 1.0) for p in pre}
         env.update({r["rid"]: {"start": "0.4", "route_us": "104000"} for r in burst})
         self.assertTrue(A.burst_valid(burst, pre, {}, {}, env, max_span=0.002)[0])
         # Forwarded before its last byte left: the router picked on a partial body.
@@ -751,8 +792,8 @@ class Verdict(unittest.TestCase):
             for r in rows + ([timed_out] if timed_out else []):
                 if kind != "probe" and not ("no_lag" in faults and name == "switch-A-A3"):
                     r["lag_s"] = 0.001
-                acc.append({"rid": r["rid"], "upstream": r["endpoint"] or self.ENG[0], "start": str(r["sent_abs"]),
-                            "route_us": "1000"})
+                acc.append(dict(vllm_rec(r["sent_abs"], 1000, r.get("first_event_t")), rid=r["rid"],
+                                upstream=r["endpoint"] or self.ENG[0]))
                 if v >= 5:
                     # The EPP decides each request at the moment it is sent, in its own RFC 3339 nanosecond format.
                     sec = int(r["sent_abs"])
@@ -864,7 +905,8 @@ class VerdictPilot2(unittest.TestCase):
     def write_cell(self, out, name, arm, block, kind, rows, bursts=(), meta_extra=None):
         cdir = os.path.join(out, "cells", name)
         os.makedirs(cdir)
-        acc = [{"rid": r["rid"], "upstream": r["endpoint"], "start": str(r["sent_abs"] - 0.0005), "route_us": "1000"} for r in rows]
+        acc = [dict(vllm_rec(r["sent_abs"] - 0.0005, 1000, r.get("first_event_t")), rid=r["rid"], upstream=r["endpoint"])
+               for r in rows]
         deltas = {}
         for e in self.ENG:
             mine = [r for r in rows if r["endpoint"] == e]
@@ -1005,6 +1047,128 @@ class VerdictPilot2(unittest.TestCase):
         rc, v = self.run_verdict(self.make(("a_censored",)))
         self.assertEqual(rc, 3)
         self.assertIsNone(v["anchors"]["A"]["anchor"])
+
+
+class VerdictPilot3(VerdictPilot2):
+    """verdict.main on a synthetic K-only third pilot: its frozen acceptance rules."""
+
+    def make3(self, faults=()):
+        out = scratch(self)
+        cells = []
+        for name, arm, pre, stagger in (("K-A1", "A1", True, 0.0), ("K-A2", "A2", True, 0.0), ("K-A3", "A3", True, 0.0),
+                                        ("Kequal-A1", "A1", False, 0.0), ("Kstagger-A1", "A1", True, 0.004)):
+            spread = stagger or (0.004 / 63 if (name == "K-A2" and "a2_spread" in faults) else 0.00001)
+            rows, bursts = self.k_rows(name, pre, spread, stagger)
+            if name == "K-A2" and "a2_colocated" in faults:
+                # A2's preloads all on one engine: the arm's own invalidity, not an apparatus fault.
+                for r in rows:
+                    if r["population"] == "preload":
+                        r["endpoint"] = self.ENG[1]
+            self.write_cell(out, name, arm, "K", "K", rows, bursts, {"release": "primed", "k_preloads": pre, "stagger": stagger})
+            edits = {("K-A3", "no_body"): lambda a: a.pop("body_us") if a["rid"].endswith("-b0-p0") else None,
+                     # Forwarded 0.4 ms before its own last byte left: a decision on a partial body.
+                     ("K-A2", "a2_early"): lambda a: a.update(route_us="100") if a["rid"].endswith("-b1-5") else None,
+                     # A2's preloads answered 50 ms after forwarding, before its bursts were decided.
+                     ("K-A2", "a2_body_early"): lambda a: a.update(body_us="50000") if "-p" in a["rid"] else None}
+            for (cell, fault), fn in edits.items():
+                if name == cell and fault in faults:
+                    p = os.path.join(out, "cells", name, "access.log")
+                    with open(p) as f:
+                        acc = [json.loads(x) for x in f]
+                    for a in acc:
+                        fn(a)
+                    with open(p, "w") as f:
+                        f.write("".join(json.dumps(a) + "\n" for a in acc))
+            cells.append(name)
+        with open(os.path.join(out, "pilot.json"), "w") as f:
+            json.dump({"stage": "pilot3", "cells": cells, "timings": {}, "skipped": []}, f)
+        return out
+
+    def test_accepts(self):
+        rc, v = self.run_verdict(self.make3())
+        self.assertEqual(rc, 0, (v["apparatus_failures"], v["acceptance"]))
+        self.assertEqual(v["acceptance"]["A1/A2 jointly valid"], [4, 4])
+        self.assertIs(v["acceptance"]["Kstagger usable"], True)
+        self.assertEqual(v["k"]["K-A2"]["valid_bursts"], 4)
+
+    def test_a2_without_enough_paired_bursts_is_incomplete(self):
+        rc, v = self.run_verdict(self.make3(("a2_spread",)))
+        # A2's releases spread over 4 ms fail its release check, and none of its bursts can pair with A1's.
+        self.assertEqual(rc, 4)
+        self.assertFalse(v["acceptance"]["A1/A2 coverage"])
+
+    def test_a_missing_body_time_is_incomplete(self):
+        rc, v = self.run_verdict(self.make3(("no_body",)))
+        self.assertEqual(rc, 3)
+        self.assertFalse(v["acceptance"]["K-A3 preloads"])
+        self.assertTrue(v["acceptance"]["K-A1 preloads"])
+        b0 = v["cells"]["K-A3"]["bursts"][0]
+        self.assertEqual((b0["preload_body_missing"], b0["apparatus"]), (True, "a registration, decision or send time is missing"))
+
+    def test_an_early_decision_fails_its_rule(self):
+        rc, v = self.run_verdict(self.make3(("a2_early",)))
+        self.assertFalse(v["acceptance"]["K-A2 no early decision"])
+        self.assertTrue(v["acceptance"]["K-A1 no early decision"])
+        self.assertNotEqual(rc, 0)
+
+    def test_too_few_paired_bursts_alone_is_incomplete(self):
+        rc, v = self.run_verdict(self.make3(("a2_body_early",)))
+        rules = v["acceptance"]
+        # Every other rule holds; only the 9-of-12 paired coverage fails, and that alone makes the session incomplete.
+        self.assertEqual([k for k, x in rules.items() if x is False], ["A1/A2 coverage"])
+        self.assertEqual(rc, 3, v["apparatus_failures"])
+
+    def test_a2_colocated_preloads_leave_no_pairs(self):
+        rc, v = self.run_verdict(self.make3(("a2_colocated",)))
+        # Not an apparatus failure: A2's own placement voids its bursts, so A1/A2 coverage fails and P3 is incomplete.
+        self.assertEqual(rc, 3, v["apparatus_failures"])
+        self.assertFalse(v["acceptance"]["A1/A2 coverage"])
+        self.assertEqual(v["acceptance"]["A1/A2 jointly valid"], [0, 4])
+
+    def test_p3_seed(self):
+        import pilot
+        self.assertEqual(pilot.P3_SEED, 5)
+        self.assertNotIn(pilot.P3_SEED, (1, 2, 3, pilot.P2_SEED))
+        self.assertIn("pilot3", pilot.STAGES)
+
+
+class FakeEngineTiming(unittest.TestCase):
+    """The fake engine answers like vLLM: headers at once, the body only after its simulated prefill."""
+
+    def test_headers_before_body(self):
+        import http.client
+        import socket
+        import subprocess
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        here = os.path.dirname(os.path.abspath(__file__))
+        proc = subprocess.Popen([sys.executable, "-I", os.path.join(here, "fake_engine.py"), "--port", str(port),
+                                 "--prefill-us", "200"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(proc.wait, 10)
+        self.addCleanup(proc.terminate)
+        for _ in range(100):
+            try:
+                c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+                c.request("GET", "/health")
+                c.getresponse().read()
+                break
+            except OSError:
+                time.sleep(0.05)
+        body = json.dumps({"prompt": list(range(1000, 3000)), "max_tokens": 1, "stream": True}).encode()
+        t0 = time.time()
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        c.request("POST", "/v1/completions", body, {"Content-Type": "application/json"})
+        r = c.getresponse()
+        t_headers = time.time() - t0
+        r.readline()
+        t_body = time.time() - t0
+        r.read()
+        c.close()
+        # 2,000 uncached tokens at 200 us each is 0.4 s of prefill: the headers come before it, the body after it.
+        self.assertLess(t_headers, 0.15)
+        self.assertGreater(t_body, 0.35)
 
 
 if __name__ == "__main__":
