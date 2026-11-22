@@ -30,6 +30,8 @@ TAG=a10g-gw
 GW_PORT=30280
 STUB_PORT=30281
 MODEL=qwen2.5-3b-instruct
+# The CR names a Service, which cannot hold the dots in the model's name; the gateway resolves by spec.model.name.
+NAME=qwen-a10g
 TENANT=a10g
 KEY=a10g-key
 RATES="3 8 16 28 42"
@@ -49,7 +51,16 @@ teardown() {
   rm -rf "$WORK"
   if kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then run kind delete cluster --name "$CLUSTER"; fi
 }
-die() { log "FAILED at: $*"; teardown; exit 1; }
+# The cluster is deleted on failure too, so what explains the failure is copied into the record first.
+die() {
+  log "FAILED at: $*"
+  if kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
+    { k -n "$NS" logs deploy/gateway --tail=100; k get pods -A -o wide; k -n "$SERVING_NS" get svc,endpoints,inferencedeployment -o wide; } > "$REC/failure-cluster.txt" 2>&1
+  fi
+  [ -f "$WORK/smoke.txt" ] && cp "$WORK/smoke.txt" "$REC/failure-smoke-body.txt"
+  teardown
+  exit 1
+}
 
 step "0. preflight"
 for tool in docker kind kubectl jq curl go; do command -v "$tool" >/dev/null || die "missing $tool"; done
@@ -124,7 +135,7 @@ cat <<EOF | k apply -f - >>"$LOG" 2>&1 || die "stub InferenceDeployment"
 apiVersion: platform.lkhun9311.github.io/v1
 kind: InferenceDeployment
 metadata:
-  name: $MODEL
+  name: $NAME
   namespace: $SERVING_NS
 spec:
   model:
@@ -137,8 +148,8 @@ spec:
   admission:
     mode: "Off"
 EOF
-for _ in $(seq 1 40); do k -n "$SERVING_NS" get deploy "$MODEL" >/dev/null 2>&1 && break; sleep 3; done
-k -n "$SERVING_NS" rollout status "deploy/$MODEL" --timeout=180s >>"$LOG" 2>&1 || die "stub rollout"
+for _ in $(seq 1 40); do k -n "$SERVING_NS" get deploy "$NAME" >/dev/null 2>&1 && break; sleep 3; done
+k -n "$SERVING_NS" rollout status "deploy/$NAME" --timeout=180s >>"$LOG" 2>&1 || die "stub rollout"
 cat <<EOF | k apply -f - >>"$LOG" 2>&1 || die "evidence services"
 apiVersion: v1
 kind: Service
@@ -153,7 +164,7 @@ kind: Service
 metadata: {name: stub-evidence, namespace: $SERVING_NS}
 spec:
   type: NodePort
-  selector: {app.kubernetes.io/instance: $MODEL}
+  selector: {app.kubernetes.io/instance: $NAME}
   ports: [{name: http, port: 8090, targetPort: http, nodePort: $STUB_PORT}]
 EOF
 k get pods -A -o wide >> "$LOG" 2>&1
