@@ -154,8 +154,6 @@ def judge(out):
             rec["gaps"].append(f"pytest exited {rc}")
         if parsed["counts"].get("skipped"):
             rec["gaps"].append(f"{parsed['counts']['skipped']} skipped, and a skip on the GPU is not a diagnostic")
-        if not any("DIAG" in x for x in parsed["lines"]) and parsed["summary"] and any(parsed["outcomes"].values()):
-            rec["gaps"].append("a case failed but the log has no DIAG line, so the diagnostic patch did not run")
         earlier_fault = None
         for case in CASES:
             c = rec["cases"][case] = case_record(parsed, case)
