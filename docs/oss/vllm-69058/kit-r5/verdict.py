@@ -174,6 +174,10 @@ def judge(out):
         c = rec["cases"][case] = case_record(os.path.join(out, f"e2e-{case}.log"), rcs.get(case), case)
         rec["gaps"].extend(f"case [{case}]: {g}" for g in c["gaps"])
     rec["verdict"] = "INCOMPLETE" if rec["gaps"] else "COMPLETE"
+    # COMPLETE says the diagnostic has what it needs, not that the fault is gone, so the run says in words whether it faulted.
+    faulted = [c for c in CASES if rec["cases"][c]["first_illegal"]]
+    rec["result"] = (f"illegal memory access in {', '.join(f'[{c}]' for c in faulted)}" if faulted else
+                     "no illegal memory access in either case under the diagnostic patch, which does not show the fault gone (see the caution)")
     return rec
 
 
@@ -193,6 +197,7 @@ def render(rec):
     lines.append("note: a sync line marks where the fault was observed, not where it began")
     for g in rec["gaps"]:
         lines.append(f"GAP: {g}")
+    lines.append(f"RESULT: {rec['result']}")
     lines.append(f"VERDICT: {rec['verdict']}")
     return lines
 
