@@ -120,7 +120,8 @@ r = rec(R4_TEXT)
 check("run r4's log: [fail] is FAILED and ERROR, its first illegal access in time is line 166", r["outcome"] == "FAILED+ERROR" and r["first_illegal"].startswith("166:"))
 check("run r4's log: the fault names its saved request", r["fault_request"] == RID)
 check("run r4's log: with no DIAG record it is a gap, though it reached the failed read", any("no DIAG record" in g for g in r["gaps"]) and not any("failed-read" in g for g in r["gaps"]))
-check("run r4's log: the grep runs over the whole file as grep -n numbers it", any(g.startswith("162:") and "Read operation failed" in g for g in r["grep"]))
+check("run r4's log: the grep runs over the whole file as grep -n numbers it, the read failure on 162 and the scheduler's Failing on 164",
+      any(g.startswith("162:") and "Read operation failed" in g for g in r["grep"]) and any(g.startswith("164:") and "Failing 1 request" in g for g in r["grep"]))
 
 # ---------------------------------------------------------------- the extraction on run r4's log with DIAG records put in
 r = rec(GOOD)
@@ -133,7 +134,13 @@ check("the out-of-range record is reported", r["out_of_range"] == [f"167:{DIAG_O
 src = ["", "    def _step(self):", ">       torch.cuda.synchronize()", '        logger.warning("DIAG step start sync ok")',
        "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered"]
 r = rec(log(FLOW[2], f"{P} ERROR 11-22 10:00:01 [x.py:1] Task execution error: CUDA error: an illegal memory access for Saved request 6-aa", tb=src))
-check("a DIAG line in the traceback's source is not a record: no DIAG record is a gap and no sync is claimed",
+check("a DIAG line in pytest's traceback source is not a record: no DIAG record is a gap and no sync is claimed",
+      any("no DIAG record" in g for g in r["gaps"]) and r["last_sync_before_illegal"] is None)
+# A Python traceback captured on stderr prints source too, inside a capture block.
+py_tb = ["Traceback (most recent call last):", '  File "/x/hf3fs_connector.py", line 611, in _step',
+         '    logger.warning("DIAG step start sync ok")', "RuntimeError: CUDA error: an illegal memory access was encountered"]
+r = rec(log(FLOW[2], extra_blocks=[("call", "stderr", py_tb)]))
+check("a DIAG line in a captured Python traceback's source is not a record either",
       any("no DIAG record" in g for g in r["gaps"]) and r["last_sync_before_illegal"] is None)
 r = rec(log(*FLOW, f"{P} ERROR 11-22 10:00:01 [x.py:1] Task execution error: CUDA error: an illegal memory access for Saved request 6-aa", tb=src))
 check("the same log with a real DIAG record is decided on the record", r["gaps"] == [] and r["last_sync_before_illegal"].endswith("DIAG step start sync ok"))
@@ -146,7 +153,8 @@ r = rec(log(*FLOW, later_sync, sticky, extra_blocks=[("call", "stderr", [orig])]
 check("an earlier fault on stderr beats a later one on stdout, though stdout prints first", "(origin)" in r["first_illegal"])
 check("a sync logged after the true first fault is not reported as the sync before it", r["last_sync_before_illegal"].endswith(FLOW[0][-40:]))
 r = rec(log(f"{P} ERROR 11-22 10:00:09 [x.py:1] teardown: CUDA error: an illegal memory access (teardown)", phase="teardown",
-            extra_blocks=[("call", "log", FLOW[:1] + ["ERROR    vllm.hf3fs:hf3fs_connector.py:458 Read operation failed for Loaded request 7-bb",
+            extra_blocks=[("call", "log", ["WARNING  vllm.hf3fs:hf3fs_connector.py:610 DIAG step start sync ok",
+                                           "ERROR    vllm.hf3fs:hf3fs_connector.py:458 Read operation failed for Loaded request 7-bb",
                                                       "ERROR    vllm.hf3fs:hf3fs_connector.py:458 CUDA error: an illegal memory access (origin)"])]))
 check("a fault in pytest's untimed call-phase log capture beats a timed teardown fault printed first in the file", "(origin)" in r["first_illegal"])
 r = rec(log(*FLOW, sticky, extra_blocks=[("call", "stderr", ["Traceback (most recent call last):", "RuntimeError: CUDA error: an illegal memory access (untimed)"])]))

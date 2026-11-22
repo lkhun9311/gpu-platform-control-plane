@@ -103,10 +103,10 @@ dry() {
   rm -rf "$WORK/dry"
   env -i PATH="$PATH" HOME="$HOME" KIT_DRY_RUN=1 OUT="$WORK/dry" "$@" bash "$k/run.sh" "${args[@]}" >"$WORK/dry.out" 2>&1
 }
-check "the default settings are accepted and record the one command exactly as the spec gives it" \
-  "dry '$KIT' && command grep -qx 'budget_s=450' '$WORK/dry/settings.txt' && command grep -qx 'e2e_cap_s=360' '$WORK/dry/settings.txt' \
-   && command grep -qx 'command_fail=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest $TF::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail] -q -p no:cacheprovider --tb=long' '$WORK/dry/settings.txt' \
-   && command grep -qx 'command_recompute=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest $TF::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute] -q -p no:cacheprovider --tb=long' '$WORK/dry/settings.txt' \
+check "the default settings are accepted and record each case's command, the spec's with its own node id" \
+  "dry '$KIT' && command grep -qx 'budget_s=450' '$WORK/dry/settings.txt' && command grep -qx 'e2e_cap_s=180' '$WORK/dry/settings.txt' \
+   && command grep -qxF 'command_fail=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest $TF::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail] -q -p no:cacheprovider --tb=long' '$WORK/dry/settings.txt' \
+   && command grep -qxF 'command_recompute=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest $TF::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute] -q -p no:cacheprovider --tb=long' '$WORK/dry/settings.txt' \
    && command grep -qx 'processes=one per case, since an illegal address poisons the process that hit it' '$WORK/dry/settings.txt' \
    && command grep -qx 'wheel_commit=dd8c157895f01875bc5f44c51003bbe330647330' '$WORK/dry/settings.txt'"
 check "the command has no -x, so a case runs to its end" "! command grep -E '^cmd\(\).*(-x|--exitfirst)' '$KIT/run.sh' && command grep -q '^cmd() { echo python -m pytest' '$KIT/run.sh'"
