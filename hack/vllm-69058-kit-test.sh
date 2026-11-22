@@ -159,6 +159,8 @@ e2e "$KIT" pass FAKE_EXPECT_OFFLINE=1; rc=$?
 check "pass: step 1 as the spec expects on both arms and step 2 passing is AS EXPECTED, exit 0" "[ $rc = 0 ] && v pass 'AS EXPECTED'"
 check "pass: the arms ran A then B, steps 1 then 2 within each" "[ \"\$(order pass)\" = 'a-1 a-2 b-1 b-2' ] \
   && [ \"\$(command grep -oE '^test-[ab]-[12]' '$WORK/e2e-pass/out/status.txt' | paste -sd' ')\" = 'test-a-1 test-a-2 test-b-1 test-b-2' ]"
+check "pass: both arms' files are checked out under timed steps before any read of them, so a partial clone's lazy fetches are bounded" \
+  "[ \"\$(command grep -oE '^(materialize-arm-[ab]|envprobe|test-a-1)' '$WORK/e2e-pass/out/status.txt' | paste -sd' ')\" = 'materialize-arm-b materialize-arm-a envprobe test-a-1' ]"
 check "pass: the verdict keeps both arms' step 1 summary lines and the three failures on arm A" \
   "vt pass 'arm A step 1: AS EXPECTED: 3 failed, 1 passed, 2 deselected' && vt pass 'arm B step 1: AS EXPECTED: 4 passed, 2 deselected' \
    && [ \"\$(command grep -c '^  failed: ' '$WORK/e2e-pass/out/verdict.txt')\" = 3 ]"
