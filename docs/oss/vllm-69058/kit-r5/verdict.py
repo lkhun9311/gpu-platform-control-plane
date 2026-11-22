@@ -25,6 +25,7 @@ OUTCOME_RE = re.compile(r"^(FAILED|ERROR) \S*::" + CLASS + r"::test_failed_read_
 # A failure or error section opens with a header naming its test; pytest pads it with as few as one underscore a side.
 HEADER_RE = re.compile(r"^_+ (?:ERROR at (?:setup|call|teardown) of )?" + CLASS + r"\.test_failed_read_honors_policy\[(\w+)\] _+$")
 # Any other section header, or a "=" banner, ends the case's section.
+# A header's name never starts with an underscore, so a traceback's "_ _ _" frame separator does not end it.
 OTHER_HEADER_RE = re.compile(r"^_+ [^_\s].* _+$|^=+ .* =+$")
 CAPTURED_RE = re.compile(r"^-+ Captured (stdout|stderr|log) (setup|call|teardown) -+$")
 
@@ -58,7 +59,7 @@ def parse(text):
             if current:
                 sections[current].append([])
             continue
-        if current and OTHER_HEADER_RE.match(line) and not line.startswith("_ _"):
+        if current and OTHER_HEADER_RE.match(line):
             current = None
             continue
         if current:
