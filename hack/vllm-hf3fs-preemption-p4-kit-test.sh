@@ -419,7 +419,9 @@ ignores a stopped run|s/^    if os.path.exists(os.path.join(out, "STOPPED")):$/ 
 misses vLLM's KV memory lines|s/^KV_MEMORY_RE = re.compile(r"\[Aa\]vailable KV cache memory")$/KV_MEMORY_RE = re.compile(r"NEVER MATCHES")/
 reads only the capitalised KV memory line|s/^KV_MEMORY_RE = re.compile(r"\[Aa\]vailable KV cache memory")$/KV_MEMORY_RE = re.compile(r"Available KV cache memory")/
 does not print the KV memory lines|s/^        lines.extend(f"  kv memory: {x}" for x in p.get("kv_memory_lines", \[\])\[:10\])$/        pass/
-calls a setup failure in both arms a FINDING|s/^    setup_both = control\["gpu"\] == "failed" and fix\["gpu"\] == "failed"$/    setup_both = False/
+calls a setup failure in both arms a FINDING|s/^    setup_both = (control\["gpu"\] == "failed" and fix\["gpu"\] == "failed" and control\["fail_at"\] is not None$/    setup_both = False and (control["fail_at"] is not None/
+merges failures at different lines|s/^                  and control\["fail_at"\] == fix\["fail_at"\] and control\["first_e"\] == fix\["first_e"\])$/                  and True)/
+merges failures with different errors|s/ and control\["first_e"\] == fix\["first_e"\])$/)/
 judges the older relative page errors line|s/^ERRORS_RE = re.compile(r"held-save page errors: /ERRORS_RE = re.compile(r"relative page errors: /
 judges the end-of-run pages|s/^ERRORS_RE = re.compile(r"held-save page errors: /ERRORS_RE = re.compile(r"end-of-run page errors: /
 lets the older line through|s/^OLD_ERRORS_RE = re.compile(r"relative page errors: \\\[")$/OLD_ERRORS_RE = re.compile(r"NEVER MATCHES")/

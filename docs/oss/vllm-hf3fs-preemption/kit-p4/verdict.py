@@ -7,7 +7,8 @@ It also prints each of vLLM's lines that name the available KV cache memory, so 
 These are the rules of kits p1 to p3, with two changes for kit p4's test.
 The page rule reads only the test's "held-save page errors" line, the pages read right after the held save completed;
 its "end-of-run page errors" line is printed for information, and a log with only the older "relative page errors" line is INCOMPLETE.
-Both arms' GPU tests failing before the page comparison is NOT RUN, since a setup step that fails with and without the fix is not the fix's.
+Both arms' GPU tests failing before the page comparison, at the same line with the same error, is NOT RUN,
+since a setup step that fails with and without the fix is not the fix's.
 The rules, in order:
   FINDING when FIX fails on its own terms: a CPU test fails, the GPU test faults, fails its page comparison,
     or fails before it other than on a precondition while CONTROL got past that point,
@@ -79,7 +80,7 @@ def ints(text):
 
 def arm_record(path, rc):
     """One arm's process: its summary, the CPU tests' results, and the GPU test's state and printed lines."""
-    rec = {"exit": rc, "summary": None, "held_line": None, "errors": None, "traceback": [], "illegal_lines": [], "cpu_failed": [], "max_error": None, "kv_memory_lines": [], "end_errors": None, "old_errors_lines": [], "fail_at": None}
+    rec = {"exit": rc, "summary": None, "held_line": None, "errors": None, "traceback": [], "illegal_lines": [], "cpu_failed": [], "max_error": None, "kv_memory_lines": [], "end_errors": None, "old_errors_lines": [], "fail_at": None, "first_e": None}
     if not os.path.exists(path):
         rec.update(gpu="incomplete", why="no log")
         return rec
@@ -131,6 +132,7 @@ def arm_record(path, rc):
     tb = "\n".join(x for x in lines if x.startswith(("E ", ">")))
     first_e = next((x.strip() for x in section if x.startswith("E ")), None) or next((x.strip() for x in lines if x.startswith("E ")), None)
     harness = next((label for label, pattern in HARNESS_CAUSES if pattern.search(tb)), None)
+    rec["first_e"] = first_e
     gpu_e = "\n".join(x for x in section if x.startswith("E "))
     precondition = next((name for name, text in PRECONDITIONS if text in gpu_e), None)
     gpu_bad = GPU_TEST in bad
@@ -191,7 +193,9 @@ def judge(out):
     control, fix = rec["arms"]["control"], rec["arms"]["fix"]
     states = (control["gpu"], fix["gpu"])
     # A setup step that fails in both arms, before either reaches the page comparison, is the harness's and not the fix's.
-    setup_both = control["gpu"] == "failed" and fix["gpu"] == "failed"
+    # It must be the same step: the same line of the test and the same first E line, or FIX may have failed somewhere CONTROL never reached.
+    setup_both = (control["gpu"] == "failed" and fix["gpu"] == "failed" and control["fail_at"] is not None
+                  and control["fail_at"] == fix["fail_at"] and control["first_e"] == fix["first_e"])
     finding = []
     if fix["cpu_failed"] and fix["summary"] is not None:
         finding.append("CPU tests failed: " + ", ".join(fix["cpu_failed"]))

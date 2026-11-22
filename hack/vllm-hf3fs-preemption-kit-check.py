@@ -258,6 +258,14 @@ if P4:
     check("NOT RUN: both arms failing before the comparison, built", r["verdict"] == "NOT RUN")
     r = judged(control=log(cpu_fail=(0, 1), gpu="raised", e_lines=["E   Failed: the local prefix cache could not be reset"]))
     check("INCONCLUSIVE: CONTROL failing before the comparison while FIX passes", r["verdict"] == "INCONCLUSIVE")
+    other = log(gpu="raised", e_lines=["E   AttributeError: 'HF3FSConnectorMetadata' object has no attribute 'requests'"])
+    other = (other[0].replace(":300: in test_preempted", ":231: in test_preempted"), other[1])
+    r = judged(control=log(cpu_fail=(0, 1), gpu="raised", e_lines=["E   Failed: the local prefix cache could not be reset"]), fix=other)
+    check("FINDING: both arms failing before the comparison, but FIX at another line with another error, is not a shared setup step",
+          r["verdict"] == "FINDING" and r["arms"]["fix"]["fail_at"] == 231 and r["arms"]["control"]["fail_at"] == 300)
+    r = judged(control=log(cpu_fail=(0, 1), gpu="raised", e_lines=["E   Failed: the local prefix cache could not be reset"]),
+               fix=log(gpu="raised", e_lines=["E   RuntimeError: saves did not finish"]))
+    check("FINDING: both arms failing at the same line but with different errors", r["verdict"] == "FINDING")
     old_c = CONTROL[0].replace("held-save page errors: ", "relative page errors: ").replace("end-of-run page errors: [0.0007, 0.0004]\n", "")
     old_f = FIX[0].replace("held-save page errors: ", "relative page errors: ").replace("end-of-run page errors: [0.0007, 0.0004]\n", "")
     r = judged(control=(old_c, 1), fix=(old_f, 0))
