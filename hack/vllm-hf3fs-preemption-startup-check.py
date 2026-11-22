@@ -1,6 +1,8 @@
 """Check, on CPU and before any GPU is bought, that the HF3FS preemption test's engine can start and its requests fit.
 
-usage: python hack/vllm-hf3fs-preemption-startup-check.py VLLM_CHECKOUT
+usage: python hack/vllm-hf3fs-preemption-startup-check.py VLLM_CHECKOUT MODEL_REV
+MODEL_REV is the model revision the GPU kit pins, and both the tokenizer and the model config are loaded at it,
+so the counts and layer shapes checked here are those of the snapshot the GPU run checks, whatever the local refs/main says.
 Run it with a CPU vLLM environment's python, with PYTHONPATH and the working directory set to VLLM_CHECKOUT,
 a vLLM checkout that holds tests/v1/kv_connector/unit/test_hf3fs_preemption.py, and with the hub offline.
 Runs p1 and p2 never reached their tests: LLM() refused max_model_len 1024 against a 48-block pool of 16 tokens.
@@ -32,7 +34,7 @@ def check(name, cond):
         failures += 1
 
 
-def main(checkout):
+def main(checkout, rev):
     src = open(os.path.join(checkout, TEST_FILE)).read()
     tree = ast.parse(src)
     consts = {}
@@ -67,7 +69,7 @@ def main(checkout):
     exec(compile(ast.Module(body=[prompt_def], type_ignores=[]), TEST_FILE, "exec"), ns)
     from transformers import AutoTokenizer
 
-    tok = AutoTokenizer.from_pretrained(model)
+    tok = AutoTokenizer.from_pretrained(model, revision=rev)
     for tag in TAGS:
         n = len(tok.encode(ns["_prompt"](tag)))
         total = n + decode
@@ -79,7 +81,7 @@ def main(checkout):
     from vllm.config import CacheConfig, ModelConfig, VllmConfig
     from vllm.v1.kv_cache_interface import AttentionSpec
 
-    mc = ModelConfig(model=model, max_model_len=mml)
+    mc = ModelConfig(model=model, revision=rev, tokenizer_revision=rev, max_model_len=mml)
     vc = VllmConfig(model_config=mc, cache_config=CacheConfig(block_size=bs, num_gpu_blocks_override=blocks))
     # The engine core resolves the layout at startup; it does not change how many blocks a length needs.
     vc.cache_config.kv_cache_layout = "LBNHC"
@@ -103,10 +105,10 @@ def _full_layers(spec, n):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit("usage: vllm-hf3fs-preemption-startup-check.py VLLM_CHECKOUT")
+    if len(sys.argv) != 3:
+        sys.exit("usage: vllm-hf3fs-preemption-startup-check.py VLLM_CHECKOUT MODEL_REV")
     try:
-        main(sys.argv[1])
+        main(sys.argv[1], sys.argv[2])
     except Exception as e:
         # An import or load that fails must read as a failed check, never as a short pass.
         check(f"the startup check ran to the end ({type(e).__name__}: {e})", False)

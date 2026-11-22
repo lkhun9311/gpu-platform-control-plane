@@ -160,10 +160,12 @@ startup() {
   fi
   # The hub stays offline, so the tokenizer and the model config come from the local cache of the pinned snapshot.
   ( cd "$a" && env -i PATH="$PATH" HOME="$HOME" TMPDIR="$TMPDIR" HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH="$a" PYTHONDONTWRITEBYTECODE=1 \
-    timeout --kill-after=5 300 "$CPU_VLLM_PY" -B "$STARTUP" "$a" ) >"$WORK/startup-$n.log" 2>"$WORK/startup-$n.err"
+    timeout --kill-after=5 300 "$CPU_VLLM_PY" -B "$STARTUP" "$a" "${STARTUP_REV:-$MODEL_REV}" ) >"$WORK/startup-$n.log" 2>"$WORK/startup-$n.err"
 }
 sl() { command grep -qF -- "$2" "$WORK/startup-$1.log"; }
-if [ -x "$CPU_VLLM_PY" ]; then
+# The tokenizer and the model config are loaded at the revision the kit pins, not at whatever the local refs/main names.
+MODEL_REV=$(sed -n 's/^MODEL_REV=\([0-9a-f]\{40\}\)$/\1/p' "$KIT/run.sh")
+if [ -x "$CPU_VLLM_PY" ] && [ -n "$MODEL_REV" ]; then
   startup pinned; rc=$?
   check "startup: vLLM's get_kv_cache_configs accepts the pinned test's max_model_len 736 with 48 blocks of 16, and each request's 253 + 480 = 733 tokens fit" \
     "[ $rc = 0 ] && sl pinned 'ok   vLLM'\"'\"'s get_kv_cache_configs accepts max_model_len 736 with num_gpu_blocks_override=48' \
@@ -190,12 +192,15 @@ if [ -x "$CPU_VLLM_PY" ]; then
   startup mwiring 's/max_model_len=MAX_MODEL_LEN,/max_model_len=1024,/'; rc=$?
   check "startup mutant: an LLM() that takes a literal 1024 instead of MAX_MODEL_LEN is caught by the wiring check" \
     "[ $rc = 1 ] && sl mwiring 'FAIL LLM() is built with model=E2E_MODEL'"
+  STARTUP_REV=0000000000000000000000000000000000000000 startup otherrev; rc=$?
+  check "startup: a model revision the local cache does not hold fails, so the check loads the pinned revision rather than main" \
+    "[ $rc = 1 ] && sl otherrev 'FAIL the startup check ran to the end'"
   CPU_VLLM_PY_SAVED=$CPU_VLLM_PY; CPU_VLLM_PY=/bin/false
   startup nocpu; rc=$?; CPU_VLLM_PY=$CPU_VLLM_PY_SAVED
   check "startup: an environment that cannot run the check fails rather than passes" "[ $rc != 0 ]"
   git -C "$SRC" worktree remove --force "$WORK/apply" >>"$WORK/apply.log" 2>&1
 else
-  check "the CPU vLLM environment $CPU_VLLM_PY is there, so vLLM's startup check can run before any GPU is bought" "false"
+  check "the CPU vLLM environment $CPU_VLLM_PY is there and run.sh pins MODEL_REV (got "$MODEL_REV"), so vLLM's startup check can run before any GPU is bought" "false"
 fi
 
 # ---------------------------------------------------------------- the Python units
