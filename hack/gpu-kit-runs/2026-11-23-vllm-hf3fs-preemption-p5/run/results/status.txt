@@ -1,0 +1,14 @@
+nvidia-smi exit=0 t=0
+clone-vllm exit=0 t=13
+materialize-base exit=0 t=13
+git-am exit=0 t=14
+venv exit=0 t=15
+install-vllm exit=0 t=52
+install-test exit=0 t=52
+pip-freeze exit=0 t=52
+envprobe exit=0 t=56
+download-model exit=0 t=62
+test-control exit=1 t=262
+test-fix exit=0 t=325
+verdict exit=0 t=325
+b1 skipped (B1=0)

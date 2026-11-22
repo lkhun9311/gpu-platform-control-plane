@@ -1,0 +1,33 @@
+nvidia-smi exit=0 t=0
+clone-vllm exit=0 t=13
+materialize-base exit=0 t=13
+git-am exit=0 t=14
+venv exit=0 t=15
+install-vllm exit=0 t=52
+install-test exit=0 t=52
+pip-freeze exit=0 t=52
+envprobe exit=0 t=56
+download-model exit=0 t=62
+test-control exit=1 t=262
+test-fix exit=0 t=325
+gpu: NVIDIA A10G torch: 2.14.0+cu130 cuda: 13.0 triton: 3.8.0
+CONTROL: GPU test mismatch (exit 1): 1 failed, 21 warnings in 179.02s (0:02:59); the page comparison failed, max error 1.2084
+  held line: held=[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] reused=[33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] hold_timed_out=False
+  held-save page errors: [0.0, 1.0049, 1.0184, 1.2005, 1.2084, 1.1996, 1.1441, 1.0497, 0.9687, 0.7346, 0.7965, 0.789, 0.8195, 0.8491, 0.9492]
+  end-of-run page errors (information only): [0.0, 1.0049, 1.0184, 1.2005, 1.2084, 1.1996, 1.1441, 1.0497, 0.9687, 0.7346, 0.7965, 0.789, 0.8195, 0.8491, 0.9492]
+  pytest summary (verbatim): 1 failed, 21 warnings in 179.02s (0:02:59)
+  kv memory: 37:(MainProcess pid=2288) INFO 11-22 18:27:28 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB
+  traceback of the GPU test:
+    tests/v1/kv_connector/unit/test_hf3fs_preemption.py:313: in test_preempted_request_saves_its_own_kv
+        assert max(errors) < 0.05, errors
+    E   AssertionError: [0.0, 1.0049444437026978, 1.0184041261672974, 1.200522541999817, 1.2083985805511475, 1.1995718479156494, ...]
+    E   assert 1.2083985805511475 < 0.05
+    E    +  where 1.2083985805511475 = max([0.0, 1.0049444437026978, 1.0184041261672974, 1.200522541999817, 1.2083985805511475, 1.1995718479156494, ...])
+FIX: GPU test passed (exit 0): 1 passed, 21 warnings in 51.90s
+  held line: held=[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] reused=[33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] hold_timed_out=True
+  held-save page errors: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  end-of-run page errors (information only): [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  pytest summary (verbatim): 1 passed, 21 warnings in 51.90s
+  kv memory: 36:(MainProcess pid=2825) INFO 11-22 18:28:29 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB
+WHY: CONTROL failed the page comparison (max error 1.2084) with every precondition met and hold_timed_out=False, and FIX passed (max error 0.0000, hold_timed_out=True)
+VERDICT: CONFIRMED
