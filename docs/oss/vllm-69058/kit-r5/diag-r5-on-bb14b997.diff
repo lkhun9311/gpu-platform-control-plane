@@ -1,0 +1,97 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
+index 29b8ad8d13..e7c1a689a9 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
+@@ -330,6 +330,26 @@ class AsyncOperationManager:
+                 )
+ 
+             # Synchronize streams and gather data
++            num_blocks = (
++                self._connector._local_total_tokens // self._connector._local_block_size
++            )
++            logger.warning(
++                "DIAG save %s thread=%s n=%d min=%s max=%s num_blocks=%d inuse=%d ptrs=%s",
++                request_id,
++                threading.current_thread().name,
++                len(block_ids),
++                min(block_ids) if block_ids else None,
++                max(block_ids) if block_ids else None,
++                num_blocks,
++                self._save_buffer_allocator._inuse_count,
++                sorted({b.data_ptr() for b in buffers})[:3],
++            )
++            if block_ids and (min(block_ids) < 0 or max(block_ids) >= num_blocks):
++                logger.error(
++                    "DIAG save %s block ids out of range: %s", request_id, block_ids
++                )
++            torch.cuda.synchronize()
++            logger.warning("DIAG save %s pre-gather sync ok", request_id)
+             with torch.cuda.stream(self._save_stream):
+                 self._save_stream.wait_event(main_stream_event)  # Wait for main stream
+                 self._connector._gather_or_scatter_kv_caches(
+@@ -338,6 +358,8 @@ class AsyncOperationManager:
+ 
+                 save_stream_event = torch.cuda.Event()
+                 save_stream_event.record(self._save_stream)  # Record gather completion
++            self._save_stream.synchronize()
++            logger.warning("DIAG save %s gather sync ok", request_id)
+ 
+             # Step3: Write data in batches
+             write_futures = []
+@@ -427,12 +449,25 @@ class AsyncOperationManager:
+             )
+ 
+             if not read_success:
++                logger.warning(
++                    "DIAG load %s read failed, block ids %s", request_id, block_ids
++                )
+                 self._load_buffer_allocator.free_buffer(buffers)
+                 return self._fail_task(
+                     "Loaded", "Read operation failed", request_id, future
+                 )
+ 
+             # Step3: Scatter data back to KV cache
++            logger.warning(
++                "DIAG load %s thread=%s n=%d min=%s max=%s",
++                request_id,
++                threading.current_thread().name,
++                len(block_ids),
++                min(block_ids) if block_ids else None,
++                max(block_ids) if block_ids else None,
++            )
++            torch.cuda.synchronize()
++            logger.warning("DIAG load %s pre-scatter sync ok", request_id)
+             with torch.cuda.stream(self._load_stream):
+                 self._connector._gather_or_scatter_kv_caches(
+                     block_ids, buffers, "scatter"
+@@ -653,6 +688,8 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+         pass
+ 
+     def wait_for_save(self) -> None:
++        torch.cuda.synchronize()
++        logger.warning("DIAG step forward sync ok")
+         metadata = self._get_connector_metadata()
+         if not isinstance(metadata, HF3FSConnectorMetadata):
+             logger.error("Invalid metadata type: %s", type(metadata))
+@@ -665,6 +702,12 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+             skip_blocks = request.save_block_op.skip_leading_blocks
+             block_hashes = self._generate_block_hashes(request.token_ids, skip_blocks)
+             block_ids = request.block_ids[skip_blocks : skip_blocks + len(block_hashes)]
++            logger.warning(
++                "DIAG submit save %s skip=%d block_ids=%s",
++                request.request_id,
++                skip_blocks,
++                block_ids,
++            )
+ 
+             for i in range(0, len(block_ids), self._max_device_buffer_count):
+                 batch_block_ids = block_ids[i : i + self._max_device_buffer_count]
+@@ -674,6 +717,8 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+                 )
+ 
+     def start_load_kv(self, forward_context: "ForwardContext", **kwargs) -> None:
++        torch.cuda.synchronize()
++        logger.warning("DIAG step start sync ok")
+         metadata = self._get_connector_metadata()
+         if not isinstance(metadata, HF3FSConnectorMetadata):
+             logger.error("Invalid metadata type for loading")
