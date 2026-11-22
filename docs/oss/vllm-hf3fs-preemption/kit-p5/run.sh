@@ -46,12 +46,18 @@
 # It runs on the same two trees: CONTROL, the base (the test file tests-only.patch adds does not matter to it), and FIX, the PR head's tree.
 # Each run is its own process, from the tree's root with the tree on PYTHONPATH, interleaved:
 #   --pool-blocks 128, which preempts: CONTROL, FIX, CONTROL, FIX, CONTROL, FIX;
-#   --pool-blocks 2048, which should not: CONTROL, FIX.
+#   --pool-blocks 2304, which must not: CONTROL, FIX; 2,303 usable blocks hold all 64 requests of 32 blocks at once.
 # Each run's JSON reports has_fix, and a run whose has_fix is not false in CONTROL and true in FIX means a wrong tree: b1 stops, NOT RUN.
 # b1_verdict.py prints every JSON verbatim and never changes a value; it calls b1 INVALID when a pool-128 run did not preempt,
-# when a pool-2048 run did, or when a run's log shows the HF3FS metadata server short of pages, which drops saves the JSON does not count.
-# As pinned, bench_preempt.py's 1 GiB file holds 1,820 OPT-125m pages for about 2,000 saved blocks, and pool 2048 less the null block
-# leaves 2,047 blocks for 64 requests of 32, so those two rules may well fire; they report it, and b1's values stay as they were.
+# when a pool-2304 run did, when a run stored fewer keys than its load saves, or when a run's log shows the metadata server short of pages.
+# The bench pinned here (the runtime session's fix of the first pin, 575d32cc) gives the mock an 8 GiB sparse file, about 14,500 pages,
+# drains the warm-up's saves before the clock, and drains the timed saves before it reads stored_keys, outside the timing.
+# A load saves every full block it computes: each request computes 256 + 256 - 1 = 511 tokens, 31 blocks of 16,
+# and the warm-up 64 + 256 - 1 = 319 tokens, 19 blocks, so 64 x 31 + 19 = 2,003 keys, which b1_verdict.py derives from each JSON's own counts.
+# DISK: the mock writes about 2,003 x 589,824 bytes = 1.18 GB per run, and the bench never deletes its storage directory,
+# so each b1 run gets its own TMPDIR, which run.sh deletes after the run, and b1 stops if fewer than B1_MIN_FREE_GB are free before a run.
+# Run p4's instance had 67 GB free on / before the kit and 58 GB after it, so b1's 1.18 GB at a time leaves wide room.
+# With P5=0 the test arms are skipped, for a b1-only session after p5 ran on its own; run.sh then exits with b1's status.
 # The test arms are decided first: verdict.py writes the p5 verdict before b1 starts, and run.sh exits with it.
 # A b1 that fails or runs out of budget stops only b1, writing b1/STOPPED, and leaves the p5 evidence as it was.
 #
@@ -66,7 +72,7 @@
 # its CONTROL process took 187 s and its FIX 71 s, so run.sh ended at 383 s, and its session billed 803 s, $0.17 on g5.xlarge.
 # b1 is estimated, not measured, since the CPU vLLM environment cannot run LLM(): in run p4 the FIX process's engine was up 5 s after its log began,
 # after about 12 s of imports, so each b1 process pays about 20 s before its load; a pool-128 load preempts its way through 16,384 tokens
-# with about four requests running, about 4,700 steps at 10 to 15 ms, so 50 to 70 s; a pool-2048 load runs all 64 at once in about 300 steps.
+# with about four requests running, about 4,700 steps at 10 to 15 ms, so 50 to 70 s; a pool-2304 load runs all 64 at once in about 300 steps.
 # So b1 should take about 6 x 90 + 2 x 30 = 600 s, with B1_CAP_S, 240 s, capping each process, and 1,140 s or more of BUDGET_S left for it.
 # Expected in all, not measured: run.sh about 1,000 s and the session about 1,400 s, $0.30 on g5.xlarge and $0.34 on g5.2xlarge.
 # Each process is capped at ARM_CAP_S, 240 s by default, or what the budget has left, so a hung arm cannot starve the other past the budget.
@@ -76,7 +82,8 @@
 # $0.8579 on g5.xlarge and $0.9696 on g5.2xlarge.
 #
 # Settings (KIT_ENV through the session): BUDGET_S (default and maximum 1800), ARM_CAP_S (each test process's cap, default 240),
-# B1 (1 to run b1, the default, or 0 to skip it) and B1_CAP_S (each b1 process's cap, default 240).
+# B1 (1 to run b1, the default, or 0 to skip it), B1_CAP_S (each b1 process's cap, default 240),
+# and P5 (1 to run the test arms, the default, or 0 to skip them for a b1-only session; P5=0 needs B1=1).
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${OUT:-$HERE/results}
@@ -109,12 +116,15 @@ BUDGET_MAX_S=1800
 # The test arms' own budget, kit p4's; b1 runs only in what is left of BUDGET_S after them.
 P5_BUDGET_S=600
 B1=${B1:-1}
+P5=${P5:-1}
+# b1 stops rather than start a run with less than this free, in GB, where its storage goes.
+B1_MIN_FREE_GB=10
 B1_CAP_S=${B1_CAP_S:-240}
 BENCH="$HERE/bench_preempt.py"
-# The sha256 of storage's open-source/contributions/vllm/hf3fs-preemption-save/bench/bench_preempt.py, read on 2026-11-23.
-BENCH_SHA256=575d32cc8e33e1db827c8f37b35d47c3f167b0f1fe46b6807ce78b5346613f9a
+# The sha256 of storage's open-source/contributions/vllm/hf3fs-preemption-save/bench/bench_preempt.py, the runtime session's fixed bench, read on 2026-11-23.
+BENCH_SHA256=09fc49a76aa382da96313c5c51087897a0ba9b43ea3ac6b676f723abb44748c2
 # The b1 processes in order, as arm:pool:run.
-B1_RUNS=(control:128:1 fix:128:1 control:128:2 fix:128:2 control:128:3 fix:128:3 control:2048:1 fix:2048:1)
+B1_RUNS=(control:128:1 fix:128:1 control:128:2 fix:128:2 control:128:3 fix:128:3 control:2304:1 fix:2304:1)
 ARM_CAP_S=${ARM_CAP_S:-240}
 # The precompiled wheel's commit, the base's first parent, the nearest main commit with a published wheel.
 WHEEL_COMMIT=e2052f5c7ad64564f00dd4592e77c27785c9333f
@@ -137,6 +147,8 @@ START=$(date +%s)
   { echo "BUDGET_S=$BUDGET_S: it must be whole seconds above $RESERVE_S and at most $BUDGET_MAX_S" >&2; exit 1; }
 [[ $ARM_CAP_S =~ ^[1-9][0-9]*$ ]] && [ "$ARM_CAP_S" -ge 30 ] || { echo "ARM_CAP_S=$ARM_CAP_S: it must be whole seconds without a leading zero, at least 30" >&2; exit 1; }
 [[ $B1 =~ ^[01]$ ]] || { echo "B1=$B1: it must be 1 to run b1 or 0 to skip it" >&2; exit 1; }
+[[ $P5 =~ ^[01]$ ]] || { echo "P5=$P5: it must be 1 to run the test arms or 0 to skip them" >&2; exit 1; }
+[ "$P5" = 1 ] || [ "$B1" = 1 ] || { echo "P5=0 and B1=0 leave nothing to run" >&2; exit 1; }
 [[ $B1_CAP_S =~ ^[1-9][0-9]*$ ]] && [ "$B1_CAP_S" -ge 30 ] || { echo "B1_CAP_S=$B1_CAP_S: it must be whole seconds without a leading zero, at least 30" >&2; exit 1; }
 # The test arms plan against the smaller of their own budget and the whole one.
 [ "$BUDGET_S" -lt "$P5_BUDGET_S" ] && P5_BUDGET_S=$BUDGET_S
@@ -207,7 +219,7 @@ step() {
   echo "budget_s=$BUDGET_S"; echo "arm_cap_s=$ARM_CAP_S"; echo "wheel_commit=$WHEEL_COMMIT (the base's first parent)"
   echo "order=${RUNS[*]}, each in its own process"
   echo "command=$(cmd)"
-  echo "p5_budget_s=$P5_BUDGET_S"; echo "b1=$B1"; echo "b1_cap_s=$B1_CAP_S"; echo "bench_sha256_pin=$BENCH_SHA256"
+  echo "p5=$P5"; echo "p5_budget_s=$P5_BUDGET_S"; echo "b1=$B1"; echo "b1_cap_s=$B1_CAP_S"; echo "bench_sha256_pin=$BENCH_SHA256"
   echo "b1_order=${B1_RUNS[*]}, each in its own process: python bench_preempt.py --pool-blocks POOL --out ARM-POOL-RUN.json"
 } > "$OUT/settings.txt"
 [ "${KIT_DRY_RUN:-}" = 1 ] && { echo "dry run: settings accepted"; cat "$OUT/settings.txt"; exit 0; }
@@ -341,18 +353,22 @@ echo "hub_offline=1 for the test runs" >> "$OUT/settings.txt"
 
 # ---------------------------------------------------------------- the two processes
 read -r -a words <<< "$(cmd)"
-for a in "${RUNS[@]}"; do
-  arm "$a"
-  step "test-$a" "$ARM_CAP_S" --log "$OUT/e2e-$a.log" env -C vllm "${words[@]}"
-done
-# The test arms are decided here, before b1, which cannot change or delay their verdict.
-p5_verdict
+if [ "$P5" = 1 ]; then
+  for a in "${RUNS[@]}"; do
+    arm "$a"
+    step "test-$a" "$ARM_CAP_S" --log "$OUT/e2e-$a.log" env -C vllm "${words[@]}"
+  done
+  # The test arms are decided here, before b1, which cannot change or delay their verdict.
+  p5_verdict
+else
+  echo "test arms skipped (P5=0)" >> "$OUT/status.txt"
+fi
 
 # ---------------------------------------------------------------- b1, the performance run, apart from the verdict above
 # b1_json_has_fix FILE: the run's has_fix as Python prints it, or nothing when the JSON is missing or unreadable.
 b1_json_has_fix() { "$(py)" -c 'import json, sys; print(json.load(open(sys.argv[1]))["has_fix"])' "$1" 2>> "$OUT/b1/preflight.log"; }
 b1() {
-  local r a pool i want got
+  local r a pool i want got tmp free_gb
   mkdir -p "$OUT/b1" || return 0
   got=$(sha256sum "$BENCH" | cut -d' ' -f1)
   echo "bench_sha256=$got" > "$OUT/b1/versions.txt"
@@ -361,8 +377,15 @@ b1() {
     a=${r%%:*} pool=${r#*:} i=${pool#*:} pool=${pool%%:*}
     # Each checkout and each process runs in a subshell, so a stop inside them ends b1 and nothing else.
     ( arm "$a" ) || return 0
-    ( step "b1-$a-$pool-$i" "$B1_CAP_S" --log "$OUT/b1/$a-$pool-$i.log" env -C vllm PYTHONPATH="$PWD/vllm" \
+    # The bench keeps its 8 GiB sparse storage file, so each run writes it under its own TMPDIR, deleted after the run.
+    tmp="$PWD/b1-tmp/$a-$pool-$i"
+    mkdir -p "$tmp" || { ( stop "could not make $tmp" ); return 0; }
+    free_gb=$(df -BG --output=avail "$tmp" | tail -n 1 | tr -dc 0-9)
+    echo "b1-$a-$pool-$i free_gb=$free_gb" >> "$OUT/b1/disk.txt"
+    [ "${free_gb:-0}" -ge "$B1_MIN_FREE_GB" ] || { ( stop "only ${free_gb:-?} GB free before b1-$a-$pool-$i, under $B1_MIN_FREE_GB" ); return 0; }
+    ( step "b1-$a-$pool-$i" "$B1_CAP_S" --log "$OUT/b1/$a-$pool-$i.log" env -C vllm PYTHONPATH="$PWD/vllm" TMPDIR="$tmp" \
         python "$BENCH" --pool-blocks "$pool" --out "$OUT/b1/$a-$pool-$i.json" )
+    rm -rf "$tmp"
     [ -e "$OUT/b1/STOPPED" ] && return 0
     # The preflight: a CONTROL run must report has_fix false and a FIX run true, or the tree is not the one b1 means to time.
     if [ "$a" = control ]; then want=False; else want=True; fi
@@ -378,13 +401,16 @@ if [ "$B1" = 1 ]; then
   PHASE=b1
   STEP_BUDGET_S=$BUDGET_S
   b1
+  rm -rf "$PWD/b1-tmp"
   timeout --kill-after=5 25 "$(py)" "$HERE/b1_verdict.py" "$OUT" > "$OUT/b1/b1-verdict.txt" 2>&1
-  echo "b1-verdict exit=$? t=$(( $(date +%s) - START ))" >> "$OUT/status.txt"
+  B1_RC=$?
+  echo "b1-verdict exit=$B1_RC t=$(( $(date +%s) - START ))" >> "$OUT/status.txt"
   cat "$OUT/b1/b1-verdict.txt"
 else
   echo "b1 skipped (B1=0)" >> "$OUT/status.txt"
 fi
 [ "${KIT_OFFLINE_TEST:-}" = 1 ] && git -C "$OFFLINE_VLLM_SRC" worktree remove --force "$PWD/vllm"
 checksums
-# b1 never sets the exit status: it is the test arms' verdict.
-exit "$VERDICT_RC"
+# With the test arms run, b1 never sets the exit status: it is their verdict.
+# A b1-only session, P5=0, exits with b1's status: 0 VALID, 3 INCOMPLETE, 4 NOT RUN, 6 INVALID.
+if [ "$P5" = 1 ]; then exit "$VERDICT_RC"; else exit "${B1_RC:-3}"; fi

@@ -41,9 +41,11 @@ from vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client 
 class InProcessMetadataService:
     def __init__(self):
         self.state = GlobalMetadataState()
+        self.num_pages = 0
 
     def initialize(self, rank, num_pages=0, role="worker"):
         if role == "worker":
+            self.num_pages = num_pages
             self.state.initialize_rank(rank, num_pages)
 
     def allocate_pages_for_keys(self, rank, keys):
@@ -57,6 +59,21 @@ class InProcessMetadataService:
 
     def get_key_locations(self, rank, keys):
         return self.state.get_key_locations(rank, keys)
+
+    def num_stored_keys(self) -> int:
+        with self.state.global_lock:
+            return sum(m.is_complete() for m in self.state.key_metadata.values())
+
+
+def wait_for_saves(manager, timeout=300.0):
+    """Poll until no save is queued and every save future is done."""
+    deadline = time.monotonic() + timeout
+    while True:
+        pending = [f for fs in manager._save_futures.values() for f in fs]
+        if manager._save_queue.empty() and all(f.done() for f in pending):
+            return
+        assert time.monotonic() < deadline, "saves did not finish"
+        time.sleep(0.05)
 
 
 def pct(values, q):
@@ -97,7 +114,8 @@ def main():
             kv_role="kv_both",
             kv_connector_extra_config={
                 "hf3fs_storage_path": storage,
-                "hf3fs_file_size": 1024 * 1024 * 1024,
+                # 8 GiB of 576 KiB OPT-125m pages: about 14,500 pages, so no save is dropped.
+                "hf3fs_file_size": 8 * 1024 * 1024 * 1024,
                 "hf3fs_client_numjobs": 2,
             },
         ),
@@ -150,6 +168,8 @@ def main():
     )
     # Warm up kernels outside the measurement with an unrelated prompt.
     llm.generate([{"prompt_token_ids": [5] * 64}], params, use_tqdm=False)
+    # Start the clock with an empty save queue.
+    wait_for_saves(manager)
     step_times.clear()
     waits.clear()
     counts["preemptions"] = 0
@@ -158,6 +178,8 @@ def main():
     outputs = llm.generate(prompts, params, use_tqdm=False)
     wall = time.perf_counter() - t0
     out_tokens = sum(len(o.outputs[0].token_ids) for o in outputs)
+    # Not timed: confirms no save was dropped for lack of storage pages.
+    wait_for_saves(manager)
 
     result = {
         "has_fix": has_fix,
@@ -178,15 +200,13 @@ def main():
         "wait_ms_p50": pct(waits, 50) * 1e3 if waits else None,
         "wait_ms_max": max(waits) * 1e3 if waits else None,
         "mean_step_ms": statistics.mean(step_times) * 1e3,
+        "stored_keys": metadata.num_stored_keys(),
+        "storage_pages": metadata.num_pages,
     }
     print(json.dumps(result, indent=2))
     with open(args.out, "w") as f:
         json.dump(result, f, indent=2)
 
-    # Let queued saves finish before the engine frees the KV cache.
-    deadline = time.monotonic() + 120
-    while not manager._save_queue.empty() and time.monotonic() < deadline:
-        time.sleep(0.1)
     for c in (scheduler.connector, worker):
         atexit.unregister(c.close)
         c.close()

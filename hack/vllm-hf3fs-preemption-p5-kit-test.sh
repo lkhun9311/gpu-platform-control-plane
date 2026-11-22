@@ -22,7 +22,7 @@
 set -uo pipefail
 unset INSTANCE_TYPE KIT_ENV SESSION_CONFIRM AWS_PROFILE
 # The checks assert the kit's and the fakes' defaults, so a caller's settings must not reach them.
-unset B1 B1_CAP_S FAKE_B1 FAKE_B1_LOG BUDGET_S ARM_CAP_S CASE_CAP_S E2E_CAP_S UNIT_CAP_S PYTEST_CAP_S LLM_CAP_S KIT_DRY_RUN KIT_OFFLINE_TEST OFFLINE_VLLM_SRC OFFLINE_MODEL_BIN_SHA256 \
+unset P5 B1 B1_CAP_S FAKE_B1 FAKE_B1_LOG BUDGET_S ARM_CAP_S CASE_CAP_S E2E_CAP_S UNIT_CAP_S PYTEST_CAP_S LLM_CAP_S KIT_DRY_RUN KIT_OFFLINE_TEST OFFLINE_VLLM_SRC OFFLINE_MODEL_BIN_SHA256 \
   FAKE_MODE FAKE_CUDA FAKE_HF FAKE_HF_DIR FAKE_NVSMI FAKE_ORDER_LOG FAKE_EXPECT_OFFLINE HF_HUB_OFFLINE TRANSFORMERS_OFFLINE VLLM_ENABLE_V1_MULTIPROCESSING CUDA_LAUNCH_BLOCKING
 # Python must not leave bytecode beside a mutant, where a same-size edit restored within a second could reuse it.
 export PYTHONDONTWRITEBYTECODE=1
@@ -51,9 +51,11 @@ PR_HEAD=4ec2f316fb847673a5edb3ce337a0abae9263899
 PR_HEAD_TREE=441714150d9afe8fd27523f66f288568e8a8c1e8
 TF=tests/v1/kv_connector/unit/test_hf3fs_preemption.py
 TESTS_SHA256=bcbb9fec95bed88a2f7d8f399e18f7a72fb3e618e6a9e27db575662f77b31b0c
-BENCH_SHA256=575d32cc8e33e1db827c8f37b35d47c3f167b0f1fe46b6807ce78b5346613f9a
+BENCH_SHA256=09fc49a76aa382da96313c5c51087897a0ba9b43ea3ac6b676f723abb44748c2
+# The first bench, which b1 must no longer run.
+BENCH1_SHA256=575d32cc8e33e1db827c8f37b35d47c3f167b0f1fe46b6807ce78b5346613f9a
 BENCH_SRC="$HOME/workspace/storage/open-source/contributions/vllm/hf3fs-preemption-save/bench/bench_preempt.py"
-B1_ORDER_WANT="control-128 fix-128 control-128 fix-128 control-128 fix-128 control-2048 fix-2048"
+B1_ORDER_WANT="control-128 fix-128 control-128 fix-128 control-128 fix-128 control-2304 fix-2304"
 FIX_SHA256=8da42418ce7bcd85a85c19067a8c4da2dece1dbb485b765e0471759abed30eb6
 # Kit p4's pins, which p5 must not carry.
 P4_TESTS_SHA256=c21daf3b2e477c75860bec4bc5534742b6a496c7e9a08d875901cddaa0aed575
@@ -250,13 +252,13 @@ dry() {
   env -i PATH="$PATH" HOME="$HOME" KIT_DRY_RUN=1 OUT="$WORK/dry" "$@" bash "$k/run.sh" "${args[@]}" >"$WORK/dry.out" 2>&1
 }
 check "the default settings are accepted and record the order and the runtime session's command with -s, and no CUDA_LAUNCH_BLOCKING, -x or multiprocessing setting" \
-  "dry '$KIT' && command grep -qx 'budget_s=1800' '$WORK/dry/settings.txt' && command grep -qx 'p5_budget_s=600' '$WORK/dry/settings.txt' && command grep -qx 'b1=1' '$WORK/dry/settings.txt' && command grep -qx 'b1_cap_s=240' '$WORK/dry/settings.txt' && command grep -qx 'arm_cap_s=240' '$WORK/dry/settings.txt' \
+  "dry '$KIT' && command grep -qx 'budget_s=1800' '$WORK/dry/settings.txt' && command grep -qx 'p5=1' '$WORK/dry/settings.txt' && command grep -qx 'p5_budget_s=600' '$WORK/dry/settings.txt' && command grep -qx 'b1=1' '$WORK/dry/settings.txt' && command grep -qx 'b1_cap_s=240' '$WORK/dry/settings.txt' && command grep -qx 'arm_cap_s=240' '$WORK/dry/settings.txt' \
    && command grep -qxF 'order=control fix, each in its own process' '$WORK/dry/settings.txt' \
    && command grep -qxF 'command=python -m pytest $TF -q -s --tb=short' '$WORK/dry/settings.txt'"
 check "CUDA_LAUNCH_BLOCKING set by a caller is refused rather than passed to the tests" "! dry '$KIT' -- CUDA_LAUNCH_BLOCKING=1 && command grep -qF 'runs without it' '$WORK/dry.out'"
 check "a positional argument is refused, and nothing is written" "! dry '$KIT' extra && command grep -qF 'takes no arguments' '$WORK/dry.out' && [ ! -e '$WORK/dry' ]"
 check "BUDGET_S above 1800, not whole seconds, at or below the reserve, or with a leading zero is refused, as are a bad B1 or B1_CAP_S" \
-  "! dry '$KIT' -- B1=2 && ! dry '$KIT' -- B1_CAP_S=10 && ! dry '$KIT' -- B1_CAP_S=0240 && ! dry '$KIT' -- BUDGET_S=1801 && ! dry '$KIT' -- BUDGET_S=10m && ! dry '$KIT' -- BUDGET_S=60 && ! dry '$KIT' -- BUDGET_S=0300"
+  "! dry '$KIT' -- P5=2 && ! dry '$KIT' -- P5=0 B1=0 && dry '$KIT' -- P5=0 && ! dry '$KIT' -- B1=2 && ! dry '$KIT' -- B1_CAP_S=10 && ! dry '$KIT' -- B1_CAP_S=0240 && ! dry '$KIT' -- BUDGET_S=1801 && ! dry '$KIT' -- BUDGET_S=10m && ! dry '$KIT' -- BUDGET_S=60 && ! dry '$KIT' -- BUDGET_S=0300"
 check "ARM_CAP_S with a leading zero or under 30, and earlier kits' cap settings, are refused" \
   "! dry '$KIT' -- ARM_CAP_S=0240 && ! dry '$KIT' -- ARM_CAP_S=5 && ! dry '$KIT' -- CASE_CAP_S=180"
 m=$(mutant budgetcap run.sh 's/^BUDGET_MAX_S=1800$/BUDGET_MAX_S=2400/')
@@ -321,9 +323,9 @@ check "pass: the verdict prints each arm's summary, held line, page errors and C
 check "pass: the hub was offline, and the run left checksums and no worktree" \
   "command grep -qx 'hub_offline=1 for the test runs' '$WORK/e2e-pass/out/settings.txt' && ( cd '$WORK/e2e-pass/out' && sha256sum -c --quiet SHA256SUMS ) \
    && ! git -C '$SRC' worktree list | command grep -qF '$WORK/e2e-pass/'"
-check "b1: after the test arms, eight processes ran in order C, F, C, F, C, F at pool 128 and C, F at 2048, and b1 is VALID apart from the verdict" \
+check "b1: after the test arms, eight processes ran in order C, F, C, F, C, F at pool 128 and C, F at 2304, and b1 is VALID apart from the verdict" \
   "[ \"\$(b1order pass)\" = '$B1_ORDER_WANT' ] && b1 pass VALID && p5kept pass \
-   && [ \"\$(command grep -oE '^(test-[a-z]+|verdict|b1-[a-z0-9-]+) exit=' '$WORK/e2e-pass/out/status.txt' | sed 's/ exit=\$//' | paste -sd' ')\" = 'test-control test-fix verdict b1-control-128-1 b1-fix-128-1 b1-control-128-2 b1-fix-128-2 b1-control-128-3 b1-fix-128-3 b1-control-2048-1 b1-fix-2048-1 b1-verdict' ] \
+   && [ \"\$(command grep -oE '^(test-[a-z]+|verdict|b1-[a-z0-9-]+) exit=' '$WORK/e2e-pass/out/status.txt' | sed 's/ exit=\$//' | paste -sd' ')\" = 'test-control test-fix verdict b1-control-128-1 b1-fix-128-1 b1-control-128-2 b1-fix-128-2 b1-control-128-3 b1-fix-128-3 b1-control-2304-1 b1-fix-2304-1 b1-verdict' ] \
    && [ \"\$(ls '$WORK/e2e-pass/out/b1' | command grep -c 'json\$')\" = 9 ] && command grep -qF 'b1/control-128-1.json' '$WORK/e2e-pass/out/SHA256SUMS' \
    && command grep -qF 'B1, the performance run: a separate section that does not change the verdict above.' '$WORK/e2e-pass/run.log'"
 for k in hasfixcontrol:control-128 hasfixfix:'control-128 fix-128'; do
@@ -335,7 +337,8 @@ done
 e2e "$KIT" b1-zeropreempt FAKE_B1=zeropreempt; rc=$?
 check "b1 zeropreempt: a pool-128 run with no preemption makes b1 INVALID, its values printed as they are, and the verdict stands" \
   "[ $rc = 0 ] && p5kept b1-zeropreempt && b1 b1-zeropreempt INVALID && b1t b1-zeropreempt 'B1 INVALID: control-128-2: preemptions=0'"
-for k in storageshort:'fix-128-1: the metadata server ran short of pages 1 times' preempt2048:'fix-2048-1: preemptions=3, so the pool-2048 control preempted'; do
+for k in storageshort:'fix-128-1: the metadata server ran short of pages 1 times' preempt2304:'fix-2304-1: preemptions=3, so the pool-2304 control preempted' \
+  storedshort:'fix-128-2: stored_keys=1990, fewer than the 2003 blocks its load saves'; do
   mode=${k%%:*} why=${k#*:}
   e2e "$KIT" "b1-$mode" FAKE_B1="$mode"; rc=$?
   check "b1 $mode: b1 is INVALID ($why), all eight runs still made, and the verdict stands" \
@@ -353,6 +356,26 @@ cp -r "$KIT" "$WORK/tampered-bench" && printf '\n' >>"$WORK/tampered-bench/bench
 e2e "$WORK/tampered-bench" tampered-bench; rc=$?
 check "a bench_preempt.py that is not the pinned one stops b1 before any b1 process, and the verdict stands" \
   "[ $rc = 0 ] && p5kept tampered-bench && command grep -qF 'bench_preempt.py has sha256' '$WORK/e2e-tampered-bench/out/b1/STOPPED' && ! [ -s '$WORK/e2e-tampered-bench/b1order' ]"
+check "b1: each run had its own TMPDIR, deleted after it, and none is left; disk.txt records the free space before each" \
+  "! [ -e '$WORK/e2e-pass/cwd/b1-tmp' ] && [ \"\$(command grep -c '^b1-[a-z0-9-]* free_gb=[0-9][0-9]*\$' '$WORK/e2e-pass/out/b1/disk.txt')\" = 8 ]"
+cp -r "$KIT" "$WORK/nodisk" && sed -i 's/^B1_MIN_FREE_GB=10$/B1_MIN_FREE_GB=1000000/' "$WORK/nodisk/run.sh"
+e2e "$WORK/nodisk" b1-nodisk; rc=$?
+check "b1 stops before its first run when too little disk is free, and the verdict stands" \
+  "[ $rc = 0 ] && p5kept b1-nodisk && command grep -qF 'GB free before b1-control-128-1, under 1000000' '$WORK/e2e-b1-nodisk/out/b1/STOPPED' && ! [ -s '$WORK/e2e-b1-nodisk/b1order' ]"
+e2e "$KIT" b1-only P5=0; rc=$?
+check "P5=0, a b1-only session: no test process, no test verdict, all eight b1 runs, and run.sh exits with b1's VALID, 0" \
+  "[ $rc = 0 ] && b1 b1-only VALID && command grep -qx 'test arms skipped (P5=0)' '$WORK/e2e-b1-only/out/status.txt' \
+   && ! command grep -qE '^(test-|verdict exit)' '$WORK/e2e-b1-only/out/status.txt' && ! [ -e '$WORK/e2e-b1-only/out/verdict.txt' ] \
+   && ! [ -s '$WORK/e2e-b1-only/order' ] && [ \"\$(b1order b1-only)\" = '$B1_ORDER_WANT' ]"
+e2e "$KIT" b1-only-invalid P5=0 FAKE_B1=zeropreempt; rc=$?
+check "P5=0 with a pool-128 run that did not preempt exits 6, b1's INVALID" "[ $rc = 6 ] && b1 b1-only-invalid INVALID"
+e2e "$KIT" b1-only-notrun P5=0 FAKE_B1=hasfixcontrol; rc=$?
+check "P5=0 with a wrong has_fix exits 4, b1's NOT RUN" "[ $rc = 4 ] && b1 b1-only-notrun 'NOT RUN'"
+cp -r "$KIT" "$WORK/oldbench" && cp "$ROOT/hack/vllm-hf3fs-preemption-fake/bench_b1.py" "$WORK/oldbench/bench_preempt.py" \
+  && sed -i "s/^BENCH_SHA256=.*/BENCH_SHA256=$BENCH1_SHA256/" "$WORK/oldbench/run.sh"
+e2e "$WORK/oldbench" oldbench; rc=$?
+check "a kit pinned to the first bench's sha256 but shipping another file stops b1, so the re-pin is what runs" \
+  "[ $rc = 0 ] && command grep -qF 'not the pinned $BENCH1_SHA256' '$WORK/e2e-oldbench/out/b1/STOPPED'"
 e2e "$KIT" b1-off B1=0; rc=$?
 check "B1=0 skips b1 and leaves the verdict as it is" "[ $rc = 0 ] && p5kept b1-off && command grep -qx 'b1 skipped (B1=0)' '$WORK/e2e-b1-off/out/status.txt' && ! [ -e '$WORK/e2e-b1-off/out/b1' ]"
 for kind in fixmismatch:2:FINDING fixsmallerr:2:FINDING fixother:2:FINDING fixfault:2:FINDING \
@@ -468,6 +491,18 @@ m=$(mutant b1nopin run.sh 's/^  \[ "\$got" = "\$BENCH_SHA256" \] ||/  true ||/')
 [ -n "$m" ] && printf '\n' >>"$m/bench_preempt.py" && e2e "$m" m-b1nopin
 mcheck "mutant: a run.sh that skips the bench's sha256 pin is caught" "! command grep -qF 'bench_preempt.py has sha256' '$WORK/e2e-m-b1nopin/out/b1/STOPPED' 2>/dev/null"
 
+m=$(mutant p5gate run.sh 's/^\[ "\$P5" = 1 \] || \[ "\$B1" = 1 \] ||/true ||/')
+mcheck "mutant: a run.sh that takes P5=0 B1=0, with nothing to run, is caught" "! { ! dry '$m' -- P5=0 B1=0; }"
+m=$(mutant p5skipignored run.sh 's/^if \[ "\$P5" = 1 \]; then$/if true; then/')
+[ -n "$m" ] && e2e "$m" m-p5skipignored P5=0
+mcheck "mutant: a run.sh that runs the test arms under P5=0 is caught" "[ -s '$WORK/e2e-m-p5skipignored/order' ]"
+m=$(mutant b1keeptmp run.sh 's/^    rm -rf "\$tmp"$/    true/')
+[ -n "$m" ] && e2e "$m" m-b1keeptmp
+mcheck "mutant: a run.sh that leaves each run's storage on disk is caught" "! b1 m-b1keeptmp VALID"
+m=$(mutant b1nodiskguard run.sh 's/^B1_MIN_FREE_GB=10$/B1_MIN_FREE_GB=1000000/; s/^    \[ "\${free_gb:-0}" -ge "\$B1_MIN_FREE_GB" \] ||/    true ||/')
+[ -n "$m" ] && e2e "$m" m-b1nodiskguard
+mcheck "mutant: a run.sh without the free-space guard is caught" "! command grep -qF 'GB free before' '$WORK/e2e-m-b1nodiskguard/out/b1/STOPPED' 2>/dev/null"
+
 # ---------------------------------------------------------------- mutants of verdict.py, caught by the unit checks
 caught() { ! python3 -I "$CHECK" "$1" "$FAKES" >"$WORK/mutant.log" 2>&1; }
 while IFS='|' read -r name sedexpr; do
@@ -521,10 +556,13 @@ ignores a wrong has_fix|s/^        if d.get("has_fix") is not WANT_HAS_FIX\[arm\
 lets a pool-128 run without preemption through|s/^        if pool == PREEMPT_POOL and d.get("preemptions") == 0:$/        if False:/
 ignores a run's exit status|s/^        if run\["exit"\] != 0:$/        if False:/
 ignores b1's STOPPED|s/^    for name in ("NOT_RUN", "STOPPED"):$/    for name in ("NOT_RUN",):/
-rounds the values it prints|s/^        lines.append("  " + " ".join(f"{k}={json.dumps(d.get(k))}" for k in FIELDS))$/        lines.append("  " + " ".join(f"{k}={json.dumps(round(d.get(k), 2) if isinstance(d.get(k), float) else d.get(k))}" for k in FIELDS))/
+rounds the values it prints|s/{json.dumps(d.get(k))}" for k in FIELDS) + f" (expected_keys=/{json.dumps(round(d.get(k), 2) if isinstance(d.get(k), float) else d.get(k))}" for k in FIELDS) + f" (expected_keys=/
 drops the verbatim JSON|s/^        lines.extend("    " + x for x in run\["raw"\].rstrip("\\n").split("\\n"))$/        pass/
-lets a preempting pool-2048 control through|s/^        if pool == CONTROL_POOL and d.get("preemptions") != 0:$/        if False:/
+lets a preempting pool-2304 control through|s/^        if pool == CONTROL_POOL and d.get("preemptions") != 0:$/        if False:/
 misses the metadata server running short of pages|s/^        if short:$/        if False:/
+lets a run that stored too few keys through|s/^        elif run\["expected_keys"\] is not None and d\["stored_keys"\] < run\["expected_keys"\]:$/        elif False:/
+leaves the warm-up out of the expected keys|s/ + (WARMUP_PROMPT_TOKENS + out - 1) \/\/ BENCH_BLOCK_SIZE$//
+takes a JSON without stored_keys|s/^        if "stored_keys" not in d:$/        if False:/
 calls an invalid b1 valid|s/^    elif rec\["invalid"\]:$/    elif False:/
 B1MUTANTS
 

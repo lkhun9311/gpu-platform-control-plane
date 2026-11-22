@@ -240,7 +240,7 @@ spec = importlib.util.spec_from_file_location("b1_verdict", os.path.join(KIT, "b
 B = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(B)
 B1_ORDER = [("control", 128, 1), ("fix", 128, 1), ("control", 128, 2), ("fix", 128, 2), ("control", 128, 3), ("fix", 128, 3),
-            ("control", 2048, 1), ("fix", 2048, 1)]
+            ("control", 2304, 1), ("fix", 2304, 1)]
 
 
 def b1_json(arm, pool, **over):
@@ -250,7 +250,8 @@ def b1_json(arm, pool, **over):
          "wall_s": 61.23456789, "output_tok_per_s": 267.5612345, "steps": 4711, "step_ms_p50": 11.254321, "step_ms_p90": 13.5,
          "step_ms_p99": 21.75, "step_ms_max": 88.125, "preemptions": 412 if pool == 128 else 0,
          "wait_calls": 401 if fix and pool == 128 else 0, "wait_total_s": 0.81234567 if fix and pool == 128 else 0,
-         "wait_ms_p50": 1.5 if fix and pool == 128 else None, "wait_ms_max": 9.25 if fix and pool == 128 else None, "mean_step_ms": 12.0}
+         "wait_ms_p50": 1.5 if fix and pool == 128 else None, "wait_ms_max": 9.25 if fix and pool == 128 else None, "mean_step_ms": 12.0,
+         "stored_keys": 2003, "storage_pages": 14563}
     d.update(over)
     return json.dumps(d, indent=2)
 
@@ -298,9 +299,9 @@ check("b1 prints every run's JSON verbatim and its fields unrounded, under a hea
 r = b1_judged(runs={"control-128-2": b1_json("control", 128, preemptions=0)})
 check("b1 INVALID: a pool-128 run with no preemption is reported, and its values are printed unchanged; exit 6",
       r["state"] == "INVALID" and r["_rc"] == 6 and "B1 INVALID: control-128-2: preemptions=0" in r["_text"] and r["_text"].count("preemptions=0 ") >= 3)
-r = b1_judged(runs={"fix-2048-1": b1_json("fix", 2048, preemptions=3)})
-check("b1 INVALID: a pool-2048 run that preempted is no longer the no-preemption control",
-      r["state"] == "INVALID" and "B1 INVALID: fix-2048-1: preemptions=3, so the pool-2048 control preempted" in r["_text"])
+r = b1_judged(runs={"fix-2304-1": b1_json("fix", 2304, preemptions=3)})
+check("b1 INVALID: a pool-2304 run that preempted is no longer the no-preemption control",
+      r["state"] == "INVALID" and "B1 INVALID: fix-2304-1: preemptions=3, so the pool-2304 control preempted" in r["_text"])
 short = "(EngineCore pid=7) WARNING 11-23 18:00:01 [hf3fs_metadata_server.py:123] Rank 0 only allocated 12 pages for 31 keys\n"
 r = b1_judged(logs={"control-128-3": "INFO start\n" + short + short})
 check("b1 INVALID: a run whose log shows the metadata server short of pages dropped saves, and its JSON alone would not show it",
@@ -309,10 +310,10 @@ r = b1_judged(runs={"control-128-1": b1_json("control", 128, has_fix=True)})
 check("b1 NOT RUN: a CONTROL run reporting has_fix true; exit 4", r["state"] == "NOT RUN" and r["_rc"] == 4 and "control-128-1: has_fix=True" in r["_text"])
 r = b1_judged(runs={"fix-128-3": b1_json("fix", 128, has_fix=False)})
 check("b1 NOT RUN: a FIX run reporting has_fix false", r["state"] == "NOT RUN" and "fix-128-3: has_fix=False" in r["_text"])
-r = b1_judged(drop=("fix-128-2", "control-128-3", "fix-128-3", "control-2048-1", "fix-2048-1"),
+r = b1_judged(drop=("fix-128-2", "control-128-3", "fix-128-3", "control-2304-1", "fix-2304-1"),
               not_run="b1-fix-128-2 reported has_fix=False, where the fix tree must report True")
 check("b1 NOT RUN: run.sh's NOT_RUN outranks the runs it never made", r["state"] == "NOT RUN")
-r = b1_judged(drop=("control-2048-1", "fix-2048-1"), stopped="the budget ran out before b1-control-2048-1")
+r = b1_judged(drop=("control-2304-1", "fix-2304-1"), stopped="the budget ran out before b1-control-2304-1")
 check("b1 INCOMPLETE: a b1 that ran out of budget; exit 3", r["state"] == "INCOMPLETE" and r["_rc"] == 3 and "b1/STOPPED: the budget ran out" in r["_text"])
 r = b1_judged(drop=("fix-128-1",))
 check("b1 INCOMPLETE: a missing run", r["state"] == "INCOMPLETE" and "fix-128-1: no JSON" in r["_text"])
@@ -320,8 +321,24 @@ r = b1_judged(rcs={"control-128-1": 124})
 check("b1 INCOMPLETE: a run cut by its cap after writing its JSON", r["state"] == "INCOMPLETE" and "exited 124" in r["_text"])
 r = b1_judged(raw={"fix-128-1": "{not json"})
 check("b1 INCOMPLETE: an unreadable JSON", r["state"] == "INCOMPLETE" and "unreadable JSON" in r["_text"])
-r = b1_judged(runs={"control-128-1": b1_json("control", 2048)})
+r = b1_judged(runs={"control-128-1": b1_json("control", 2304)})
 check("b1 INCOMPLETE: a run at another pool than its name says", r["state"] == "INCOMPLETE")
+r = b1_judged()
+check("b1 derives each run's expected keys from its own counts, 64 x 31 + 19 = 2,003, and prints stored_keys and storage_pages",
+      all(x["expected_keys"] == 2003 for x in r["runs"]) and "stored_keys=2003 storage_pages=14563 (expected_keys=2003)" in r["_text"])
+r = b1_judged(runs={"fix-128-2": b1_json("fix", 128, stored_keys=2002)})
+check("b1 INVALID: a run that stored 2,002 keys, one fewer than the 2,003 blocks its load saves",
+      r["state"] == "INVALID" and "B1 INVALID: fix-128-2: stored_keys=2002, fewer than the 2003 blocks its load saves" in r["_text"])
+r = b1_judged(runs={"fix-128-2": b1_json("fix", 128, stored_keys=2010)})
+check("b1: more stored keys than the load saves is not a shortfall, and stays VALID", r["state"] == "VALID")
+r = b1_judged(runs={"control-128-1": b1_json("control", 128, num_requests=32, stored_keys=1011)})
+check("b1 takes the expected keys from the run's own counts: 32 requests expect 32 x 31 + 19 = 1,011",
+      r["state"] == "VALID" and r["runs"][0]["expected_keys"] == 1011)
+old = json.loads(b1_json("fix", 128))
+del old["stored_keys"], old["storage_pages"]
+r = b1_judged(runs={"fix-128-1": json.dumps(old, indent=2)})
+check("b1 INCOMPLETE: a JSON without stored_keys comes from the first bench, not the pinned one",
+      r["state"] == "INCOMPLETE" and "fix-128-1: the JSON has no stored_keys" in r["_text"])
 
 print()
 print("all unit checks passed" if failures == 0 else f"{failures} unit check(s) failed")
