@@ -181,7 +181,12 @@ r = rec(GOOD, case="recompute")
 check("[recompute]'s record does not take [fail]'s sections", r["first_illegal"] is None or "(from the traceback" in str(r["first_illegal"]))
 
 ok = judged(fail=GOOD, recompute=GOOD.replace("[fail]", "[recompute]"))
-check("both cases with their own DIAG trail are COMPLETE", ok["verdict"] == "COMPLETE")
+check("both cases with their own DIAG trail are COMPLETE, and the result names both as faulted",
+      ok["verdict"] == "COMPLETE" and ok["result"] == "illegal memory access in [fail], [recompute]")
+clean = judged(fail="1 passed, 20 warnings in 110.0s\n", recompute="1 passed, 20 warnings in 110.0s\n", rcs={"fail": 0, "recompute": 0})
+check("two passing cases are COMPLETE, but the result says no fault under the patch and that this does not show it gone",
+      clean["verdict"] == "COMPLETE" and clean["result"].startswith("no illegal memory access in either case under the diagnostic patch, which does not show the fault gone")
+      and "RESULT: no illegal memory access in either case" in "\n".join(V.render(clean)))
 r = judged(fail=GOOD, recompute=None)
 check("a case with no log is INCOMPLETE", r["verdict"] == "INCOMPLETE" and "case [recompute]: no log" in r["gaps"])
 r = judged(fail=GOOD, recompute=GOOD.replace("[fail]", "[recompute]"), env={"cuda_available": False, "device_name": None})

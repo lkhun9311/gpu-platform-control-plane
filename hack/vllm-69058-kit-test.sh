@@ -184,7 +184,7 @@ check "pass: the run leaves checksums of everything it wrote and removed its wor
 e2e "$KIT" oor FAKE_MODE=oor; rc=$?
 check "oor: the DIAG save out-of-range line is reported for each case" "[ $rc = 0 ] && [ \"\$(command grep -c \"^  DIAG save out of range: \['[0-9]*:.*DIAG save 6-aa block ids out of range\" '$WORK/e2e-oor/out/verdict.txt')\" = 2 ]"
 e2e "$KIT" passed FAKE_MODE=pass; rc=$?
-check "passed: both cases passing is COMPLETE and says there is nothing to extract" "[ $rc = 0 ] && v passed COMPLETE && vt passed 'no captured output for a passing case'"
+check "passed: both cases passing is COMPLETE, says there is nothing to extract, and says no fault was seen under the patch" "[ $rc = 0 ] && v passed COMPLETE && vt passed 'no captured output for a passing case' && vt passed 'RESULT: no illegal memory access in either case under the diagnostic patch'"
 e2e "$KIT" skip FAKE_MODE=skip; rc=$?
 check "skip: both cases skipped on the GPU is INCOMPLETE, exit 3" "[ $rc = 3 ] && v skip INCOMPLETE"
 e2e "$KIT" nosummary FAKE_MODE=nosummary; rc=$?
@@ -283,6 +283,8 @@ ignores a missing log|s/^        rec\["gaps"\].append("no log")$/        pass/
 ignores no CUDA|s/^        if env.get("cuda_available") is not True or not env.get("device_name"):$/        if False:/
 ignores a stopped run|s/^    if os.path.exists(os.path.join(out, "STOPPED")):$/    if False:/
 drops the patch caution|s/^    lines.append(f"caution: {rec\['caution'\]}")$/    pass/
+hides whether the run faulted|s/^    lines.append(f"RESULT: {rec\['result'\]}")$/    pass/
+reports a clean run as faulted|s/^    faulted = \[c for c in CASES if rec\["cases"\]\[c\]\["first_illegal"\]\]$/    faulted = list(CASES)/
 exits 0 on INCOMPLETE|s/^    return 0 if rec\["verdict"\] == "COMPLETE" else 3$/    return 0/
 MUTANTS
 
