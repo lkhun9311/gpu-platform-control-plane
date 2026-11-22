@@ -185,7 +185,7 @@ m=$(mutant pin run.sh 's/^\[ "\$got" = "\$PATCH_SHA256" \] ||/true ||/')
 mcheck "mutant: a run.sh that skips the patch's sha256 pin is caught" "! { [ -f '$WORK/e2e-m-pin/out/STOPPED' ] && command grep -qF 'not the pinned' '$WORK/e2e-m-pin/out/STOPPED'; }"
 m=$(mutant notreecheck run.sh 's/^FIX_TREE=fb3683d3d688b435cdb2d18070aa1f8692bc598f$/FIX_TREE=0000000000000000000000000000000000000000/; s/^\[ "\$tree" = "\$FIX_TREE" \] ||/true ||/')
 [ -n "$m" ] && e2e "$m" m-notreecheck
-mcheck "mutant: a run.sh without the result's tree check is caught" "! command grep -qF 'the tree of c41f7726' '$WORK/e2e-m-notreecheck/out/STOPPED'"
+mcheck "mutant: a run.sh without the result's tree check is caught" "! { [ -f '$WORK/e2e-m-notreecheck/out/STOPPED' ] && command grep -qF 'the tree of c41f7726' '$WORK/e2e-m-notreecheck/out/STOPPED'; }"
 m=$(mutant noam run.sh 's/^step git-am 60 --log "\$OUT\/git-am.log" git -C vllm -c user.name=kit -c user.email=kit@localhost -c commit.gpgsign=false am -q "\$PATCH" ||$/true ||/')
 [ -n "$m" ] && e2e "$m" m-noam
 mcheck "mutant: a run that never applies the fix does not report AS EXPECTED" "! v m-noam 'AS EXPECTED'"

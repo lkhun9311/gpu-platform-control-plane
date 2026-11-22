@@ -88,6 +88,15 @@ r2 = read("gpu-r2-logs", "base-c.log")
 r = judged(r2, rc=1)
 check("run r2's KV memory failure is NOT RUN for KV cache memory, not a FINDING", r["verdict"] == "NOT RUN" and r["not_run"].startswith("KV cache memory: E           ValueError"))
 check("its captured HF_HUB_OFFLINE line does not make it a download failure", "download" not in r["not_run"])
+captured = ("=================================== FAILURES ===================================\n"
+            ">       assert retry.token_ids == cold.token_ids\nE       assert [2, 50118, 133] == [2, 50118, 4148]\n"
+            "----------------------------- Captured log call -----------------------------\n"
+            "WARNING  huggingface_hub:_http.py:1 Cannot find the requested files in the disk cache, using the local snapshot\n"
+            "1 failed, 1 passed in 150.0s\n")
+r = judged(captured, rc=1)
+check("a captured log line that looks like a harness cause does not turn an assertion failure into NOT RUN", r["verdict"] == "FINDING")
+r = judged(r5, rc=1, env=None)
+check("a FINDING outranks a gap: an illegal access with an unreadable env.json is still a FINDING", r["verdict"] == "FINDING" and r["gaps"])
 r = judged(read("cpu-logs", "e2e.log"), env={"cuda_available": False, "device_name": None})
 check("the real CPU log, both cases skipped, is INCOMPLETE", r["verdict"] == "INCOMPLETE" and any("skipped" in g for g in r["gaps"]))
 r = judged("Fatal Python error: Aborted\n", rc=134)
