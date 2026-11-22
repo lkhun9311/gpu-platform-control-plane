@@ -211,26 +211,25 @@ MUTANTS = [
 def main():
     survivors, stale = [], []
     for i, (fname, old, new, what) in enumerate(MUTANTS):
-        tmp = tempfile.mkdtemp(prefix="llmd1598-mut-")
-        kit = os.path.join(tmp, "kit")
-        shutil.copytree(KIT, kit)
-        path = os.path.join(kit, fname)
-        with open(path) as f:
-            src = f.read()
-        if src.count(old) != 1:
-            stale.append(what)
-            print(f"STALE   {i:2d} {fname}: {what} (the original text occurs {src.count(old)} times)")
-            shutil.rmtree(tmp)
-            continue
-        with open(path, "w") as f:
-            f.write(src.replace(old, new))
-        r = subprocess.run([sys.executable, "-m", "unittest", "-q", "test_kit"], cwd=HERE, env=dict(os.environ, KIT_DIR=kit),
-                           capture_output=True, text=True)
+        # Removed on every path out of the block, a stale mutant and an exception included.
+        with tempfile.TemporaryDirectory(prefix="llmd1598-mut-") as tmp:
+            kit = os.path.join(tmp, "kit")
+            shutil.copytree(KIT, kit, ignore=shutil.ignore_patterns("__pycache__"))
+            path = os.path.join(kit, fname)
+            with open(path) as f:
+                src = f.read()
+            if src.count(old) != 1:
+                stale.append(what)
+                print(f"STALE   {i:2d} {fname}: {what} (the original text occurs {src.count(old)} times)")
+                continue
+            with open(path, "w") as f:
+                f.write(src.replace(old, new))
+            r = subprocess.run([sys.executable, "-m", "unittest", "-q", "test_kit"], cwd=HERE, env=dict(os.environ, KIT_DIR=kit),
+                               capture_output=True, text=True)
         caught = r.returncode != 0
         print(f"{'caught ' if caught else 'SURVIVED'} {i:2d} {fname}: {what}")
         if not caught:
             survivors.append(what)
-        shutil.rmtree(tmp)
     print(f"{len(MUTANTS) - len(survivors) - len(stale)} of {len(MUTANTS)} caught, {len(survivors)} survived, {len(stale)} stale")
     return 1 if survivors or stale else 0
 

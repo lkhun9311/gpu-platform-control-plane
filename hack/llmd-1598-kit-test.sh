@@ -5,7 +5,8 @@
 #   bash hack/llmd-1598-kit-test.sh            every check below
 #   SKIP_E2E=1 bash hack/llmd-1598-kit-test.sh  the unit tests, mutants and run.sh refusals only
 #
-# 1. The unit tests: every analysis, ledger, join and verdict rule on synthetic rows.
+# 1. The unit tests: every analysis, ledger, join and verdict rule on synthetic rows; they and every later step must leave
+#    no temporary directory behind, and a deliberately dropped cleanup must be seen.
 # 2. The mutants: each breaks one rule, and the tests must fail on every one.
 # 3. run.sh: syntax, a dry run, and each refusal (budget, a moved pin, a KIT_ override, a non-empty OUT).
 # 4. run.sh end to end offline: the real EPP binaries (A1 at the pinned router SHA, A2 with #4313 merged, checked against
@@ -19,15 +20,36 @@ TEST=docs/oss/llmd-1598/test
 BIN=${KIT_TEST_BIN:-$HOME/.cache/llmd1598-bin}
 # TMPDIR moves the scratch off /tmp when /tmp is short of space or inodes; the end-to-end runs leave about 800 files each.
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/llmd1598-kit-test.XXXXXX")
+# The gate's own directory goes on every exit, a failure included; KEEP_WORK=1 keeps it to read the logs.
+# Earlier runs kept it and the tests' own directories, and filled /tmp's inodes.
+[ "${KEEP_WORK:-}" = 1 ] || trap 'rm -rf "$WORK"' EXIT
+# Everything the tests, the mutants and the kit create with tempfile goes into this directory, which must be empty
+# again after each step; counting it before and after is how a leak shows here rather than in /tmp.
+TT=$WORK/tmp
+mkdir -p "$TT"
 fails=0
 ok() { echo "ok   $*"; }
 bad() { echo "FAIL $*"; fails=$((fails + 1)); }
+left_in() { find "$1" -mindepth 1 -maxdepth 1 | wc -l; }
+no_leftovers() { # label; TT must hold nothing the step left behind
+  local n; n=$(left_in "$TT")
+  if [ "$n" = 0 ]; then ok "$1 left no temporary directories"; else bad "$1 left $n temporary entries in TMPDIR"; ls "$TT" | head -5; rm -rf "${TT:?}"/*; fi
+}
 
 # ---------------------------------------------------------------- 1, 2
-( cd "$TEST" && python3 -m unittest -q test_kit ) > "$WORK/unit.log" 2>&1 && ok "unit tests ($(grep -o 'Ran [0-9]* tests' "$WORK/unit.log"))" \
+[ "$(left_in "$TT")" = 0 ] || bad "TMPDIR for the tests is not empty before they start"
+( cd "$TEST" && TMPDIR=$TT python3 -m unittest -q test_kit ) > "$WORK/unit.log" 2>&1 && ok "unit tests ($(grep -o 'Ran [0-9]* tests' "$WORK/unit.log"))" \
   || { bad "unit tests"; tail -20 "$WORK/unit.log"; }
-( cd "$TEST" && python3 mutate.py ) > "$WORK/mutants.log" 2>&1 && ok "mutants: $(tail -1 "$WORK/mutants.log")" \
+no_leftovers "unit tests"
+# The leftover check must see a dropped cleanup: KIT_TEST_LEAK=1 makes the tests skip their removal.
+leak=$WORK/leak; mkdir -p "$leak"
+( cd "$TEST" && KIT_TEST_LEAK=1 TMPDIR=$leak python3 -m unittest -q test_kit ) > "$WORK/leak.log" 2>&1
+n=$(left_in "$leak")
+[ "$n" -gt 0 ] && ok "the leftover check sees a dropped cleanup ($n directories)" || bad "a dropped cleanup left nothing to see"
+rm -rf "$leak"
+( cd "$TEST" && TMPDIR=$TT python3 mutate.py ) > "$WORK/mutants.log" 2>&1 && ok "mutants: $(tail -1 "$WORK/mutants.log")" \
   || { bad "mutants"; grep -E 'SURVIVED|STALE' "$WORK/mutants.log"; tail -1 "$WORK/mutants.log"; }
+no_leftovers "mutants"
 
 # ---------------------------------------------------------------- 3
 bash -n "$KIT/run.sh" && ok "run.sh parses" || bad "run.sh does not parse"
@@ -79,7 +101,7 @@ ok "EPP binaries: $(sha256sum "$BIN/epp-a1" "$BIN/epp-a2" | awk '{print substr($
 e2e() { # label, expected exit, budget, faults, a check on the verdict, then the stage and the fake engines' ITL
   local label=$1 want=$2 budget=$3 faults=$4 expect=$5 stage=${6:-pilot} itl=${7:-4}
   local o=$WORK/e2e-$label
-  OUT=$o STAGE=$stage KIT_TEST_ITL_MS=$itl KIT_OFFLINE_TEST=1 KIT_TEST_BIN=$BIN KIT_TEST_FAKE=$PWD/$TEST/fake_engine.py KIT_TEST_BUDGET_S=$budget \
+  TMPDIR=$TT OUT=$o STAGE=$stage KIT_TEST_ITL_MS=$itl KIT_OFFLINE_TEST=1 KIT_TEST_BIN=$BIN KIT_TEST_FAKE=$PWD/$TEST/fake_engine.py KIT_TEST_BUDGET_S=$budget \
     KIT_TEST_FAULTS="$faults" bash "$KIT/run.sh" > "$o.log" 2>&1
   local rc=$?
   if [ "$rc" = "$want" ] && grep -qE "$expect" "$o/verdict.txt" 2>/dev/null; then
@@ -99,4 +121,5 @@ e2e reset-fails 4 150 "reset_fails" 'failed .*reset'
 e2e pilot2 0 1500 "" '^verdict: APPARATUS HOLDS' pilot2 25
 
 echo
-if [ "$fails" = 0 ]; then echo "all checks passed ($WORK)"; exit 0; else echo "$fails check(s) failed ($WORK)"; exit 1; fi
+no_leftovers "the end-to-end runs"
+if [ "$fails" = 0 ]; then echo "all checks passed"; exit 0; else echo "$fails check(s) failed"; exit 1; fi

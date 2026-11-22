@@ -5,6 +5,7 @@ import datetime
 import json
 import math
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -20,6 +21,19 @@ import verdict  # noqa: E402
 import workloads as W  # noqa: E402
 
 INF = float("inf")
+
+
+def scratch(test):
+    """A temporary directory removed when the test ends, pass or fail.
+
+    The earlier tests left one directory per synthetic verdict run, and the gate's mutation runs left 11,633 of them in
+    /tmp (about 863k inodes) before this; KIT_TEST_LEAK=1 skips the removal on purpose, so the gate can show that its
+    leftover check sees a dropped cleanup.
+    """
+    d = tempfile.mkdtemp(prefix="llmd1598-test-")
+    if os.environ.get("KIT_TEST_LEAK") != "1":
+        test.addCleanup(shutil.rmtree, d, True)
+    return d
 
 
 def row(rid="r", status=200, done=True, mt=4, pt=100, ct=None, cached=0, sched=0.0, sent=0.0, first=0.1, last=0.4,
@@ -344,18 +358,20 @@ class Logs(unittest.TestCase):
             {"timestamp": "2026-11-21T07:29:44.7Z", "body": "Completed running picker plugin successfully", "x-request-id": "r1"},
             {"timestamp": "2026-11-21T07:29:44.8Z", "body": "Running PreRequest plugin", "x-request-id": "r1"},
         ]
-        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+        path = os.path.join(scratch(self), "epp.log")
+        with open(path, "w") as f:
             f.write("\n".join(json.dumps(x) for x in lines) + "\nnot json\n{broken\n")
-        e = logs.read_epp(f.name, {"default/vllm-0": "127.0.0.1:8000"})
+        e = logs.read_epp(path, {"default/vllm-0": "127.0.0.1:8000"})
         self.assertEqual(e["match"]["r1"], {"127.0.0.1:8000": 8})
         self.assertEqual(e["scores"]["r1"]["token-load-scorer/token-load-scorer"]["127.0.0.1:8000"], 0.9)
         self.assertLess(e["picked"]["r1"], e["prerequest"]["r1"])
         self.assertEqual(e["unparsable"], 1)
 
     def test_read_access(self):
-        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+        path = os.path.join(scratch(self), "access.log")
+        with open(path, "w") as f:
             f.write('{"rid":"a","upstream":"127.0.0.1:8000","ttfb_us":"10"}\n{"rid":"-"}\nbad\n')
-        acc, bad = logs.read_access(f.name)
+        acc, bad = logs.read_access(path)
         self.assertEqual(set(acc), {"a"})
         self.assertEqual(bad, 1)
 
@@ -694,7 +710,7 @@ class Verdict(unittest.TestCase):
     ENG = ["127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002", "127.0.0.1:8003"]
 
     def make(self, faults=()):
-        out = tempfile.mkdtemp()
+        out = scratch(self)
         # A sequential probe cell rides along in every synthetic run: it has no schedule and so no dispatch lag.
         cells = list(verdict.PLAN) + ["iso-A-cold"]
         state = {"cells": cells, "calibration": {}, "ramps": {}, "timings": {}, "skipped": []}
@@ -891,7 +907,7 @@ class VerdictPilot2(unittest.TestCase):
         return rows, bursts
 
     def make(self, faults=()):
-        out = tempfile.mkdtemp()
+        out = scratch(self)
         cells, ramps = [], {"A": {}, "B": {}, "W942": {}}
         ladders = {("A", "A1"): [(64, True), (80, False)], ("A", "A3"): [(64, True), (80, True), (100, False)],
                    ("B", "A1"): [(64, True), (80, True), (100, False)], ("B", "A3"): [(64, True), (80, False)],
