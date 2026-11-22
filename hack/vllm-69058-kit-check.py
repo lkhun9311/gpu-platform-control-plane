@@ -118,13 +118,37 @@ check("without a captured block, the file's order gives the first illegal access
       r["first_illegal"].startswith("3:") and r["last_sync_before_illegal"] == f"2:{DIAG_SYNC}")
 
 # ---------------------------------------------------------------- the verdict
-both = with_diag(R4_TEXT).replace("1 failed, 20 warnings, 1 error in 123.28s (0:02:03)", "2 failed, 20 warnings, 1 error in 250.00s (0:04:10)")
-both = both.replace("=========================== short test summary info ============================",
-                    "=========================== short test summary info ============================\n"
-                    "FAILED tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute] - x")
+WARNINGS_BANNER = "=============================== warnings summary ==============================="
+assert WARNINGS_BANNER in R4_TEXT
+
+
+def with_recompute(text, own_diag):
+    """The log with a failed [recompute] section before the warnings banner, its captured stdout with or without DIAG lines of its own."""
+    captured = ([DIAG_SYNC] if own_diag else []) + [
+        "(MainProcess pid=2429) ERROR 11-22 10:10:09 [hf3fs_connector.py:458] Task execution error: CUDA error: an illegal memory access was encountered"]
+    section = ["______ TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute] _______",
+               ">           torch.accelerator.empty_cache()", "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+               "----------------------------- Captured stdout call -----------------------------"] + captured
+    text = text.replace(WARNINGS_BANNER, "\n".join(section) + "\n" + WARNINGS_BANNER, 1)
+    text = text.replace("1 failed, 20 warnings, 1 error in 123.28s (0:02:03)", "2 failed, 20 warnings, 1 error in 250.00s (0:04:10)")
+    return text.replace("=========================== short test summary info ============================",
+                        "=========================== short test summary info ============================\n"
+                        "FAILED tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute] - x")
+
+
+both = with_recompute(with_diag(R4_TEXT), own_diag=True)
 rec = judged(log=both)
-check("a log with both cases' outcomes and DIAG lines is COMPLETE", rec["verdict"] == "COMPLETE" and rec["cases"]["recompute"]["outcome"] == "FAILED")
-check("[recompute] without a section says so", rec["cases"]["recompute"]["note"] == "no section of this case in the log")
+check("a log with both cases' outcomes and each case's own DIAG lines is COMPLETE", rec["verdict"] == "COMPLETE" and rec["cases"]["recompute"]["outcome"] == "FAILED")
+check("[recompute] is flagged as having run after [fail]'s illegal access in the same process",
+      rec["cases"]["recompute"].get("after_earlier_fault", "").startswith("ran after [fail]'s illegal memory access in the same process")
+      and "after_earlier_fault" not in rec["cases"]["fail"])
+rec = judged(log=with_recompute(with_diag(R4_TEXT), own_diag=False))
+check("a [recompute] that fails with no DIAG line of its own, after [fail]'s fault, is INCOMPLETE",
+      rec["verdict"] == "INCOMPLETE" and any(g.startswith("case [recompute] failed with no DIAG line of its own; it ran after [fail]'s illegal memory access") for g in rec["gaps"]))
+rec = judged(log=with_recompute(R4_TEXT, own_diag=True))
+check("a [fail] with no DIAG line of its own is INCOMPLETE even when [recompute] has some", any(g.startswith("case [fail] failed with no DIAG line of its own") for g in rec["gaps"]))
+rec = judged(log=both)
+check("verdict.txt names the caution on [recompute]", "  caution: ran after [fail]'s illegal memory access in the same process" in "\n".join(V.render(rec)))
 with contextlib.redirect_stdout(io.StringIO()) as buf:
     print("\n".join(V.render(rec)))
 out = buf.getvalue()

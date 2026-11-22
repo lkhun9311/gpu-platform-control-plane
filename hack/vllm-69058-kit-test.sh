@@ -251,6 +251,8 @@ ignores pytest's exit code|s/^        elif rc not in (0, 1):$/        elif False
 ignores skips|s/^        if parsed\["counts"\].get("skipped"):$/        if False:/
 ignores no CUDA|s/^        if env.get("cuda_available") is not True or not env.get("device_name"):$/        if False:/
 ignores a stopped run|s/^    if os.path.exists(os.path.join(out, "STOPPED")):$/    if False:/
+accepts a failed case with no DIAG of its own|s/^            if c\["outcome"\] not in ("passed", "not run or unknown") and not own_diag:$/            if False:/
+never flags a case that ran after an earlier fault|s/^            if c\["first_illegal"\] and not earlier_fault:$/            if False:/
 exits 0 on INCOMPLETE|s/^    return 0 if rec\["verdict"\] == "COMPLETE" else 3$/    return 0/
 MUTANTS
 
