@@ -31,7 +31,8 @@ def row(index, tenant, offset_ms, ttft_ms=60.0, e2e_ms=1500.0, outcome="done", l
         r["clock"] = {"originUnixNanos": clock["originUnixNanos"]}
         return r
     if outcome == "done":
-        clock.update(firstContentNanos=send + int(ttft_ms * MS), doneNanos=send + int(e2e_ms * MS))
+        # Content ends 1 ms before [DONE], so TPOT is (e2e - ttft - 1) / (completion - 1).
+        clock.update(firstContentNanos=send + int(ttft_ms * MS), lastContentNanos=send + int((e2e_ms - 1) * MS), doneNanos=send + int(e2e_ms * MS))
         r.update(disposition="completed", httpStatus=200, streamTerminated=True, engineInputTokens=prompt,
                  engineOutputTokens=completion, finishReason=finish)
     elif outcome == "timeout":
@@ -79,7 +80,7 @@ def rung(path, rate, ttft=lambda i, off: 60.0, outcome=lambda i, off: "done", se
     return rows
 
 
-def cycle(path, recover_after_s=40.0, baseline_rate=2.5, sat=10, over=15, seed=3, tokens=lambda i: (512, 128), fail_every=0):
+def cycle(path, recover_after_s=40.0, baseline_rate=2.5, sat=10, over=15, seed=3, tokens=lambda i: (512, 128), fail_every=0, baseline_outcome="done"):
     """A cycle whose recovery-stage TTFT stays high until recover_after_s after the overload ends."""
     rng = random.Random(seed)
     spans = [("baseline", baseline_rate, 0, 150_000), ("saturation", sat, 150_000, 300_000),
@@ -95,7 +96,8 @@ def cycle(path, recover_after_s=40.0, baseline_rate=2.5, sat=10, over=15, seed=3
             p, c = tokens(len(rows))
             # A failed request in every recovery window, with fast TTFT on the rest, is not recovery.
             failed = name == "recovery" and fail_every and len(rows) % fail_every == 0
-            rows.append(row(len(rows), name, off, ttft_ms=ttft, prompt=p, completion=c, outcome="timeout" if failed else "done"))
+            outcome = "timeout" if failed else (baseline_outcome if name == "baseline" else "done")
+            rows.append(row(len(rows), name, off, ttft_ms=ttft, prompt=p, completion=c, outcome=outcome))
     write_stage(path, spans, rows)
     return rows
 
@@ -145,8 +147,8 @@ def build(out):
     add("recovers-late", "cycle", 10, "recovery rule: recovery would start at 200 s, past the last countable window")
     cycle(f"{out}/recovery-with-failures/cycle", recover_after_s=0, fail_every=12)
     add("recovery-with-failures", "cycle", 10, "recovery rule: fast windows that still lose requests are not recovered")
-    cycle(f"{out}/baseline-thin/cycle", baseline_rate=0.5)
-    add("baseline-thin", "cycle", 2, "too few samples: the baseline cannot be the recovery reference")
+    cycle(f"{out}/baseline-empty/cycle", baseline_outcome="timeout")
+    add("baseline-empty", "cycle", 2, "too few samples: a baseline with no completed request is no recovery reference")
     cycle(f"{out}/token-contract/cycle", tokens=lambda i: (512, 127) if i == 30 else (512, 128))
     add("token-contract", "report", 3, "exclusion X3: a [DONE] stream with 127 completion tokens")
     return m

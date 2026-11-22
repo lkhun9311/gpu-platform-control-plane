@@ -153,6 +153,37 @@ class Recovery(unittest.TestCase):
         self.assertTrue(all(w["state"] == "insufficient" for w in thin))
 
 
+class Reporting(unittest.TestCase):
+    def test_tpot(self):
+        r = fixtures.row(0, "x", 0, ttft_ms=100.0, e2e_ms=1371.0)
+        self.assertAlmostEqual(A.tpot_ms(r), (1371.0 - 1 - 100.0) / 127)
+
+    def test_gpu_samples_are_parsed_and_assigned(self):
+        tmp = tempfile.mkdtemp()
+        with open(f"{tmp}/g.csv", "w") as f:
+            f.write("timestamp, utilization.gpu [%], memory.used [MiB], memory.total [MiB]\n")
+            f.write("2026/11/24 03:00:00.500, 87 %, 21000 MiB, 23028 MiB\n")
+            f.write("2026/11/24 03:00:09.500, 12 %, 21010 MiB, 23028 MiB\n")
+        g = A.read_gpu_samples(f"{tmp}/g.csv")
+        self.assertEqual(len(g), 2)
+        origin = g[0]["t"] - 0.5
+        p = A.gpu_peaks(g, origin, {"startMs": 0, "endMs": 5000})
+        self.assertEqual((p["samples"], p["util_pct"], p["mem_mib"]), (1, 87.0, 21000.0))
+        self.assertEqual(A.gpu_peaks(g, origin, {"startMs": 20000, "endMs": 30000})["util_pct"], "not recorded")
+
+    def test_overload_is_named_only_when_saturation_was_found(self):
+        tmp = tempfile.mkdtemp()
+        fixtures.cycle(f"{tmp}/cycle")
+        os.makedirs(f"{tmp}/pilot")
+        for flag, word in ((False, "not established as overload"), (True, "  overload: planned")):
+            with open(f"{tmp}/pilot/cycle-plan.json", "w") as f:
+                json.dump({"overload_is_overload": flag, "status": "x"}, f)
+            text = A.render(A.report(C, tmp))
+            self.assertIn(word, text)
+            if not flag:
+                self.assertNotIn("  overload:", text)
+
+
 class Contract(unittest.TestCase):
     def test_document_and_json_agree_on_every_threshold(self):
         with open(os.path.join(HERE, "..", "CONTRACT.md")) as f:
