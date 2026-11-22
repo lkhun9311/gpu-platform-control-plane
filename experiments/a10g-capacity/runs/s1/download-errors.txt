@@ -1,0 +1,6 @@
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "s1-cc97f149/evidence.tgz" does not exist
+not downloaded: evidence.tgz
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "s1-cc97f149/log.txt" does not exist
+not downloaded: log.txt
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "s1-cc97f149/DONE" does not exist
+not downloaded: DONE
