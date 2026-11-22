@@ -1,0 +1,4 @@
+Fetching 12 files:   0%|          | 0/12 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 12 files:   8%|▊         | 1/12 [00:00<00:02,  4.41it/s]Fetching 12 files:  58%|█████▊    | 7/12 [00:00<00:00, 18.26it/s]Fetching 12 files:  92%|█████████▏| 11/12 [00:12<00:01,  1.43s/it]Fetching 12 files: 100%|██████████| 12/12 [00:21<00:00,  2.49s/it]Fetching 12 files: 100%|██████████| 12/12 [00:21<00:00,  1.79s/it]
+/opt/llmd1598/model
+model exit=0 t=37

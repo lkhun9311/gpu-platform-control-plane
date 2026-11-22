@@ -1,0 +1,64 @@
+{
+ "cell": "ramp-W942-A1-1.75",
+ "arm": "A1",
+ "block": "W942",
+ "rate": 1.75,
+ "seed": 944,
+ "kind": "steady",
+ "verbosity": 2,
+ "stagger": 0.0,
+ "engine_cfg": "W",
+ "engines": [
+  "127.0.0.1:8000",
+  "127.0.0.1:8001",
+  "127.0.0.1:8002",
+  "127.0.0.1:8003"
+ ],
+ "start": 1795339984.5626643,
+ "idle_at_start": true,
+ "reset": {
+  "127.0.0.1:8000": true,
+  "127.0.0.1:8001": true,
+  "127.0.0.1:8002": true,
+  "127.0.0.1:8003": true
+ },
+ "config_sha256": "4342d4b2e8f6429e3066d0dc619496db79fb7c19836ec1a0ccc786a94ded6a3a",
+ "epp_sha256": "5191900c70cce8466204529436918cfde814a717a3bda4d9c24d39321e40741e",
+ "window": [
+  1795339985.906438,
+  1795340111.2028103
+ ],
+ "schedule_sha256": "1c2a7441a8159446fe23d20e31d0e25da882269033dd58e7cf1ecd866fe0aa91",
+ "deltas": {
+  "127.0.0.1:8000": {
+   "prompt": 404736,
+   "generation": 3264,
+   "cached": 291840,
+   "success": 51,
+   "preemptions": 0
+  },
+  "127.0.0.1:8001": {
+   "prompt": 380928,
+   "generation": 3072,
+   "cached": 284160,
+   "success": 48,
+   "preemptions": 0
+  },
+  "127.0.0.1:8002": {
+   "prompt": 420608,
+   "generation": 3392,
+   "cached": 314880,
+   "success": 53,
+   "preemptions": 0
+  },
+  "127.0.0.1:8003": {
+   "prompt": 507904,
+   "generation": 4096,
+   "cached": 399360,
+   "success": 64,
+   "preemptions": 0
+  }
+ },
+ "end": 1795340121.2559044,
+ "duration_s": 136.7
+}

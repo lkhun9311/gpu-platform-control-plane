@@ -1,0 +1,1 @@
+taskset -c 24-31 /opt/llmd1598/venv/bin/vllm serve /opt/llmd1598/model --served-model-name Qwen/Qwen2.5-3B-Instruct --host 127.0.0.1 --port 8003 --block-size 16 --max-num-seqs 16 --enable-prefix-caching --enable-prompt-tokens-details --max-model-len 8192 --seed 0

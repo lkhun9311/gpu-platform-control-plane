@@ -1,0 +1,11 @@
+router=https://github.com/llm-d/llm-d-router@733d0e4ee18082d2e252fc887db7701c037b8034
+pr4313=https://github.com/DolevAdas/llm-d-router@d44cd67633de14940df4868422559db75c4a2985 merged_tree=f48fadc56abe657c6c30003fe9d14f64ff708f57
+go=go1.27.4.linux-amd64.tar.gz sha256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+envoy=https://github.com/envoyproxy/envoy/releases/download/v1.40.2/envoy-1.40.2-linux-x86_64 sha256=1d64506e25c1844f146162ddb2ece7010fa4e784faddb40a079021491f1f03cc
+vllm=vllm-0.34.0-cp38-abi3-manylinux_2_28_x86_64.whl sha256=79ca4b3cd74aec08c4bf476bdf0cb15735b605ae5368526a2faae1e30f044ca2
+model=Qwen/Qwen2.5-3B-Instruct@aa8e72537993ba99e69dfaafa59ed015b17504d1
+arms=A1 guide optimized-baseline on 733d0e4e; A2 the same config on 733d0e4e+#4313; A3 max-score-picker alone (round-robin)
+engines=4 x vllm serve, one per GPU, --max-num-seqs 16, prefix caching, block 16; AK 4096 tokens/4096 blocks, B 2048/400, W 8192/default
+stage=pilot2
+plan=A1 and A3 ramps on A and B and A1 on W942 at -v=2 from 64/s, K, K-equal and K-stagger under A1 primed (pilot.py run_pilot2())
+budget_s=3250
