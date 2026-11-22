@@ -36,7 +36,17 @@ Every recording is checked with `bench.ReconcileRecording` against the trace it 
 - Every latency is reported **p99 first**, then p90 and p50, each with its sample count `n`, by the nearest-rank method.
 - A p99 is reported only when its population has at least 100 completed requests; below that the analysis prints `insufficient (n=...)` and no figure.
 - Latency populations are completed requests only, and every latency table states its completion ratio beside it, so a tail shortened by failures is visible.
-- Output throughput counts the engine's `completion_tokens` of completed requests only.
+- Output throughput is the engine's `completion_tokens` summed over the completed requests whose intended arrival lies in a stage's measured window, divided by that window's length in seconds.
+  A request counts toward the stage it was scheduled in, even when it completed during the next stage or the final drain, so the denominator is fixed by the trace and not by when the engine got to it.
+- Completed requests per second use the same population and the same denominator.
+
+### Engine and GPU samples
+
+- `/metrics` is scraped every 1 s from before the warm-up to the end of the restarts, and each scrape keeps `vllm:num_requests_waiting`, `vllm:num_requests_running` and the KV usage gauge, `vllm:kv_cache_usage_perc`, or `vllm:gpu_cache_usage_perc` when the first is absent.
+  The analysis prints which name it found, and a gauge that no scrape carried is `not recorded`, never 0.
+- `nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used,memory.total` samples every 1 s over the same span.
+- A sample belongs to a stage when its wall-clock time lies in that stage's span: the replay's origin plus the stage's start and end offsets.
+- A stage's peak is the largest of its 1 s samples, so a spike shorter than a second can be missed; it is reported as "peak of 1 s scrapes" with the number of scrapes.
 
 ### The population issue in the existing report
 
@@ -59,6 +69,8 @@ If more than 1% of a stage's sent requests left more than 100 ms late, the clien
 | Cycle: overload | `R_over` | 90 s | None |
 | Cycle: recovery | `R_low` | 240 s | None; read by windows (section 6) |
 
+- **Seeds.** The warm-up trace is drawn with seed 6730, the pilot's rungs with 6731 to 6743 in ladder order (rung `k`, counted from 1, uses `6730 + k`), and the cycle with 6750.
+  Each trace is drawn by `capacityrun stage` from one PCG stream per seed, so the same seed gives the same arrivals in every session.
 - The pilot rungs are separate replays: each rung ends when every sent request has ended, then waits 5 s and for the engine's `running + waiting` gauges to read 0, for at most 30 s.
   A rung whose engine does not drain in 30 s ends the pilot as `not drained`.
 - A rung is 60 s so that its 50 s measured window at the lowest rate expects 150 requests, and a Poisson draw falls under the 100 a p99 needs with probability below 0.01%.
@@ -113,7 +125,7 @@ A pilot rung at rate `r` is **stable** when all three hold over its measured win
 - A window is **recovered** when every request sent in it completed, and its p90 TTFT is at most `1.5 x` the baseline's p90 TTFT plus 25 ms.
 - **Recovery time** is the start of the first of 3 consecutive recovered windows, measured from the end of the overload stage.
 - Only windows that end inside the 240 s recovery stage count, so the longest recovery time this rule can report is 180 s; otherwise the result is `not recovered within 180 s`.
-- The engine's own drain, the time from the end of overload until `vllm:num_requests_waiting` first reads 0, is reported beside it as a secondary figure.
+- The engine's own drain, the time from the end of overload until the first 1 s scrape at or after it in which `vllm:num_requests_waiting` reads 0, is reported beside it as a secondary figure, with a resolution of one scrape interval.
 
 ## 7. The restart measurement
 

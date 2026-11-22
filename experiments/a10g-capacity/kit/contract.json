@@ -27,7 +27,12 @@
     "quantile_method": "nearest-rank",
     "min_samples_p99": 100,
     "max_dispatch_lag_ms": 100,
-    "max_lagged_fraction": 0.01
+    "max_lagged_fraction": 0.01,
+    "scrape_interval_s": 1,
+    "waiting_metric": "vllm:num_requests_waiting",
+    "running_metric": "vllm:num_requests_running",
+    "kv_metrics": ["vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc"],
+    "gpu_query": "timestamp,utilization.gpu,memory.used,memory.total"
   },
   "warmup": {
     "rate_rps": 2,
@@ -38,7 +43,7 @@
     "rungs_rps": [3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28],
     "rung_s": 60,
     "rung_warmup_s": 10,
-    "seed_base": 6731,
+    "rung_seeds": [6731, 6732, 6733, 6734, 6735, 6736, 6737, 6738, 6739, 6740, 6741, 6742, 6743],
     "drain_idle_s": 5,
     "drain_gauge_timeout_s": 30,
     "budget_s": 900
