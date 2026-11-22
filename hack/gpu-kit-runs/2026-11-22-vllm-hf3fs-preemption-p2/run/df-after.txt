@@ -1,0 +1,2 @@
+Filesystem     1G-blocks  Used Available Use% Mounted on
+/dev/root           117G   59G       58G  51% /

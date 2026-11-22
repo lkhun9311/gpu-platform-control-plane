@@ -1,0 +1,1 @@
+terminated	User initiated (2026-11-22 13:47:26 GMT)	Client.UserInitiatedShutdown	2026-11-22T13:42:09+00:00	ap-northeast-2c
