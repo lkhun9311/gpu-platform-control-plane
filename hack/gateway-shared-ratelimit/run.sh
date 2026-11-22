@@ -36,6 +36,14 @@ DURATION_S=${DURATION_S:-30}
 [[ "$DURATION_S" =~ ^[1-9][0-9]*$ ]] || { echo "DURATION_S must be a whole number of seconds" >&2; exit 2; }
 REPS=${REPS:-3}
 EVENT_REPS=${EVENT_REPS:-1}
+# Without set -e a malformed count would make seq print nothing and the run would skip arms silently.
+[[ "$REPS" =~ ^[0-9]+$ && "$EVENT_REPS" =~ ^[0-9]+$ ]] || { echo "REPS and EVENT_REPS must be whole numbers" >&2; exit 2; }
+[ $((REPS + EVENT_REPS)) -gt 0 ] || { echo "REPS and EVENT_REPS are both 0, so there is nothing to run" >&2; exit 2; }
+# Redis returns at about 21 s and the killed Pod is replaced by about 27 s, so a shorter run ends before its event clears.
+if [ "$EVENT_REPS" -gt 0 ] && [ "$DURATION_S" -lt 30 ]; then
+  echo "the event arms need DURATION_S of at least 30" >&2
+  exit 2
+fi
 STEADY_PROFILE="stub://profile?tokens=4&ttft-ms=5&itl-ms=2"
 EVENT_PROFILE=${EVENT_PROFILE:-$STEADY_PROFILE}
 EXP=experiments/gateway-replica-limit
@@ -228,7 +236,9 @@ set_profile() {
     || die "patch stub profile"
   local seen=0
   for _ in $(seq 1 60); do
-    k -n "$SERVING_NS" get deploy stub -o jsonpath='{.spec.template.spec.containers[0].args}' 2>>"$LOG" | grep -qF "$uri" && { seen=1; break; }
+    # jq prints each argument raw; kubectl's jsonpath prints the array as JSON, which escapes & as & and never matches.
+    k -n "$SERVING_NS" get deploy stub -o json 2>>"$LOG" | jq -r '.spec.template.spec.containers[0].args[]' 2>>"$LOG" \
+      | grep -qxF "$uri" && { seen=1; break; }
     sleep 2
   done
   [ "$seen" = 1 ] || die "the stub Deployment never carried $uri"

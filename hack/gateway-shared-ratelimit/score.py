@@ -109,6 +109,8 @@ for a in arms:
     if a["event"] != "none":
         e1, e2 = float(a["event1_s"]), float(a["event2_s"])
         end = max(float(r["sent_ms"]) for r in reqs) / 1000 + 0.001
+        if e2 >= end:
+            void.append(f"{a['arm']}-{a['rep']}: the event cleared at {e2:.2f}s, after the last request at {end:.2f}s")
         errs = [float(r["sent_ms"]) / 1000 for r in reqs if outcome(r) not in ("completed", "status200_unjudged", "rate_limited")]
         per_s = Counter(int(float(r["sent_ms"]) / 1000) for r in reqs if int(r["status"]) == 200)
         d = (f"{a['arm']}-{a['rep']}: event at {e1:.2f}s, cleared at {e2:.2f}s\n"
