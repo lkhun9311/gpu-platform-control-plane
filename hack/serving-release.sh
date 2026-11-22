@@ -167,16 +167,20 @@ spec_doc() {
 # It prints the generation the replace produced, which the wait must see observed.
 # A refused replace is retried, because a transient API error is not a verdict on the spec.
 # Its caller records a final refusal as apply-failed, never as fail, so a must-fail check cannot credit it.
+# Its callers capture stdout as the generation, so every message here goes to stderr, and only a number is printed.
 release_apply() {
-  local file=$1 doc i
-  doc=$(k create --dry-run=client -o json -f "$file" 2>>"$LOG") || { log "  $file does not parse as a Kubernetes object"; return 1; }
+  local file=$1 doc i gen
+  doc=$(k create --dry-run=client -o json -f "$file" 2>>"$LOG") || { log "  $file does not parse as a Kubernetes object" >&2; return 1; }
   if [ "$(jq -r '.kind + "/" + .metadata.namespace + "/" + .metadata.name' <<<"$doc")" != "InferenceDeployment/$SERVING_NS/$NAME" ]; then
-    log "  $file is not InferenceDeployment $SERVING_NS/$NAME"
+    log "  $file is not InferenceDeployment $SERVING_NS/$NAME" >&2
     return 1
   fi
   for i in 1 2 3; do
-    spec_doc <<<"$doc" | k replace -o jsonpath='{.metadata.generation}' -f - 2>>"$LOG" && return 0
-    log "  replace with $file refused (attempt $i)"
+    if gen=$(spec_doc <<<"$doc" | k replace -o jsonpath='{.metadata.generation}' -f - 2>>"$LOG") && [[ $gen =~ ^[0-9]+$ ]]; then
+      echo "$gen"
+      return 0
+    fi
+    log "  replace with $file refused (attempt $i)" >&2
     sleep 5
   done
   return 1
