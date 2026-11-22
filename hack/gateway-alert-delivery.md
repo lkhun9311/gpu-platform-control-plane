@@ -41,10 +41,13 @@ All times UTC, 2026-11-22. "Script" is when this script observed or did somethin
 | 16:18:52.108 | script | gateway 200 rate back above 0.5/s in a Prometheus query |
 | 16:22:52.416 | Prometheus | last firing evaluation |
 | 16:23:22.416 | Prometheus | first evaluation without a match, the alert's `endsAt` |
-| **16:23:32.461** | receiver | **resolved notification received**, 10.0 s after `endsAt` |
+| **16:23:32.461** | receiver | **resolved notification received**, 10.0 s after `endsAt`, on the group's next `group_interval` tick |
 
 Fault start to firing received: 367.2 s. Fault end to resolved received: 297.7 s.
-Both are dominated by the rule rather than by delivery: 57 s to the first match, the 5-minute `for:`, and on the way out the 5-minute rate window draining below 0.1/s, after which delivery took 10 s each way.
+Both are dominated by the rule rather than by delivery: 57 s to the first match, the 5-minute `for:`, and on the way out the 5-minute rate window draining below 0.1/s.
+Delivery added 10 s each way, for two different reasons.
+The firing notification waited `group_wait` (10 s) as the group's first.
+The resolved one is sent on the group's `group_interval` ticks, every 30 s from the first notification, and 16:23:32.4 is exactly ten intervals after 16:18:32.4; that `endsAt` fell 10 s before a tick is a coincidence, and the resolved delay could have been anywhere up to 30 s.
 Exactly one firing and one resolved notification reached the receiver (`sink.jsonl`).
 At the end the gateway had counted 643 requests with 200 and 375 with 502 for the model (`requests-by-code-at-end.json`); no other 5xx code appeared.
 
