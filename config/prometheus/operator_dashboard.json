@@ -454,7 +454,7 @@
    "fieldConfig": {
     "defaults": {
      "unit": "reqps",
-     "noValue": "no series: no request counted"
+     "noValue": "no series: no request counted, or the gateway is not scraped"
     }
    },
    "targets": [
@@ -482,7 +482,7 @@
    "fieldConfig": {
     "defaults": {
      "unit": "s",
-     "noValue": "no series: no request handed to a backend"
+     "noValue": "no series: no request handed to a backend, or the gateway is not scraped"
     }
    },
    "targets": [
@@ -501,7 +501,7 @@
   {
    "type": "timeseries",
    "title": "Requests that ended in 5xx (final status)",
-   "description": "What the client got: requests_total with a 5xx final status, one count per request however many backends were tried. This is the series GatewayUpstreamErrorsReachingClients reads, over the same 5m window; it fires above 0.1 per second held for 5m. It includes 5xx the gateway wrote itself (502 and 504 when no backend answered, 503 when the request record could not be written). No series means no request has ended in 5xx since the gateway started, not a measured zero.",
+   "description": "What the client got: requests_total with a 5xx final status, one count per request however many backends were tried. This is the series GatewayUpstreamErrorsReachingClients reads, over the same 5m window; it fires above 0.1 per second held for 5m. It includes 5xx the gateway wrote itself (502 and 504 when no backend answered, 503 when the request record could not be written). No series is not a measured zero: it means either no request has ended in 5xx since the gateway started, or Prometheus is not scraping the gateway at all; the scrape panel below tells the two apart.",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -515,7 +515,7 @@
    "fieldConfig": {
     "defaults": {
      "unit": "reqps",
-     "noValue": "no series: no 5xx since start"
+     "noValue": "no series: no 5xx since start, or the gateway is not scraped"
     }
    },
    "targets": [
@@ -543,7 +543,7 @@
    "fieldConfig": {
     "defaults": {
      "unit": "s",
-     "noValue": "no series: no first byte observed"
+     "noValue": "no series: no first byte observed, or the gateway is not scraped"
     }
    },
    "targets": [
@@ -576,7 +576,7 @@
    "fieldConfig": {
     "defaults": {
      "unit": "reqps",
-     "noValue": "no series: no failed attempt or rescue since start"
+     "noValue": "no series: no failed attempt or rescue since start, or the gateway is not scraped"
     }
    },
    "targets": [
@@ -609,7 +609,7 @@
    "fieldConfig": {
     "defaults": {
      "unit": "reqps",
-     "noValue": "no series: no response cut short since start"
+     "noValue": "no series: no response cut short since start, or the gateway is not scraped"
     }
    },
    "targets": [
@@ -637,7 +637,7 @@
    "fieldConfig": {
     "defaults": {
      "unit": "reqps",
-     "noValue": "no series: no refusal or decision recorded"
+     "noValue": "no series: no refusal or decision recorded, or the gateway is not scraped"
     }
    },
    "targets": [
@@ -650,6 +650,34 @@
      "expr": "sum by (decision) (rate(gpuaas_gateway_admission_decisions_total[2m]))",
      "legendFormat": "admission {{decision}}",
      "refId": "B"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Gateway scrape targets up",
+   "description": "Whether Prometheus is reading the gateway at all, through config/prometheus/gateway_podmonitor.yaml. Every gateway panel above shows no series both when nothing has happened and when the gateway is not scraped; this panel is what tells the two apart. The value is the number of gateway Pods scraped successfully, 0 when every target's scrape is failing, and no series when no gateway target exists.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 12,
+    "x": 12,
+    "y": 58
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "noValue": "no target: Prometheus has no gateway scrape target"
+    }
+   },
+   "targets": [
+    {
+     "expr": "sum by (job) (up{job=~\".*gateway-metrics.*\"})",
+     "legendFormat": "{{job}}",
+     "refId": "A"
     }
    ]
   }
