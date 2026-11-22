@@ -22,6 +22,28 @@ regexes = [
 ]
 
 [[allowlists]]
+# Reported on 2026-11-23 for the SGLang 51628 GPU kits and their run evidence (91 matches, no secret).
+# The kits pin the public model files by sha256 on one MODEL_LFS line, and each run writes the tokenizer's sha256 back.
+# Line anchors do not hold when gitleaks scans history, so each regex matches the exact digest form instead.
+# Like the first allowance, it cannot see a generic-shaped key written onto one of these lines; other rules still apply.
+description = "the SGLang 51628 kits' public model file digests"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = [
+  '''MODEL_LFS="(model-\d{5}-of-\d{5}\.safetensors=[0-9a-f]{64} )+tokenizer\.json=[0-9a-f]{64}"''',
+  '''sha256_tokenizer\.json=[0-9a-f]{64}''',
+]
+
+[[allowlists]]
+# Same report: SGLang's JIT build cache, copied into run evidence, lists each kernel source file with its content hash.
+# The path is the cache's own layout, so the allowance cannot reach a file anywhere else.
+description = "SGLang JIT cache dependency lists in GPU run evidence"
+targetRules = ["generic-api-key"]
+paths = [
+  '''^hack/gpu-kit-runs/[^/]+/run/results/c/[^/]+/home/\.cache/sglang/jit/sm\d+/[^/]+/build-[0-9a-f]+/deps-[0-9a-f]+/sgl_deps\.json$''',
+]
+
+[[allowlists]]
 # Reported on 2026-10-15 at hack/eks-serve/holdcap-study/rehearse-kind.sh, commit 6ffa4b0: the line seeds an empty key
 # store on a throwaway kind cluster with one entry mapping the word placeholder to the word nobody.
 description = "the hold-cap rehearsal's placeholder entry in a kind cluster's key store"
