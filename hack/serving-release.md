@@ -49,7 +49,7 @@ A restore counts only when the restored spec passes the same check.
 | mode | candidates | green when |
 |---|---|---|
 | `self-test` (PRs touching serving paths) | `healthy`, `ttft-regression` (2.5 s TTFT), `never-ready` (`/health` 503 for an hour) | the healthy one passes, both bad ones fail, and every restore passes |
-| `self-test` with `CORRUPT_LKG=1` | the same, after the saved spec is rewritten to a 2.5 s TTFT profile | never; the workflow job asserts exit 1, every candidate as expected, every restore failed |
+| `self-test` with `CORRUPT_LKG=1` | the same, after the saved spec is rewritten to a 2.5 s TTFT profile | never; the workflow job asserts exit 1, every candidate as expected, and every restore applied, became Ready and failed its smoke |
 | `gate` (`workflow_dispatch`, input `candidate`) | one spec file | the candidate passes; a failed candidate stays red even when its restore passes |
 
 In the self-test every candidate starts from v1, so a healthy candidate is reset to the saved spec too.
@@ -57,6 +57,10 @@ In a gate a passing candidate is the new release and stays.
 A gate's `summary.json` separates `candidate-failed-restored` from `candidate-failed-restore-failed`.
 A setup failure exits 2 with `verdict: setup-failed`, apart from a verdict's 1, so the must-fail job cannot pass
 on a broken cluster.
+A replace the API server still refuses after three tries is recorded as `apply-failed`, never as `fail`: a spec
+that was never applied was never tested, so it cannot stand in for an expected failure.
+Each smoke request is bounded by a wall clock of the TTFT bound plus 15 s, so a stream that never ends cannot
+hold the restore back.
 
 A gate candidate must be `InferenceDeployment serving/stub` and use an image already loaded on the kind node
 (`benchharness:serving-release`); this is a stub pipeline, not a registry pull.
