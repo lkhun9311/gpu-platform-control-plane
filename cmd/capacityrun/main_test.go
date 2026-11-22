@@ -50,6 +50,11 @@ func TestContractRefusesWhatTheBuildCannotRun(t *testing.T) {
 		"eos":         func(c *Contract) { c.Workload.IgnoreEOS = false },
 		"arrivals":    func(c *Contract) { c.Workload.ArrivalModel = "closed-loop" },
 		"revision":    func(c *Contract) { c.Workload.ModelRevision = "main" },
+		"stream":      func(c *Contract) { c.Workload.Stream = false },
+		"interval":    func(c *Contract) { c.Restart.ProbeIntervalMs = 0 },
+		"probe":       func(c *Contract) { c.Restart.ProbeTimeoutS = -1 },
+		"bound":       func(c *Contract) { c.Restart.BoundS = 0 },
+		"count":       func(c *Contract) { c.Restart.Count = 0 },
 	} {
 		c := loadCommitted(t)
 		mutate(&c)
@@ -312,5 +317,22 @@ func TestStageSendsTheAPIKeyOnEverySegment(t *testing.T) {
 		if r.Disposition != bench.DispositionCompleted {
 			t.Fatalf("row %d of %s: %s %d", r.Index, r.Tenant, r.Disposition, r.HTTPStatus)
 		}
+	}
+}
+
+// TestRestartRefusesAnUnwritableRecordBeforeTheKill: no evidence file, no kill.
+func TestRestartRefusesAnUnwritableRecordBeforeTheKill(t *testing.T) {
+	var calls []string
+	Shell = func(_ context.Context, line string) error { calls = append(calls, line); return nil }
+	defer func() { Shell = shellDefault }()
+	for _, out := range []string{filepath.Join(t.TempDir(), "missing", "r.json"), committedContract} {
+		err := restartCmd([]string{"--contract", committedContract, "--target", "http://127.0.0.1:1", "--kill-cmd", "kill",
+			"--start-cmd", "start", "--index", "1", "--out", out}, io.Discard)
+		if err == nil {
+			t.Fatalf("%s: the restart ran", out)
+		}
+	}
+	if len(calls) != 0 {
+		t.Fatalf("commands ran before the record was reserved: %v", calls)
 	}
 }

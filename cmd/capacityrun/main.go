@@ -65,8 +65,10 @@ type Contract struct {
 		RepPenalty      float64 `json:"repetition_penalty"`
 		IgnoreEOS       bool    `json:"ignore_eos"`
 		MinEqualsMax    bool    `json:"min_tokens_equals_max_tokens"`
-		ArrivalModel    string  `json:"arrival_model"`
-		TimeoutS        int     `json:"request_timeout_s"`
+		// Stream is decoded only to be checked: the sender always streams, so a contract saying otherwise is refused.
+		Stream       bool   `json:"stream"`
+		ArrivalModel string `json:"arrival_model"`
+		TimeoutS     int    `json:"request_timeout_s"`
 	} `json:"workload"`
 	Restart struct {
 		Count             int `json:"count"`
@@ -152,6 +154,13 @@ func (c Contract) Check() error {
 	}
 	if w.TimeoutS <= 0 || w.EnginePort <= 0 || w.ServedModelName == "" || len(w.ModelRevision) != 40 {
 		add("timeout, port, served name and a 40-character model revision are all required")
+	}
+	if !w.Stream {
+		add("stream is not true, but the sender only streams")
+	}
+	// A restart kills the engine before it probes, so timing that could not probe is refused before anything is run.
+	if r := c.Restart; r.Count < 1 || r.ProbeIntervalMs <= 0 || r.ProbeTimeoutS <= 0 || r.BoundS <= 0 {
+		add("restart count, probe_interval_ms, probe_timeout_s and bound_s must all be positive")
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("contract %s does not match this build: %s", c.ID, strings.Join(problems, "; "))
@@ -527,11 +536,22 @@ func restartCmd(args []string, out io.Writer) error {
 	if *target == "" || *killCmd == "" || *startCmd == "" || *path == "" || *index < 1 {
 		return errors.New("--target, --kill-cmd, --start-cmd, --out and --index >= 1 are required")
 	}
-	if _, err := os.Stat(*path); err == nil {
-		return fmt.Errorf("%s exists; each restart writes a new record", *path)
+	// The record file is created before the kill, so a destination that cannot be written stops the restart while the engine still runs.
+	f, err := os.OpenFile(*path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("restart record: %w", err)
 	}
 	rec := Restart(context.Background(), c, *target, *killCmd, *startCmd, *index)
-	if err := writeJSON(*path, rec); err != nil {
+	b, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	if rec.Outcome != "serving" {
