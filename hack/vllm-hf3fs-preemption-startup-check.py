@@ -180,9 +180,14 @@ def check_reset(checkout):
     ns = {"time": Time, "pytest": Pytest}
     exec(compile(ast.Module(body=[helper], type_ignores=[]), TEST_FILE, "exec"), ns)
     llm = LLM(free_on=3)
-    ns["_reset_prefix_cache"](llm)
-    check(f"with 16 blocks freed on the 3rd engine step, the helper resets the prefix cache after 3 steps (took {llm.llm_engine.steps})",
-          llm.llm_engine.steps == 3 and llm.pool.get_num_free_blocks() == 47)
+    try:
+        ns["_reset_prefix_cache"](llm)
+        gave_up = False
+    except _Failed:
+        gave_up = True
+    check(f"with 16 blocks freed on the 3rd engine step, the helper resets the prefix cache after 3 steps (took {llm.llm_engine.steps}"
+          + (", then gave up" if gave_up else "") + ")",
+          not gave_up and llm.llm_engine.steps == 3 and llm.pool.get_num_free_blocks() == 47)
     llm = LLM(free_on=None)
     try:
         ns["_reset_prefix_cache"](llm)

@@ -246,6 +246,11 @@ if P4:
           and "both arms' GPU tests failed before the page comparison" in r["why"])
     check("run p3's real logs: each arm still prints vLLM's 'Available KV cache memory' line",
           r["_text"].count(f"Available KV cache memory: {KV_GIB}") == 2)
+    # A NOT RUN on memory must still print the startup check's lowercase line, here on run p2's real logs.
+    mem = {a: (read("gpu-p2-logs", f"e2e-{a}.log"), 1) for a in V.ARMS}
+    r = judged(control=mem["control"], fix=mem["fix"])
+    check("run p2's real logs: NOT RUN on KV cache memory, printing each arm's 'Available KV cache memory' and 'available KV cache memory' lines",
+          r["verdict"] == "NOT RUN" and r["_text"].count("kv memory: ") >= 4 and r["_text"].count("kv memory: ") - r["_text"].count("Available KV cache memory: 14.92 GiB") >= 2)
     early = log(gpu="raised", e_lines=["E   Failed: the local prefix cache could not be reset"])
     r = judged(fix=early)
     check("FINDING: FIX failing before the comparison while CONTROL reached it and failed it", r["verdict"] == "FINDING" and r["arms"]["fix"]["gpu"] == "failed")

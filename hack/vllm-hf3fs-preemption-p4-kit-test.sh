@@ -396,8 +396,9 @@ confirms without CONTROL's page mismatch|s/^    elif control\["gpu"\] != "mismat
 confirms a CONTROL error far from 1|s/^    elif control\["max_error"\] < OTHER_KV_MIN:$/    elif False:/
 confirms a CONTROL whose hold timed out|s/^    elif control\["hold_timed_out"\] is not False:$/    elif False:/
 confirms a FIX whose hold did not time out|s/^    elif fix\["hold_timed_out"\] is not True:$/    elif False:/
-lets a FIX page mismatch pass|s/^    if fix\["gpu"\] in ("faulted", "failed", "mismatch"):$/    if fix["gpu"] in ("faulted", "failed"):/
-lets a FIX fault pass|s/^    if fix\["gpu"\] in ("faulted", "failed", "mismatch"):$/    if fix["gpu"] in ("failed", "mismatch"):/
+lets a FIX page mismatch pass|s/^    if fix\["gpu"\] in ("faulted", "mismatch") or (fix\["gpu"\] == "failed" and not setup_both):$/    if fix["gpu"] in ("faulted",) or (fix["gpu"] == "failed" and not setup_both):/
+lets a FIX fault pass|s/^    if fix\["gpu"\] in ("faulted", "mismatch") or (fix\["gpu"\] == "failed" and not setup_both):$/    if fix["gpu"] in ("mismatch",) or (fix["gpu"] == "failed" and not setup_both):/
+lets a FIX failure before the comparison pass|s/^    if fix\["gpu"\] in ("faulted", "mismatch") or (fix\["gpu"\] == "failed" and not setup_both):$/    if fix["gpu"] in ("faulted", "mismatch"):/
 lets a FIX error at 0.05 or more pass|s/^ERROR_LIMIT = 0.05$/ERROR_LIMIT = 0.5/
 ignores FIX's CPU tests|s/^    if fix\["cpu_failed"\] and fix\["summary"\] is not None:$/    if False:/
 calls a precondition failure a fix failure|s/^    elif gpu_bad and precondition:$/    elif False:/
