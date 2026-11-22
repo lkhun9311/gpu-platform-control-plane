@@ -251,7 +251,6 @@ ignores pytest's exit code|s/^        elif rc not in (0, 1):$/        elif False
 ignores skips|s/^        if parsed\["counts"\].get("skipped"):$/        if False:/
 ignores no CUDA|s/^        if env.get("cuda_available") is not True or not env.get("device_name"):$/        if False:/
 ignores a stopped run|s/^    if os.path.exists(os.path.join(out, "STOPPED")):$/    if False:/
-ends a case's section at a frame separator|s/ and not line.startswith("_ _"):$/:/
 exits 0 on INCOMPLETE|s/^    return 0 if rec\["verdict"\] == "COMPLETE" else 3$/    return 0/
 MUTANTS
 

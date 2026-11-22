@@ -44,14 +44,15 @@ R4_ILLEGAL = 166
 DIAG_SYNC = "(MainProcess pid=2429) WARNING 11-22 10:10:04 [hf3fs_connector.py:600] DIAG step forward sync ok"
 DIAG_LATE = "(MainProcess pid=2429) WARNING 11-22 10:10:04 [hf3fs_connector.py:610] DIAG step start sync ok"
 DIAG_OOR = "(MainProcess pid=2429) ERROR 11-22 10:10:03 [hf3fs_connector.py:305] DIAG save 6-aa block ids out of range: [40, 41, 99]"
+DIAG_EARLY = "(MainProcess pid=2429) WARNING 11-22 10:10:03 [hf3fs_connector.py:310] DIAG save 6-aa pre-gather sync ok"
 
 
 def with_diag(text):
-    """Run r4's log with DIAG lines put into [fail]'s first captured stdout: a sync and an out-of-range line before the fault, a sync after it."""
+    """Run r4's log with DIAG lines put into [fail]'s first captured stdout: two syncs and an out-of-range line before the fault, a sync after it."""
     lines = text.split("\n")
     k = R4_ILLEGAL - 1
     assert "illegal memory access" in lines[k], lines[k][:80]
-    return "\n".join(lines[:k] + [DIAG_OOR, DIAG_SYNC] + [lines[k], DIAG_LATE] + lines[k + 1:])
+    return "\n".join(lines[:k] + [DIAG_EARLY, DIAG_OOR, DIAG_SYNC] + [lines[k], DIAG_LATE] + lines[k + 1:])
 
 
 def build(log=None, rc=1, env=GPU_ENV, stopped=None):
@@ -97,16 +98,16 @@ check("run r4's log: [recompute] is not called passed", rec["cases"]["recompute"
 # ---------------------------------------------------------------- the DIAG extraction, on run r4's log with DIAG lines put in
 d = V.parse(with_diag(R4_TEXT))
 r = V.case_record(d, "fail")
-check("the first illegal access moves to line 168 after two inserted lines", r["first_illegal"].startswith("168:"))
-check("the last DIAG sync ok before it is the inserted one on line 167, not the later one after the fault",
-      r["last_sync_before_illegal"] == f"167:{DIAG_SYNC}")
-check("the DIAG save out-of-range line is reported with its line number", r["out_of_range"] == [f"166:{DIAG_OOR}"])
-check("the grep lines hold every DIAG line, the late sync included", sum("DIAG" in g for g in r["grep"]) == 3)
+check("the first illegal access moves to line 169 after three inserted lines", r["first_illegal"].startswith("169:"))
+check("the last DIAG sync ok before it is the inserted one on line 168, not the earlier one on 166 or the later one after the fault",
+      r["last_sync_before_illegal"] == f"168:{DIAG_SYNC}")
+check("the DIAG save out-of-range line is reported with its line number", r["out_of_range"] == [f"167:{DIAG_OOR}"])
+check("the grep lines hold every DIAG line, the late sync included", sum("DIAG" in g for g in r["grep"]) == 4)
 # A traceback above the captured block mentions the fault first in the file but later in time.
 check("the teardown traceback's E line, earlier in the file, is not taken as the first illegal access",
       not any(g.startswith(r["first_illegal"].split(":")[0] + ":E ") for g in r["grep"]))
 flat = [f"{i}:{x}" for s in d["sections"]["fail"] for i, x in s if "illegal memory access" in x]
-check("the file's own first illegal line is the teardown E line, which is why the captured block is read first", flat and flat[0].split(":")[0] != "168")
+check("the file's own first illegal line is the teardown E line, which is why the captured block is read first", flat and flat[0].split(":")[0] != "169")
 nocap = "\n".join(["_ TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail] _", DIAG_SYNC,
                    "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
                    "=========================== short test summary info ============================",
@@ -128,8 +129,11 @@ with contextlib.redirect_stdout(io.StringIO()) as buf:
     print("\n".join(V.render(rec)))
 out = buf.getvalue()
 check("verdict.txt prints each case's first illegal access, last sync, out-of-range lines and grep lines",
-      "case [fail]: FAILED+ERROR" in out and "  first illegal memory access: 168:" in out and f"  last DIAG sync ok before it: 167:{DIAG_SYNC}" in out
-      and "  DIAG save out of range: ['166:" in out and "  grep -n 'DIAG|illegal|Failing|Read operation failed'" in out and "case [recompute]: FAILED" in out)
+      "case [fail]: FAILED+ERROR" in out and "  first illegal memory access: 169:" in out and f"  last DIAG sync ok before it: 168:{DIAG_SYNC}" in out
+      and "  DIAG save out of range: ['167:" in out and "  grep -n 'DIAG|illegal|Failing|Read operation failed'" in out and "case [recompute]: FAILED" in out)
+rec = judged(log="Loading: 10%\rLoading: 100%\n" + both)
+check("judge reads a progress bar's carriage return as file bytes, so the first illegal access keeps grep's line number 170",
+      rec["cases"]["fail"]["first_illegal"].startswith("170:"))
 rec = judged(log="2 passed, 20 warnings in 210.00s (0:03:30)\n", rc=0)
 check("both cases passing is COMPLETE, with nothing to extract and that said", rec["verdict"] == "COMPLETE"
       and rec["cases"]["fail"]["outcome"] == "passed" and "no captured output for a passing case" in rec["cases"]["fail"]["note"])
