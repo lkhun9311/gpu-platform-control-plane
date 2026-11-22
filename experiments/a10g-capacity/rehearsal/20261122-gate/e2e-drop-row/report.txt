@@ -1,0 +1,50 @@
+contract a10g-capacity-673-v1-rehearsal-x0.1
+pilot: saturated, R_sat 80, first unstable 100
+[warmup] dispatch lag: 0 of 123 over the bound
+  warmup: planned 123 = unsent 0 + sent 123; sent = completed 123 + rejected 0 + failed 0; http/stream {'200/done': 123}
+[pilot/rung-01] dispatch lag: 0 of 151 over the bound
+  rung: planned 122 = unsent 0 + sent 122; sent = completed 122 + rejected 0 + failed 0; http/stream {'200/done': 122}
+    TTFT: p99 5.7 ms, p90 5.6 ms, p50 5.5 ms, n=122; completed fraction 1.0
+    E2E: p99 686.3 ms, p90 685.4 ms, p50 683.8 ms, n=122; 24.40 completed req/s, 3123.2 output tok/s
+    TPOT: p99 5.4 ms, p90 5.4 ms, p50 5.3 ms, n=122
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 23.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-02] dispatch lag: 0 of 227 over the bound
+  rung: planned 189 = unsent 0 + sent 189; sent = completed 189 + rejected 0 + failed 0; http/stream {'200/done': 189}
+    TTFT: p99 5.8 ms, p90 5.6 ms, p50 5.5 ms, n=189; completed fraction 1.0
+    E2E: p99 688.9 ms, p90 687.6 ms, p50 685.2 ms, n=189; 37.80 completed req/s, 4838.4 output tok/s
+    TPOT: p99 5.4 ms, p90 5.4 ms, p50 5.4 ms, n=189
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 33.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-03] dispatch lag: 0 of 284 over the bound
+  rung: planned 235 = unsent 0 + sent 235; sent = completed 235 + rejected 0 + failed 0; http/stream {'200/done': 235}
+    TTFT: p99 5.8 ms, p90 5.7 ms, p50 5.5 ms, n=235; completed fraction 1.0
+    E2E: p99 694.2 ms, p90 693.1 ms, p50 690.1 ms, n=235; 47.00 completed req/s, 6016.0 output tok/s
+    TPOT: p99 5.4 ms, p90 5.4 ms, p50 5.4 ms, n=235
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 35.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-04] dispatch lag: 0 of 382 over the bound
+  rung: planned 318 = unsent 0 + sent 318; sent = completed 318 + rejected 0 + failed 0; http/stream {'200/done': 318}
+    TTFT: p99 5.9 ms, p90 5.7 ms, p50 5.5 ms, n=318; completed fraction 1.0
+    E2E: p99 697.1 ms, p90 694.9 ms, p50 693.2 ms, n=318; 63.60 completed req/s, 8140.8 output tok/s
+    TPOT: p99 5.4 ms, p90 5.4 ms, p50 5.4 ms, n=318
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 49.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-05] dispatch lag: 0 of 466 over the bound
+  rung: planned 385 = unsent 0 + sent 385; sent = completed 385 + rejected 0 + failed 0; http/stream {'200/done': 385}
+    TTFT: p99 83.7 ms, p90 14.7 ms, p50 5.5 ms, n=385; completed fraction 1.0
+    E2E: p99 775.1 ms, p90 706.0 ms, p50 693.9 ms, n=385; 77.00 completed req/s, 9856.0 output tok/s
+    TPOT: p99 5.5 ms, p90 5.4 ms, p50 5.4 ms, n=385
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 59.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-06] dispatch lag: 0 of 647 over the bound
+  rung: planned 533 = unsent 0 + sent 533; sent = completed 533 + rejected 0 + failed 0; http/stream {'200/done': 533}
+    TTFT: p99 1036.9 ms, p90 916.0 ms, p50 516.2 ms, n=533; completed fraction 1.0
+    E2E: p99 1715.9 ms, p90 1592.6 ms, p50 1208.6 ms, n=533; 106.60 completed req/s, 13644.8 output tok/s
+    TPOT: p99 5.5 ms, p90 5.5 ms, p50 5.4 ms, n=533
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 91.0, 'running': 64.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+restart 1: serving, window 0.637707 s, 2 probe(s)
+restart 2: serving, window 0.637445 s, 2 probe(s)
+restart 3: serving, window 0.637349 s, 2 probe(s)
+exclusions: X4 /tmp/a10g-kit-test.sFO8Fk/e2e-drop/cycle: 3065 rows with indices that are not 0..3065; the trace planned 3066

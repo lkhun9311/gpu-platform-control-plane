@@ -1,0 +1,34 @@
+{
+  "contract": "a10g-capacity-673-v1-rehearsal-x0.1",
+  "index": 2,
+  "killAtUtc": "2026-11-22T16:59:05.184701284Z",
+  "killCmd": "kill -9 $(cat '/tmp/a10g-kit-test.sFO8Fk/e2e/engine.pid')",
+  "startCmd": "sleep 0.5; bash '/tmp/a10g-kit-test.sFO8Fk/e2e/stub-start.sh'",
+  "killReturnedMs": 2.069,
+  "startReturnedMs": 504.392,
+  "probes": [
+    {
+      "sentMs": 504.402,
+      "returnedMs": 504.634,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 554.956,
+      "returnedMs": 637.716,
+      "endMs": 637.688,
+      "httpStatus": 200,
+      "streamTerminated": true,
+      "promptTokens": 512,
+      "completionTokens": 16,
+      "finishReason": "length",
+      "ok": true
+    }
+  ],
+  "windowMs": 637.688,
+  "outcome": "serving"
+}

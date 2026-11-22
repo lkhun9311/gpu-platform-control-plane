@@ -1,0 +1,737 @@
+{
+  "contract": "a10g-capacity-673-v1-rehearsal-x0.1",
+  "exclusions": [],
+  "stages": {
+    "warmup": {
+      "lag": {
+        "sent": 123,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "warmup": {
+          "excluded": "warm-up",
+          "ledger": {
+            "planned": 123,
+            "unsent": 0,
+            "sent": 123,
+            "completed": 123,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 123
+            }
+          }
+        }
+      }
+    },
+    "pilot/rung-01": {
+      "lag": {
+        "sent": 151,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 30,
+          "measured_from_ms": 1000.0,
+          "ledger": {
+            "planned": 122,
+            "unsent": 0,
+            "sent": 122,
+            "completed": 122,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 122
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 122,
+            "p99": 5.710281,
+            "p90": 5.551001,
+            "p50": 5.474011
+          },
+          "e2e": {
+            "n": 122,
+            "p99": 683.887215,
+            "p90": 683.336804,
+            "p50": 682.442464
+          },
+          "tpot": {
+            "n": 122,
+            "p99": 5.341510267716536,
+            "p90": 5.337492622047244,
+            "p50": 5.330334590551181
+          },
+          "completed_rps": 24.4,
+          "output_tokens_per_s": 3123.2,
+          "engine": {
+            "scrapes": 6,
+            "waiting": 0.0,
+            "running": 23.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        }
+      }
+    },
+    "pilot/rung-02": {
+      "lag": {
+        "sent": 227,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 40,
+          "measured_from_ms": 1000.0,
+          "ledger": {
+            "planned": 189,
+            "unsent": 0,
+            "sent": 189,
+            "completed": 189,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 189
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 189,
+            "p99": 5.770151,
+            "p90": 5.646701,
+            "p50": 5.506901
+          },
+          "e2e": {
+            "n": 189,
+            "p99": 690.112445,
+            "p90": 689.351746,
+            "p50": 686.061205
+          },
+          "tpot": {
+            "n": 189,
+            "p99": 5.388576889763779,
+            "p90": 5.383963267716536,
+            "p50": 5.358116015748031
+          },
+          "completed_rps": 37.8,
+          "output_tokens_per_s": 4838.4,
+          "engine": {
+            "scrapes": 6,
+            "waiting": 0.0,
+            "running": 33.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        }
+      }
+    },
+    "pilot/rung-03": {
+      "lag": {
+        "sent": 284,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 50,
+          "measured_from_ms": 1000.0,
+          "ledger": {
+            "planned": 235,
+            "unsent": 0,
+            "sent": 235,
+            "completed": 235,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 235
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 235,
+            "p99": 5.731212,
+            "p90": 5.612431,
+            "p50": 5.496041
+          },
+          "e2e": {
+            "n": 235,
+            "p99": 691.156606,
+            "p90": 689.321445,
+            "p50": 687.414405
+          },
+          "tpot": {
+            "n": 235,
+            "p99": 5.397501299212599,
+            "p90": 5.384499874015749,
+            "p50": 5.369230653543307
+          },
+          "completed_rps": 47.0,
+          "output_tokens_per_s": 6016.0,
+          "engine": {
+            "scrapes": 6,
+            "waiting": 0.0,
+            "running": 35.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        }
+      }
+    },
+    "pilot/rung-04": {
+      "lag": {
+        "sent": 382,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 60,
+          "measured_from_ms": 1000.0,
+          "ledger": {
+            "planned": 318,
+            "unsent": 0,
+            "sent": 318,
+            "completed": 318,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 318
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 318,
+            "p99": 5.771201,
+            "p90": 5.628181,
+            "p50": 5.52243
+          },
+          "e2e": {
+            "n": 318,
+            "p99": 693.640576,
+            "p90": 692.802306,
+            "p50": 691.661515
+          },
+          "tpot": {
+            "n": 318,
+            "p99": 5.417932401574803,
+            "p90": 5.4111975196850395,
+            "p50": 5.4024148425196845
+          },
+          "completed_rps": 63.6,
+          "output_tokens_per_s": 8140.8,
+          "engine": {
+            "scrapes": 6,
+            "waiting": 0.0,
+            "running": 48.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        }
+      }
+    },
+    "pilot/rung-05": {
+      "lag": {
+        "sent": 466,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 80,
+          "measured_from_ms": 1000.0,
+          "ledger": {
+            "planned": 385,
+            "unsent": 0,
+            "sent": 385,
+            "completed": 385,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 385
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 385,
+            "p99": 91.092378,
+            "p90": 20.516764,
+            "p50": 5.556231
+          },
+          "e2e": {
+            "n": 385,
+            "p99": 781.496113,
+            "p90": 710.40445,
+            "p50": 694.798296
+          },
+          "tpot": {
+            "n": 385,
+            "p99": 5.482107929133858,
+            "p90": 5.45997320472441,
+            "p50": 5.424792874015749
+          },
+          "completed_rps": 77.0,
+          "output_tokens_per_s": 9856.0,
+          "engine": {
+            "scrapes": 6,
+            "waiting": 0.0,
+            "running": 59.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        }
+      }
+    },
+    "pilot/rung-06": {
+      "lag": {
+        "sent": 647,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 100,
+          "measured_from_ms": 1000.0,
+          "ledger": {
+            "planned": 533,
+            "unsent": 0,
+            "sent": 533,
+            "completed": 533,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 533
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 533,
+            "p99": 1040.811144,
+            "p90": 922.381001,
+            "p50": 505.334899
+          },
+          "e2e": {
+            "n": 533,
+            "p99": 1724.924318,
+            "p90": 1603.372514,
+            "p50": 1196.803775
+          },
+          "tpot": {
+            "n": 533,
+            "p99": 5.476804062992126,
+            "p90": 5.465518472440945,
+            "p50": 5.446886818897638
+          },
+          "completed_rps": 106.6,
+          "output_tokens_per_s": 13644.8,
+          "engine": {
+            "scrapes": 6,
+            "waiting": 91.0,
+            "running": 64.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        }
+      }
+    },
+    "cycle": {
+      "lag": {
+        "sent": 3066,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "baseline": {
+          "segment": "baseline",
+          "rate_rps": 20,
+          "measured_from_ms": 1500.0,
+          "ledger": {
+            "planned": 261,
+            "unsent": 0,
+            "sent": 261,
+            "completed": 261,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 261
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 261,
+            "p99": 5.855671,
+            "p90": 5.587641,
+            "p50": 5.486361
+          },
+          "e2e": {
+            "n": 261,
+            "p99": 689.136836,
+            "p90": 684.159744,
+            "p50": 681.675624
+          },
+          "tpot": {
+            "n": 261,
+            "p99": 5.382669488188976,
+            "p90": 5.343492858267717,
+            "p50": 5.324269551181103
+          },
+          "completed_rps": 19.333333333333332,
+          "output_tokens_per_s": 2474.6666666666665,
+          "engine": {
+            "scrapes": 15,
+            "waiting": 0.0,
+            "running": 18.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        },
+        "saturation": {
+          "segment": "saturation",
+          "rate_rps": 80,
+          "measured_from_ms": 16500.0,
+          "ledger": {
+            "planned": 1095,
+            "unsent": 0,
+            "sent": 1095,
+            "completed": 1095,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 1095
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 1095,
+            "p99": 198.370559,
+            "p90": 96.715089,
+            "p50": 5.565571
+          },
+          "e2e": {
+            "n": 1095,
+            "p99": 889.007694,
+            "p90": 786.097875,
+            "p50": 695.295946
+          },
+          "tpot": {
+            "n": 1095,
+            "p99": 5.460800125984252,
+            "p90": 5.443245472440945,
+            "p50": 5.4225826377952755
+          },
+          "completed_rps": 81.11111111111111,
+          "output_tokens_per_s": 10382.222222222223,
+          "engine": {
+            "scrapes": 15,
+            "waiting": 9.0,
+            "running": 64.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        },
+        "overload": {
+          "segment": "overload",
+          "rate_rps": 120,
+          "measured_from_ms": 30000,
+          "ledger": {
+            "planned": 1083,
+            "unsent": 0,
+            "sent": 1083,
+            "completed": 1083,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 1083
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 1083,
+            "p99": 2718.786114,
+            "p90": 2475.239686,
+            "p50": 1391.661133
+          },
+          "e2e": {
+            "n": 1083,
+            "p99": 3402.105158,
+            "p90": 3155.577509,
+            "p50": 2085.957579
+          },
+          "tpot": {
+            "n": 1083,
+            "p99": 5.495295960629922,
+            "p90": 5.4695383937007875,
+            "p50": 5.438032015748032
+          },
+          "completed_rps": 120.33333333333333,
+          "output_tokens_per_s": 15402.666666666666,
+          "engine": {
+            "scrapes": 9,
+            "waiting": 230.0,
+            "running": 64.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        },
+        "recovery": {
+          "segment": "recovery",
+          "rate_rps": 20,
+          "measured_from_ms": 39000,
+          "ledger": {
+            "planned": 477,
+            "unsent": 0,
+            "sent": 477,
+            "completed": 477,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 477
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 477,
+            "p99": 2053.596754,
+            "p90": 6.054901,
+            "p50": 5.497231
+          },
+          "e2e": {
+            "n": 477,
+            "p99": 2738.886048,
+            "p90": 691.198906,
+            "p50": 682.963054
+          },
+          "tpot": {
+            "n": 477,
+            "p99": 5.401793897637796,
+            "p90": 5.3877302677165355,
+            "p50": 5.33439711023622
+          },
+          "completed_rps": 19.875,
+          "output_tokens_per_s": 2544.0,
+          "engine": {
+            "scrapes": 24,
+            "waiting": 251.0,
+            "running": 64.0,
+            "kv": "not recorded",
+            "kv_name": "not recorded"
+          },
+          "gpu": {
+            "samples": 0,
+            "util_pct": "not recorded",
+            "mem_mib": "not recorded"
+          }
+        }
+      },
+      "saturation_held": {
+        "stable": true,
+        "reasons": [],
+        "ledger": {
+          "planned": 1095,
+          "unsent": 0,
+          "sent": 1095,
+          "completed": 1095,
+          "rejected": 0,
+          "failed": 0,
+          "cross": {
+            "200/done": 1095
+          }
+        },
+        "completed_fraction": 1.0,
+        "ttft": {
+          "n": 1095,
+          "p99": 198.370559,
+          "p90": 96.715089,
+          "p50": 5.565571
+        },
+        "first_third_median_ms": 5.537211,
+        "last_third_median_ms": 5.542791
+      },
+      "recovery": {
+        "recovered": true,
+        "recovery_s": 4.0,
+        "limit_p90_ms": 10.8814615,
+        "windows": [
+          {
+            "start_s": 0.0,
+            "sent": 22,
+            "completed": 22,
+            "p90_ttft_ms": 2322.267866,
+            "state": "not recovered"
+          },
+          {
+            "start_s": 2.0,
+            "sent": 45,
+            "completed": 45,
+            "p90_ttft_ms": 875.847601,
+            "state": "not recovered"
+          },
+          {
+            "start_s": 4.0,
+            "sent": 38,
+            "completed": 38,
+            "p90_ttft_ms": 5.615291,
+            "state": "recovered"
+          },
+          {
+            "start_s": 6.0,
+            "sent": 46,
+            "completed": 46,
+            "p90_ttft_ms": 5.533722,
+            "state": "recovered"
+          },
+          {
+            "start_s": 8.0,
+            "sent": 42,
+            "completed": 42,
+            "p90_ttft_ms": 5.564001,
+            "state": "recovered"
+          },
+          {
+            "start_s": 10.0,
+            "sent": 40,
+            "completed": 40,
+            "p90_ttft_ms": 5.525611,
+            "state": "recovered"
+          },
+          {
+            "start_s": 12.0,
+            "sent": 47,
+            "completed": 47,
+            "p90_ttft_ms": 5.517321,
+            "state": "recovered"
+          },
+          {
+            "start_s": 14.0,
+            "sent": 39,
+            "completed": 39,
+            "p90_ttft_ms": 5.583851,
+            "state": "recovered"
+          },
+          {
+            "start_s": 16.0,
+            "sent": 38,
+            "completed": 38,
+            "p90_ttft_ms": 5.546721,
+            "state": "recovered"
+          },
+          {
+            "start_s": 18.0,
+            "sent": 40,
+            "completed": 40,
+            "p90_ttft_ms": 5.612591,
+            "state": "recovered"
+          },
+          {
+            "start_s": 20.0,
+            "sent": 36,
+            "completed": 36,
+            "p90_ttft_ms": 5.602221,
+            "state": "recovered"
+          },
+          {
+            "start_s": 22.0,
+            "sent": 44,
+            "completed": 44,
+            "p90_ttft_ms": 5.585561,
+            "state": "recovered"
+          }
+        ]
+      },
+      "engine_drain_s": 4.054833889007568
+    }
+  },
+  "restarts": [
+    {
+      "index": 1,
+      "outcome": "serving",
+      "window_s": 0.6387759999999999,
+      "probes": 2
+    },
+    {
+      "index": 2,
+      "outcome": "serving",
+      "window_s": 0.637688,
+      "probes": 2
+    },
+    {
+      "index": 3,
+      "outcome": "serving",
+      "window_s": 0.637347,
+      "probes": 2
+    }
+  ],
+  "plan": {
+    "run": true,
+    "r_low": 20.0,
+    "r_sat": 80,
+    "r_over": 120.0,
+    "overload_is_overload": true,
+    "segments": "baseline:20:15,saturation:80:15,overload:120:9,recovery:20:24",
+    "status": "saturated",
+    "first_unstable": 100
+  },
+  "included_by_x3_x5": true
+}
