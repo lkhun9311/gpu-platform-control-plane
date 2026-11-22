@@ -1,7 +1,7 @@
-"""Unit checks for the vLLM #69058 kit r6's verdict.py, on the real CPU log, runs r5 and r2's GPU logs, and built logs.
+"""Unit checks for the vLLM #69058 kit r6's verdict.py, on the real CPU logs, runs r5 and r2's GPU logs, and built logs.
 
 usage: python3 -I hack/vllm-69058-kit-check.py KIT_DIR FAKE_DIR
-FAKE_DIR holds cpu-logs/e2e.log, gpu-r5-logs/e2e-fail.log and gpu-r2-logs/base-c.log.
+FAKE_DIR holds cpu-logs/e2e-{control,fix}-{fail,recompute}.log, gpu-r5-logs/e2e-fail.log and gpu-r2-logs/base-c.log.
 Prints one ok or FAIL line per check and exits 1 if any failed.
 """
 
@@ -35,16 +35,30 @@ def read(*parts):
 
 
 GPU_ENV = {"cuda_available": True, "device_name": "NVIDIA A10G", "torch": "t", "torch_cuda": "13.0", "triton": "3"}
-PASS = "2 passed, 20 warnings in 140.00s (0:02:20)\n"
+PASS = "1 passed, 20 warnings in 9.00s\n"
+R5 = read("gpu-r5-logs", "e2e-fail.log")
+R2 = read("gpu-r2-logs", "base-c.log")
+FAIL = "=================================== FAILURES ===================================\nE   assert [2] == [3]\n1 failed, 20 warnings in 9.00s\n"
+# The expected GPU outcome: CONTROL [fail] faults as run r5's [fail] did, everything else passes.
+GOOD = {("control", "fail"): (R5, 1), ("fix", "fail"): (PASS, 0), ("control", "recompute"): (PASS, 0), ("fix", "recompute"): (PASS, 0)}
 
 
-def judged(log, rc=0, env=GPU_ENV, stopped=None):
+def judged(runs=None, env=GPU_ENV, stopped=None, **changes):
+    """The verdict on OUT built from {(arm, case): (log or None, exit)}; changes override entries as arm_case=(log, exit)."""
+    runs = dict(GOOD if runs is None else runs)
+    for k, v in changes.items():
+        arm, case = k.split("_")
+        runs[(arm, case)] = v
     d = tempfile.mkdtemp(prefix="v69058r6-")
-    if log is not None:
-        with open(os.path.join(d, "e2e.log"), "w", newline="") as f:
-            f.write(log)
+    status = []
+    for (arm, case), (log, rc) in runs.items():
+        if log is not None:
+            with open(os.path.join(d, f"e2e-{arm}-{case}.log"), "w", newline="") as f:
+                f.write(log)
+        if rc is not None:
+            status.append(f"test-{arm}-{case} exit={rc} t=1")
     with open(os.path.join(d, "status.txt"), "w") as f:
-        f.write(f"test-e2e exit={rc} t=1\n" if rc is not None else "")
+        f.write("\n".join(status) + "\n")
     if env is not None:
         with open(os.path.join(d, "env.json"), "w") as f:
             json.dump(env, f)
@@ -52,78 +66,73 @@ def judged(log, rc=0, env=GPU_ENV, stopped=None):
         with open(os.path.join(d, "STOPPED"), "w") as f:
             f.write(stopped)
     r = V.judge(d)
+    with contextlib.redirect_stdout(io.StringIO()) as buf:
+        rc_main = V.main(["verdict.py", d])
+    r["_rc"], r["_text"] = rc_main, buf.getvalue()
     shutil.rmtree(d)
     return r
 
 
-# ---------------------------------------------------------------- the 2-passed rule
-r = judged(PASS)
-check("2 passed, exit 0, no illegal access: AS EXPECTED", r["verdict"] == "AS EXPECTED" and r["summary"].startswith("2 passed"))
-r = judged("1 failed, 1 passed, 20 warnings in 150.00s\n", rc=1)
-check("1 failed and 1 passed with no illegal access is a FINDING", r["verdict"] == "FINDING" and any("not 2 passed" in f for f in r["findings"]))
-r = judged("1 passed, 20 warnings in 70.00s\n")
-check("1 passed alone is a FINDING, since a case is missing", r["verdict"] == "FINDING")
-r = judged("3 passed, 20 warnings in 70.00s\n")
-check("3 passed is a FINDING, since the selection changed", r["verdict"] == "FINDING")
-r = judged(PASS, rc=1)
-check("2 passed with exit 1 is a FINDING", r["verdict"] == "FINDING")
-r = judged("2 passed, 1 xpassed in 70.00s\n")
-check("2 passed with anything more in the summary is a FINDING", r["verdict"] == "FINDING")
-
-# ---------------------------------------------------------------- illegal-access detection
-r5 = read("gpu-r5-logs", "e2e-fail.log")
-r = judged(r5, rc=1)
-check("run r5's [fail] log is a FINDING for its illegal memory access", r["verdict"] == "FINDING" and any("illegal memory access is in the log" in f for f in r["findings"]))
-check("run r5's [fail] log: the first illegal access in time is a captured record of the fault", r["cases"]["fail"]["first_illegal"] is not None
-      and "illegal memory access" in r["cases"]["fail"]["first_illegal"])
-r = judged("(MainProcess pid=1) ERROR 11-22 21:00:04 [hf3fs_mock_client.py:110] Batch write error: CUDA error: an illegal memory access was encountered\n" + PASS)
-check("2 passed with an illegal access anywhere in the log is still a FINDING", r["verdict"] == "FINDING" and r["illegal_lines"][0].startswith("1:"))
-r = judged("Loading: 10%\rLoading: 100%\nE   RuntimeError: CUDA_ERROR_ILLEGAL_ADDRESS\n1 failed, 1 passed in 9.0s\n", rc=1)
-check("the driver's CUDA_ERROR_ILLEGAL_ADDRESS counts, on grep's line 2 after a carriage return", r["verdict"] == "FINDING" and r["illegal_lines"][0].startswith("2:"))
-r = judged("Fatal Python error: Aborted\n(MainProcess pid=1) ERROR 11-22 21:00:04 [x.py:1] CUDA error: an illegal memory access was encountered\n", rc=134)
-check("an illegal access in a log that died before its summary is a FINDING, not INCOMPLETE", r["verdict"] == "FINDING")
+# ---------------------------------------------------------------- the overall rules
+r = judged()
+check("CONFIRMED: FIX passes both, CONTROL [fail] faults; exit 0", r["verdict"] == "CONFIRMED" and r["_rc"] == 0)
+check("the confirmed run's CONTROL [fail] is faulted with its first illegal access in time", r["runs"]["control [fail]"]["state"] == "faulted"
+      and r["runs"]["control [fail]"]["first_illegal"] and "illegal memory access" in r["runs"]["control [fail]"]["first_illegal"])
+r = judged(control_fail=(PASS, 0))
+check("INCONCLUSIVE: FIX passes both but CONTROL [fail] passes too; exit 5", r["verdict"] == "INCONCLUSIVE" and r["_rc"] == 5 and "passed instead of faulting" in r["why"])
+r = judged(control_fail=(FAIL, 1))
+check("INCONCLUSIVE: CONTROL [fail] failing without an illegal access does not confirm", r["verdict"] == "INCONCLUSIVE" and "failed instead of faulting" in r["why"])
+r = judged(fix_fail=(R5, 1))
+check("FINDING: FIX [fail] faulting is a finding; exit 2", r["verdict"] == "FINDING" and r["_rc"] == 2 and "[fail] faulted" in r["why"])
+r = judged(fix_recompute=(FAIL, 1))
+check("FINDING: FIX [recompute] failing without a fault is a finding", r["verdict"] == "FINDING" and "[recompute] failed" in r["why"])
+r = judged(fix_recompute=("(MainProcess pid=1) ERROR 11-22 21:00:04 [x.py:1] CUDA error: an illegal memory access was encountered\n" + PASS, 0))
+check("FINDING: FIX passing with an illegal access in its log is still a finding", r["verdict"] == "FINDING" and "[recompute] faulted" in r["why"])
+r = judged(fix_fail=("2 passed in 9.0s\n", 0))
+check("FINDING: a FIX process that ran other than its one case is a finding", r["verdict"] == "FINDING")
+r = judged(fix_fail=(PASS, 1))
+check("FINDING: FIX 1 passed with exit 1 is a finding", r["verdict"] == "FINDING")
+r = judged(control_recompute=(R5, 1))
+check("CONTROL [recompute] faulting is recorded and decides nothing", r["verdict"] == "CONFIRMED" and r["runs"]["control [recompute]"]["state"] == "faulted")
+r = judged(control_recompute=(None, None))
+check("CONTROL [recompute] missing decides nothing either", r["verdict"] == "CONFIRMED")
+r = judged(fix_fail=(R5, 1), env=None)
+check("a FINDING outranks a gap", r["verdict"] == "FINDING")
 
 # ---------------------------------------------------------------- harness causes and gaps
-r2 = read("gpu-r2-logs", "base-c.log")
-r = judged(r2, rc=1)
-check("run r2's KV memory failure is NOT RUN for KV cache memory, not a FINDING", r["verdict"] == "NOT RUN" and r["not_run"].startswith("KV cache memory: E           ValueError"))
-check("its captured HF_HUB_OFFLINE line does not make it a download failure", "download" not in r["not_run"])
-captured = ("=================================== FAILURES ===================================\n"
-            ">       assert retry.token_ids == cold.token_ids\nE       assert [2, 50118, 133] == [2, 50118, 4148]\n"
-            "----------------------------- Captured log call -----------------------------\n"
-            "WARNING  huggingface_hub:_http.py:1 Cannot find the requested files in the disk cache, using the local snapshot\n"
-            "1 failed, 1 passed in 150.0s\n")
-r = judged(captured, rc=1)
-check("a captured log line that looks like a harness cause does not turn an assertion failure into NOT RUN", r["verdict"] == "FINDING")
-r = judged(r5, rc=1, env=None)
-check("a FINDING outranks a gap: an illegal access with an unreadable env.json is still a FINDING", r["verdict"] == "FINDING" and r["gaps"])
-r = judged(read("cpu-logs", "e2e.log"), env={"cuda_available": False, "device_name": None})
-check("the real CPU log, both cases skipped, is INCOMPLETE", r["verdict"] == "INCOMPLETE" and any("skipped" in g for g in r["gaps"]))
-r = judged("Fatal Python error: Aborted\n", rc=134)
-check("a run that dies before its summary without an illegal access is INCOMPLETE", r["verdict"] == "INCOMPLETE")
-r = judged(PASS, rc=124)
-check("a run cut by its cap is INCOMPLETE", r["verdict"] == "INCOMPLETE")
-r = judged(None)
-check("no log is INCOMPLETE", r["verdict"] == "INCOMPLETE")
-r = judged(PASS, env={"cuda_available": False, "device_name": None})
-check("no CUDA is INCOMPLETE", r["verdict"] == "INCOMPLETE")
-r = judged(PASS, stopped="the budget ran out before test-e2e")
-check("a STOPPED run is INCOMPLETE", r["verdict"] == "INCOMPLETE")
-for name, log, rc, want, rc_want in (("AS EXPECTED", PASS, 0, "AS EXPECTED", 0), ("FINDING", r5, 1, "FINDING", 2),
-                                     ("NOT RUN", r2, 1, "NOT RUN", 4), ("INCOMPLETE", None, None, "INCOMPLETE", 3)):
-    d = tempfile.mkdtemp(prefix="v69058r6-")
-    if log is not None:
-        with open(os.path.join(d, "e2e.log"), "w", newline="") as f:
-            f.write(log)
-    with open(os.path.join(d, "status.txt"), "w") as f:
-        f.write(f"test-e2e exit={rc} t=1\n" if rc is not None else "")
-    with open(os.path.join(d, "env.json"), "w") as f:
-        json.dump(GPU_ENV, f)
-    with contextlib.redirect_stdout(io.StringIO()) as buf:
-        rc_got = V.main(["verdict.py", d])
-    saved = json.load(open(os.path.join(d, "verdict.json")))
-    check(f"main exits {rc_want} for {name} and writes it", rc_got == rc_want and saved["verdict"] == want and f"VERDICT: {want}\n" in buf.getvalue())
-    shutil.rmtree(d)
+r = judged(fix_fail=(R2, 1))
+check("NOT RUN: FIX [fail] with run r2's KV memory failure; exit 4", r["verdict"] == "NOT RUN" and r["_rc"] == 4
+      and r["runs"]["fix [fail]"]["why"].startswith("KV cache memory: E           ValueError"))
+r = judged(control_fail=(R2, 1))
+check("NOT RUN: CONTROL [fail] with a harness failure cannot confirm or refute", r["verdict"] == "NOT RUN")
+captured = ">       assert retry.token_ids == cold.token_ids\nE   assert [2] == [3]\n----- Captured log call -----\n" \
+           "WARNING  huggingface_hub:_http.py:1 Cannot find the requested files in the disk cache, using the local snapshot\n1 failed in 9.0s\n"
+r = judged(fix_recompute=(captured, 1))
+check("a captured log line that looks like a harness cause does not turn a FIX failure into NOT RUN", r["verdict"] == "FINDING")
+for arm, case in (("fix", "fail"), ("fix", "recompute"), ("control", "fail")):
+    r = judged(**{f"{arm}_{case}": (None, None)})
+    check(f"INCOMPLETE: no {arm.upper()} [{case}] log; exit 3", r["verdict"] == "INCOMPLETE" and r["_rc"] == 3)
+r = judged(fix_recompute=("Fatal Python error: Aborted\n", 134))
+check("INCOMPLETE: a FIX process that dies before its summary without a fault", r["verdict"] == "INCOMPLETE")
+r = judged(fix_recompute=(PASS, 124))
+check("INCOMPLETE: a FIX process cut by its cap", r["verdict"] == "INCOMPLETE")
+cpu = {(a, c): (read("cpu-logs", f"e2e-{a}-{c}.log"), 0) for a, c in V.RUNS}
+r = judged(runs=cpu, env={"cuda_available": False, "device_name": None})
+check("INCOMPLETE: the real CPU logs, every case skipped", r["verdict"] == "INCOMPLETE" and r["runs"]["fix [fail]"]["state"] == "incomplete")
+r = judged(env={"cuda_available": False, "device_name": None})
+check("INCOMPLETE: no CUDA", r["verdict"] == "INCOMPLETE")
+r = judged(stopped="the budget ran out before test-fix-recompute")
+check("INCOMPLETE: a STOPPED run", r["verdict"] == "INCOMPLETE")
+r = judged(control_fail=("Loading: 10%\rLoading: 100%\nE   RuntimeError: CUDA_ERROR_ILLEGAL_ADDRESS\n1 failed in 9.0s\n", 1))
+check("the driver's CUDA_ERROR_ILLEGAL_ADDRESS counts, on grep's line 2 after a carriage return", r["verdict"] == "CONFIRMED"
+      and r["runs"]["control [fail]"]["illegal_lines"][0].startswith("2:"))
+
+# ---------------------------------------------------------------- the printout
+r = judged()
+t = r["_text"]
+check("verdict.txt prints every process's summary and the illegal-access lines, with CONTROL's roles named",
+      "control [fail] (expected to fault): faulted (exit 1): 1 failed, 20 warnings, 1 error" in t and "fix [fail]: passed (exit 0): 1 passed, 20 warnings in 9.00s" in t
+      and "control [recompute] (recorded, decides nothing): passed" in t and "illegal memory access" in t and t.rstrip().endswith("VERDICT: CONFIRMED"))
 
 print()
 print("all unit checks passed" if failures == 0 else f"{failures} unit check(s) failed")

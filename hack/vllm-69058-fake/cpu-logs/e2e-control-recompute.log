@@ -2,7 +2,7 @@
 The event loop scope for asynchronous fixtures will default to the fixture scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session". Set it to "fixture-scope" to keep the current behavior.
 
   warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
-ss                                                                       [100%]
+s                                                                        [100%]
 =============================== warnings summary ===============================
 vllm/__init__.py:7
   /src/vllm/vllm/__init__.py:7: RuntimeWarning: Failed to read commit hash:
@@ -10,4 +10,4 @@ vllm/__init__.py:7
     from .version import __version__, __version_tuple__  # isort:skip
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-2 skipped, 1 warning in 0.10s
+1 skipped, 1 warning in 0.06s
