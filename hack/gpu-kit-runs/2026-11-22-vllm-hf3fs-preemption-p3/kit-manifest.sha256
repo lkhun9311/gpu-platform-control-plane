@@ -1,0 +1,5 @@
+3299483dbaf25ac45378a4a9a8cf304ce69ea9f80b6d6b7aa5a65a51d6da6716  ./envprobe.py
+a70dbadb9ef03dfbabddb00be012e115fced99ecb32655936a2a2e85b1a7dc56  ./fix-and-tests.patch
+88cd3626a3b4a363fc343ba782e476df9e6f6e48e46bb14353f8081aa31a3bfd  ./run.sh
+e27d224911ff7cd12a6092abb8dddc1ddbfc386f299fbeb59386b3a6fe352f3d  ./tests-only.patch
+8c717042272476c024db51ce4639c056b834e9ec307c59a07c36bcd24beb5223  ./verdict.py

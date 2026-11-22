@@ -1,0 +1,69 @@
+{
+ "arms": {
+  "control": {
+   "counts": {
+    "failed": 3,
+    "passed": 1
+   },
+   "cpu_failed": [
+    "TestHF3FSHandlePreemptions::test_scheduler_passes_preempted_requests_to_the_worker",
+    "TestHF3FSHandlePreemptions::test_waits_for_the_preempted_request_saves_only"
+   ],
+   "errors": null,
+   "exit": 1,
+   "gpu": "failed",
+   "held_line": null,
+   "illegal_lines": [],
+   "kv_memory_lines": [
+    "37:(MainProcess pid=2302) INFO 11-22 14:30:39 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB"
+   ],
+   "max_error": null,
+   "summary": "3 failed, 1 passed, 20 warnings in 133.37s (0:02:13)",
+   "traceback": [
+    "tests/v1/kv_connector/unit/test_hf3fs_preemption.py:255: in test_preempted_request_saves_its_own_kv",
+    "    assert llm.reset_prefix_cache()",
+    "E   AssertionError: assert False",
+    "E    +  where False = reset_prefix_cache()",
+    "E    +    where reset_prefix_cache = LLM(model='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6').reset_prefix_cache"
+   ],
+   "why": "the GPU test FAILED before its page comparison: E   AssertionError: assert False"
+  },
+  "fix": {
+   "counts": {
+    "failed": 1,
+    "passed": 3
+   },
+   "cpu_failed": [],
+   "errors": null,
+   "exit": 1,
+   "gpu": "failed",
+   "held_line": null,
+   "illegal_lines": [],
+   "kv_memory_lines": [
+    "36:(MainProcess pid=2764) INFO 11-22 14:31:01 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB"
+   ],
+   "max_error": null,
+   "summary": "1 failed, 3 passed, 20 warnings in 9.23s",
+   "traceback": [
+    "tests/v1/kv_connector/unit/test_hf3fs_preemption.py:255: in test_preempted_request_saves_its_own_kv",
+    "    assert llm.reset_prefix_cache()",
+    "E   AssertionError: assert False",
+    "E    +  where False = reset_prefix_cache()",
+    "E    +    where reset_prefix_cache = LLM(model='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6').reset_prefix_cache"
+   ],
+   "why": "the GPU test FAILED before its page comparison: E   AssertionError: assert False"
+  }
+ },
+ "env": {
+  "cuda_available": true,
+  "device_count": 1,
+  "device_name": "NVIDIA A10G",
+  "python": "3.12.15",
+  "torch": "2.14.0+cu130",
+  "torch_cuda": "13.0",
+  "triton": "3.8.0"
+ },
+ "gaps": [],
+ "verdict": "FINDING",
+ "why": "the fix: the GPU test failed: the GPU test FAILED before its page comparison: E   AssertionError: assert False"
+}

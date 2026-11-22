@@ -1,0 +1,15 @@
+kit=p3
+upstream=https://github.com/vllm-project/vllm.git
+base=17323e0b1ca54296cc3016b72d481ecffc17e69b tree a410ffdbc9d649f1f42940c1d8c0a3d7b6d771bc
+control=base plus tests-only.patch (sha256 e27d224911ff7cd12a6092abb8dddc1ddbfc386f299fbeb59386b3a6fe352f3d) by git apply, pinned by tree 8ec28f58a6da6d2a4a35eaad3172feeb5d20a04b
+fix=base plus fix-and-tests.patch (sha256 a70dbadb9ef03dfbabddb00be012e115fced99ecb32655936a2a2e85b1a7dc56) by git am, pinned by tree 47aa255e5eea24e9f3555a22c5314501df414e2a
+test_file=tests/v1/kv_connector/unit/test_hf3fs_preemption.py blob 3b5ec35eb14ac6fedbb1c8a353fc7d319ddcd2aa
+model=facebook/opt-125m
+model_rev_pin=27dcfa74d334bc871f3234de431e71c6eeba5dd6
+model_bin_sha256_pin=2d74da6615135c58cf3cf9ad4cb11e7c613ff9e55fe658a47ab83b6c8d1174a9
+budget_s=600
+arm_cap_s=240
+wheel_commit=e29c741da8d11e2ae7ba381bb78b6f703812cae1 (the base's first parent)
+order=control fix, each in its own process
+command=python -m pytest tests/v1/kv_connector/unit/test_hf3fs_preemption.py -q -p no:cacheprovider -s --tb=short
+hub_offline=1 for the test runs
