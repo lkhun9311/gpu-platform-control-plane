@@ -13,7 +13,7 @@
 # Every step's exit code goes to $OUT/status.txt and verdict.py writes $OUT/verdict.json and verdict.txt.
 # The exit status is the verdict's: 0 decided (IMPROVED or NO CHANGE), 3 or 4 NOT RUN, 1 a stop before the verdict could be reached.
 #
-# Settings (KIT_ENV through the session): BUDGET_S (default 3150, at most 3250).
+# Settings (KIT_ENV through the session): BUDGET_S (default 3250, at most 3250).
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${OUT:-$HERE/results}
@@ -35,7 +35,9 @@ FIX_NUMSTAT=$(printf '%s\n' \
   $'8\t1\tpython/sglang/srt/model_executor/runner/base_runner.py' \
   $'158\t0\ttest/registered/unit/layers/test_mamba2_prefill_prewarm.py')
 # The session gives run.sh 3,300 s from its start; the rest is left for the verdict and the checksums.
-BUDGET_S=${BUDGET_S:-3150}
+# r4 takes the whole 3,250 s that r2's rule allows: after a pull as slow as r2's (737 s), 3,150 s would leave the prep 460 s,
+# about what the install, the download and the TreeCore build are expected to take, and a cut-short build changes the arms' TreeCore.
+BUDGET_S=${BUDGET_S:-3250}
 PULL_S=1500
 FETCH_S=300
 # The prep container: the install, the model download and the TreeCore build (bounded apart inside, at 600 s).

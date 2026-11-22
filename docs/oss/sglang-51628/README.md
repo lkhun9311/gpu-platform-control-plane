@@ -141,7 +141,7 @@ No published image is built from cb337923 (the nearest nightly, e96e9675, is 48 
 - Every container runs `pip install --no-deps --no-build-isolation -e python` from its tree, then shows that python imports `sglang` from that tree; the compile hook now also records each kernel's source file, and the verdict refuses an arm whose Mamba2 kernels came from anywhere else.
 - A prep container installs the BASE tree, downloads the model and builds SGLang's Rust TreeCore extension from the tree with the loader's own source build.
   r2's server ran the Rust TreeCore the image bundles for 03fde9cc; a tree installed over the image has no bundled build and the image runs with `SGLANG_RUST_BUILD_MODE=never`, so without this the server would quietly fall back to the Python TreeCore.
-  The arms copy the built artifact into their fresh HOME, and the servers get `RUSTUP_HOME` and `CARGO_HOME` so the loader can fingerprint it.
+  The arms copy the built artifact into their fresh HOME, and the servers get the `RUSTUP_HOME` and `CARGO_HOME` the prep built with, so the loader can fingerprint it.
   If the build fails, both arms run the Python TreeCore, and the verdict prints that as a departure from r2.
 - FIX first runs `python -m pytest test/registered/unit/layers/test_mamba2_prefill_prewarm.py -q` on a Triton cache of its own (expected: 3 passed).
 - Each server: r2's command, empty Triton cache, fresh HOME, default compile threshold; then r2's warmup burst (64 prompts at c32, seed 42) and three c16 runs (32 prompts, seeds 161 to 163). r2's c1 and c128 runs are dropped.
@@ -164,7 +164,7 @@ SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.2xlarge OUT=hack/gpu-ki
   bash hack/gpu-kit-session.sh docs/oss/sglang-51628/kit-r4
 ```
 
-BUDGET_S stays 3,150 s: the pull (r2 737 s, r3 438 s), the fetch, the prep (bounded at 900 s), then two arms of about 650 to 800 s each, with each arm bounded at 900 s and BASE's deadline leaving FIX a whole arm.
-The run stops before the prep unless 1,920 s remain.
+BUDGET_S is 3,250 s, the most run.sh allows inside the session's 3,300 s (r2 and r3 used 3,150 s): the pull (r2 737 s, r3 438 s), the fetch, the prep (bounded at 900 s), then two arms of about 650 to 800 s each, with each arm bounded at 900 s and BASE's deadline leaving FIX a whole arm.
+The run stops before the prep unless 1,920 s remain; after a 737 s pull the prep gets about 560 s.
 The session's worst case is unchanged, $0.9696 (4,020 s at $0.8683/h all in).
 The offline checks are `bash hack/sglang-51628-kit-r4-test.sh`.

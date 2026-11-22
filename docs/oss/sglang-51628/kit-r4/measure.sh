@@ -53,8 +53,8 @@ TREECORE_S=600
 PYTEST_S=300
 UP_S=900
 PROBE_S=300
-# The rustup toolchains and cargo live under the image's /root; the servers run with a fresh HOME, so these say where they are.
-# The loader asks cargo and rustc for their versions to find a cached build, and would fall back to the Python TreeCore without them.
+# The loader asks cargo and rustc for their versions to find a cached build, and falls back to the Python TreeCore when they do not answer.
+# The servers run with a fresh HOME, so rustup and cargo are told where the image keeps them: prep reads that from its own environment.
 RUST_ENV=(RUSTUP_HOME=/root/.rustup CARGO_HOME=/root/.cargo)
 # The patch's unit tests: two CPU tests and one that needs CUDA, so a GPU container must report 3 passed.
 TEST_FILE=test/registered/unit/layers/test_mamba2_prefill_prewarm.py
@@ -144,6 +144,9 @@ print(snapshot_download('$MODEL_REPO', revision='$MODEL_REV', local_dir='$MDIR',
   # The TreeCore build, with the loader's own source build (mode auto) into a cache the arms copy from.
   step "build the Rust TreeCore extension from $SRC"
   rm -rf "$PREP/sglang-cache"
+  RUST_ENV=("RUSTUP_HOME=${RUSTUP_HOME:-$(rustup show home 2>/dev/null || echo "$HOME/.rustup")}" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}")
+  printf '%s\n' "${RUST_ENV[@]}" > "$PREP/rust-env.txt"
+  kv rust_env "${RUST_ENV[*]}"
   ( cd / && env "${RUST_ENV[@]}" SGLANG_RUST_BUILD_MODE=auto SGLANG_CACHE_DIR="$PREP/sglang-cache" \
     timeout --kill-after=10 "$(bound $TREECORE_S)" $PY -c 'import sglang.srt.mem_cache.rust_tree_core.extension as e; print("treecore_build=ok", e.bindings)' ) \
     > "$OUT/treecore-build.log" 2>&1
@@ -165,6 +168,9 @@ print(snapshot_download('$MODEL_REPO', revision='$MODEL_REV', local_dir='$MDIR',
 fi
 
 # ---------------------------------------------------------------- an arm: the compile record, installed and shown to fire
+# The same rustup and cargo the prep built with, so the loader's fingerprint of the toolchain matches the cached build.
+[ -f "$PREP/rust-env.txt" ] && mapfile -t RUST_ENV < "$PREP/rust-env.txt"
+kv rust_env "${RUST_ENV[*]}"
 # A .pth line that starts with "import" runs at every interpreter start, so the hook is in the scheduler before SGLang installs its own watch.
 SITE=$($PY -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
 mkdir -p "$ROOT/hook" || { step "cannot create $ROOT/hook"; exit 3; }

@@ -33,6 +33,7 @@ export SCRATCH TMPDIR="$SCRATCH"
 export PYTHONDONTWRITEBYTECODE=1
 [ -n "${KEEP_WORK:-}" ] || trap 'rm -rf "$WORK"' EXIT
 failures=0
+# check runs its condition with eval in this shell, so a condition that loops keeps its exit inside a subshell, or one failure would end the test.
 check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1" >&2; failures=$((failures + 1)); fi; }
 mcheck() { if [ -n "$m" ]; then check "$@"; else echo "FAIL $1 (the mutant was not made)" >&2; failures=$((failures + 1)); fi; }
 
@@ -62,8 +63,8 @@ command grep -E '^FAIL|Traceback' "$WORK/units.log" >&2
 
 # ---------------------------------------------------------------- run.sh's settings and the patch pin, before anything is pulled
 dry() { local k=$1; shift; rm -rf "$WORK/dry"; env -i PATH="$PATH" HOME="$HOME" KIT_DRY_RUN=1 OUT="$WORK/dry" "$@" bash "$k/run.sh" >"$WORK/dry.out" 2>&1; }
-check "the default settings are accepted: budget 3150, the pinned image, source, patch and model" \
-  "dry '$KIT' && command grep -qx 'budget_s=3150' '$WORK/dry/settings.txt' \
+check "the default settings are accepted: budget 3250, the pinned image, source, patch and model" \
+  "dry '$KIT' && command grep -qx 'budget_s=3250' '$WORK/dry/settings.txt' \
    && command grep -qx 'sglang_sha=cb337923d576f48a4accba439af9cfbc9b720a2c' '$WORK/dry/settings.txt' \
    && command grep -qx 'image_sha=03fde9cc392a5f84a54a365635ffed0061cdf1b8' '$WORK/dry/settings.txt' \
    && command grep -qx 'patch_sha256=6aa4b47ca4aa314d0cae6d35e8894df0caa1e7565b403f028eda50a7d94624f9' '$WORK/dry/patch.txt' \
@@ -170,7 +171,7 @@ check "improved: each arm imported sglang from its own tree, installed over the 
   "command grep -qx \"sglang_dir=\$(realpath '$WORK/e2e-improved/host/src/base/python/sglang')\" \"\$(C improved)/base/measure.txt\" \
    && command grep -qx \"sglang_dir=\$(realpath '$WORK/e2e-improved/host/src/fix/python/sglang')\" \"\$(C improved)/fix/measure.txt\""
 check "improved: both trees recorded the pinned commit and tree, and FIX the patch's numstat, before and after" \
-  "for a in base fix; do for w in before after; do command grep -qx 'commit=$TSHA' '$WORK/e2e-improved/out/source-'\$a-\$w.txt || exit 1; done; done; \
+  "( for a in base fix; do for w in before after; do command grep -qx 'commit=$TSHA' '$WORK/e2e-improved/out/source-'\$a-\$w.txt || exit 1; done; done ) && \
    command grep -qx 'tree=$TBASE' '$WORK/e2e-improved/out/source-base-after.txt' && command grep -qx 'tree=$TFIX' '$WORK/e2e-improved/out/source-fix-after.txt' \
    && command grep -qE 'test_mamba2_prefill_prewarm\.py +\| +158 ' '$WORK/e2e-improved/out/source-fix-before.stat'"
 check "improved: both servers ran with exactly the spec's flags and the same environment, apart from their own paths" \
@@ -179,8 +180,8 @@ check "improved: both servers ran with exactly the spec's flags and the same env
    && command grep -qE -- '-m sglang\.launch_server --model-path [^ ]+/nemotron-h-4b-instruct-128k --trust-remote-code \$' \"\$(C improved)/fix/commands.txt\" \
    && ! command grep -q 'SGLANG_TRITON_SLOW_COMPILE_THRESHOLD_SECS\|--warmups' \"\$(C improved)/base/commands.txt\" \"\$(C improved)/fix/commands.txt\""
 check "improved: the client ran the four bursts with r2's seeds in both arms" \
-  "for a in base fix; do [ \"\$(command grep -oE -- '--max-concurrency [0-9]+ --seed [0-9]+' \"\$(C improved)/\$a/commands.txt\" | tr '\n' ' ')\" \
-     = '--max-concurrency 32 --seed 42 --max-concurrency 16 --seed 161 --max-concurrency 16 --seed 162 --max-concurrency 16 --seed 163 ' ] || exit 1; done"
+  "( for a in base fix; do [ \"\$(command grep -oE -- '--max-concurrency [0-9]+ --seed [0-9]+' \"\$(C improved)/\$a/commands.txt\" | tr '\n' ' ')\" \
+     = '--max-concurrency 32 --seed 42 --max-concurrency 16 --seed 161 --max-concurrency 16 --seed 162 --max-concurrency 16 --seed 163 ' ] || exit 1; done )"
 check "improved: the tests ran in FIX only, before its server, on a Triton cache of their own" \
   "[ -f \"\$(C improved)/fix/pytest.log\" ] && [ ! -e \"\$(C improved)/base/pytest.log\" ] \
    && [ \"\$(command grep -n 'pytest\|server on an empty' \"\$(C improved)/fix/measure-steps.log\" | head -n 1 | command grep -c pytest)\" = 1 ]"
@@ -279,7 +280,7 @@ mcheck "mutant: a measure.sh that starts a server on a Triton cache that is not 
 m=$(mutant seed measure.sh 's/c16-r2:16:32:162/c16-r2:16:32:161/')
 e2e "$m" m-seed
 mcheck "mutant: a measure.sh whose bursts repeat a seed is caught by the plan check" "command grep -qF 'a different burst plan' \"\$(V m-seed)\""
-m=$(mutant treecore-env measure.sh 's/^RUST_ENV=(RUSTUP_HOME=\/root\/.rustup CARGO_HOME=\/root\/.cargo)$/RUST_ENV=(X=1)/')
+m=$(mutant treecore-env measure.sh 's/^\[ -f "\$PREP\/rust-env.txt" \] && mapfile -t RUST_ENV < "\$PREP\/rust-env.txt"$/RUST_ENV=(X=1)/')
 e2e "$m" m-treecore-env
 mcheck "mutant: a server without the rustup location falls back to the Python TreeCore, which the verdict catches" \
   "command grep -qF 'not the prep' \"\$(V m-treecore-env)\""
