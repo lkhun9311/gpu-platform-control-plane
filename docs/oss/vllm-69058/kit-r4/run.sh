@@ -146,6 +146,10 @@ pinned() {
 }
 pinned a "$ARM_A_SHA" "$ARM_A_TREE"
 pinned b "$ARM_B_SHA" "$ARM_B_TREE"
+# The clone has no blobs, so the first checkout of each arm fetches them from the network.
+# Doing both here, under the budget's timeouts, leaves every later checkout and read of a file local.
+step materialize-arm-b 300 --log "$OUT/materialize-b.log" git -C vllm checkout -q --detach -f "$ARM_B_SHA" || stop "could not check out arm B's files; see materialize-b.log"
+step materialize-arm-a 300 --log "$OUT/materialize-a.log" git -C vllm checkout -q --detach -f "$ARM_A_SHA" || stop "could not check out arm A's files; see materialize-a.log"
 got=$(git -C vllm show "$ARM_B_SHA:$TEST_FILE" | sha256sum | cut -d' ' -f1)
 echo "test_file_sha256=$got" >> "$OUT/versions.txt"
 [ "$got" = "$TEST_FILE_SHA256" ] || stop "arm B's $TEST_FILE has sha256 $got, not the pinned $TEST_FILE_SHA256"
