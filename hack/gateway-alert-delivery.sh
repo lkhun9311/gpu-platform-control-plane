@@ -185,6 +185,11 @@ print(json.dumps(sorted([{"labels": x["labels"], "state": x["state"], "activeAt"
 {
   echo "commit=$(git rev-parse HEAD)"
   echo "dirty_files=$(git status --porcelain -- config hack/gateway-alert-delivery.sh cmd internal api | wc -l)"
+  # The images also read go.mod, go.sum, the Dockerfiles and .dockerignore, and the receipts come through
+  # hack/alert-receipts.py, so the narrow count above can read 0 while a build input is modified.
+  # Tracked changes anywhere are counted too; untracked files are left out, because earlier runs' evidence
+  # directories are untracked until committed.
+  echo "dirty_tracked_files_whole_tree=$(git status --porcelain --untracked-files=no | wc -l)"
   echo "kind=$(kind version)"
   echo "kubectl=$(kubectl version --client -o json | python3 -c 'import json,sys;print(json.load(sys.stdin)["clientVersion"]["gitVersion"])')"
   echo "helm=$("$HELM" version --short)"
