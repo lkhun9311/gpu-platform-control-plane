@@ -1,0 +1,5 @@
+9e0e9a0943ee98e837e4732b1dac2af0d0e56f6c45523b497439739ea188ca6c  ./__pycache__/verdict.cpython-314.pyc
+3299483dbaf25ac45378a4a9a8cf304ce69ea9f80b6d6b7aa5a65a51d6da6716  ./envprobe.py
+0a8ca6235cbd59aeca25712c43efe391ae08d4c4fa7b14967cabe3d88bb3cdde  ./local-fix.diff
+aae1bcb9a126e008f4c1a30562b02baab2568fac26e44b1029e06a098bf7114f  ./run.sh
+d4fe4b32ae081b53178f7c2ca204e02e4a5f1d48f835ec30d8fa8b4cf5f648a9  ./verdict.py

@@ -1,0 +1,12 @@
+clone-vllm exit=0 t=14
+checkout-vllm exit=0 t=16
+apply-check exit=0 t=16
+install-vllm exit=0 t=53
+install-test exit=0 t=53
+envprobe exit=0 t=57
+download-model exit=0 t=64
+test-base-c exit=1 t=223
+test-fix-c exit=1 t=243
+test-base-b exit=1 t=286
+test-fix-b exit=1 t=323
+verdict exit=3 t=323

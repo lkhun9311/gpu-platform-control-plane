@@ -1,0 +1,48 @@
+clone-vllm exit=0 t=14
+checkout-vllm exit=0 t=16
+apply-check exit=0 t=16
+install-vllm exit=0 t=53
+install-test exit=0 t=53
+envprobe exit=0 t=57
+download-model exit=0 t=64
+test-base-c exit=1 t=223
+test-fix-c exit=1 t=243
+test-base-b exit=1 t=286
+test-fix-b exit=1 t=323
+gpu: NVIDIA A10G torch: 2.14.0+cu130 cuda: 13.0 triton: 3.8.0
+CUDA-only test test_failed_batch_reported_when_last_batch_succeeds: base FAILED, fix PASSED
+base-b (exit 1): ================= 10 failed, 16 passed, 21 warnings in 32.66s ==================
+  TestHF3FSLoadErrors.test_failed_load_reports_block_ids[missing_key]: E       assert set() == {3, 5} | E
+  TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises]: E       assert set() == {3, 5} | E
+  TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read]: E       assert set() == {3, 5} | E
+  TestHF3FSLoadErrors.test_failed_batch_reported_when_last_batch_succeeds: E       AssertionError: assert set() == {1, 2, 3, 4, 5, 6, ...} | E
+  TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail]: E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11> | E            +  where <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> = <vllm.v1.request.Request object at 0x7a7d1f6f4c80>.status
+  TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[recompute]: E       AssertionError: assert {'id-2': 1} == {'id-2': 65} | E
+  TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_prefix_and_saves_the_rest: E       AssertionError: assert 10 == 8 | E        +  where 10 = SaveBlockInfo(skip_leading_blocks=10).skip_leading_blocks
+  TestHF3FSSchedulerLoadFailure.test_reused_blocks_do_not_mark_a_finished_load: E       assert (64, True) == (0, False) | E
+  TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]: E           AssertionError: assert 'length' == 'error' | E
+  TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]: E       assert [4, 4, 4, 4, 4, 4, ...] == [39870, 843, ... 1932, 4, ...] | E
+base-c (exit 1): ========== 2 failed, 24 deselected, 20 warnings in 138.88s (0:02:18) ===========
+  TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]: E           AssertionError: assert 'length' == 'error' | E
+  TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]: E       AssertionError: assert [4, 4, 4, 4, 4, 4, ...] == [39870, 843, ... 1932, 4, ...] | E
+fix-b (exit 1): ============= 2 failed, 24 passed, 21 warnings, 2 errors in 25.33s =============
+  ERROR at teardown of TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]: E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered | E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+  ERROR at teardown of TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]: E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered | E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+  TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]: E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered | E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+  TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]: E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered | E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+fix-c (exit 1): =========== 2 failed, 24 deselected, 20 warnings, 2 errors in 8.23s ============
+  ERROR at teardown of TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]: E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered | E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+  ERROR at teardown of TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]: E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered | E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+  TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]: E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered | E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+  TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]: E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered | E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+GAP (b): fix-b: a test is reported twice: ['tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]', 'tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]']
+GAP (b): fix-b: 2 error(s), so a test did not reach its assertions
+GAP (b): fix-b: the summary counts 24 passed, 2 failed and 2 errors, the -rA lines 24, 2 and 0
+GAP (b): fix-b: test_failed_read_honors_policy[fail] failed for a harness reason, other harness failure (FAILED): E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered
+GAP (b): fix-b: test_failed_read_honors_policy[recompute] failed for a harness reason, other harness failure (FAILED): E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered
+GAP (c): fix-c: a test is reported twice: ['tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]', 'tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]']
+GAP (c): fix-c: 2 error(s), so a test did not reach its assertions
+GAP (c): fix-c: the summary counts 0 passed, 2 failed and 2 errors, the -rA lines 0, 2 and 0
+VERDICT (b): INCOMPLETE
+VERDICT (c): INCOMPLETE
+VERDICT: INCOMPLETE

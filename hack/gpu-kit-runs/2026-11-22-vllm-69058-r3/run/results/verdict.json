@@ -1,0 +1,258 @@
+{
+ "c": {
+  "deviations": [],
+  "gaps": [
+   "fix-c: a test is reported twice: ['tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]', 'tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]']",
+   "fix-c: 2 error(s), so a test did not reach its assertions",
+   "fix-c: the summary counts 0 passed, 2 failed and 2 errors, the -rA lines 0, 2 and 0"
+  ],
+  "not_run": [],
+  "states": {},
+  "verdict": "INCOMPLETE"
+ },
+ "cuda_only_test": {
+  "base": "FAILED",
+  "fix": "PASSED"
+ },
+ "deviations": [],
+ "env": {
+  "cuda_available": true,
+  "device_count": 1,
+  "device_name": "NVIDIA A10G",
+  "python": "3.12.15",
+  "torch": "2.14.0+cu130",
+  "torch_cuda": "13.0",
+  "triton": "3.8.0"
+ },
+ "findings": [],
+ "gaps": [
+  "fix-b: a test is reported twice: ['tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]', 'tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]']",
+  "fix-b: 2 error(s), so a test did not reach its assertions",
+  "fix-b: the summary counts 24 passed, 2 failed and 2 errors, the -rA lines 24, 2 and 0",
+  "fix-b: test_failed_read_honors_policy[fail] failed for a harness reason, other harness failure (FAILED): E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+  "fix-b: test_failed_read_honors_policy[recompute] failed for a harness reason, other harness failure (FAILED): E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered"
+ ],
+ "overall": "INCOMPLETE",
+ "runs": {
+  "base-b": {
+   "assertions": {
+    "TestHF3FSLoadErrors.test_failed_batch_reported_when_last_batch_succeeds": [
+     "E       AssertionError: assert set() == {1, 2, 3, 4, 5, 6, ...}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         1",
+     "E         2",
+     "E         3"
+    ],
+    "TestHF3FSLoadErrors.test_failed_load_reports_block_ids[lookup_raises]": [
+     "E       assert set() == {3, 5}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         3",
+     "E         5",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSLoadErrors.test_failed_load_reports_block_ids[missing_key]": [
+     "E       assert set() == {3, 5}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         3",
+     "E         5",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSLoadErrors.test_failed_load_reports_block_ids[short_read]": [
+     "E       assert set() == {3, 5}",
+     "E",
+     "E         Extra items in the right set:",
+     "E         3",
+     "E         5",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E           AssertionError: assert 'length' == 'error'",
+     "E",
+     "E             - error",
+     "E             + length"
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E       assert [4, 4, 4, 4, 4, 4, ...] == [39870, 843, ... 1932, 4, ...]",
+     "E",
+     "E         At index 0 diff: 4 != 39870",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_failed_later_batch_keeps_prefix_and_saves_the_rest": [
+     "E       AssertionError: assert 10 == 8",
+     "E        +  where 10 = SaveBlockInfo(skip_leading_blocks=10).skip_leading_blocks",
+     "E        +    where SaveBlockInfo(skip_leading_blocks=10) = HF3FSRequestMetadata(request_id='id-3', token_ids=[0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51,...block_ids=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], load_block_op=None, save_block_op=SaveBlockInfo(skip_leading_blocks=10)).save_block_op"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[fail]": [
+     "E           assert <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> == <RequestStatus.FINISHED_ERROR: 11>",
+     "E            +  where <RequestStatus.WAITING_FOR_REMOTE_KVS: 3> = <vllm.v1.request.Request object at 0x7a7d1f6f4c80>.status",
+     "E            +  and   <RequestStatus.FINISHED_ERROR: 11> = RequestStatus.FINISHED_ERROR"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_failed_load_honors_failure_policy[recompute]": [
+     "E       AssertionError: assert {'id-2': 1} == {'id-2': 65}",
+     "E",
+     "E         Differing items:",
+     "E         {'id-2': 1} != {'id-2': 65}",
+     "E         Use -v to get more diff"
+    ],
+    "TestHF3FSSchedulerLoadFailure.test_reused_blocks_do_not_mark_a_finished_load": [
+     "E       assert (64, True) == (0, False)",
+     "E",
+     "E         At index 0 diff: 64 != 0",
+     "E         Use -v to get more diff"
+    ]
+   },
+   "counts": {
+    "failed": 10,
+    "passed": 16,
+    "warnings": 21
+   },
+   "exit": 1,
+   "failed": [
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_batch_reported_when_last_batch_succeeds",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[lookup_raises]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[missing_key]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadErrors::test_failed_load_reports_block_ids[short_read]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[recompute]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load"
+   ],
+   "seconds": 32.66,
+   "summary": "================= 10 failed, 16 passed, 21 warnings in 32.66s =================="
+  },
+  "base-c": {
+   "assertions": {
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E           AssertionError: assert 'length' == 'error'",
+     "E",
+     "E             - error",
+     "E             + length"
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E       AssertionError: assert [4, 4, 4, 4, 4, 4, ...] == [39870, 843, ... 1932, 4, ...]",
+     "E",
+     "E         At index 0 diff: 4 != 39870",
+     "E",
+     "E         Full diff: (-: missing in left side, +: extra in left side)",
+     "E           ["
+    ]
+   },
+   "counts": {
+    "deselected": 24,
+    "failed": 2,
+    "warnings": 20
+   },
+   "exit": 1,
+   "failed": [
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]"
+   ],
+   "seconds": 138.88,
+   "summary": "========== 2 failed, 24 deselected, 20 warnings in 138.88s (0:02:18) ==========="
+  },
+  "fix-b": {
+   "assertions": {
+    "ERROR at teardown of TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+     "E       CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.",
+     "E       For debugging consider passing CUDA_LAUNCH_BLOCKING=1",
+     "E       The CUDA driver logged these messages, which may provide useful details:",
+     "E       Sticky error detected"
+    ],
+    "ERROR at teardown of TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+     "E       CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.",
+     "E       For debugging consider passing CUDA_LAUNCH_BLOCKING=1",
+     "E       The CUDA driver logged these messages, which may provide useful details:",
+     "E       Sticky error detected"
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+     "E       CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.",
+     "E       For debugging consider passing CUDA_LAUNCH_BLOCKING=1",
+     "E       The CUDA driver logged these messages, which may provide useful details:",
+     "E       Sticky error detected"
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+     "E       CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.",
+     "E       For debugging consider passing CUDA_LAUNCH_BLOCKING=1",
+     "E       The CUDA driver logged these messages, which may provide useful details:",
+     "E       Sticky error detected"
+    ]
+   },
+   "counts": {
+    "errors": 2,
+    "failed": 2,
+    "passed": 24,
+    "warnings": 21
+   },
+   "exit": 1,
+   "failed": [
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]"
+   ],
+   "seconds": 25.33,
+   "summary": "============= 2 failed, 24 passed, 21 warnings, 2 errors in 25.33s ============="
+  },
+  "fix-c": {
+   "assertions": {
+    "ERROR at teardown of TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+     "E       CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.",
+     "E       For debugging consider passing CUDA_LAUNCH_BLOCKING=1",
+     "E       The CUDA driver logged these messages, which may provide useful details:",
+     "E       Sticky error detected"
+    ],
+    "ERROR at teardown of TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+     "E       CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.",
+     "E       For debugging consider passing CUDA_LAUNCH_BLOCKING=1",
+     "E       The CUDA driver logged these messages, which may provide useful details:",
+     "E       Sticky error detected"
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail]": [
+     "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+     "E       CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.",
+     "E       For debugging consider passing CUDA_LAUNCH_BLOCKING=1",
+     "E       The CUDA driver logged these messages, which may provide useful details:",
+     "E       Sticky error detected"
+    ],
+    "TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[recompute]": [
+     "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+     "E       CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.",
+     "E       For debugging consider passing CUDA_LAUNCH_BLOCKING=1",
+     "E       The CUDA driver logged these messages, which may provide useful details:",
+     "E       Sticky error detected"
+    ]
+   },
+   "counts": {
+    "deselected": 24,
+    "errors": 2,
+    "failed": 2,
+    "warnings": 20
+   },
+   "exit": 1,
+   "failed": [
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+    "tests/v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute]"
+   ],
+   "seconds": 8.23,
+   "summary": "=========== 2 failed, 24 deselected, 20 warnings, 2 errors in 8.23s ============"
+  }
+ },
+ "verdict": "INCOMPLETE"
+}
