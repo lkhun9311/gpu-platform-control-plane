@@ -255,7 +255,7 @@ def b1_json(arm, pool, **over):
     return json.dumps(d, indent=2)
 
 
-def b1_judged(runs=None, drop=(), rcs=None, stopped=None, not_run=None, raw=None):
+def b1_judged(runs=None, drop=(), rcs=None, stopped=None, not_run=None, raw=None, logs=None):
     """b1_verdict on an OUT with the eight runs' JSON, less those in drop, with raw text in place of some."""
     d = tempfile.mkdtemp(prefix="hf3fs-b1-")
     try:
@@ -269,6 +269,8 @@ def b1_judged(runs=None, drop=(), rcs=None, stopped=None, not_run=None, raw=None
             text = (raw or {}).get(name) or (runs or {}).get(name) or b1_json(arm, pool)
             with open(os.path.join(d, "b1", f"{name}.json"), "w") as f:
                 f.write(text)
+            with open(os.path.join(d, "b1", f"{name}.log"), "w") as f:
+                f.write((logs or {}).get(name, "INFO 11-23 18:00:00 [llm.py:1] Supported tasks: ['generate']\n"))
         with open(os.path.join(d, "status.txt"), "w") as f:
             f.write("\n".join(status) + "\n")
         for name, text in (("STOPPED", stopped), ("NOT_RUN", not_run)):
@@ -296,8 +298,13 @@ check("b1 prints every run's JSON verbatim and its fields unrounded, under a hea
 r = b1_judged(runs={"control-128-2": b1_json("control", 128, preemptions=0)})
 check("b1 INVALID: a pool-128 run with no preemption is reported, and its values are printed unchanged; exit 6",
       r["state"] == "INVALID" and r["_rc"] == 6 and "B1 INVALID: control-128-2: preemptions=0" in r["_text"] and r["_text"].count("preemptions=0 ") >= 3)
-r = b1_judged(runs={"fix-2048-1": b1_json("fix", 2048, preemptions=0)})
-check("b1: a pool-2048 run with no preemption is what that control is for, and stays VALID", r["state"] == "VALID")
+r = b1_judged(runs={"fix-2048-1": b1_json("fix", 2048, preemptions=3)})
+check("b1 INVALID: a pool-2048 run that preempted is no longer the no-preemption control",
+      r["state"] == "INVALID" and "B1 INVALID: fix-2048-1: preemptions=3, so the pool-2048 control preempted" in r["_text"])
+short = "(EngineCore pid=7) WARNING 11-23 18:00:01 [hf3fs_metadata_server.py:123] Rank 0 only allocated 12 pages for 31 keys\n"
+r = b1_judged(logs={"control-128-3": "INFO start\n" + short + short})
+check("b1 INVALID: a run whose log shows the metadata server short of pages dropped saves, and its JSON alone would not show it",
+      r["state"] == "INVALID" and "control-128-3: the metadata server ran short of pages 2 times" in r["_text"] and "Rank 0 only allocated 12 pages for 31 keys" in r["_text"])
 r = b1_judged(runs={"control-128-1": b1_json("control", 128, has_fix=True)})
 check("b1 NOT RUN: a CONTROL run reporting has_fix true; exit 4", r["state"] == "NOT RUN" and r["_rc"] == 4 and "control-128-1: has_fix=True" in r["_text"])
 r = b1_judged(runs={"fix-128-3": b1_json("fix", 128, has_fix=False)})

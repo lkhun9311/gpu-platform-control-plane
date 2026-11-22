@@ -7,6 +7,8 @@ FAKE_B1 bends the runs:
   hasfixcontrol every CONTROL run reports has_fix true, as a CONTROL tree carrying the fix would;
   hasfixfix     every FIX run reports has_fix false, as a FIX tree without the fix would;
   nojson        the first CONTROL pool-128 run exits 1 without a JSON;
+  storageshort  the first FIX pool-128 run logs the metadata server's warning that it ran short of pages;
+  preempt2048   the FIX pool-2048 run reports preemptions;
   hang          every run never returns.
 Each run appends ARM-POOL to FAKE_B1_LOG when it is set, ARM read from the checkout, so the offline test can check the order.
 """
@@ -44,6 +46,10 @@ if mode == "hasfixfix" and arm == "fix":
     has_fix = False
 preempting = args.pool_blocks == 128
 preemptions = 0 if (mode == "zeropreempt" and name == "control-128-2.json") else (412 if preempting else 0)
+if mode == "preempt2048" and name == "fix-2048-1.json":
+    preemptions = 3
+if mode == "storageshort" and name == "fix-128-1.json":
+    print("(EngineCore pid=7) WARNING 11-23 18:00:01 [hf3fs_metadata_server.py:123] Rank 0 only allocated 12 pages for 31 keys", file=sys.stderr)
 waits = arm == "fix" and preemptions > 0
 result = {
     "has_fix": has_fix,

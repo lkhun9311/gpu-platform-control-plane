@@ -48,7 +48,10 @@
 #   --pool-blocks 128, which preempts: CONTROL, FIX, CONTROL, FIX, CONTROL, FIX;
 #   --pool-blocks 2048, which should not: CONTROL, FIX.
 # Each run's JSON reports has_fix, and a run whose has_fix is not false in CONTROL and true in FIX means a wrong tree: b1 stops, NOT RUN.
-# b1_verdict.py prints every JSON verbatim and calls a pool-128 run with no preemption INVALID; it never changes a value.
+# b1_verdict.py prints every JSON verbatim and never changes a value; it calls b1 INVALID when a pool-128 run did not preempt,
+# when a pool-2048 run did, or when a run's log shows the HF3FS metadata server short of pages, which drops saves the JSON does not count.
+# As pinned, bench_preempt.py's 1 GiB file holds 1,820 OPT-125m pages for about 2,000 saved blocks, and pool 2048 less the null block
+# leaves 2,047 blocks for 64 requests of 32, so those two rules may well fire; they report it, and b1's values stay as they were.
 # The test arms are decided first: verdict.py writes the p5 verdict before b1 starts, and run.sh exits with it.
 # A b1 that fails or runs out of budget stops only b1, writing b1/STOPPED, and leaves the p5 evidence as it was.
 #

@@ -22,7 +22,7 @@
 set -uo pipefail
 unset INSTANCE_TYPE KIT_ENV SESSION_CONFIRM AWS_PROFILE
 # The checks assert the kit's and the fakes' defaults, so a caller's settings must not reach them.
-unset BUDGET_S ARM_CAP_S CASE_CAP_S E2E_CAP_S UNIT_CAP_S PYTEST_CAP_S LLM_CAP_S KIT_DRY_RUN KIT_OFFLINE_TEST OFFLINE_VLLM_SRC OFFLINE_MODEL_BIN_SHA256 \
+unset B1 B1_CAP_S FAKE_B1 FAKE_B1_LOG BUDGET_S ARM_CAP_S CASE_CAP_S E2E_CAP_S UNIT_CAP_S PYTEST_CAP_S LLM_CAP_S KIT_DRY_RUN KIT_OFFLINE_TEST OFFLINE_VLLM_SRC OFFLINE_MODEL_BIN_SHA256 \
   FAKE_MODE FAKE_CUDA FAKE_HF FAKE_HF_DIR FAKE_NVSMI FAKE_ORDER_LOG FAKE_EXPECT_OFFLINE HF_HUB_OFFLINE TRANSFORMERS_OFFLINE VLLM_ENABLE_V1_MULTIPROCESSING CUDA_LAUNCH_BLOCKING
 # Python must not leave bytecode beside a mutant, where a same-size edit restored within a second could reuse it.
 export PYTHONDONTWRITEBYTECODE=1
@@ -335,6 +335,12 @@ done
 e2e "$KIT" b1-zeropreempt FAKE_B1=zeropreempt; rc=$?
 check "b1 zeropreempt: a pool-128 run with no preemption makes b1 INVALID, its values printed as they are, and the verdict stands" \
   "[ $rc = 0 ] && p5kept b1-zeropreempt && b1 b1-zeropreempt INVALID && b1t b1-zeropreempt 'B1 INVALID: control-128-2: preemptions=0'"
+for k in storageshort:'fix-128-1: the metadata server ran short of pages 1 times' preempt2048:'fix-2048-1: preemptions=3, so the pool-2048 control preempted'; do
+  mode=${k%%:*} why=${k#*:}
+  e2e "$KIT" "b1-$mode" FAKE_B1="$mode"; rc=$?
+  check "b1 $mode: b1 is INVALID ($why), all eight runs still made, and the verdict stands" \
+    "[ $rc = 0 ] && p5kept b1-$mode && b1 b1-$mode INVALID && b1t b1-$mode 'B1 INVALID: $why' && [ \"\$(b1order b1-$mode)\" = '$B1_ORDER_WANT' ]"
+done
 e2e "$KIT" b1-nojson FAKE_B1=nojson; rc=$?
 check "b1 nojson: a run that dies before its JSON makes b1 INCOMPLETE, the other seven still run, and the verdict stands" \
   "[ $rc = 0 ] && p5kept b1-nojson && b1 b1-nojson INCOMPLETE && [ \"\$(b1order b1-nojson)\" = '$B1_ORDER_WANT' ]"
@@ -517,6 +523,8 @@ ignores a run's exit status|s/^        if run\["exit"\] != 0:$/        if False:
 ignores b1's STOPPED|s/^    for name in ("NOT_RUN", "STOPPED"):$/    for name in ("NOT_RUN",):/
 rounds the values it prints|s/^        lines.append("  " + " ".join(f"{k}={json.dumps(d.get(k))}" for k in FIELDS))$/        lines.append("  " + " ".join(f"{k}={json.dumps(round(d.get(k), 2) if isinstance(d.get(k), float) else d.get(k))}" for k in FIELDS))/
 drops the verbatim JSON|s/^        lines.extend("    " + x for x in run\["raw"\].rstrip("\\n").split("\\n"))$/        pass/
+lets a preempting pool-2048 control through|s/^        if pool == CONTROL_POOL and d.get("preemptions") != 0:$/        if False:/
+misses the metadata server running short of pages|s/^        if short:$/        if False:/
 calls an invalid b1 valid|s/^    elif rec\["invalid"\]:$/    elif False:/
 B1MUTANTS
 
