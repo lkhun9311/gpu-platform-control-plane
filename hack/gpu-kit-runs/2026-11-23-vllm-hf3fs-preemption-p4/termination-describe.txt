@@ -1,0 +1,1 @@
+terminated	User initiated	Client.InstanceInitiatedShutdown	2026-11-22T15:15:04+00:00	ap-northeast-2d

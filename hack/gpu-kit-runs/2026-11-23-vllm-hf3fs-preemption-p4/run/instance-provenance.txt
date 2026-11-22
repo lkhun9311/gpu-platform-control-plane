@@ -1,0 +1,5 @@
+commit=1b51061cf44537c2031ab730ad7ce36124c14046
+launch_time_epoch=1795360504
+bringup_rc=0
+a8d24de7dec0fd05e46facbc1ce6a414f2db0f46601061bb40bc2007cf71846a  /opt/kit/inputs.tgz
+kit_rc=0

@@ -1,0 +1,66 @@
+== gpu kit docs/oss/vllm-hf3fs-preemption/kit-p4 at 1b51061cf44537c2031ab730ad7ce36124c14046, from 1b51061cf44537c2031ab730ad7ce36124c14046, into hack/gpu-kit-runs/2026-11-23-vllm-hf3fs-preemption-p4
+== hard stop 3720 s after LaunchTime; worst case 4020 s at $0.7683/h all in, $0.8579, under $1.00
+== Spot g5.xlarge under $0.70/h, cheapest first: ap-northeast-2d ap-northeast-2a ap-northeast-2c (ap-northeast-2a	0.594000 ap-northeast-2c	0.615200 ap-northeast-2d	0.593100)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the purchase checks: credentials expire in 295 minutes
+== before the purchase: credentials expire in 295 minutes
+== launching g5.xlarge Spot (cap $0.70/h, $0.7683/h all in), study-deadline 2026-11-22T16:16:02Z -- the instance bills from here
+== launched i-045cec0b013e5d7db in ap-northeast-2d
+== LaunchTime 2026-11-22T15:15:04+00:00; the sweeper's deadline moved to 2026-11-22T16:16:34Z
+== the wait ended with status 0 ()
+== waiting up to 3524s for EC2 to report the instance terminated
+== terminating i-045cec0b013e5d7db
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is shutting-down
+== i-045cec0b013e5d7db is terminated
+== evidence returned; termination confirmed; run.sh exit 0

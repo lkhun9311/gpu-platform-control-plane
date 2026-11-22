@@ -1,0 +1,247 @@
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:16:41Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788         576       14283           2         928       14920
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   15278328 kB
+CommitLimit:     8083484 kB
+Committed_AS:    1109092 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:17:11Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788         781        8129           2        6876       14651
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   15002860 kB
+CommitLimit:     8083484 kB
+Committed_AS:    1941832 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:17:42Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        1266        4221           2       10300       14167
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   14507052 kB
+CommitLimit:     8083484 kB
+Committed_AS:    1923236 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:18:12Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        1250        4121           2       10416       14182
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   14522396 kB
+CommitLimit:     8083484 kB
+Committed_AS:    1923236 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:18:42Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        1052        4038           2       10696       14399
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   14744412 kB
+CommitLimit:     8083484 kB
+Committed_AS:    1223124 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:19:12Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        2020        2726           2       11041       13431
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   13753200 kB
+CommitLimit:     8083484 kB
+Committed_AS:    3979236 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:19:42Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        3018        1479          18       11290       12399
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   12696768 kB
+CommitLimit:     8083484 kB
+Committed_AS:    4599700 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:20:12Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        2748        1636          18       11403       12668
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   12973244 kB
+CommitLimit:     8083484 kB
+Committed_AS:    4053664 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:20:42Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        2531        1893          18       11363       12886
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   13195532 kB
+CommitLimit:     8083484 kB
+Committed_AS:    4169780 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:21:12Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        2211        2286          18       11290       13206
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   13522904 kB
+CommitLimit:     8083484 kB
+Committed_AS:    3757072 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:21:42Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        2458        1991          18       11338       12959
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   13269768 kB
+CommitLimit:     8083484 kB
+Committed_AS:    4180540 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:22:12Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        2396        2034          18       11356       13020
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   13332728 kB
+CommitLimit:     8083484 kB
+Committed_AS:    4131440 kB
++ echo
+
++ mem
++ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-22T15:22:42Z
++ free -m
+               total        used        free      shared  buff/cache   available
+Mem:           15788        2402        1998          18       11387       13015
+Swap:              0           0           0
++ swapon --show
+++ cat /proc/sys/vm/overcommit_memory
+++ cat /proc/sys/vm/overcommit_ratio
++ echo 'overcommit_memory=0 overcommit_ratio=50'
+overcommit_memory=0 overcommit_ratio=50
++ grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS):' /proc/meminfo
+MemTotal:       16166972 kB
+MemAvailable:   13327376 kB
+CommitLimit:     8083484 kB
+Committed_AS:    4132464 kB
++ echo
+
