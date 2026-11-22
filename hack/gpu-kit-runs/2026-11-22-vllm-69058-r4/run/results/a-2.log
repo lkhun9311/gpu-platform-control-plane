@@ -1,0 +1,487 @@
+/opt/kit/work/.venv/lib/python3.12/site-packages/pytest_asyncio/plugin.py:299: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+FE
+==================================== ERRORS ====================================
+_ ERROR at teardown of TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail] _
+
+should_do_global_cleanup_after_test = True
+
+    @pytest.fixture(autouse=True)
+    def cleanup_fixture(should_do_global_cleanup_after_test: bool):
+        yield
+        if should_do_global_cleanup_after_test:
+>           cleanup_dist_env_and_memory()
+
+tests/conftest.py:279: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+shutdown_ray = False
+
+    def cleanup_dist_env_and_memory(shutdown_ray: bool = False):
+        logger.debug(
+            "[shutdown] Distributed: cleanup start shutdown_ray=%s",
+            shutdown_ray,
+        )
+        # Reset environment variable cache
+        envs.disable_envs_cache()
+    
+        # Reset rocm_aiter_ops class variables to match current os.environ.
+        # These are class-level attributes that persist across tests and are
+        # NOT restored by monkeypatch (which only restores os.environ).
+        from vllm.platforms import current_platform
+    
+        if current_platform.is_rocm():
+            from vllm._aiter_ops import rocm_aiter_ops
+    
+            rocm_aiter_ops.refresh_env_variables()
+    
+        # Ensure all objects are not frozen before cleanup
+        gc.unfreeze()
+    
+        destroy_model_parallel()
+        destroy_distributed_environment()
+        if shutdown_ray:
+            import ray  # Lazy import Ray
+    
+            ray.shutdown()
+        gc.collect()
+        from vllm.platforms import current_platform
+    
+        if not current_platform.is_cpu():
+            from vllm.triton_utils import HAS_TRITON
+    
+            if HAS_TRITON:
+                from vllm.v1.sample.ops.topk_topp_triton import reset_buffer_cache
+    
+>               reset_buffer_cache()
+
+vllm/distributed/parallel_state.py:2664: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def reset_buffer_cache():
+        _TRITON_BUFFER_CACHE.clear()
+        _TRITON_TABLE_CACHE.clear()
+        _TRITON_SPLIT_CACHE.clear()
+>       torch.accelerator.empty_cache()
+
+vllm/v1/sample/ops/topk_topp_triton.py:1733: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def empty_cache() -> None:
+        r"""Release all unoccupied cached memory currently held by the caching
+        allocator so that those can be used in other application.
+    
+        .. note:: This function is a no-op if the memory allocator for the current
+            :ref:`accelerator <accelerators>` has not been initialized.
+        """
+        if not torch._C._accelerator_isAllocatorInitialized():
+            return
+>       torch._C._accelerator_emptyCache()
+E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered
+E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+E       The CUDA driver logged these messages, which may provide useful details:
+E       Sticky error detected
+E       Returning 700 (CUDA_ERROR_ILLEGAL_ADDRESS) from cuMemFree_v2
+
+../.venv/lib/python3.12/site-packages/torch/accelerator/memory.py:32: AcceleratorError
+----------------------------- Captured stdout call -----------------------------
+(MainProcess pid=2429) INFO 11-22 10:08:02 [startup.py:96] non-default args: {'max_model_len': 512, 'block_size': 16, 'enable_prefix_caching': True, 'gpu_memory_utilization': 0.3, 'disable_log_stats': True, 'enforce_eager': True, 'num_gpu_blocks_override': 64, 'kv_transfer_config': KVTransferConfig(kv_connector='HF3FSKVConnector', engine_id='f8d78180-6d9e-4544-af9e-3457b70a6f3a', kv_buffer_device='cuda', kv_role='kv_both', kv_port=14579, kv_connector_extra_config={'hf3fs_storage_path': '/tmp/pytest-of-root/pytest-1/test_failed_read_honors_policy0', 'hf3fs_file_size': 268435456, 'hf3fs_client_numjobs': 2}, kv_connector_module_path=None, enable_permute_local_kv=False, kv_load_failure_policy='fail'), 'model': '/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6'}
+(MainProcess pid=2429) WARNING 11-22 10:08:02 [arg_utils.py:1989] The global random seed is set to 0. Since VLLM_ENABLE_V1_MULTIPROCESSING is set to False, this may affect the random state of the Python process that launched vLLM.
+(MainProcess pid=2429) INFO 11-22 10:08:02 [model.py:767] Resolved architecture: OPTForCausalLM
+(MainProcess pid=2429) INFO 11-22 10:08:02 [model.py:2371] Using max model len 512
+(MainProcess pid=2429) INFO 11-22 10:08:03 [scheduler.py:388] Chunked prefill is enabled with max_num_batched_tokens=8192.
+(MainProcess pid=2429) WARNING 11-22 10:08:03 [vllm.py:1837] Enforce eager set, disabling torch.compile, CUDAGraphs, and JIT kernel warmup. This is equivalent to setting -cc.mode=none -cc.cudagraph_mode=none and --kernel_config.enable_jit_warmup=False
+(MainProcess pid=2429) WARNING 11-22 10:08:03 [vllm.py:1861] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(MainProcess pid=2429) INFO 11-22 10:08:03 [kernel.py:578] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native'])
+(MainProcess pid=2429) INFO 11-22 10:08:03 [vllm.py:2061] Cudagraph is disabled under eager mode
+(MainProcess pid=2429) WARNING 11-22 10:08:03 [vllm.py:2334] Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+(MainProcess pid=2429) INFO 11-22 10:08:03 [compilation.py:429] Enabled custom fusions: norm_quant, act_quant
+(MainProcess pid=2429) INFO 11-22 10:08:03 [core.py:154] Initializing a V1 LLM engine (v0.34.0rc1.dev1122+gbb14b9979) with config: model='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', speculative_config=None, tokenizer='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.float16, max_seq_len=512, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=None, quantization_config=None, enforce_eager=True, aux_output_config=AuxOutputConfig(enable_return_routed_experts=False, max_bytes=None), kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, per_request_spec_decode_metrics='none', kv_cache_metrics=False, kv_cache_metrics_sample=0.01, custom_histogram_buckets=None, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False, jit_monitor_mode='warn', jit_monitor_verbose=False), seed=0, served_model_name=/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['all'], 'ir_enable_torch_wrap': False, 'splitting_ops': [], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_token_budget': 5120, 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.NONE: 0>, 'use_breakable_cudagraph': False, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': [], 'prefill_cudagraph_capture_token_sizes': None, 'max_prefill_cudagraph_capture_tokens': None, 'decode_cudagraph_capture_request_sizes': None, 'max_decode_cudagraph_capture_requests': None, 'max_decode_cudagraph_capture_tokens': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': True, 'fuse_act_quant': True, 'fuse_attn_quant': False, 'fuse_allreduce_rms': False, 'enable_qk_norm_rope_fusion': False, 'fuse_rope_kvcache_cat_mla': False, 'fuse_act_padding': False, 'fuse_qk_norm_rope_kvcache': False}, 'max_cudagraph_capture_size': 0, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native']), enable_flashinfer_autotune=True, enable_flashinfer_mm_encoder_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_rocm_aiter_gemm_warmup=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', step5_attention_backend='native', sparse_indexer_topk_backend='auto', flashinfer_sparse_mla_kernel='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable', b12x_moe_uncompressed_scales=False)
+(MainProcess pid=2429) INFO 11-22 10:08:04 [parallel_state.py:1981] world_size=1 rank=0 local_rank=0 distributed_init_method=file:///tmp/vllm_dist_065b77ba88534e099c829019b9a28d86 backend=nccl
+(MainProcess pid=2429) INFO 11-22 10:08:04 [parallel_state.py:2461] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, ETP rank 0, EP rank N/A, EPLB rank N/A
+(MainProcess pid=2429) INFO 11-22 10:08:04 [cuda.py:240] NVIDIA Confidential Computing not detected via NVML
+(MainProcess pid=2429) INFO 11-22 10:08:04 [model_runner.py:415] Loading model from scratch...
+(MainProcess pid=2429) INFO 11-22 10:08:14 [flash_attn.py:1201] Using FlashAttention version 2
+(MainProcess pid=2429) INFO 11-22 10:08:14 [base_loader.py:100] Initializing model took 9.389900 seconds
+(MainProcess pid=2429) INFO 11-22 10:08:14 [default_loader.py:570] Loading weights took 0.21 seconds
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:417] Backends selected for OPTForCausalLM (/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6):
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:417]   layer     | count | backend                 | modules
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:417]   attention |    12 | FLASH_ATTN              | model.decoder.layers.[0-11].self_attn.attn
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:417]   linear    |    50 | unquantized [w=float16] | model.decoder.embed_tokens, model.decoder.layers.[0-11].self_attn.{qkv_proj,out_proj}, model.decoder.layers.[0-11].{fc1,fc2}, lm_head
+(MainProcess pid=2429) INFO 11-22 10:08:14 [model_runner.py:455] Model loading took 0.24 GiB memory and 9.770844 seconds
+(MainProcess pid=2429) INFO 11-22 10:08:14 [topk_topp_sampler.py:119] Using FlashInfer for top-p & top-k sampling.
+(MainProcess pid=2429) INFO 11-22 10:08:14 [torch_utils.py:302] Reducing Torch threads from 2 to 1 for serving. Set OMP_NUM_THREADS in the external environment to override.
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:428] Using LBNHC KV cache layout.
+(MainProcess pid=2429) INFO 11-22 10:10:01 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB
+(MainProcess pid=2429) INFO 11-22 10:10:01 [kv_cache_planning.py:1519] Overriding num_gpu_blocks=11104 with num_gpu_blocks_override=64
+(MainProcess pid=2429) INFO 11-22 10:10:01 [kv_cache_utils.py:1123] GPU KV cache size: 1,024 tokens, Maximum concurrency for 512 tokens per request: 2.00x
+(MainProcess pid=2429) INFO 11-22 10:10:01 [factory.py:71] Creating v1 connector with name: HF3FSKVConnector and engine_id: f8d78180-6d9e-4544-af9e-3457b70a6f3a
+(MainProcess pid=2429) WARNING 11-22 10:10:01 [base.py:249] Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+(MainProcess pid=2429) INFO 11-22 10:10:01 [hf3fs_connector.py:527] Using MLA: False
+(MainProcess pid=2429) INFO 11-22 10:10:01 [hf3fs_connector.py:560] HF3FSKVConnector initialized: path=/tmp/pytest-of-root/pytest-1/test_failed_read_honors_policy0, role=WORKER
+(MainProcess pid=2429) INFO 11-22 10:10:01 [hf3fs_metadata_server.py:99] Initialized rank 0 with 455 pages
+(MainProcess pid=2429) INFO 11-22 10:10:01 [hf3fs_connector.py:130] AsyncOperationManager initialized for rank 0
+(MainProcess pid=2429) INFO 11-22 10:10:02 [gpu_worker.py:1229] Free memory on device (21.73/22.06 GiB) on startup. Desired GPU memory utilization is (0.3, 6.62 GiB). Actual usage is 0.32 GiB for consumed memory (weights + non-torch), 0.19 GiB for peak activation, and 0.0 GiB for CUDAGraph memory. Replace gpu_memory_utilization config with `--kv-cache-memory=6392644404` (5.95 GiB) to fit into requested memory, or `--kv-cache-memory=22620983296` (21.07 GiB) to fully utilize gpu memory. Current kv cache memory in use is 6.1 GiB.
+(MainProcess pid=2429) INFO 11-22 10:10:02 [core.py:457] init engine (profile, create kv cache, warmup model) took 108.41 s
+(MainProcess pid=2429) INFO 11-22 10:10:02 [factory.py:71] Creating v1 connector with name: HF3FSKVConnector and engine_id: f8d78180-6d9e-4544-af9e-3457b70a6f3a
+(MainProcess pid=2429) WARNING 11-22 10:10:02 [base.py:249] Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+(MainProcess pid=2429) INFO 11-22 10:10:02 [hf3fs_connector.py:527] Using MLA: False
+(MainProcess pid=2429) INFO 11-22 10:10:02 [hf3fs_connector.py:560] HF3FSKVConnector initialized: path=/tmp/pytest-of-root/pytest-1/test_failed_read_honors_policy0, role=SCHEDULER
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf.py:754] Detected the chat template content format to be 'string'. You can set `--chat-template-content-format` to override this.
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 0-9e878f7e: 0 matched (0 blocks), 0 new hits, prompt len 241
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:477] Saved 0-9e878f7e: 15 blocks in 0.11s
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 1-a8b14107: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 2-a800495d: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 3-9013ba95: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 3-9013ba95: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 3-9013ba95: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 4-8c775b4b: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 1-a8b14107: 20 blocks in 0.03s
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 4-8c775b4b: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 4-8c775b4b: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 4-8c775b4b: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 5-8deb80b4: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 2-a800495d: 20 blocks in 0.02s
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 5-8deb80b4: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 5-8deb80b4: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 6-86734e3a: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 3-9013ba95: 20 blocks in 0.02s
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 6-86734e3a: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 6-86734e3a: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 4-8c775b4b: 20 blocks in 0.02s
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 7-bc82f164: 240 matched (15 blocks), 240 new hits, prompt len 241
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 7-bc82f164: 240 matched (15 blocks), 240 new hits, prompt len 241
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 7-bc82f164: 240 matched (15 blocks), 240 new hits, prompt len 241
+(MainProcess pid=2429) ERROR 11-22 10:10:04 [hf3fs_connector.py:458] Read operation failed for Loaded request 7-bc82f164
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 0 saves, 1 loads operations
+(MainProcess pid=2429) ERROR 11-22 10:10:04 [scheduler.py:3974] Failing 1 request(s) due to KV load failure (failure_policy=fail, 240 tokens affected). Request IDs: {'7-bc82f164'}
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 5-8deb80b4: 20 blocks in 0.42s
+(MainProcess pid=2429) ERROR 11-22 10:10:04 [hf3fs_connector.py:458] Task execution error: Triton Error [CUDA]: an illegal memory access was encountered for Saved request 6-86734e3a
+----------------------------- Captured stderr call -----------------------------
+Loading pt checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.84it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.83it/s]
+
+2026-11-22 10:08:21,761 - INFO - core.py:635 - flashinfer.jit: Building JIT module sampling; this can take several minutes on first use.
+=================================== FAILURES ===================================
+______ TestHF3FSLoadFailureEndToEnd.test_failed_read_honors_policy[fail] _______
+
+self = <tests.v1.kv_connector.unit.test_hf3fs_load_failure.TestHF3FSLoadFailureEndToEnd object at 0x7d7ac8559010>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_failed_read_honors_policy0')
+in_process_storage = (<tests.v1.kv_connector.unit.test_hf3fs_load_failure.InProcessMetadataService object at 0x7d7ac855a7b0>, <tests.v1.kv_connector.unit.test_hf3fs_load_failure.StorageFaults object at 0x7d7ac855a840>)
+policy = 'fail'
+
+    @pytest.mark.parametrize("policy", ["fail", "recompute"])
+    def test_failed_read_honors_policy(self, tmp_path, in_process_storage, policy):
+        metadata, faults = in_process_storage
+        target, fillers = _e2e_prompts()
+        transfer_config = KVTransferConfig(
+            kv_connector="HF3FSKVConnector",
+            kv_role="kv_both",
+            kv_load_failure_policy=policy,
+            kv_connector_extra_config={
+                "hf3fs_storage_path": str(tmp_path),
+                "hf3fs_file_size": 256 * 1024 * 1024,
+                "hf3fs_client_numjobs": 2,
+            },
+        )
+        # One in-process engine per test, torn down like the other in-process tests.
+        gc.collect()
+        torch.accelerator.empty_cache()
+        with patch("signal.signal"):
+            llm = LLM(
+                model=E2E_MODEL,
+                enforce_eager=True,
+                gpu_memory_utilization=0.3,
+                max_model_len=E2E_MAX_MODEL_LEN,
+                block_size=BLOCK_SIZE,
+                num_gpu_blocks_override=E2E_NUM_GPU_BLOCKS,
+                enable_prefix_caching=True,
+                kv_transfer_config=transfer_config,
+            )
+        connectors = [
+            llm.llm_engine.engine_core.engine_core.scheduler.connector,
+            get_kv_transfer_group(),
+        ]
+        try:
+            # No key is stored yet, so this run computes the whole prompt.
+            # It is the reference the recomputed run must match.
+            cold = _greedy_output(llm, target)
+            num_target_blocks = len(llm.get_tokenizer().encode(target)) // BLOCK_SIZE
+            _wait_until(lambda: metadata.num_stored_keys() >= num_target_blocks)
+            llm.generate(
+                fillers,
+                SamplingParams(temperature=0, max_tokens=1),
+                use_tqdm=False,
+            )
+    
+            faults.fail_reads = True
+            retry = _greedy_output(llm, target)
+        finally:
+            # The connectors' exit hooks would keep their KV cache references alive.
+            for connector in connectors:
+                atexit.unregister(connector.close)
+>           llm.llm_engine.engine_core.shutdown()
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py:435: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <vllm.v1.engine.core_client.InprocClient object at 0x7d7ab3434410>
+timeout = None
+
+    def shutdown(self, timeout: float | None = None) -> None:
+        if self._finalizer.detach() is not None:
+>           self.engine_core.shutdown()
+
+vllm/v1/engine/core_client.py:444: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <vllm.v1.engine.core.EngineCore object at 0x7d7ab34344a0>
+
+    def shutdown(self):
+        logger.debug_once("[shutdown] EngineCore: tearing down local resources")
+        self.structured_output_manager.clear_backend()
+        if self.model_executor:
+            self.model_executor.shutdown()
+        if self.scheduler:
+            self.scheduler.shutdown()
+    
+        # Undo the gc.freeze() from __init__ so that the objects allocated
+        # during engine startup (model weights, KV caches, etc.) become
+        # visible to the garbage collector again. Without this, deleting
+        # the engine in-process (e.g. unit tests) leaks GPU memory.
+        gc.unfreeze()
+        # Tear down distributed state initialized in this EngineCore process
+        # before it exits and release cached memory.
+>       cleanup_dist_env_and_memory()
+
+vllm/v1/engine/core.py:911: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+shutdown_ray = False
+
+    def cleanup_dist_env_and_memory(shutdown_ray: bool = False):
+        logger.debug(
+            "[shutdown] Distributed: cleanup start shutdown_ray=%s",
+            shutdown_ray,
+        )
+        # Reset environment variable cache
+        envs.disable_envs_cache()
+    
+        # Reset rocm_aiter_ops class variables to match current os.environ.
+        # These are class-level attributes that persist across tests and are
+        # NOT restored by monkeypatch (which only restores os.environ).
+        from vllm.platforms import current_platform
+    
+        if current_platform.is_rocm():
+            from vllm._aiter_ops import rocm_aiter_ops
+    
+            rocm_aiter_ops.refresh_env_variables()
+    
+        # Ensure all objects are not frozen before cleanup
+        gc.unfreeze()
+    
+        destroy_model_parallel()
+        destroy_distributed_environment()
+        if shutdown_ray:
+            import ray  # Lazy import Ray
+    
+            ray.shutdown()
+        gc.collect()
+        from vllm.platforms import current_platform
+    
+        if not current_platform.is_cpu():
+            from vllm.triton_utils import HAS_TRITON
+    
+            if HAS_TRITON:
+                from vllm.v1.sample.ops.topk_topp_triton import reset_buffer_cache
+    
+                reset_buffer_cache()
+            torch.accelerator.empty_cache()
+            try:
+>               torch.accelerator.empty_host_cache()
+
+vllm/distributed/parallel_state.py:2667: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def empty_host_cache() -> None:
+        r"""Release all unoccupied cached host (pinned) memory currently held by the host caching
+        allocator so that it can be used by other applications.
+    
+        .. note:: This function is a no-op if the memory allocator for the current
+            :ref:`accelerator <accelerators>` has not been initialized.
+        """
+>       torch._C._accelerator_emptyHostCache()
+E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered
+E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+
+../.venv/lib/python3.12/site-packages/torch/accelerator/memory.py:42: AcceleratorError
+----------------------------- Captured stdout call -----------------------------
+(MainProcess pid=2429) INFO 11-22 10:08:02 [startup.py:96] non-default args: {'max_model_len': 512, 'block_size': 16, 'enable_prefix_caching': True, 'gpu_memory_utilization': 0.3, 'disable_log_stats': True, 'enforce_eager': True, 'num_gpu_blocks_override': 64, 'kv_transfer_config': KVTransferConfig(kv_connector='HF3FSKVConnector', engine_id='f8d78180-6d9e-4544-af9e-3457b70a6f3a', kv_buffer_device='cuda', kv_role='kv_both', kv_port=14579, kv_connector_extra_config={'hf3fs_storage_path': '/tmp/pytest-of-root/pytest-1/test_failed_read_honors_policy0', 'hf3fs_file_size': 268435456, 'hf3fs_client_numjobs': 2}, kv_connector_module_path=None, enable_permute_local_kv=False, kv_load_failure_policy='fail'), 'model': '/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6'}
+(MainProcess pid=2429) WARNING 11-22 10:08:02 [arg_utils.py:1989] The global random seed is set to 0. Since VLLM_ENABLE_V1_MULTIPROCESSING is set to False, this may affect the random state of the Python process that launched vLLM.
+(MainProcess pid=2429) INFO 11-22 10:08:02 [model.py:767] Resolved architecture: OPTForCausalLM
+(MainProcess pid=2429) INFO 11-22 10:08:02 [model.py:2371] Using max model len 512
+(MainProcess pid=2429) INFO 11-22 10:08:03 [scheduler.py:388] Chunked prefill is enabled with max_num_batched_tokens=8192.
+(MainProcess pid=2429) WARNING 11-22 10:08:03 [vllm.py:1837] Enforce eager set, disabling torch.compile, CUDAGraphs, and JIT kernel warmup. This is equivalent to setting -cc.mode=none -cc.cudagraph_mode=none and --kernel_config.enable_jit_warmup=False
+(MainProcess pid=2429) WARNING 11-22 10:08:03 [vllm.py:1861] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(MainProcess pid=2429) INFO 11-22 10:08:03 [kernel.py:578] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native'])
+(MainProcess pid=2429) INFO 11-22 10:08:03 [vllm.py:2061] Cudagraph is disabled under eager mode
+(MainProcess pid=2429) WARNING 11-22 10:08:03 [vllm.py:2334] Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+(MainProcess pid=2429) INFO 11-22 10:08:03 [compilation.py:429] Enabled custom fusions: norm_quant, act_quant
+(MainProcess pid=2429) INFO 11-22 10:08:03 [core.py:154] Initializing a V1 LLM engine (v0.34.0rc1.dev1122+gbb14b9979) with config: model='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', speculative_config=None, tokenizer='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.float16, max_seq_len=512, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=None, quantization_config=None, enforce_eager=True, aux_output_config=AuxOutputConfig(enable_return_routed_experts=False, max_bytes=None), kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, per_request_spec_decode_metrics='none', kv_cache_metrics=False, kv_cache_metrics_sample=0.01, custom_histogram_buckets=None, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False, jit_monitor_mode='warn', jit_monitor_verbose=False), seed=0, served_model_name=/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['all'], 'ir_enable_torch_wrap': False, 'splitting_ops': [], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_token_budget': 5120, 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.NONE: 0>, 'use_breakable_cudagraph': False, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': [], 'prefill_cudagraph_capture_token_sizes': None, 'max_prefill_cudagraph_capture_tokens': None, 'decode_cudagraph_capture_request_sizes': None, 'max_decode_cudagraph_capture_requests': None, 'max_decode_cudagraph_capture_tokens': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': True, 'fuse_act_quant': True, 'fuse_attn_quant': False, 'fuse_allreduce_rms': False, 'enable_qk_norm_rope_fusion': False, 'fuse_rope_kvcache_cat_mla': False, 'fuse_act_padding': False, 'fuse_qk_norm_rope_kvcache': False}, 'max_cudagraph_capture_size': 0, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native']), enable_flashinfer_autotune=True, enable_flashinfer_mm_encoder_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_rocm_aiter_gemm_warmup=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', step5_attention_backend='native', sparse_indexer_topk_backend='auto', flashinfer_sparse_mla_kernel='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable', b12x_moe_uncompressed_scales=False)
+(MainProcess pid=2429) INFO 11-22 10:08:04 [parallel_state.py:1981] world_size=1 rank=0 local_rank=0 distributed_init_method=file:///tmp/vllm_dist_065b77ba88534e099c829019b9a28d86 backend=nccl
+(MainProcess pid=2429) INFO 11-22 10:08:04 [parallel_state.py:2461] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, ETP rank 0, EP rank N/A, EPLB rank N/A
+(MainProcess pid=2429) INFO 11-22 10:08:04 [cuda.py:240] NVIDIA Confidential Computing not detected via NVML
+(MainProcess pid=2429) INFO 11-22 10:08:04 [model_runner.py:415] Loading model from scratch...
+(MainProcess pid=2429) INFO 11-22 10:08:14 [flash_attn.py:1201] Using FlashAttention version 2
+(MainProcess pid=2429) INFO 11-22 10:08:14 [base_loader.py:100] Initializing model took 9.389900 seconds
+(MainProcess pid=2429) INFO 11-22 10:08:14 [default_loader.py:570] Loading weights took 0.21 seconds
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:417] Backends selected for OPTForCausalLM (/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6):
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:417]   layer     | count | backend                 | modules
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:417]   attention |    12 | FLASH_ATTN              | model.decoder.layers.[0-11].self_attn.attn
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:417]   linear    |    50 | unquantized [w=float16] | model.decoder.embed_tokens, model.decoder.layers.[0-11].self_attn.{qkv_proj,out_proj}, model.decoder.layers.[0-11].{fc1,fc2}, lm_head
+(MainProcess pid=2429) INFO 11-22 10:08:14 [model_runner.py:455] Model loading took 0.24 GiB memory and 9.770844 seconds
+(MainProcess pid=2429) INFO 11-22 10:08:14 [topk_topp_sampler.py:119] Using FlashInfer for top-p & top-k sampling.
+(MainProcess pid=2429) INFO 11-22 10:08:14 [torch_utils.py:302] Reducing Torch threads from 2 to 1 for serving. Set OMP_NUM_THREADS in the external environment to override.
+(MainProcess pid=2429) INFO 11-22 10:08:14 [utils.py:428] Using LBNHC KV cache layout.
+(MainProcess pid=2429) INFO 11-22 10:10:01 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB
+(MainProcess pid=2429) INFO 11-22 10:10:01 [kv_cache_planning.py:1519] Overriding num_gpu_blocks=11104 with num_gpu_blocks_override=64
+(MainProcess pid=2429) INFO 11-22 10:10:01 [kv_cache_utils.py:1123] GPU KV cache size: 1,024 tokens, Maximum concurrency for 512 tokens per request: 2.00x
+(MainProcess pid=2429) INFO 11-22 10:10:01 [factory.py:71] Creating v1 connector with name: HF3FSKVConnector and engine_id: f8d78180-6d9e-4544-af9e-3457b70a6f3a
+(MainProcess pid=2429) WARNING 11-22 10:10:01 [base.py:249] Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+(MainProcess pid=2429) INFO 11-22 10:10:01 [hf3fs_connector.py:527] Using MLA: False
+(MainProcess pid=2429) INFO 11-22 10:10:01 [hf3fs_connector.py:560] HF3FSKVConnector initialized: path=/tmp/pytest-of-root/pytest-1/test_failed_read_honors_policy0, role=WORKER
+(MainProcess pid=2429) INFO 11-22 10:10:01 [hf3fs_metadata_server.py:99] Initialized rank 0 with 455 pages
+(MainProcess pid=2429) INFO 11-22 10:10:01 [hf3fs_connector.py:130] AsyncOperationManager initialized for rank 0
+(MainProcess pid=2429) INFO 11-22 10:10:02 [gpu_worker.py:1229] Free memory on device (21.73/22.06 GiB) on startup. Desired GPU memory utilization is (0.3, 6.62 GiB). Actual usage is 0.32 GiB for consumed memory (weights + non-torch), 0.19 GiB for peak activation, and 0.0 GiB for CUDAGraph memory. Replace gpu_memory_utilization config with `--kv-cache-memory=6392644404` (5.95 GiB) to fit into requested memory, or `--kv-cache-memory=22620983296` (21.07 GiB) to fully utilize gpu memory. Current kv cache memory in use is 6.1 GiB.
+(MainProcess pid=2429) INFO 11-22 10:10:02 [core.py:457] init engine (profile, create kv cache, warmup model) took 108.41 s
+(MainProcess pid=2429) INFO 11-22 10:10:02 [factory.py:71] Creating v1 connector with name: HF3FSKVConnector and engine_id: f8d78180-6d9e-4544-af9e-3457b70a6f3a
+(MainProcess pid=2429) WARNING 11-22 10:10:02 [base.py:249] Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+(MainProcess pid=2429) INFO 11-22 10:10:02 [hf3fs_connector.py:527] Using MLA: False
+(MainProcess pid=2429) INFO 11-22 10:10:02 [hf3fs_connector.py:560] HF3FSKVConnector initialized: path=/tmp/pytest-of-root/pytest-1/test_failed_read_honors_policy0, role=SCHEDULER
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf.py:754] Detected the chat template content format to be 'string'. You can set `--chat-template-content-format` to override this.
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 0-9e878f7e: 0 matched (0 blocks), 0 new hits, prompt len 241
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:477] Saved 0-9e878f7e: 15 blocks in 0.11s
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 1-a8b14107: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 2-a800495d: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 3-9013ba95: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 3-9013ba95: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 3-9013ba95: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:03 [hf3fs_connector.py:811] Token matching for 4-8c775b4b: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 1-a8b14107: 20 blocks in 0.03s
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 4-8c775b4b: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 4-8c775b4b: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 4-8c775b4b: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 5-8deb80b4: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 2-a800495d: 20 blocks in 0.02s
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 5-8deb80b4: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 5-8deb80b4: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 6-86734e3a: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 3-9013ba95: 20 blocks in 0.02s
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 6-86734e3a: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 6-86734e3a: 0 matched (0 blocks), 0 new hits, prompt len 321
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 4-8c775b4b: 20 blocks in 0.02s
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 7-bc82f164: 240 matched (15 blocks), 240 new hits, prompt len 241
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 1 saves, 0 loads operations
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 7-bc82f164: 240 matched (15 blocks), 240 new hits, prompt len 241
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:811] Token matching for 7-bc82f164: 240 matched (15 blocks), 240 new hits, prompt len 241
+(MainProcess pid=2429) ERROR 11-22 10:10:04 [hf3fs_connector.py:458] Read operation failed for Loaded request 7-bc82f164
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:206] HF3FS Connector Completed: 0 saves, 1 loads operations
+(MainProcess pid=2429) ERROR 11-22 10:10:04 [scheduler.py:3974] Failing 1 request(s) due to KV load failure (failure_policy=fail, 240 tokens affected). Request IDs: {'7-bc82f164'}
+(MainProcess pid=2429) INFO 11-22 10:10:04 [hf3fs_connector.py:477] Saved 5-8deb80b4: 20 blocks in 0.42s
+(MainProcess pid=2429) ERROR 11-22 10:10:04 [hf3fs_connector.py:458] Task execution error: Triton Error [CUDA]: an illegal memory access was encountered for Saved request 6-86734e3a
+----------------------------- Captured stderr call -----------------------------
+Loading pt checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.84it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.83it/s]
+
+2026-11-22 10:08:21,761 - INFO - core.py:635 - flashinfer.jit: Building JIT module sampling; this can take several minutes on first use.
+=============================== warnings summary ===============================
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py:3504: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/moe_w4a16_kernel.py:2893: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:29: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:31: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:34: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:968: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:970: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:427: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    epi_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:2391: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/cute_dsl/low_latency_blockscaled_gemm.py:103: DeprecationWarning: cutlass.utils.smem_allocator.get_smem_capacity_in_bytes is deprecated; use cutlass.memory.get_smem_capacity_in_bytes instead. It will be removed in a future release.
+    _SMEM_CAPACITY_BYTES = cutlass.utils.get_smem_capacity_in_bytes("sm_100")
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_rubin.py:218: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_chunked.py:95: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gdn_kernels/delta_rule_dsl/collective_store_tma.py:6: DeprecationWarning: cutlass.utils.tensormap_manager.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils.tensormap_manager import TensorMapManager, TensorMapUpdateMode
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_cp_prefill.py:55: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/cute_dsl/availability.py:136: DeprecationWarning: Arch from arch.py is deprecated. Use Arch from enums.py instead.
+    from cutlass.base_dsl.arch import Arch
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/quack/copy_utils.py:15: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    from cutlass.utils import LayoutEnum, block_copy
+
+tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+  /opt/kit/work/.venv/lib/python3.12/site-packages/quack/copy_utils.py:562: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    layout_c: cutlass.utils.LayoutEnum,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+ERROR tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 2 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 20 warnings, 1 error in 123.28s (0:02:03)

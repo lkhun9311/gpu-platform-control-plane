@@ -1,0 +1,143 @@
+{
+ "arms": {
+  "a": {
+   "step1": {
+    "counts": {
+     "failed": 3,
+     "passed": 1
+    },
+    "failed": [
+     "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]",
+     "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest",
+     "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load"
+    ],
+    "seconds": 19.51,
+    "state": "AS EXPECTED",
+    "summary": "3 failed, 1 passed, 2 deselected in 19.51s"
+   },
+   "step2": {
+    "cause": "CUDA illegal memory access",
+    "exit": 1,
+    "failed": [
+     "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+     "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]"
+    ],
+    "illegal_access": {
+     "block": [
+      "    ",
+      ">               reset_buffer_cache()",
+      "",
+      "vllm/distributed/parallel_state.py:2664: ",
+      "_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ",
+      "",
+      "    def reset_buffer_cache():",
+      "        _TRITON_BUFFER_CACHE.clear()",
+      "        _TRITON_TABLE_CACHE.clear()",
+      "        _TRITON_SPLIT_CACHE.clear()",
+      ">       torch.accelerator.empty_cache()",
+      "",
+      "vllm/v1/sample/ops/topk_topp_triton.py:1733: ",
+      "_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ",
+      "",
+      "    def empty_cache() -> None:",
+      "        r\"\"\"Release all unoccupied cached memory currently held by the caching",
+      "        allocator so that those can be used in other application.",
+      "    ",
+      "        .. note:: This function is a no-op if the memory allocator for the current",
+      "            :ref:`accelerator <accelerators>` has not been initialized.",
+      "        \"\"\"",
+      "        if not torch._C._accelerator_isAllocatorInitialized():",
+      "            return",
+      ">       torch._C._accelerator_emptyCache()",
+      "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+      "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+      "E       The CUDA driver logged these messages, which may provide useful details:",
+      "E       Sticky error detected",
+      "E       Returning 700 (CUDA_ERROR_ILLEGAL_ADDRESS) from cuMemFree_v2",
+      "",
+      "../.venv/lib/python3.12/site-packages/torch/accelerator/memory.py:32: AcceleratorError"
+     ],
+     "frame": "../.venv/lib/python3.12/site-packages/torch/accelerator/memory.py:32 (AcceleratorError)",
+     "line": "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "line_no": 82,
+     "method": "pytest traceback"
+    },
+    "state": "RESULT",
+    "summary": "1 failed, 20 warnings, 1 error in 123.28s (0:02:03)"
+   }
+  },
+  "b": {
+   "step1": {
+    "counts": {
+     "passed": 4
+    },
+    "failed": [],
+    "seconds": 7.06,
+    "state": "AS EXPECTED",
+    "summary": "4 passed, 2 deselected in 7.06s"
+   },
+   "step2": {
+    "cause": "CUDA illegal memory access",
+    "exit": 1,
+    "failed": [
+     "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]",
+     "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]"
+    ],
+    "illegal_access": {
+     "block": [
+      "    ",
+      ">               reset_buffer_cache()",
+      "",
+      "vllm/distributed/parallel_state.py:2664: ",
+      "_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ",
+      "",
+      "    def reset_buffer_cache():",
+      "        _TRITON_BUFFER_CACHE.clear()",
+      "        _TRITON_TABLE_CACHE.clear()",
+      "        _TRITON_SPLIT_CACHE.clear()",
+      ">       torch.accelerator.empty_cache()",
+      "",
+      "vllm/v1/sample/ops/topk_topp_triton.py:1733: ",
+      "_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ",
+      "",
+      "    def empty_cache() -> None:",
+      "        r\"\"\"Release all unoccupied cached memory currently held by the caching",
+      "        allocator so that those can be used in other application.",
+      "    ",
+      "        .. note:: This function is a no-op if the memory allocator for the current",
+      "            :ref:`accelerator <accelerators>` has not been initialized.",
+      "        \"\"\"",
+      "        if not torch._C._accelerator_isAllocatorInitialized():",
+      "            return",
+      ">       torch._C._accelerator_emptyCache()",
+      "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+      "E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.",
+      "E       The CUDA driver logged these messages, which may provide useful details:",
+      "E       Sticky error detected",
+      "E       Returning 700 (CUDA_ERROR_ILLEGAL_ADDRESS) from cuMemFree_v2",
+      "",
+      "../.venv/lib/python3.12/site-packages/torch/accelerator/memory.py:32: AcceleratorError"
+     ],
+     "frame": "../.venv/lib/python3.12/site-packages/torch/accelerator/memory.py:32 (AcceleratorError)",
+     "line": "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+     "line_no": 82,
+     "method": "pytest traceback"
+    },
+    "state": "RESULT",
+    "summary": "1 failed, 20 warnings, 1 error in 6.93s"
+   }
+  }
+ },
+ "env": {
+  "cuda_available": true,
+  "device_count": 1,
+  "device_name": "NVIDIA A10G",
+  "python": "3.12.15",
+  "torch": "2.14.0+cu130",
+  "torch_cuda": "13.0",
+  "triton": "3.8.0"
+ },
+ "gaps": [],
+ "step3": "not run: the #69058 issue body names ./run.sh fault and ./run.sh nofault but does not contain run.sh, and kit r3 had none",
+ "verdict": "AS EXPECTED"
+}

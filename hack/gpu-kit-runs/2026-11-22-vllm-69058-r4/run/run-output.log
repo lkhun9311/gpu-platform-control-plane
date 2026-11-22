@@ -1,0 +1,29 @@
+clone-vllm exit=0 t=13
+fetch-arm-a exit=0 t=14
+fetch-arm-b exit=0 t=15
+materialize-arm-b exit=0 t=17
+materialize-arm-a exit=0 t=18
+install-vllm exit=0 t=57
+install-test exit=0 t=57
+envprobe exit=0 t=60
+download-model exit=0 t=67
+test-a-1 exit=1 t=107
+test-a-2 exit=1 t=241
+test-b-1 exit=0 t=259
+test-b-2 exit=1 t=276
+gpu: NVIDIA A10G torch: 2.14.0+cu130 cuda: 13.0 triton: 3.8.0
+arm A step 1: AS EXPECTED: 3 failed, 1 passed, 2 deselected in 19.51s
+  failed: tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSSchedulerLoadFailure::test_failed_load_honors_failure_policy[fail]
+  failed: tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSSchedulerLoadFailure::test_failed_later_batch_keeps_prefix_and_saves_the_rest
+  failed: tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSSchedulerLoadFailure::test_reused_blocks_do_not_mark_a_finished_load
+arm A step 2: RESULT: 1 failed, 20 warnings, 1 error in 123.28s (0:02:03) (exit 1); cause: CUDA illegal memory access
+arm A illegal memory access: yes, first at log line 82, frame ../.venv/lib/python3.12/site-packages/torch/accelerator/memory.py:32 (AcceleratorError) (pytest traceback)
+  E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered
+arm A step 3 (run.sh fault, nofault): not run: the #69058 issue body names ./run.sh fault and ./run.sh nofault but does not contain run.sh, and kit r3 had none
+arm B step 1: AS EXPECTED: 4 passed, 2 deselected in 7.06s
+arm B step 2: RESULT: 1 failed, 20 warnings, 1 error in 6.93s (exit 1); cause: CUDA illegal memory access
+arm B illegal memory access: yes, first at log line 82, frame ../.venv/lib/python3.12/site-packages/torch/accelerator/memory.py:32 (AcceleratorError) (pytest traceback)
+  E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered
+arm B step 3 (run.sh fault, nofault): not run: the #69058 issue body names ./run.sh fault and ./run.sh nofault but does not contain run.sh, and kit r3 had none
+STEP 2 RESULT: arm A RESULT CUDA illegal memory access, illegal memory access yes; arm B RESULT CUDA illegal memory access, illegal memory access yes
+VERDICT: AS EXPECTED

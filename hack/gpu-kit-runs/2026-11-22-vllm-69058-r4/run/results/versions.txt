@@ -1,0 +1,7 @@
+arm_a commit=bb14b99792981d8dcebcce5fe7eacfb46e4258fb tree=8256f29750a8035f563029cfd6c7e1bb40558b0b
+arm_b commit=9ee44f044e6f3bbc49b96facb4cfda659cd783a5 tree=5cdf5ed74707a1e5fb0509a058c1d86aba70d3cb
+test_file_sha256=af58d2b74ba20c35ec547e70648e0a9de04736edbd5cf6e63c3e3780d2574217
+test_pins=pytest==9.2.0 pytest-asyncio==1.4.0 tblib==3.1.0 httpx==0.27.2
+precompiled_wheel: DEBUG Using precompiled wheel commit dd8c157895f01875bc5f44c51003bbe330647330 with variant cu132 DEBUG Found precompiled wheel metadata: {'package_name': 'vllm', 'version': '0.34.0rc1.dev1117+gdd8c15789', 'build_tag': None, 'python_tag': 'cp38', 'abi_tag': 'abi3', 'platform_tag': 'manylinux_2_28_x86_64', 'variant': None, 'filename': 'vllm-0.34.0rc1.dev1117+gdd8c15789-cp38-abi3-manylinux_2_28_x86_64.whl', 'path': '../../../dd8c157895f01875bc5f44c51003bbe330647330/vllm-0.34.0rc1.dev1117%2Bgdd8c15789-cp38-abi3-manylinux_2_28_x86_64.whl'} DEBUG Using precompiled wheel URL: https://wheels.vllm.ai/dd8c157895f01875bc5f44c51003bbe330647330/vllm-0.34.0rc1.dev1117%2Bgdd8c15789-cp38-abi3-manylinux_2_28_x86_64.whl DEBUG Downloading wheel from https://wheels.vllm.ai/dd8c157895f01875bc5f44c51003bbe330647330/vllm-0.34.0rc1.dev1117%2Bgdd8c15789-cp38-abi3-manylinux_2_28_x86_64.whl to /tmp/vllm-wheelsuljsv6q9/vllm-0.34.0rc1.dev1117+gdd8c15789-cp38-abi3-manylinux_2_28_x86_64.whl 
+{"cuda_available": true, "device_count": 1, "device_name": "NVIDIA A10G", "python": "3.12.15", "torch": "2.14.0+cu130", "torch_cuda": "13.0", "triton": "3.8.0"}
+model_rev=27dcfa74d334bc871f3234de431e71c6eeba5dd6

@@ -1,0 +1,70 @@
+== gpu kit docs/oss/vllm-69058/kit-r4 at 5b2ff327bdf2db26005d90d466d0ee1ad7f4b793, from 5b2ff327bdf2db26005d90d466d0ee1ad7f4b793, into hack/gpu-kit-runs/2026-11-22-vllm-69058-r4
+== hard stop 3720 s after LaunchTime; worst case 4020 s at $0.7683/h all in, $0.8579, under $1.00
+== Spot g5.xlarge under $0.70/h, cheapest first: ap-northeast-2d ap-northeast-2a ap-northeast-2c (ap-northeast-2d	0.593100 ap-northeast-2c	0.617200 ap-northeast-2a	0.598800)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the purchase checks: credentials expire in 606 minutes
+== before the purchase: credentials expire in 606 minutes
+== launching g5.xlarge Spot (cap $0.70/h, $0.7683/h all in), study-deadline 2026-11-22T11:05:22Z -- the instance bills from here
+== launched i-06720a1c71d05cff6 in ap-northeast-2c
+== LaunchTime 2026-11-22T10:04:33+00:00; the sweeper's deadline moved to 2026-11-22T11:06:03Z
+== the wait ended with status 0 ()
+== waiting up to 3641s for EC2 to report the instance terminated
+== terminating i-06720a1c71d05cff6
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is shutting-down
+== i-06720a1c71d05cff6 is terminated
+== evidence returned; termination confirmed; run.sh exit 0

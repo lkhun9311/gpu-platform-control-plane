@@ -1,0 +1,15 @@
+clone-vllm exit=0 t=13
+fetch-arm-a exit=0 t=14
+fetch-arm-b exit=0 t=15
+materialize-arm-b exit=0 t=17
+materialize-arm-a exit=0 t=18
+install-vllm exit=0 t=57
+install-test exit=0 t=57
+envprobe exit=0 t=60
+download-model exit=0 t=67
+test-a-1 exit=1 t=107
+test-a-2 exit=1 t=241
+test-b-1 exit=0 t=259
+test-b-2 exit=1 t=276
+test-3 not run: the issue body has no run.sh
+verdict exit=0 t=276

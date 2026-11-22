@@ -1,0 +1,32 @@
+    
+>               reset_buffer_cache()
+
+vllm/distributed/parallel_state.py:2664: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def reset_buffer_cache():
+        _TRITON_BUFFER_CACHE.clear()
+        _TRITON_TABLE_CACHE.clear()
+        _TRITON_SPLIT_CACHE.clear()
+>       torch.accelerator.empty_cache()
+
+vllm/v1/sample/ops/topk_topp_triton.py:1733: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def empty_cache() -> None:
+        r"""Release all unoccupied cached memory currently held by the caching
+        allocator so that those can be used in other application.
+    
+        .. note:: This function is a no-op if the memory allocator for the current
+            :ref:`accelerator <accelerators>` has not been initialized.
+        """
+        if not torch._C._accelerator_isAllocatorInitialized():
+            return
+>       torch._C._accelerator_emptyCache()
+E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered
+E       Search for `cudaErrorIllegalAddress' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+E       The CUDA driver logged these messages, which may provide useful details:
+E       Sticky error detected
+E       Returning 700 (CUDA_ERROR_ILLEGAL_ADDRESS) from cuMemFree_v2
+
+../.venv/lib/python3.12/site-packages/torch/accelerator/memory.py:32: AcceleratorError

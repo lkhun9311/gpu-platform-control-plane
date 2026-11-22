@@ -1,0 +1,5 @@
+fatal: Not a valid object name bb14b99792981d8dcebcce5fe7eacfb46e4258fb:tests/v1/kv_connector/unit/test_hf3fs_load_failure.py
+error: pathspec 'tests/v1/kv_connector/unit/test_hf3fs_load_failure.py' did not match any file(s) known to git
+Did you forget to 'git add'?
+error: pathspec 'tests/v1/kv_connector/unit/test_hf3fs_load_failure.py' did not match any file(s) known to git
+Did you forget to 'git add'?

@@ -1,0 +1,17 @@
+kit=r4
+upstream=https://github.com/vllm-project/vllm.git
+fork=https://github.com/lkhun9311/vllm.git
+arm_a=refs/pull/69095/head bb14b99792981d8dcebcce5fe7eacfb46e4258fb tree 8256f29750a8035f563029cfd6c7e1bb40558b0b, plus tests/v1/kv_connector/unit/test_hf3fs_load_failure.py from arm B
+arm_b=review/69095-additions 9ee44f044e6f3bbc49b96facb4cfda659cd783a5 tree 5cdf5ed74707a1e5fb0509a058c1d86aba70d3cb
+test_file_sha256_pin=af58d2b74ba20c35ec547e70648e0a9de04736edbd5cf6e63c3e3780d2574217
+model=facebook/opt-125m
+model_rev_pin=27dcfa74d334bc871f3234de431e71c6eeba5dd6
+model_bin_sha256_pin=2d74da6615135c58cf3cf9ad4cb11e7c613ff9e55fe658a47ab83b6c8d1174a9
+budget_s=1500
+unit_cap_s=300
+e2e_cap_s=600
+command_1=python -m pytest tests/v1/kv_connector/unit/test_hf3fs_load_failure.py -k not EndToEnd -q -p no:cacheprovider
+command_2=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd -q -p no:cacheprovider -x --tb=long
+command_3=not run; the #69058 issue body (sha256 2f8a4cff3bd0ed230e2c2cd08b3bce4f400e75342060404b31a673072583d4f1) names ./run.sh fault and ./run.sh nofault but does not contain run.sh, and kit r3 had none
+order=arm A steps 1 and 2, then arm B steps 1 and 2
+hub_offline=1 from the first test run on
