@@ -309,7 +309,7 @@ check "pass: the two processes ran CONTROL then FIX, on the right code" \
 check "pass: the fix commit has the pinned tree and the base as its parent, the control the pinned tree, both the pinned test blob, and the hook only in the fix" \
   "command grep -q '^fix commit=[0-9a-f]\{40\} tree=$FIX_TREE parent=$BASE\$' '$WORK/e2e-pass/out/versions.txt' \
    && command grep -qx 'base commit=$BASE tree=$BASE_TREE' '$WORK/e2e-pass/out/versions.txt' \
-   && [ \"\$(command grep -c '^control tree=$CONTROL_TREE\$' '$WORK/e2e-pass/out/versions.txt')\" = 2 ] \
+   && [ \"\$(command grep -c '^control tree=' '$WORK/e2e-pass/out/versions.txt')\" = 6 ] && [ \"\$(command grep -c '^control tree=$CONTROL_TREE\$' '$WORK/e2e-pass/out/versions.txt')\" = 6 ] \
    && command grep -qx 'control test_blob=$TEST_BLOB' '$WORK/e2e-pass/out/versions.txt' && command grep -qx 'fix test_blob=$TEST_BLOB' '$WORK/e2e-pass/out/versions.txt' \
    && command grep -qx 'handle_preemptions_defs control=0 fix=1' '$WORK/e2e-pass/out/versions.txt' \
    && command grep -qx 'base_first_parent=$WHEEL wheel_commit=$WHEEL' '$WORK/e2e-pass/out/versions.txt' && [ ! -s '$WORK/e2e-pass/out/wheel-blocking-diff.txt' ]"
@@ -323,7 +323,7 @@ check "pass: the hub was offline, and the run left checksums and no worktree" \
    && ! git -C '$SRC' worktree list | command grep -qF '$WORK/e2e-pass/'"
 check "b1: after the test arms, eight processes ran in order C, F, C, F, C, F at pool 128 and C, F at 2048, and b1 is VALID apart from the verdict" \
   "[ \"\$(b1order pass)\" = '$B1_ORDER_WANT' ] && b1 pass VALID && p5kept pass \
-   && [ \"\$(command grep -oE '^(test-[a-z]+|verdict|b1-[a-z0-9-]+|b1-verdict) ' '$WORK/e2e-pass/out/status.txt' | paste -sd' ')\" = 'test-control test-fix verdict b1-control-128-1 b1-fix-128-1 b1-control-128-2 b1-fix-128-2 b1-control-128-3 b1-fix-128-3 b1-control-2048-1 b1-fix-2048-1 b1-verdict ' ] \
+   && [ \"\$(command grep -oE '^(test-[a-z]+|verdict|b1-[a-z0-9-]+) exit=' '$WORK/e2e-pass/out/status.txt' | sed 's/ exit=\$//' | paste -sd' ')\" = 'test-control test-fix verdict b1-control-128-1 b1-fix-128-1 b1-control-128-2 b1-fix-128-2 b1-control-128-3 b1-fix-128-3 b1-control-2048-1 b1-fix-2048-1 b1-verdict' ] \
    && [ \"\$(ls '$WORK/e2e-pass/out/b1' | command grep -c 'json\$')\" = 9 ] && command grep -qF 'b1/control-128-1.json' '$WORK/e2e-pass/out/SHA256SUMS' \
    && command grep -qF 'B1, the performance run: a separate section that does not change the verdict above.' '$WORK/e2e-pass/run.log'"
 for k in hasfixcontrol:control-128 hasfixfix:'control-128 fix-128'; do
@@ -454,7 +454,7 @@ mcheck "mutant: a step without its timeout overruns the budget and is caught" "[
 
 m=$(mutant b1nopreflight run.sh 's/^    if \[ -n "\$got" \] && \[ "\$got" != "\$want" \]; then$/    if false; then/')
 [ -n "$m" ] && e2e "$m" m-b1nopreflight FAKE_B1=hasfixcontrol
-mcheck "mutant: a run.sh without b1's has_fix preflight runs on past a wrong tree, and is caught" "[ \"\$(b1order m-b1nopreflight)\" = control-128 ]"
+mcheck "mutant: a run.sh without b1's has_fix preflight runs on past a wrong tree, and is caught" "[ \"\$(b1order m-b1nopreflight)\" != control-128 ]"
 m=$(mutant b1stopall run.sh 's/^  if \[ "\$PHASE" = b1 \]; then$/  if false; then/')
 [ -n "$m" ] && E2E_OUTER_S=260 e2e "$m" m-b1stopall FAKE_B1=hang BUDGET_S=200 B1_CAP_S=30
 mcheck "mutant: a b1 stop that writes the run-wide STOPPED and verdict is caught, since it would change the test arms' evidence" "! p5kept m-b1stopall"
