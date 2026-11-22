@@ -96,14 +96,26 @@ log "== kueue, CRDs, operator, gateway"
 # The operator's controllers watch Kueue kinds and do not start their caches without these CRDs.
 run k apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml || die "kueue"
 run k -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s || die "kueue Available"
-kustomize build config/crd | k apply --server-side -f - >>"$LOG" 2>&1 || die "CRDs"
+# Kueue's Deployment is Available before its webhook Service answers, and that webhook mutates every Deployment,
+# so the first operator apply was refused with "connection refused" in one local run out of two.
+# Applies are retried for a minute rather than waited on a guessed signal; a real error still fails after that.
+apply_kustomization() {
+  local dir=$1 i
+  for i in $(seq 1 12); do
+    kustomize build "$dir" | k apply --server-side -f - >>"$LOG" 2>&1 && return 0
+    log "  apply $dir failed (attempt $i), retrying"
+    sleep 5
+  done
+  return 1
+}
+apply_kustomization config/crd || die "CRDs"
 k create namespace "$NS" --dry-run=client -o yaml | k apply -f - >>"$LOG" 2>&1
-kustomize build config/operator | k apply --server-side -f - >>"$LOG" 2>&1 || die "operator"
+apply_kustomization config/operator || die "operator"
 OPDEP=$(k -n "$NS" get deploy -o name | grep controller-manager | head -1)
 # Both kustomizations pin an ECR digest a kind node cannot pull, so the local builds are set explicitly.
 run k -n "$NS" set image "$OPDEP" "*=controller:$TAG" || die "operator image set"
 run k -n "$NS" rollout status "$OPDEP" --timeout=180s || die "operator rollout"
-kustomize build config/gateway | k apply --server-side -f - >>"$LOG" 2>&1 || die "gateway"
+apply_kustomization config/gateway || die "gateway"
 k -n "$NS" create secret generic gateway-api-keys --from-literal=key-a=tenant-a >>"$LOG" 2>&1 || die "api keys"
 run k -n "$NS" set image deploy/gateway "gateway=gateway:$TAG" || die "gateway image set"
 run k -n "$NS" rollout status deploy/gateway --timeout=180s || die "gateway rollout"
