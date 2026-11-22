@@ -1,6 +1,7 @@
-"""Unit checks for the vLLM #69058 kit r3's verdict.py, on real CPU pytest logs, run r2's GPU log and built ones.
+"""Unit checks for the vLLM #69058 kit r4's verdict.py, on real CPU logs of both arms, runs r2 and r3's GPU logs, and built ones.
 
-usage: python3 -I hack/vllm-69058-kit-check.py KIT_DIR CPU_LOG_DIR GPU_R2_LOG_DIR
+usage: python3 -I hack/vllm-69058-kit-check.py KIT_DIR FAKE_DIR
+FAKE_DIR holds cpu-logs/{a,b}-{1,2}.log, gpu-r2-logs/base-c.log and gpu-r3-logs/fix-c.log.
 Prints one ok or FAIL line per check and exits 1 if any failed.
 """
 
@@ -13,10 +14,13 @@ import shutil
 import sys
 import tempfile
 
-KIT, LOGS, R2 = sys.argv[1], sys.argv[2], sys.argv[3]
+KIT, FAKES = sys.argv[1], sys.argv[2]
 spec = importlib.util.spec_from_file_location("verdict", os.path.join(KIT, "verdict.py"))
 V = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(V)
+CPU = os.path.join(FAKES, "cpu-logs")
+R2 = os.path.join(FAKES, "gpu-r2-logs", "base-c.log")
+R3 = os.path.join(FAKES, "gpu-r3-logs", "fix-c.log")
 
 failures = 0
 
@@ -28,362 +32,168 @@ def check(name, cond):
         failures += 1
 
 
-F = V.FILE
-OLD = [
-    F + "::TestHf3fsMockClient::test_init_creates_file",
-    F + "::TestHf3fsMockClient::test_multiple_tensors_rw",
-    F + "::TestHF3FSKVConnectorStats::test_clone_and_reset",
-]
-NEW = sorted(V.EXPECTED_A)
-CUDA = V.CUDA_TEST
-LATER = V.SCHED + "test_failed_later_batch_keeps_prefix_and_saves_the_rest"
-EF, ER = V.E2E_FAIL, V.E2E_RECOMPUTE
-GPU_ENV = {"cuda_available": True, "device_name": "NVIDIA A10G", "torch": "t", "torch_cuda": "12.9", "triton": "3"}
-# The traceback lines of an end-to-end failure, by how it failed.
-HOW = {
-    "finish_error": ['>           assert retry.finish_reason == "error"', "E           AssertionError: assert 'length' == 'error'"],
-    "finish_length": ['>       assert retry.finish_reason == "length"', "E       AssertionError: assert 'error' == 'length'"],
-    "token_ids": [">       assert retry.token_ids == cold.token_ids", "E       assert [2, 50118, 133] == [2, 50118, 4148]"],
-    "timeout": [">           _wait_until(lambda: metadata.num_stored_keys() >= num_target_blocks)",
-                '>           assert time.monotonic() < deadline, "condition not met before the timeout"',
-                "E           AssertionError: condition not met before the timeout"],
-    "oom": [">           llm = LLM(", "E       torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 20.00 MiB."],
-    "layout": [">           llm = LLM(", "E       RuntimeError: HF3FS register_kv_caches: unsupported KV cache layout"],
-    "noread": [">       assert faults.num_failed_reads > 0", "E       assert 0 > 0"],
-    "download": [">           llm = LLM(", "E       huggingface_hub.errors.LocalEntryNotFoundError: Cannot find the requested files in the disk cache"],
-    "other": [">           retry = _greedy_output(llm, target)", "E           ValueError: something else broke"],
-    # A captured INFO line names HF_HUB_OFFLINE on every offline run, so it must not make a failure a download failure.
-    "other_offline_log": [">           retry = _greedy_output(llm, target)", "E           ValueError: something else broke",
-                          "------------------------------ Captured log call -------------------------------",
-                          "INFO     vllm.engine.arg_utils:arg_utils.py:928 HF_HUB_OFFLINE is True, replace model_id [facebook/opt-125m] to model_path"],
-    # A deciding line that raises something other than an assertion, here because generate returned no output, decides nothing.
-    "attr_error": [">       assert retry.token_ids == cold.token_ids", "E       AttributeError: 'NoneType' object has no attribute 'token_ids'"],
-    # pytest marks the raising line of every frame with ">", the test's own frame first.
-    # A deciding statement's text on an inner frame's ">" line must not count as the test deciding.
-    "inner_text": [">           retry = _greedy_output(llm, target)", "", "tests/v1/kv_connector/unit/test_hf3fs_connector.py:478: ", "",
-                   "    def _greedy_output(llm, prompt):", '>       assert retry.finish_reason == "error"', "E       AssertionError: assert 'length' == 'error'"],
-}
+def read(path):
+    # newline="" keeps the carriage returns of progress bars, as verdict.py reads them.
+    return open(path, errors="replace", newline="").read()
 
 
-def make_log(outcomes, deselected=0, summary=True, extra_counts="", how=None, prefix=None):
-    """A `pytest -rA` log in the shape of the real ones, for the given {test id: outcome} and end-to-end failure kinds."""
-    how = how or {}
-    lines = ["============================= test session starts ==============================", f"collected {len(outcomes) + deselected} items"]
-    shown = (lambda t: t.replace(F, prefix, 1)) if prefix else (lambda t: t)
-    errored = [t for t, o in outcomes.items() if o == "ERROR"]
-    if errored:
-        lines.append("==================================== ERRORS ====================================")
-        for t in errored:
-            lines.append(f"_ ERROR at setup of {t.split('::', 1)[1].replace('::', '.')} _")
-            lines.append("E       RuntimeError: fixture setup failed")
-    failed = [t for t, o in outcomes.items() if o == "FAILED"]
-    if failed:
-        lines.append("=================================== FAILURES ===================================")
-        for t in failed:
-            lines.append(f"_____ {t.split('::', 1)[1].replace('::', '.')} _____")
-            if t in V.EXPECTED_C:
-                lines.extend(HOW[how.get(t, "finish_error" if t == EF else "token_ids")])
-            else:
-                lines.append("E       assert set() == {3, 5}")
-    lines.append("=========================== short test summary info ============================")
-    for t, o in outcomes.items():
-        if o == "SKIPPED":
-            lines.append(f"SKIPPED [1] {F}:384: a successful load scatters with a Triton kernel")
-        else:
-            lines.append(f"{o} {shown(t)}")
-    if summary:
-        parts = []
-        for word, o in (("failed", "FAILED"), ("passed", "PASSED"), ("skipped", "SKIPPED"), ("errors", "ERROR")):
-            n = sum(1 for x in outcomes.values() if x == o)
-            if n:
-                parts.append(f"{n} {word}")
-        if deselected:
-            parts.append(f"{deselected} deselected")
-        body = ", ".join(parts) + extra_counts
-        lines.append(f"============ {body}, 1 warning in 2.50s ============")
-    return "\n".join(lines) + "\n"
+GPU_ENV = {"cuda_available": True, "device_name": "NVIDIA A10G", "torch": "t", "torch_cuda": "13.0", "triton": "3"}
+STEP1_A = "3 failed, 1 passed, 2 deselected, 1 warning in 7.10s\n"
+STEP1_B = "4 passed, 2 deselected, 1 warning in 6.85s\n"
+STEP2_PASS = "2 passed, 20 warnings in 120.48s (0:02:00)\n"
 
 
-def expected_runs():
-    """The four runs as the fix claims they come out on a GPU."""
-    return {
-        "base-c": {EF: "FAILED", ER: "FAILED"},
-        "fix-c": {EF: "PASSED", ER: "PASSED"},
-        "base-b": {**{t: "PASSED" for t in OLD}, **{t: "FAILED" for t in NEW}, EF: "FAILED", ER: "FAILED"},
-        "fix-b": {**{t: "PASSED" for t in OLD + NEW}, EF: "PASSED", ER: "PASSED"},
-    }
-
-
-def build(runs=None, env=GPU_ENV, rcs=None, texts=None, stopped=None, how=None, not_run=None):
-    """An OUT directory holding the given runs, env.json and status.txt."""
-    d = tempfile.mkdtemp(prefix="v69058-")
-    runs = expected_runs() if runs is None else runs
-    texts = texts or {}
-    how = how or {}
-    status = []
-    for name in ("base-c", "fix-c", "base-b", "fix-b"):
-        if name in texts:
-            text = texts[name]
-        elif name in runs:
-            desel = {"c": 24, "b": 0}[name[-1]]
-            prefix = "v1/kv_connector/unit/test_hf3fs_connector.py" if name.endswith("-c") else None
-            text = make_log(runs[name], deselected=desel, how=how.get(name), prefix=prefix)
-        else:
-            text = None
+def build(logs=None, rcs=None, env=GPU_ENV, stopped=None):
+    """An OUT directory with the given {name: text} logs, their exit codes and env.json."""
+    d = tempfile.mkdtemp(prefix="v69058r4-")
+    logs = {"a-1": STEP1_A, "a-2": STEP2_PASS, "b-1": STEP1_B, "b-2": STEP2_PASS} if logs is None else logs
+    default_rc = {"a-1": 1, "a-2": 0, "b-1": 0, "b-2": 0}
+    rcs = {**default_rc, **(rcs or {})}
+    for name, text in logs.items():
         if text is not None:
             with open(os.path.join(d, name + ".log"), "w") as f:
                 f.write(text)
-        if rcs and name in rcs:
-            rc = rcs[name]
-        elif name in runs:
-            rc = 1 if any(o in ("FAILED", "ERROR") for o in runs[name].values()) else 0
-        else:
-            rc = None
-        if rc is not None:
-            status.append(f"test-{name} exit={rc} t=1")
     with open(os.path.join(d, "status.txt"), "w") as f:
-        f.write("\n".join(status) + "\n")
+        f.write("".join(f"test-{n} exit={rc} t=1\n" for n, rc in rcs.items() if rc is not None))
     if env is not None:
         with open(os.path.join(d, "env.json"), "w") as f:
             json.dump(env, f)
     if stopped:
         with open(os.path.join(d, "STOPPED"), "w") as f:
             f.write(stopped)
-    if not_run:
-        with open(os.path.join(d, "c-not-run.txt"), "w") as f:
-            f.write(not_run)
     return d
 
 
-def incomplete_for(rec, text):
-    """Whether rec is INCOMPLETE with a gap that names text, so the rule under test is the one that fired."""
-    return rec["verdict"] == "INCOMPLETE" and any(text in g for g in rec["gaps"])
-
-
-def verdict_of(d):
+def judged(**kw):
+    d = build(**kw)
     rec = V.judge(d)
     shutil.rmtree(d)
     return rec
 
 
-def c_of(**kw):
-    return verdict_of(build(**kw))["c"]
+def with_logs(**changes):
+    logs = {"a-1": STEP1_A, "a-2": STEP2_PASS, "b-1": STEP1_B, "b-2": STEP2_PASS}
+    logs.update(changes)
+    return logs
 
 
-def short(t):
-    return t.rsplit("::", 1)[1]
+# ---------------------------------------------------------------- the real CPU logs of both arms
+for arm, want in (("a", {"failed": 3, "passed": 1}), ("b", {"passed": 4})):
+    r = V.parse_log(read(os.path.join(CPU, f"{arm}-1.log")))
+    s1 = V.judge_step1(arm, r, 1 if arm == "a" else 0)
+    check(f"real CPU {arm}-1: the -q summary without '=' padding is read, counts {want}", s1["state"] == "AS EXPECTED" and s1["counts"] == want)
+r = V.parse_log(read(os.path.join(CPU, "a-1.log")))
+check("real CPU a-1: the three failed tests are named", len(r["failed"]) == 3 and all("TestHF3FSSchedulerLoadFailure" in t for t in r["failed"]))
+for arm in ("a", "b"):
+    s2 = V.judge_step2(V.parse_log(read(os.path.join(CPU, f"{arm}-2.log"))), 0)
+    check(f"real CPU {arm}-2: both end-to-end cases skipped without CUDA is INCOMPLETE, with no illegal access", s2["state"] == "INCOMPLETE" and s2["illegal_access"] is None)
 
+# ---------------------------------------------------------------- run r3's real illegal memory access
+r3 = V.parse_log(read(R3))
+ia = V.extract_illegal(r3["lines"])
+check("r3 GPU log: the first illegal memory access is at the file's line 1117, as grep numbers it", ia is not None and ia["line_no"] == 1117)
+check("r3 GPU log: its frame is the mock client's logged site, hf3fs_mock_client.py:110", ia["frame"] == "hf3fs_mock_client.py:110" and ia["method"] == "logged record")
+check("r3 GPU log: the extracted block keeps the driver's CUDA_ERROR_ILLEGAL_ADDRESS line", any("CUDA_ERROR_ILLEGAL_ADDRESS" in x and "cuMemcpyDtoHAsync_v2" in x for x in ia["block"]))
+s2 = V.judge_step2(r3, 1)
+check("r3 GPU log: classified as the result 'CUDA illegal memory access', never a harness failure", s2["state"] == "RESULT" and s2["cause"] == "CUDA illegal memory access")
+check("r3 GPU log read in text mode would number lines differently, which is why logs are read with newline=''",
+      V.extract_illegal(V.parse_log(open(R3, errors="replace").read())["lines"])["line_no"] != 1117)
 
-# ---------------------------------------------------------------- run r2's real GPU log: the KV memory error and its label
-r2 = V.parse_log(open(os.path.join(R2, "base-c.log")).read())
-r2_states = {short(t): V.c_state(r2, t) for t in (EF, ER)}
-check("r2 GPU log: both end-to-end tests are NOT RUN for KV cache memory, with the ValueError's first line",
-      all(s["state"] == "NOT RUN" and s["cause"].startswith("KV cache memory: E           ValueError: To serve at least one request") for s in r2_states.values()))
-check("r2 GPU log: [recompute], which r2 labelled a download failure, is no longer one", "download" not in r2_states[short(ER)]["cause"])
-check("r2 GPU log: its [recompute] section does hold the captured HF_HUB_OFFLINE line that misled the r2 classifier",
-      any("HF_HUB_OFFLINE is True" in x for x in r2["sections"][ER]))
+# ---------------------------------------------------------------- run r2's real KV memory failure, kept from r3
+s2 = V.judge_step2(V.parse_log(read(R2)), 1)
+check("r2 GPU log: still NOT RUN for KV cache memory", s2["state"] == "NOT RUN" and s2["cause"].startswith("KV cache memory: E           ValueError: To serve"))
+check("r2 GPU log: not labelled a download failure by its captured HF_HUB_OFFLINE line", "download" not in s2["cause"])
 
-# ---------------------------------------------------------------- parsing the real CPU logs of the round-5 diff
-base_b = V.parse_log(open(os.path.join(LOGS, "base-b.log")).read())
-check("real base-b: the summary line and its time are read", base_b["summary"] and base_b["summary"]["seconds"] == 15.10)
-check("real base-b: counts 11 failed, 12 passed, 3 skipped", (base_b["counts"].get("failed"), base_b["counts"].get("passed"), base_b["counts"].get("skipped")) == (11, 12, 3))
-check("real base-b: the seven new tests that run on CPU fail, the CUDA-only one and both end-to-end cases are skipped",
-      set(NEW) - {CUDA} <= {t for t, o in base_b["outcomes"].items() if o == "FAILED"} and CUDA not in base_b["outcomes"] and EF not in base_b["outcomes"]
-      and len(base_b["skipped_lines"]) == 2)
-check("real base-b: the later-batch test's 'assert 10 == 8' is kept", any(a[0].endswith("assert 10 == 8") for a in base_b["assertions"].values()))
-fix_b = V.parse_log(open(os.path.join(LOGS, "fix-b.log")).read())
-check("real fix-b: counts 4 failed, 19 passed, 3 skipped", (fix_b["counts"].get("failed"), fix_b["counts"].get("passed"), fix_b["counts"].get("skipped")) == (4, 19, 3))
-base_c = V.parse_log(open(os.path.join(LOGS, "base-c.log")).read())
-check("real base-c: on CPU both end-to-end tests are skipped, 24 deselected",
-      base_c["counts"] == {"skipped": 2, "deselected": 24, "warnings": 1} and base_c["outcomes"] == {} and "needs a CUDA GPU" in base_c["skipped_lines"][0])
-sep = V.parse_log("__ TestX.test_long[p] __\n_ _ _ _ _ _ _ _\nE   assert 1 == 2\n")
-check("a '_ _ _' frame separator is not read as a failure header", list(sep["assertions"]) == ["TestX.test_long[p]"])
-check("an id printed from tests/ is read as the id from the repository root",
-      V.normalize("v1/kv_connector/unit/test_hf3fs_connector.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail]") == EF)
-cpu = {n: open(os.path.join(LOGS, n + ".log")).read() for n in ("base-c", "fix-c", "base-b", "fix-b")}
-rec = verdict_of(build(runs={}, texts=cpu, rcs={"base-c": 0, "fix-c": 0, "base-b": 1, "fix-b": 1}, env={"cuda_available": False, "device_name": None}))
-check("the real CPU logs are INCOMPLETE for (b), for the skips and for no CUDA", rec["verdict"] == "INCOMPLETE"
-      and any("skipped" in g for g in rec["gaps"]) and any("did not see CUDA" in g for g in rec["gaps"]))
-check("the real CPU logs are INCOMPLETE for (c), whose two tests were skipped", rec["c"]["verdict"] == "INCOMPLETE" and any("base-c: 2 skipped" in g for g in rec["c"]["gaps"]))
-check("the real CPU logs show no test outside the ten that the fix changes", rec["findings"] == [])
+# ---------------------------------------------------------------- the other illegal-access shapes
+tb = ["noise", "Traceback (most recent call last):", '  File "/x/hf3fs_connector.py", line 512, in _execute_save_task', "    a()",
+      '  File "/x/gather_scatter_helper.py", line 141, in gather', "    k()", "torch.AcceleratorError: CUDA error: an illegal memory access was encountered"]
+ia = V.extract_illegal(tb)
+check("a Python traceback gives its innermost frame, the launch site under CUDA_LAUNCH_BLOCKING",
+      ia["frame"] == "/x/gather_scatter_helper.py:141 in gather" and ia["method"] == "python traceback" and ia["line_no"] == 7)
+pt = ["_ TestX.test[fail] _", ">       torch.cuda.synchronize()", "E       torch.AcceleratorError: CUDA error: an illegal memory access was encountered",
+      "", "../../torch/cuda/__init__.py:1083: AcceleratorError"]
+ia = V.extract_illegal(pt)
+check("pytest's own traceback gives the raising frame's location", ia["frame"] == "../../torch/cuda/__init__.py:1083 (AcceleratorError)" and ia["method"] == "pytest traceback")
+ia = V.extract_illegal(["something", "CUDA_ERROR_ILLEGAL_ADDRESS somewhere"])
+check("a bare line is still found, with no frame claimed", ia["frame"] is None and ia["method"] == "line only")
+check("a log without an illegal memory access has none", V.extract_illegal(["all good", "2 passed in 1.0s"]) is None)
 
-# ---------------------------------------------------------------- the whole-file verdict, (b)
-rec = verdict_of(build())
-check("pass: the expected outcomes are AS EXPECTED for both verdicts", rec["verdict"] == "AS EXPECTED" and rec["c"]["verdict"] == "AS EXPECTED"
-      and rec["cuda_only_test"] == {"base": "FAILED", "fix": "PASSED"} and rec["findings"] == [])
-check("the eight expected unit tests are the round-4 set", len(NEW) == 8 and LATER in NEW and sum("TestHF3FSSchedulerLoadFailure" in t for t in NEW) == 4)
-r = expected_runs(); r["base-b"][LATER] = "PASSED"
-rec = verdict_of(build(runs=r))
-check("there is no by-design base pass: the later-batch test passing on base is NOT AS EXPECTED",
-      rec["verdict"] == "NOT AS EXPECTED" and any("passed but expected to fail" in d and short(LATER) in d for d in rec["deviations"]))
-r = expected_runs(); r["base-b"][ER] = "PASSED"
-rec = verdict_of(build(runs=r))
-check("(b) base must fail both end-to-end cases: [recompute] passing on base in the whole file is NOT AS EXPECTED",
-      rec["verdict"] == "NOT AS EXPECTED" and any(short(ER) in d for d in rec["deviations"]))
-r = expected_runs(); r["fix-b"][EF] = "FAILED"
-rec = verdict_of(build(runs=r, how={"fix-b": {EF: "finish_error"}}))
-check("(b) an end-to-end case failing its assertion with the fix is NOT AS EXPECTED", rec["verdict"] == "NOT AS EXPECTED")
-r = expected_runs()
-rec = verdict_of(build(runs=r, how={"base-b": {EF: "timeout"}}))
-check("(b) an end-to-end case failing on base for a harness reason is a gap, not an expected failure",
-      incomplete_for(rec, f"base-b: {short(EF)} failed for a harness reason, timeout in the 60 s wait"))
-r = expected_runs(); r["base-b"][EF] = "ERROR"
-rec = verdict_of(build(runs=r))
-check("(b) an end-to-end case that errors in the whole file is a gap", incomplete_for(rec, "base-b: 1 error(s)"))
-r = expected_runs(); r["base-b"][OLD[1]] = "FAILED"
-rec = verdict_of(build(runs=r))
-check("finding: an older test that fails on base and passes with the fix is named, and the verdict is not AS EXPECTED",
-      rec["verdict"] == "NOT AS EXPECTED" and rec["findings"] == [f"{OLD[1]}: base FAILED, fix PASSED"])
+# ---------------------------------------------------------------- the verdict
+rec = judged()
+check("pass: step 1 as the spec expects on both arms and step 2 passing is AS EXPECTED", rec["verdict"] == "AS EXPECTED")
+b2 = "(MainProcess pid=1) ERROR 11-22 08:16:44 [hf3fs_mock_client.py:110] Batch write error: CUDA error: an illegal memory access was encountered\n1 failed, 20 warnings in 8.23s\n"
+rec = judged(logs=with_logs(**{"b-2": b2}), rcs={"b-2": 1})
+s2 = rec["arms"]["b"]["step2"]
+check("an illegal access in step 2 is a RESULT with its own cause, and does not make the run INCOMPLETE or NOT RUN",
+      rec["verdict"] == "AS EXPECTED" and s2["state"] == "RESULT" and s2["cause"] == "CUDA illegal memory access")
 with contextlib.redirect_stdout(io.StringIO()) as buf:
     print("\n".join(V.render(rec)))
-check("finding: verdict.txt prints it on its own FINDING line", f"FINDING outside the ten: {OLD[1]}: base FAILED, fix PASSED" in buf.getvalue())
-r = expected_runs(); r["base-b"][OLD[1]] = "FAILED"
-rec = verdict_of(build(runs=r, env=None))
-check("finding: it is named even when a gap leaves the verdict INCOMPLETE", rec["verdict"] == "INCOMPLETE" and len(rec["findings"]) == 1)
-r = expected_runs(); r["base-b"][OLD[1]] = "FAILED"; r["fix-b"][OLD[1]] = "FAILED"
-rec = verdict_of(build(runs=r))
-check("finding: an older test failing on both sides is a deviation, not a finding", rec["verdict"] == "NOT AS EXPECTED" and rec["findings"] == [])
-r = expected_runs(); r["fix-b"][CUDA] = "FAILED"
-rec = verdict_of(build(runs=r))
-check("fail: the CUDA-only test failing with the fix is NOT AS EXPECTED", rec["verdict"] == "NOT AS EXPECTED" and rec["cuda_only_test"]["fix"] == "FAILED")
-r = expected_runs(); r["base-b"][CUDA] = "PASSED"
-rec = verdict_of(build(runs=r))
-check("fail: the CUDA-only test passing on base is NOT AS EXPECTED", rec["verdict"] == "NOT AS EXPECTED")
-r = expected_runs(); r["fix-b"][OLD[1]] = "FAILED"
-rec = verdict_of(build(runs=r))
-check("fail: an older test failing with the fix is NOT AS EXPECTED", rec["verdict"] == "NOT AS EXPECTED" and any(OLD[1] in d for d in rec["deviations"]))
-r = expected_runs(); r["fix-b"][CUDA] = "SKIPPED"
-rec = verdict_of(build(runs=r))
-check("skip: a skipped CUDA-only test is INCOMPLETE, not a pass", incomplete_for(rec, "fix-b: 1 skipped"))
-r = expected_runs(); del r["fix-b"]
-rec = verdict_of(build(runs=r))
-check("missing: a missing log is INCOMPLETE", incomplete_for(rec, "fix-b: no log"))
-r = expected_runs()
-rec = verdict_of(build(runs=r, texts={"fix-b": make_log(r["fix-b"], summary=False)}))
-check("missing: a log with no summary is INCOMPLETE", incomplete_for(rec, "no pytest summary"))
-r = expected_runs(); r["fix-b"] = {t: o for t, o in r["fix-b"].items() if t != CUDA}; r["base-b"] = {t: o for t, o in r["base-b"].items() if t != CUDA}
-rec = verdict_of(build(runs=r))
-check("missing: a CUDA-only test that never ran, with no skip line, is INCOMPLETE", incomplete_for(rec, "the whole file lacks") and rec["cuda_only_test"]["fix"] == "missing")
-rec = verdict_of(build(rcs={"base-c": 1, "fix-c": 0, "base-b": 1, "fix-b": 2}))
-check("missing: pytest exiting 2 (interrupted) is INCOMPLETE even with a summary", incomplete_for(rec, "fix-b: pytest exited 2, so"))
-rec = verdict_of(build(rcs={"base-c": 1, "fix-c": 0, "base-b": 1, "fix-b": 1}))
-check("missing: an exit code that disagrees with the outcomes is INCOMPLETE", incomplete_for(rec, "fix-b: pytest exited 1 with 0 failed"))
-d = build(); open(os.path.join(d, "status.txt"), "w").close()
-rec = verdict_of(d)
-check("missing: no exit codes in status.txt is INCOMPLETE", incomplete_for(rec, "no exit code in status.txt"))
-r = expected_runs(); r["fix-b"][CUDA] = "ERROR"
-rec = verdict_of(build(runs=r))
-check("error: a unit test that errors in setup is INCOMPLETE", incomplete_for(rec, "fix-b: 1 error(s)"))
-check("error: an ERROR outcome line is a gap of its own", incomplete_for(rec, "outcomes other than PASSED or FAILED"))
-rec = verdict_of(build(env={"cuda_available": False, "device_name": None}))
-check("no CUDA: a run torch saw no GPU in is INCOMPLETE for both", incomplete_for(rec, "did not see CUDA") and rec["c"]["verdict"] == "INCOMPLETE")
-rec = verdict_of(build(env={"cuda_available": True, "device_name": ""}))
-check("no CUDA: a run whose probe names no device is INCOMPLETE", incomplete_for(rec, "names no CUDA device"))
-rec = verdict_of(build(env=None))
-check("no env.json is INCOMPLETE", incomplete_for(rec, "env.json unreadable"))
-r = expected_runs(); r["fix-b"] = {t: "PASSED" for t in OLD}; r["base-b"] = {t: "PASSED" for t in OLD}
-rec = verdict_of(build(runs=r))
-check("a whole-file run without the new tests is INCOMPLETE", incomplete_for(rec, "the whole file lacks"))
-r = expected_runs()
-rec = verdict_of(build(runs=r, texts={"fix-b": make_log(r["fix-b"]).replace("13 passed", "14 passed")}))
-check("a summary that disagrees with the -rA lines is INCOMPLETE", incomplete_for(rec, "the summary counts"))
-r = expected_runs()
-rec = verdict_of(build(runs=r, texts={"fix-b": make_log(r["fix-b"]).replace(f"PASSED {CUDA}\n", f"PASSED {CUDA}\nPASSED {CUDA}\n")}))
-check("a test reported twice is INCOMPLETE", incomplete_for(rec, "reported twice"))
-r = expected_runs(); r["fix-b"] = {t: o for t, o in r["fix-b"].items() if t != OLD[2]}
-rec = verdict_of(build(runs=r))
-check("base and fix running different whole-file tests is INCOMPLETE", incomplete_for(rec, "b: base and fix ran different tests"))
-rec = verdict_of(build(stopped="the budget ran out before test-fix-b"))
-check("a STOPPED run is INCOMPLETE for both", incomplete_for(rec, "the run stopped early") and rec["c"]["verdict"] == "INCOMPLETE")
-r = expected_runs(); r["fix-b"][CUDA] = "XPASS"
-rec = verdict_of(build(runs=r, texts={"fix-b": make_log(r["fix-b"], extra_counts=", 1 xpassed")}))
-check("an xpassed test is INCOMPLETE", incomplete_for(rec, "1 xpassed"))
-rec = verdict_of(build(runs={k: {} for k in expected_runs()}, rcs={k: 5 for k in expected_runs()}))
-check("runs where no test ran are INCOMPLETE", incomplete_for(rec, "no test ran"))
+out = buf.getvalue()
+check("verdict.txt says yes for arm B with the frame, and no for arm A",
+      "arm B illegal memory access: yes, first at log line 1, frame hf3fs_mock_client.py:110 (logged record)" in out and "arm A illegal memory access: no" in out)
+check("verdict.txt puts step 2's result on its own line next to the verdict", "STEP 2 RESULT: arm A RESULT passed, illegal memory access no; arm B RESULT CUDA illegal memory access, illegal memory access yes" in out)
+check("verdict.txt says step 3 was not run and why", out.count("step 3 (run.sh fault, nofault): not run: the #69058 issue body names ./run.sh fault") == 2)
+rec = judged(logs=with_logs(**{"b-2": "Loading: 10%\rLoading: 100%\n" + b2}), rcs={"b-2": 1})
+check("judge reads a log's progress-bar carriage returns as file bytes, so the illegal access keeps its file line number 2",
+      rec["arms"]["b"]["step2"]["illegal_access"]["line_no"] == 2)
+rec = judged(logs=with_logs(**{"b-2": b2.split("\n")[0] + "\nFatal Python error: Aborted\n"}), rcs={"b-2": 134})
+check("an illegal access that kills pytest before its summary is still a RESULT", rec["arms"]["b"]["step2"]["state"] == "RESULT")
+kv = "E           ValueError: (0.02 GiB KV cache is needed, which is larger than the available KV cache memory (0.01 GiB).\n1 failed in 3.0s\n"
+rec = judged(logs=with_logs(**{"a-2": kv}), rcs={"a-2": 1})
+check("a KV memory failure in step 2 is NOT RUN, exit 4", rec["verdict"] == "NOT RUN" and rec["arms"]["a"]["step2"]["cause"].startswith("KV cache memory"))
+both = "E   torch.AcceleratorError: CUDA error: an illegal memory access was encountered\nE   (KV cache is needed, which is larger than the available KV cache memory)\n../t.py:1: AcceleratorError\n1 failed in 3.0s\n"
+rec = judged(logs=with_logs(**{"a-2": both}), rcs={"a-2": 1})
+check("an illegal access outranks a harness cause in the same log", rec["arms"]["a"]["step2"]["cause"] == "CUDA illegal memory access")
+fail = ">       assert retry.finish_reason == \"error\"\nE       AssertionError: assert 'length' == 'error'\n1 failed in 61.2s\n"
+rec = judged(logs=with_logs(**{"a-2": fail}), rcs={"a-2": 1})
+check("a plain assertion failure in step 2 is a RESULT naming its E line", rec["verdict"] == "AS EXPECTED" and rec["arms"]["a"]["step2"]["cause"].startswith("failed: E       AssertionError"))
+rec = judged(logs=with_logs(**{"b-1": "1 failed, 3 passed, 2 deselected in 7.0s\n"}), rcs={"b-1": 1})
+check("step 1 on arm B with a failure is a FINDING, exit 2", rec["verdict"] == "FINDING" and "expected {'passed': 4}" in rec["arms"]["b"]["step1"]["why"])
+rec = judged(logs=with_logs(**{"a-1": "4 passed, 2 deselected in 7.0s\n"}), rcs={"a-1": 0})
+check("step 1 on arm A passing everything is a FINDING", rec["verdict"] == "FINDING")
+rec = judged(logs=with_logs(**{"a-1": "2 failed, 1 passed, 1 skipped, 2 deselected in 7.0s\n"}), rcs={"a-1": 1})
+check("step 1 with a skip is a FINDING, since the counts differ", rec["verdict"] == "FINDING")
+rec = judged(logs=with_logs(**{"b-1": "4 passed, 2 deselected, 3 warnings in 7.0s\n"}))
+check("step 1 ignores warnings and deselected tests in its counts", rec["verdict"] == "AS EXPECTED")
+rec = judged(logs=with_logs(**{"b-1": "!!! KeyboardInterrupt !!!\n"}), rcs={"b-1": 2})
+check("step 1 with no summary is INCOMPLETE, exit 3", rec["verdict"] == "INCOMPLETE" and "no pytest summary" in rec["arms"]["b"]["step1"]["why"])
+rec = judged(logs=with_logs(**{"b-1": STEP1_B}), rcs={"b-1": 124})
+check("step 1 cut by its cap is INCOMPLETE", rec["verdict"] == "INCOMPLETE")
+rec = judged(logs=with_logs(**{"b-1": STEP1_B}), rcs={"b-1": 1})
+check("step 1 whose exit code disagrees with its counts is INCOMPLETE", rec["verdict"] == "INCOMPLETE")
+rec = judged(logs=with_logs(**{"b-1": None}))
+check("step 1 with no log is INCOMPLETE", rec["verdict"] == "INCOMPLETE" and rec["arms"]["b"]["step1"]["why"] == "no log")
+rec = judged(logs=with_logs(**{"a-2": None}))
+check("step 2 with no log is INCOMPLETE", rec["verdict"] == "INCOMPLETE")
+rec = judged(logs=with_logs(**{"a-2": "2 skipped in 0.05s\n"}))
+check("step 2 skipped on the GPU is INCOMPLETE", rec["verdict"] == "INCOMPLETE")
+rec = judged(logs=with_logs(**{"a-2": "collecting ...\n"}), rcs={"a-2": 124})
+check("step 2 cut by its cap with no illegal access is INCOMPLETE", rec["verdict"] == "INCOMPLETE")
+rec = judged(env={"cuda_available": False, "device_name": None})
+check("no CUDA is INCOMPLETE", rec["verdict"] == "INCOMPLETE")
+rec = judged(env=None)
+check("no env.json is INCOMPLETE", rec["verdict"] == "INCOMPLETE")
+rec = judged(stopped="arm b: commit 9ee44f0 has tree x, not the pinned y")
+check("a STOPPED run is INCOMPLETE", rec["verdict"] == "INCOMPLETE" and "not the pinned" in rec["gaps"][0])
+rec = judged(logs=with_logs(**{"b-1": "1 failed, 3 passed in 7.0s\n"}), rcs={"b-1": 1}, env=None)
+check("a FINDING outranks INCOMPLETE", rec["verdict"] == "FINDING")
 
-# ---------------------------------------------------------------- the (c) verdict
-c = c_of()
-check("(c) pass: base [fail] fails at its finish_reason check, the fix passes both, base [recompute] is recorded",
-      c["verdict"] == "AS EXPECTED" and c["base_recompute"] == {"state": "FAILED", "at": "assert retry.token_ids == cold.token_ids"})
-r = expected_runs(); r["base-c"][ER] = "PASSED"
-c = c_of(runs=r)
-check("(c) base [recompute] passing is recorded and does not decide (c)", c["verdict"] == "AS EXPECTED" and c["base_recompute"] == {"state": "PASSED"})
-r = expected_runs(); r["base-c"][EF] = "PASSED"
-c = c_of(runs=r)
-check("(c) fail: base [fail] passing is NOT AS EXPECTED", c["verdict"] == "NOT AS EXPECTED" and any(d.startswith("base test_failed_read_honors_policy[fail]") for d in c["deviations"]))
-r = expected_runs(); r["fix-c"][ER] = "FAILED"
-c = c_of(runs=r, how={"fix-c": {ER: "token_ids"}})
-check("(c) fail: fix [recompute] failing at its token comparison is NOT AS EXPECTED", c["verdict"] == "NOT AS EXPECTED")
-c = c_of(runs=r, how={"fix-c": {ER: "finish_length"}})
-check("(c) fail: fix [recompute] failing at finish_reason == length is NOT AS EXPECTED", c["verdict"] == "NOT AS EXPECTED")
-r = expected_runs(); r["fix-c"][EF] = "FAILED"
-c = c_of(runs=r, how={"fix-c": {EF: "finish_error"}})
-check("(c) fail: fix [fail] failing at its finish_reason check is NOT AS EXPECTED", c["verdict"] == "NOT AS EXPECTED")
-for kind, cause in (("timeout", "timeout in the 60 s wait for stored keys"), ("oom", "GPU out of memory"),
-                    ("layout", "KV layout registration error"), ("noread", "the failing read never reached HF3FS"),
-                    ("download", "model download or offline load failure"), ("other", "other harness failure (FAILED)"),
-                    ("other_offline_log", "other harness failure (FAILED)"), ("inner_text", "other harness failure (FAILED)"),
-                    ("attr_error", "other harness failure (FAILED)")):
-    r = expected_runs(); r["fix-c"][EF] = "FAILED"
-    c = c_of(runs=r, how={"fix-c": {EF: kind}})
-    check(f"(c) NOT RUN: a {kind} failure is a harness failure with its cause, never a verdict",
-          c["verdict"] == "NOT RUN" and any(n.startswith(f"fix test_failed_read_honors_policy[fail]: {cause}") for n in c["not_run"]))
-c = c_of(texts={"base-c": open(os.path.join(R2, "base-c.log")).read()}, rcs={"base-c": 1, "fix-c": 0, "base-b": 1, "fix-b": 0})
-check("(c) run r2's base log is NOT RUN for KV cache memory on both tests",
-      c["verdict"] == "NOT RUN" and len(c["not_run"]) == 2 and all(": KV cache memory: E" in n for n in c["not_run"]))
-r = expected_runs(); r["base-c"][EF] = "FAILED"; r["base-c"][ER] = "FAILED"
-c = c_of(runs=r, how={"base-c": {ER: "oom"}})
-check("(c) NOT RUN on one test outweighs a decided other test", c["verdict"] == "NOT RUN" and len(c["not_run"]) == 1)
-r = expected_runs(); r["base-c"][EF] = "ERROR"
-c = c_of(runs=r)
-check("(c) NOT RUN: a setup error is a harness failure, not a gap", c["verdict"] == "NOT RUN" and any("(ERROR)" in n for n in c["not_run"]) and not c["gaps"])
-c = c_of(not_run="model download failure: hf download facebook/opt-125m exited non-zero")
-check("(c) NOT RUN: the kit's c-not-run.txt names the cause", c["verdict"] == "NOT RUN" and c["not_run"] == ["model download failure: hf download facebook/opt-125m exited non-zero"])
-# With (c) not run, run.sh deselects the end-to-end class from (b), and (b) is judged on the rest.
-r = expected_runs(); del r["base-c"], r["fix-c"]
-r["base-b"] = {k: o for k, o in r["base-b"].items() if k not in V.EXPECTED_C}; r["fix-b"] = {k: o for k, o in r["fix-b"].items() if k not in V.EXPECTED_C}
-rec = verdict_of(build(runs=r, not_run="model download failure: x"))
-check("(b) without its end-to-end class is decided when (c) is NOT RUN", rec["verdict"] == "AS EXPECTED" and rec["c"]["verdict"] == "NOT RUN")
-rec = verdict_of(build(runs={**expected_runs(), "base-b": r["base-b"], "fix-b": r["fix-b"]}))
-check("(b) without its end-to-end class is INCOMPLETE when (c) ran", incomplete_for(rec, "the whole file lacks"))
-r = expected_runs(); r["fix-c"][ER] = "SKIPPED"
-c = c_of(runs=r)
-check("(c) skip: a skipped end-to-end test is INCOMPLETE", c["verdict"] == "INCOMPLETE" and any("fix-c: 1 skipped" in g for g in c["gaps"]))
-r = expected_runs(); del r["fix-c"]
-c = c_of(runs=r)
-check("(c) missing: a missing log is INCOMPLETE", c["verdict"] == "INCOMPLETE" and any("fix-c: no log" in g for g in c["gaps"]))
-r = expected_runs()
-c = c_of(runs=r, texts={"base-c": make_log(r["base-c"], 24, summary=False)})
-check("(c) missing: no summary is INCOMPLETE", c["verdict"] == "INCOMPLETE" and any("base-c: no pytest summary" in g for g in c["gaps"]))
-c = c_of(rcs={"base-c": 1, "fix-c": 124, "base-b": 1, "fix-b": 0})
-check("(c) missing: a run cut by its cap (exit 124) is INCOMPLETE", c["verdict"] == "INCOMPLETE" and any("fix-c: pytest exited 124" in g for g in c["gaps"]))
-r = expected_runs(); r["fix-c"] = {EF: "PASSED"}
-c = c_of(runs=r)
-check("(c) a run of other than the two tests is INCOMPLETE", c["verdict"] == "INCOMPLETE" and any("not the two end-to-end tests" in g for g in c["gaps"]))
-
-# ---------------------------------------------------------------- the two verdicts together, and main
-for name, kw, want_overall, want_rc in (
-        ("both AS EXPECTED", {}, "AS EXPECTED", 0),
-        ("a (b) deviation", {"runs": {**expected_runs(), "fix-b": {**expected_runs()["fix-b"], CUDA: "FAILED"}}}, "NOT AS EXPECTED", 2),
-        ("a (c) deviation", {"runs": {**expected_runs(), "base-c": {EF: "PASSED", ER: "FAILED"}}}, "NOT AS EXPECTED", 2),
-        ("a gap", {"env": None}, "INCOMPLETE", 3),
-        ("(c) NOT RUN", {"not_run": "model download failure: x", "runs": {
-            "base-b": {k: o for k, o in expected_runs()["base-b"].items() if k not in V.EXPECTED_C},
-            "fix-b": {k: o for k, o in expected_runs()["fix-b"].items() if k not in V.EXPECTED_C}}}, "NOT RUN", 4)):
+for name, kw, want, rc_want in (("AS EXPECTED", {}, "AS EXPECTED", 0),
+                                ("FINDING", {"logs": with_logs(**{"b-1": "1 failed, 3 passed in 7.0s\n"}), "rcs": {"b-1": 1}}, "FINDING", 2),
+                                ("INCOMPLETE", {"env": None}, "INCOMPLETE", 3),
+                                ("NOT RUN", {"logs": with_logs(**{"a-2": kv}), "rcs": {"a-2": 1}}, "NOT RUN", 4)):
     d = build(**kw)
     with contextlib.redirect_stdout(io.StringIO()) as buf:
         rc = V.main(["verdict.py", d])
     saved = json.load(open(os.path.join(d, "verdict.json")))
-    check(f"main exits {want_rc} for {name}, prints VERDICT: {want_overall} and writes it to verdict.json",
-          rc == want_rc and f"VERDICT: {want_overall}\n" in buf.getvalue() and saved["overall"] == want_overall)
+    check(f"main exits {rc_want} for {name} and writes it", rc == rc_want and saved["verdict"] == want and f"VERDICT: {want}\n" in buf.getvalue())
     shutil.rmtree(d)
-no_e2e = {n: {k: o for k, o in expected_runs()[n].items() if k not in V.EXPECTED_C} for n in ("base-b", "fix-b")}
-no_e2e["fix-b"][CUDA] = "FAILED"
-d = build(not_run="x", runs=no_e2e)
+d = build(logs=with_logs(**{"b-2": b2}), rcs={"b-2": 1})
 with contextlib.redirect_stdout(io.StringIO()):
-    rc = V.main(["verdict.py", d])
+    V.main(["verdict.py", d])
+check("main writes the illegal-access block to b-2-illegal.txt and none for arm A",
+      "illegal memory access" in open(os.path.join(d, "b-2-illegal.txt")).read() and not os.path.exists(os.path.join(d, "a-2-illegal.txt")))
 shutil.rmtree(d)
-check("a (b) deviation outranks (c) NOT RUN in the exit status", rc == 2)
 
 print()
 print("all unit checks passed" if failures == 0 else f"{failures} unit check(s) failed")

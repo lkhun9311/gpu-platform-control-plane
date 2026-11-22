@@ -1,6 +1,7 @@
 #!/bin/bash
 # A fake python for the vLLM #69058 kit's offline test.
 # It answers the kit's environment probe with an A10G that torch sees, or with no CUDA when FAKE_CUDA=0.
+# `python -m pytest ...` runs the fake pytest of kit r4 in its place.
 # Anything else runs on the real python3, isolated from the caller's environment.
 case "${1:-}" in
   */envprobe.py)
@@ -9,6 +10,11 @@ case "${1:-}" in
     else
       echo '{"cuda_available": false, "device_count": 0, "device_name": null, "python": "3.12.15", "torch": "fake", "torch_cuda": null, "triton": "fake"}'
     fi
+    ;;
+  -m)
+    [ "${2:-}" = pytest ] || { echo "fake python: only -m pytest is faked, not -m ${2:-}" >&2; exit 2; }
+    shift 2
+    exec python3 -I "$(dirname "$0")/pytest_r4.py" "$@"
     ;;
   *) exec python3 -I "$@" ;;
 esac
