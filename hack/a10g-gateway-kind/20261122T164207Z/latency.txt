@@ -1,0 +1,35 @@
+3 req/s: gateway completed 185 of 185 sent, direct 185 of 185
+  TTFT gateway: p99 22.27 ms, p90 21.49 ms, p50 21.14 ms, n=185
+  TTFT direct:  p99 21.47 ms, p90 21.19 ms, p50 20.85 ms, n=185
+  TTFT gateway minus direct: p99 0.81 ms, p90 0.30 ms, p50 0.28 ms
+  E2E gateway: p99 1094.78 ms, p90 1090.09 ms, p50 1078.00 ms, n=185
+  E2E direct:  p99 1094.48 ms, p90 1087.86 ms, p50 1075.83 ms, n=185
+  E2E gateway minus direct: p99 0.30 ms, p90 2.23 ms, p50 2.17 ms
+8 req/s: gateway completed 498 of 498 sent, direct 498 of 498
+  TTFT gateway: p99 22.16 ms, p90 21.47 ms, p50 20.67 ms, n=498
+  TTFT direct:  p99 21.30 ms, p90 21.22 ms, p50 20.43 ms, n=498
+  TTFT gateway minus direct: p99 0.86 ms, p90 0.25 ms, p50 0.25 ms
+  E2E gateway: p99 1102.83 ms, p90 1099.98 ms, p50 1094.67 ms, n=498
+  E2E direct:  p99 1103.13 ms, p90 1100.08 ms, p50 1093.93 ms, n=498
+  E2E gateway minus direct: p99 -0.29 ms, p90 -0.10 ms, p50 0.74 ms
+16 req/s: gateway completed 968 of 968 sent, direct 968 of 968
+  TTFT gateway: p99 21.78 ms, p90 21.10 ms, p50 20.61 ms, n=968
+  TTFT direct:  p99 21.20 ms, p90 20.59 ms, p50 20.36 ms, n=968
+  TTFT gateway minus direct: p99 0.58 ms, p90 0.51 ms, p50 0.24 ms
+  E2E gateway: p99 1109.86 ms, p90 1107.00 ms, p50 1102.84 ms, n=968
+  E2E direct:  p99 1104.62 ms, p90 1102.89 ms, p50 1100.48 ms, n=968
+  E2E gateway minus direct: p99 5.24 ms, p90 4.11 ms, p50 2.36 ms
+28 req/s: gateway completed 1755 of 1755 sent, direct 1755 of 1755
+  TTFT gateway: p99 21.66 ms, p90 21.13 ms, p50 20.71 ms, n=1755
+  TTFT direct:  p99 21.00 ms, p90 20.71 ms, p50 20.49 ms, n=1755
+  TTFT gateway minus direct: p99 0.66 ms, p90 0.42 ms, p50 0.23 ms
+  E2E gateway: p99 1116.75 ms, p90 1113.83 ms, p50 1110.16 ms, n=1755
+  E2E direct:  p99 1113.12 ms, p90 1110.40 ms, p50 1108.02 ms, n=1755
+  E2E gateway minus direct: p99 3.63 ms, p90 3.43 ms, p50 2.14 ms
+42 req/s: gateway completed 2478 of 2478 sent, direct 2478 of 2478
+  TTFT gateway: p99 21.68 ms, p90 21.18 ms, p50 20.79 ms, n=2478
+  TTFT direct:  p99 21.13 ms, p90 20.86 ms, p50 20.61 ms, n=2478
+  TTFT gateway minus direct: p99 0.55 ms, p90 0.31 ms, p50 0.18 ms
+  E2E gateway: p99 1120.76 ms, p90 1117.08 ms, p50 1113.47 ms, n=2478
+  E2E direct:  p99 1124.57 ms, p90 1119.14 ms, p50 1114.18 ms, n=2478
+  E2E gateway minus direct: p99 -3.82 ms, p90 -2.06 ms, p50 -0.71 ms

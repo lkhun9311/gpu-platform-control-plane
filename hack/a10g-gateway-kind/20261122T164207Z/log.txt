@@ -1,0 +1,460 @@
+
+===== 0. preflight =====
+commit=e1d98396816aee695771dc8581dfda6e024a5c7f
+cluster=a10g-gw (one node, experiments/a10g-capacity/gateway/kind-config.yaml)
+admission=off (gateway flag) and Off (InferenceDeployment spec.admission.mode)
+rate_limit=GPUQuotaPolicy rateLimit requestsPerMinute=600000 burst=10000
+recorder=off (no --request-record-path)
+stub=stub://profile?tokens=128&ttft-ms=20&itl-ms=8
+rates=3 8 16 28 42 stage_s=60 contract=7e2195988bcf310522379548f40e51faf32ad3e8743b61e8e02484e85742f553
+host=32 CPUs, 59 GiB; docker 29.1.3; kind kind v0.33.0 go1.25.7 linux/amd64
+
+===== 1. build capacityrun =====
++ go build -o /tmp/tmp.TuU2l66za9/capacityrun ./cmd/capacityrun
+
+===== 2. create the kind cluster =====
++ kind create cluster --name a10g-gw --config experiments/a10g-capacity/gateway/kind-config.yaml
+Creating cluster "a10g-gw" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+Set kubectl context to "kind-a10g-gw"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-a10g-gw
+
+Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
+
+===== 3. install Kueue v0.18.3 (the operator's caches need its CRDs) =====
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+deployment.apps/kueue-controller-manager condition met
+
+===== 4. build and load images (tag a10g-gw, so no other session's :latest is used) =====
++ make docker-build IMG=controller:a10g-gw
+docker build -t controller:a10g-gw .
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.61kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#2 DONE 0.0s
+
+#3 [internal] load metadata for gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 643B done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 DONE 0.0s
+
+#6 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#6 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#7 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#7 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
+#7 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 33.70kB done
+#5 DONE 0.0s
+
+#8 [builder 2/7] WORKDIR /workspace
+#8 CACHED
+
+#9 [builder 3/7] COPY go.mod go.mod
+#9 CACHED
+
+#10 [builder 4/7] COPY go.sum go.sum
+#10 CACHED
+
+#11 [builder 5/7] RUN go mod download
+#11 CACHED
+
+#12 [builder 6/7] COPY . .
+#12 DONE 0.1s
+
+#13 [builder 7/7] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go
+#13 DONE 13.8s
+
+#14 [stage-1 2/3] COPY --from=builder /workspace/manager .
+#14 CACHED
+
+#15 exporting to image
+#15 exporting layers done
+#15 exporting manifest sha256:90aea238469b8cd080af3568f9fa49f52cff5ffaf6478f1535b939d7c463dd0f done
+#15 exporting config sha256:3b3ef8d91281baa541c2d22bfc85a62853b9add26e5df1147bc880c6d1602044 done
+#15 exporting attestation manifest sha256:568bfcbb95f73e1ddb4c08a319afcbfe3fc9cab971607affd587659929411145 0.1s done
+#15 exporting manifest list sha256:3090fd01775b07e9d78403efd0dd24fdd8ceec496807225286f631fb273fbc60
+#15 exporting manifest list sha256:3090fd01775b07e9d78403efd0dd24fdd8ceec496807225286f631fb273fbc60 0.0s done
+#15 naming to docker.io/library/controller:a10g-gw done
+#15 unpacking to docker.io/library/controller:a10g-gw done
+#15 DONE 0.1s
++ make docker-build-gateway GATEWAY_IMG=gateway:a10g-gw
+docker build -t gateway:a10g-gw -f Dockerfile.gateway .
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.gateway
+#1 transferring dockerfile: 1.65kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#2 DONE 0.0s
+
+#3 [internal] load metadata for gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 643B done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 DONE 0.0s
+
+#6 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#6 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#7 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#7 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
+#7 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 11.93kB done
+#5 DONE 0.0s
+
+#8 [builder 4/7] COPY go.sum go.sum
+#8 CACHED
+
+#9 [builder 5/7] RUN go mod download
+#9 CACHED
+
+#10 [builder 2/7] WORKDIR /workspace
+#10 CACHED
+
+#11 [builder 3/7] COPY go.mod go.mod
+#11 CACHED
+
+#12 [builder 6/7] COPY . .
+#12 CACHED
+
+#13 [builder 7/7] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o gateway cmd/gateway/main.go
+#13 DONE 11.7s
+
+#14 [stage-1 2/3] COPY --from=builder /workspace/gateway .
+#14 CACHED
+
+#15 exporting to image
+#15 exporting layers done
+#15 exporting manifest sha256:5af70d68de67f71ae3735ea49ed398038b6bb6cfbac3cf7db229454622f2aa1b done
+#15 exporting config sha256:5a8154a8da54b6c719573eab7d373719ad2e4277cdcef74b05cf999653b7b599 done
+#15 exporting attestation manifest sha256:a87c9b27fa0dc178f32fa8009e98714318c8662ab288a8a68b58e9ffb349f822 0.1s done
+#15 exporting manifest list sha256:91b9935f4d4a64c74114e2e4de811e982c0f205555932eac584b0666d61c8c71
+#15 exporting manifest list sha256:91b9935f4d4a64c74114e2e4de811e982c0f205555932eac584b0666d61c8c71 0.0s done
+#15 naming to docker.io/library/gateway:a10g-gw done
+#15 unpacking to docker.io/library/gateway:a10g-gw done
+#15 DONE 0.1s
++ make docker-build-benchharness BENCHHARNESS_IMG=benchharness:a10g-gw
+docker build -t benchharness:a10g-gw -f Dockerfile.benchharness .
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.benchharness
+#1 transferring dockerfile: 1.87kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#2 DONE 0.0s
+
+#3 [internal] load metadata for gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#3 DONE 0.4s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 643B done
+#4 DONE 0.0s
+
+#5 [builder 1/7] FROM docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c
+#5 resolve docker.io/library/golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c 0.0s done
+#5 DONE 0.0s
+
+#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+#6 resolve gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 0.0s done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 11.93kB done
+#7 DONE 0.0s
+
+#8 [builder 3/7] COPY go.mod go.mod
+#8 CACHED
+
+#9 [builder 5/7] RUN go mod download
+#9 CACHED
+
+#10 [builder 4/7] COPY go.sum go.sum
+#10 CACHED
+
+#11 [builder 2/7] WORKDIR /workspace
+#11 CACHED
+
+#12 [builder 6/7] COPY . .
+#12 CACHED
+
+#13 [builder 7/7] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o benchharness ./cmd/benchharness
+#13 DONE 12.2s
+
+#14 [stage-1 2/3] COPY --from=builder /workspace/benchharness .
+#14 CACHED
+
+#15 exporting to image
+#15 exporting layers done
+#15 exporting manifest sha256:4fd91bafbd54e4902f0bc49f95cdfcb906d9334eff056b5ff88a2fe24e149a9e done
+#15 exporting config sha256:77a7d2f7a6f8e1746e4c0dbfa83439e98e7c6fd87c67498879a01b008d53abe0 done
+#15 exporting attestation manifest sha256:93cebf7a885152df552a04400795921efebb229b5aeeb10a712177f2202453e8 0.1s done
+#15 exporting manifest list sha256:780b19bdc3b738a55549c13e5794a9b8d5872f3e54984918fbdbe24c0a0686d9
+#15 exporting manifest list sha256:780b19bdc3b738a55549c13e5794a9b8d5872f3e54984918fbdbe24c0a0686d9 0.0s done
+#15 naming to docker.io/library/benchharness:a10g-gw done
+#15 unpacking to docker.io/library/benchharness:a10g-gw done
+#15 DONE 0.1s
++ kind load docker-image controller:a10g-gw --name a10g-gw
+Image: "controller:a10g-gw" with ID "sha256:3090fd01775b07e9d78403efd0dd24fdd8ceec496807225286f631fb273fbc60" not yet present on node "a10g-gw-control-plane", loading...
++ kind load docker-image gateway:a10g-gw --name a10g-gw
+Image: "gateway:a10g-gw" with ID "sha256:91b9935f4d4a64c74114e2e4de811e982c0f205555932eac584b0666d61c8c71" not yet present on node "a10g-gw-control-plane", loading...
++ kind load docker-image benchharness:a10g-gw --name a10g-gw
+Image: "benchharness:a10g-gw" with ID "sha256:780b19bdc3b738a55549c13e5794a9b8d5872f3e54984918fbdbe24c0a0686d9" not yet present on node "a10g-gw-control-plane", loading...
+
+===== 5. CRDs and the operator =====
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+namespace/gpu-platform-control-plane-system created
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager image updated
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+
+===== 6. the gateway, admission off and no recorder =====
+serviceaccount/gateway serverside-applied
+role.rbac.authorization.k8s.io/gateway-secret-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gateway-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gateway-secret-reader-binding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gateway-rolebinding serverside-applied
+service/gateway serverside-applied
+deployment.apps/gateway serverside-applied
+secret/gateway-api-keys created
+deployment.apps/gateway image updated
+deployment.apps/gateway patched
+Waiting for deployment spec update to be observed...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gateway" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gateway" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gateway" rollout to finish: 1 old replicas are pending termination...
+deployment "gateway" successfully rolled out
+["--admission-mode=off"]
+{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"10m","memory":"64Mi"}}
+
+===== 7. the tenant's policy with an explicit rate limit, and the stub =====
++ k apply -f config/kueue/resourceflavor.yaml
+Warning: This version is deprecated. Use v1beta2 instead.
+resourceflavor.kueue.x-k8s.io/gpu created
+namespace/serving created
+gpuquotapolicy.platform.lkhun9311.github.io/a10g-quota created
+inferencedeployment.platform.lkhun9311.github.io/qwen-a10g created
+Waiting for deployment "qwen-a10g" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "qwen-a10g" rollout to finish: 0 of 1 updated replicas are available...
+deployment "qwen-a10g" successfully rolled out
+service/gateway-evidence created
+service/stub-evidence created
+NAMESPACE                           NAME                                                             READY   STATUS    RESTARTS   AGE     IP            NODE                    NOMINATED NODE   READINESS GATES
+gpu-platform-control-plane-system   gateway-6df675dc97-nzw8k                                         1/1     Running   0          13s     10.244.0.8    a10g-gw-control-plane   <none>           <none>
+gpu-platform-control-plane-system   gpu-platform-control-plane-controller-manager-684f5fcb9f-4tcls   1/1     Running   0          25s     10.244.0.6    a10g-gw-control-plane   <none>           <none>
+kube-system                         coredns-559f6c778d-frk8t                                         1/1     Running   0          2m49s   10.244.0.3    a10g-gw-control-plane   <none>           <none>
+kube-system                         coredns-559f6c778d-jkbq6                                         1/1     Running   0          2m49s   10.244.0.2    a10g-gw-control-plane   <none>           <none>
+kube-system                         etcd-a10g-gw-control-plane                                       1/1     Running   0          2m57s   172.18.0.5    a10g-gw-control-plane   <none>           <none>
+kube-system                         kindnet-vgz88                                                    1/1     Running   0          2m49s   172.18.0.5    a10g-gw-control-plane   <none>           <none>
+kube-system                         kube-apiserver-a10g-gw-control-plane                             1/1     Running   0          2m57s   172.18.0.5    a10g-gw-control-plane   <none>           <none>
+kube-system                         kube-controller-manager-a10g-gw-control-plane                    1/1     Running   0          2m57s   172.18.0.5    a10g-gw-control-plane   <none>           <none>
+kube-system                         kube-proxy-wr8k2                                                 1/1     Running   0          2m49s   172.18.0.5    a10g-gw-control-plane   <none>           <none>
+kube-system                         kube-scheduler-a10g-gw-control-plane                             1/1     Running   0          2m57s   172.18.0.5    a10g-gw-control-plane   <none>           <none>
+kueue-system                        kueue-controller-manager-c455fd98d-2mffw                         1/1     Running   0          2m49s   10.244.0.4    a10g-gw-control-plane   <none>           <none>
+local-path-storage                  local-path-provisioner-75f7fc7dc5-sfn7b                          1/1     Running   0          4s      10.244.0.9    a10g-gw-control-plane   <none>           <none>
+serving                             qwen-a10g-5486ffdcb5-dglkv                                       1/1     Running   0          1s      10.244.0.10   a10g-gw-control-plane   <none>           <none>
+
+===== 8. smoke: one request each way =====
+smoke http://127.0.0.1:30280: 200
+smoke http://127.0.0.1:30281: 200
+
+===== 9. the stages, arms alternating in order by rate =====
+stage gw-3: 185 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/gw-3
+stage direct-3: 185 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/direct-3
+stage direct-8: 498 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/direct-8
+stage gw-8: 498 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/gw-8
+stage gw-16: 968 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/gw-16
+stage direct-16: 968 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/direct-16
+stage direct-28: 1755 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/direct-28
+stage gw-28: 1755 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/gw-28
+stage gw-42: 2478 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/gw-42
+stage direct-42: 2478 rows over 1 segment(s) to hack/a10g-gateway-kind/20261122T164207Z/direct-42
+
+===== 10. latency =====
+3 req/s: gateway completed 185 of 185 sent, direct 185 of 185
+  TTFT gateway: p99 22.27 ms, p90 21.49 ms, p50 21.14 ms, n=185
+  TTFT direct:  p99 21.47 ms, p90 21.19 ms, p50 20.85 ms, n=185
+  TTFT gateway minus direct: p99 0.81 ms, p90 0.30 ms, p50 0.28 ms
+  E2E gateway: p99 1094.78 ms, p90 1090.09 ms, p50 1078.00 ms, n=185
+  E2E direct:  p99 1094.48 ms, p90 1087.86 ms, p50 1075.83 ms, n=185
+  E2E gateway minus direct: p99 0.30 ms, p90 2.23 ms, p50 2.17 ms
+8 req/s: gateway completed 498 of 498 sent, direct 498 of 498
+  TTFT gateway: p99 22.16 ms, p90 21.47 ms, p50 20.67 ms, n=498
+  TTFT direct:  p99 21.30 ms, p90 21.22 ms, p50 20.43 ms, n=498
+  TTFT gateway minus direct: p99 0.86 ms, p90 0.25 ms, p50 0.25 ms
+  E2E gateway: p99 1102.83 ms, p90 1099.98 ms, p50 1094.67 ms, n=498
+  E2E direct:  p99 1103.13 ms, p90 1100.08 ms, p50 1093.93 ms, n=498
+  E2E gateway minus direct: p99 -0.29 ms, p90 -0.10 ms, p50 0.74 ms
+16 req/s: gateway completed 968 of 968 sent, direct 968 of 968
+  TTFT gateway: p99 21.78 ms, p90 21.10 ms, p50 20.61 ms, n=968
+  TTFT direct:  p99 21.20 ms, p90 20.59 ms, p50 20.36 ms, n=968
+  TTFT gateway minus direct: p99 0.58 ms, p90 0.51 ms, p50 0.24 ms
+  E2E gateway: p99 1109.86 ms, p90 1107.00 ms, p50 1102.84 ms, n=968
+  E2E direct:  p99 1104.62 ms, p90 1102.89 ms, p50 1100.48 ms, n=968
+  E2E gateway minus direct: p99 5.24 ms, p90 4.11 ms, p50 2.36 ms
+28 req/s: gateway completed 1755 of 1755 sent, direct 1755 of 1755
+  TTFT gateway: p99 21.66 ms, p90 21.13 ms, p50 20.71 ms, n=1755
+  TTFT direct:  p99 21.00 ms, p90 20.71 ms, p50 20.49 ms, n=1755
+  TTFT gateway minus direct: p99 0.66 ms, p90 0.42 ms, p50 0.23 ms
+  E2E gateway: p99 1116.75 ms, p90 1113.83 ms, p50 1110.16 ms, n=1755
+  E2E direct:  p99 1113.12 ms, p90 1110.40 ms, p50 1108.02 ms, n=1755
+  E2E gateway minus direct: p99 3.63 ms, p90 3.43 ms, p50 2.14 ms
+42 req/s: gateway completed 2478 of 2478 sent, direct 2478 of 2478
+  TTFT gateway: p99 21.68 ms, p90 21.18 ms, p50 20.79 ms, n=2478
+  TTFT direct:  p99 21.13 ms, p90 20.86 ms, p50 20.61 ms, n=2478
+  TTFT gateway minus direct: p99 0.55 ms, p90 0.31 ms, p50 0.18 ms
+  E2E gateway: p99 1120.76 ms, p90 1117.08 ms, p50 1113.47 ms, n=2478
+  E2E direct:  p99 1124.57 ms, p90 1119.14 ms, p50 1114.18 ms, n=2478
+  E2E gateway minus direct: p99 -3.82 ms, p90 -2.06 ms, p50 -0.71 ms
++ kind delete cluster --name a10g-gw
+Deleting cluster "a10g-gw" ...
+Deleted nodes: ["a10g-gw-control-plane"]
+record: hack/a10g-gateway-kind/20261122T164207Z

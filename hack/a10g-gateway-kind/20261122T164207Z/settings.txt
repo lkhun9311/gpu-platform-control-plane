@@ -1,0 +1,8 @@
+commit=e1d98396816aee695771dc8581dfda6e024a5c7f
+cluster=a10g-gw (one node, experiments/a10g-capacity/gateway/kind-config.yaml)
+admission=off (gateway flag) and Off (InferenceDeployment spec.admission.mode)
+rate_limit=GPUQuotaPolicy rateLimit requestsPerMinute=600000 burst=10000
+recorder=off (no --request-record-path)
+stub=stub://profile?tokens=128&ttft-ms=20&itl-ms=8
+rates=3 8 16 28 42 stage_s=60 contract=7e2195988bcf310522379548f40e51faf32ad3e8743b61e8e02484e85742f553
+host=32 CPUs, 59 GiB; docker 29.1.3; kind kind v0.33.0 go1.25.7 linux/amd64
