@@ -41,8 +41,10 @@ GPU = "TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv"
 P = "(EngineCore pid=2429)"
 
 args = sys.argv[1:]
-with_s = args == [TF, "-q", "-p", "no:cacheprovider", "-s", "--tb=short"]
-if not with_s and args != [TF, "-q", "-p", "no:cacheprovider", "--tb=short"]:
+# Kits p1 to p4 turn pytest's cache provider off; kit p5 runs the runtime session's command, which keeps it.
+COMMANDS = ([TF, "-q", "-p", "no:cacheprovider", "-s", "--tb=short"], [TF, "-q", "-s", "--tb=short"])
+with_s = args in COMMANDS
+if not with_s and args not in ([a for a in c if a != "-s"] for c in COMMANDS):
     print(f"fake pytest: unexpected arguments {args}", file=sys.stderr)
     sys.exit(4)
 if "CUDA_LAUNCH_BLOCKING" in os.environ:
@@ -58,6 +60,8 @@ if not os.path.exists(TF):
 arm = "fix" if "    def handle_preemptions(" in open(CONNECTOR).read() else "control"
 # Kit p4's test compares the pages read right after the held save, and prints them on their own line.
 HELD_SAVE = "held-save page errors" in open(TF).read()
+# Kit p5's test file holds the GPU test alone, with no CPU tests before it.
+HAS_CPU = "class TestHF3FSHandlePreemptions" in open(TF).read()
 if os.environ.get("FAKE_ORDER_LOG"):
     with open(os.environ["FAKE_ORDER_LOG"], "a") as f:
         f.write(arm + "\n")
@@ -95,7 +99,9 @@ if mode == "skip":
 if mode == "setupboth":
     gpu = "E   Failed: the local prefix cache could not be reset"
 
-progress = "".join("F" if t in cpu_fail else "." for t in ("test_scheduler_passes_preempted_requests_to_the_worker",
+if not HAS_CPU:
+    cpu_fail = []
+progress = "" if not HAS_CPU else "".join("F" if t in cpu_fail else "." for t in ("test_scheduler_passes_preempted_requests_to_the_worker",
                                                           "test_waits_for_the_preempted_request_saves_only", "test_no_preemption_does_not_wait"))
 print(progress, end="", flush=True)
 if mode == "fixfault" and arm == "fix":
@@ -141,7 +147,7 @@ if failed:
     for t in failed:
         print(f"FAILED {TF}::{t}")
 n_failed = len(failed)
-n_passed = 3 - len(cpu_fail) + (0 if gpu_failed or gpu == "skip" else 1)
+n_passed = (3 if HAS_CPU else 0) - len(cpu_fail) + (0 if gpu_failed or gpu == "skip" else 1)
 parts = ([f"{n_failed} failed"] if n_failed else []) + ([f"{n_passed} passed"] if n_passed else []) + (["1 skipped"] if gpu == "skip" else [])
 print(", ".join(parts) + ", 20 warnings in 61.20s (0:01:01)")
 sys.exit(1 if failed else 0)
