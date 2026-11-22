@@ -1,0 +1,48 @@
+From c41f7726f65880039674767691073d52ce502ef9 Mon Sep 17 00:00:00 2001
+From: lkhun9311 <96328441+lkhun9311@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 20:55:06 +0900
+Subject: [PATCH] [Bugfix][KV Connector] Stop HF3FS transfer threads on
+ connector shutdown
+
+Assisted-by: Claude
+Signed-off-by: lkhun9311 <96328441+lkhun9311@users.noreply.github.com>
+---
+ tests/v1/kv_connector/unit/test_hf3fs_load_failure.py        | 4 ++--
+ .../kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py     | 5 +++++
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/tests/v1/kv_connector/unit/test_hf3fs_load_failure.py b/tests/v1/kv_connector/unit/test_hf3fs_load_failure.py
+index 00ffa0b4ea..cbf2a44451 100644
+--- a/tests/v1/kv_connector/unit/test_hf3fs_load_failure.py
++++ b/tests/v1/kv_connector/unit/test_hf3fs_load_failure.py
+@@ -432,9 +432,9 @@ class TestHF3FSLoadFailureEndToEnd:
+             # The connectors' exit hooks would keep their KV cache references alive.
+             for connector in connectors:
+                 atexit.unregister(connector.close)
+-            llm.llm_engine.engine_core.shutdown()
+-            for connector in connectors:
++                # Saves still queued must stop before the engine frees the KV cache.
+                 connector.close()
++            llm.llm_engine.engine_core.shutdown()
+             del llm, connectors
+             gc.collect()
+             torch.accelerator.empty_cache()
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
+index 3fa997beda..3b48a1f4af 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
+@@ -1019,6 +1019,11 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+             vllm_config, metric_types, labelnames, per_engine_labelvalues
+         )
+ 
++    def shutdown(self) -> None:
++        # Stop the save and load threads while the KV cache is still allocated.
++        # A save that gathers after the cache is freed hits an illegal address.
++        self.close()
++
+     def close(self) -> None:
+         try:
+             if hasattr(self, "_async_manager"):
+-- 
+2.53.0
+
