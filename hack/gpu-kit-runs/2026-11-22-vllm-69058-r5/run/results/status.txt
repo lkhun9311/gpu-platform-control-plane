@@ -1,0 +1,15 @@
+nvidia-smi exit=0 t=0
+clone-vllm exit=0 t=14
+fetch-arm exit=0 t=15
+fetch-test-src exit=0 t=16
+materialize-test-src exit=0 t=17
+materialize-arm exit=0 t=18
+apply-check exit=0 t=18
+venv exit=0 t=18
+install-vllm exit=0 t=55
+install-test exit=0 t=55
+envprobe exit=0 t=59
+download-model exit=0 t=65
+test-fail exit=1 t=217
+test-recompute exit=0 t=235
+verdict exit=0 t=235

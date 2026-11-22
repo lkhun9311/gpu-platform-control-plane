@@ -1,0 +1,6 @@
+bb14b99792981d8dcebcce5fe7eacfb46e4258fb
+ M vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
+?? tests/v1/kv_connector/unit/test_hf3fs_load_failure.py
+af58d2b74ba20c35ec547e70648e0a9de04736edbd5cf6e63c3e3780d2574217  tests/v1/kv_connector/unit/test_hf3fs_load_failure.py
+ .../kv_connector/v1/hf3fs/hf3fs_connector.py       | 45 ++++++++++++++++++++++
+ 1 file changed, 45 insertions(+)

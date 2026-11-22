@@ -1,0 +1,67 @@
+== gpu kit docs/oss/vllm-69058/kit-r5 at 61bcb2062bc38c7469e56806197f43e1c93bb7e4, from 61bcb2062bc38c7469e56806197f43e1c93bb7e4, into hack/gpu-kit-runs/2026-11-22-vllm-69058-r5
+== hard stop 3720 s after LaunchTime; worst case 4020 s at $0.7683/h all in, $0.8579, under $1.00
+== Spot g5.xlarge under $0.70/h, cheapest first: ap-northeast-2d ap-northeast-2a ap-northeast-2c (ap-northeast-2d	0.593100 ap-northeast-2c	0.617200 ap-northeast-2a	0.598800)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the purchase checks: credentials expire in 508 minutes
+== before the purchase: credentials expire in 508 minutes
+== launching g5.xlarge Spot (cap $0.70/h, $0.7683/h all in), study-deadline 2026-11-22T12:42:56Z -- the instance bills from here
+== launched i-0ec69ef8aa91ca626 in ap-northeast-2d
+== LaunchTime 2026-11-22T11:42:00+00:00; the sweeper's deadline moved to 2026-11-22T12:43:30Z
+== the wait ended with status 0 ()
+== waiting up to 3683s for EC2 to report the instance terminated
+== terminating i-0ec69ef8aa91ca626
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is shutting-down
+== i-0ec69ef8aa91ca626 is terminated
+== evidence returned; termination confirmed; run.sh exit 0

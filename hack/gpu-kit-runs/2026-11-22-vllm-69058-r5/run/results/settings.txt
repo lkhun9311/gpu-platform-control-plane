@@ -1,0 +1,16 @@
+kit=r5
+upstream=https://github.com/vllm-project/vllm.git
+fork=https://github.com/lkhun9311/vllm.git
+arm=refs/pull/69095/head bb14b99792981d8dcebcce5fe7eacfb46e4258fb tree 8256f29750a8035f563029cfd6c7e1bb40558b0b, plus tests/v1/kv_connector/unit/test_hf3fs_load_failure.py from 9ee44f044e6f3bbc49b96facb4cfda659cd783a5 and the diagnostic patch
+diff=diag-r5-on-bb14b997.diff sha256 8950a5701a0669507eea07d7ed5e2f8cf63a845f6893dce079590e000530cb9a, storage commit 93038508
+test_file_sha256_pin=af58d2b74ba20c35ec547e70648e0a9de04736edbd5cf6e63c3e3780d2574217
+model=facebook/opt-125m
+model_rev_pin=27dcfa74d334bc871f3234de431e71c6eeba5dd6
+model_bin_sha256_pin=2d74da6615135c58cf3cf9ad4cb11e7c613ff9e55fe658a47ab83b6c8d1174a9
+budget_s=450
+e2e_cap_s=180
+command_fail=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail] -q -p no:cacheprovider --tb=long
+command_recompute=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute] -q -p no:cacheprovider --tb=long
+processes=one per case, since an illegal address poisons the process that hit it
+wheel_commit=dd8c157895f01875bc5f44c51003bbe330647330
+hub_offline=1 for the test run
