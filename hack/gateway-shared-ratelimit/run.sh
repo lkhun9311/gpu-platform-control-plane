@@ -9,6 +9,13 @@
 # and it is deleted on every way out unless KEEP=1.
 #
 # Usage: hack/gateway-shared-ratelimit/run.sh <out-dir>
+#
+# Environment, each defaulting to run 1's value:
+#   REPS           repetitions of the three steady arms (3)
+#   DURATION_S     seconds each arm sends for (30)
+#   EVENT_REPS     repetitions of each event arm (1)
+#   EVENT_PROFILE  stub storage URI for the event arms (unset: the steady arms' short stream)
+# A longer EVENT_PROFILE stream keeps responses open when the event happens, so the run can show what it does to them.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -25,8 +32,12 @@ REDIS_DIGEST=sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1
 GW_PORT=31180
 STUB_PORT=31181
 RATE=10
-DURATION=30s
+DURATION_S=${DURATION_S:-30}
+[[ "$DURATION_S" =~ ^[1-9][0-9]*$ ]] || { echo "DURATION_S must be a whole number of seconds" >&2; exit 2; }
 REPS=${REPS:-3}
+EVENT_REPS=${EVENT_REPS:-1}
+STEADY_PROFILE="stub://profile?tokens=4&ttft-ms=5&itl-ms=2"
+EVENT_PROFILE=${EVENT_PROFILE:-$STEADY_PROFILE}
 EXP=experiments/gateway-replica-limit
 WORK=$(mktemp -d)
 KCFG=$WORK/kubeconfig
@@ -159,7 +170,7 @@ metadata:
 spec:
   model:
     name: stub
-    storageUri: "stub://profile?tokens=4&ttft-ms=5&itl-ms=2"
+    storageUri: "$STEADY_PROFILE"
   image: $STUB_IMG
   gpuCount: 0
   replicas: 1
@@ -194,15 +205,38 @@ for _ in $(seq 1 40); do k -n "$SERVING_NS" get deploy stub >/dev/null 2>&1 && b
 run k -n "$SERVING_NS" rollout status deploy/stub --timeout=180s || die "stub rollout"
 
 URL="http://127.0.0.1:$GW_PORT/v1/chat/completions"
-smoke=""
-for _ in $(seq 1 40); do
-  smoke=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 -H 'Authorization: Bearer key-a' \
-    -H 'Content-Type: application/json' -d '{"model":"stub","messages":[{"role":"user","content":"hi"}],"stream":true}' "$URL" 2>>"$LOG")
-  [ "$smoke" = 200 ] && break
-  sleep 3
-done
-[ "$smoke" = 200 ] || die "smoke request answered $smoke, not 200"
-log "smoke 200"
+# smoke waits for one request through the gateway to answer 200 with a stream that ends in [DONE].
+smoke() {
+  local body=""
+  for _ in $(seq 1 40); do
+    body=$(curl -sS -f --max-time 30 -H 'Authorization: Bearer key-a' -H 'Content-Type: application/json' \
+      -d '{"model":"stub","messages":[{"role":"user","content":"hi"}],"stream":true}' "$URL" 2>>"$LOG")
+    grep -q '^data: \[DONE\]' <<<"$body" && return 0
+    sleep 3
+  done
+  die "smoke request never answered 200 with data: [DONE]"
+}
+smoke
+log "smoke 200 with [DONE]"
+
+# set_profile changes the stub's response profile and returns once the new stub Pod serves through the gateway.
+CURRENT_PROFILE=$STEADY_PROFILE
+set_profile() {
+  local uri=$1
+  [ "$uri" = "$CURRENT_PROFILE" ] && return 0
+  run k -n "$SERVING_NS" patch inferencedeployment stub --type=merge -p "{\"spec\":{\"model\":{\"storageUri\":\"$uri\"}}}" \
+    || die "patch stub profile"
+  local seen=0
+  for _ in $(seq 1 60); do
+    k -n "$SERVING_NS" get deploy stub -o jsonpath='{.spec.template.spec.containers[0].args}' 2>>"$LOG" | grep -qF "$uri" && { seen=1; break; }
+    sleep 2
+  done
+  [ "$seen" = 1 ] || die "the stub Deployment never carried $uri"
+  run k -n "$SERVING_NS" rollout status deploy/stub --timeout=180s || die "stub rollout to $uri"
+  smoke
+  CURRENT_PROFILE=$uri
+  log "stub profile $uri"
+}
 
 ready_endpoints() {
   k -n "$NS" get endpointslices -l kubernetes.io/service-name=gateway-gwshared \
@@ -250,8 +284,8 @@ pod_metrics() {
 now() { python3 -c 'import time; print(f"{time.time():.3f}")'; }
 rel() { python3 -c "print(f'{$1 - $2:.3f}')"; }
 
-printf 'arm\trep\treplicas\tstore\tpolicy\tevent\tstub_served\tevent1_s\tevent2_s\tpods_before\tpods_after\n' >"$OUT/arms.tsv"
-# arm runs 10 requests per second for 30 s from one tenant and, for an event arm, acts on the cluster mid-run.
+printf 'arm\trep\treplicas\tstore\tpolicy\tevent\tstub_served\tevent1_s\tevent2_s\tpods_before\tpods_after\trate\tduration_s\tstub_profile\n' >"$OUT/arms.tsv"
+# arm runs 10 requests per second for DURATION_S from one tenant and, for an event arm, acts on the cluster mid-run.
 arm() {
   local name=$1 rep=$2 replicas=$3 store=$4 policy=$5 event=$6
   configure "$store" "$replicas" "$policy"
@@ -261,7 +295,7 @@ arm() {
   local before after e1="" e2="" t0
   before=$(pod_metrics) || die "per-Pod metrics before $name-$rep"
   t0=$(now)
-  "$WORK/loadgen" -url "$URL" -key key-a -model stub -rate $RATE -duration $DURATION \
+  "$WORK/loadgen" -url "$URL" -key key-a -model stub -rate $RATE -duration "${DURATION_S}s" \
     -out "$OUT/$name-$rep.tsv" >"$OUT/$name-$rep.summary" 2>>"$LOG" &
   local lg=$!
   case "$event" in
@@ -296,8 +330,8 @@ arm() {
   served=$(curl -sS --max-time 5 "http://127.0.0.1:$STUB_PORT/stats" | jq -r '.requestsServed') || die "stub stats"
   [[ "$served" =~ ^[0-9]+$ ]] || die "stub stats returned '$served'"
   log "$name rep $rep: $(cat "$OUT/$name-$rep.summary") stub=$served events=[$e1 $e2] pods before [$before] after [$after]"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$rep" "$replicas" "$store" "$policy" "$event" \
-    "$served" "$e1" "$e2" "$before" "$after" >>"$OUT/arms.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$rep" "$replicas" "$store" "$policy" "$event" \
+    "$served" "$e1" "$e2" "$before" "$after" "$RATE" "$DURATION_S" "$CURRENT_PROFILE" >>"$OUT/arms.tsv"
 }
 
 for rep in $(seq 1 "$REPS"); do
@@ -305,9 +339,12 @@ for rep in $(seq 1 "$REPS"); do
   arm memory-3 "$rep" 3 memory - none
   arm redis-3  "$rep" 3 redis local none
 done
-arm redis-3-down-local  1 3 redis local  redis-down
-arm redis-3-down-closed 1 3 redis closed redis-down
-arm redis-3-podkill     1 3 redis local  podkill
+set_profile "$EVENT_PROFILE"
+for rep in $(seq 1 "$EVENT_REPS"); do
+  arm redis-3-down-local  "$rep" 3 redis local  redis-down
+  arm redis-3-down-closed "$rep" 3 redis closed redis-down
+  arm redis-3-podkill     "$rep" 3 redis local  podkill
+done
 
 log "== score"
 python3 -I hack/gateway-shared-ratelimit/score.py "$OUT" | tee "$OUT/score.txt" | tee -a "$LOG"
