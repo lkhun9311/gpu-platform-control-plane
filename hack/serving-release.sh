@@ -165,14 +165,21 @@ spec_doc() {
 # release_apply puts a spec file in place by replacing the whole object, which is what a restore has to mean:
 # a merge would keep any field the candidate added and the saved spec lacks.
 # It prints the generation the replace produced, which the wait must see observed.
+# A refused replace is retried, because a transient API error is not a verdict on the spec.
+# Its caller records a final refusal as apply-failed, never as fail, so a must-fail check cannot credit it.
 release_apply() {
-  local file=$1 doc
+  local file=$1 doc i
   doc=$(k create --dry-run=client -o json -f "$file" 2>>"$LOG") || { log "  $file does not parse as a Kubernetes object"; return 1; }
   if [ "$(jq -r '.kind + "/" + .metadata.namespace + "/" + .metadata.name' <<<"$doc")" != "InferenceDeployment/$SERVING_NS/$NAME" ]; then
     log "  $file is not InferenceDeployment $SERVING_NS/$NAME"
     return 1
   fi
-  spec_doc <<<"$doc" | k replace -o jsonpath='{.metadata.generation}' -f - 2>>"$LOG"
+  for i in 1 2 3; do
+    spec_doc <<<"$doc" | k replace -o jsonpath='{.metadata.generation}' -f - 2>>"$LOG" && return 0
+    log "  replace with $file refused (attempt $i)"
+    sleep 5
+  done
+  return 1
 }
 
 # await_release waits until the controller has observed this generation, rendered the spec's model into the
@@ -250,8 +257,13 @@ fi
 restore() {
   local dir=$1 gen
   mkdir -p "$dir"
-  gen=$(release_apply "$LKG") || { log "  restore: replace failed"; echo '{"pass": false, "apply": "fail"}' >"$dir/verdict.json"; return 1; }
+  gen=$(release_apply "$LKG") || { log "  restore: replace failed"; echo '{"pass": false, "apply": "fail"}' >"$dir/verdict.json"; return 2; }
   verify "$gen" "$LKG" "$dir"
+}
+
+# outcome names how a verify ended: pass, fail when the spec applied and its check failed, apply-failed otherwise.
+outcome() {
+  case $1 in 0) echo pass ;; 2) echo apply-failed ;; *) echo fail ;; esac
 }
 
 results=()
@@ -264,9 +276,11 @@ for entry in "${CANDIDATES[@]}"; do
   log "== candidate $name (expected $want)"
   snapshot "$dir/before.yaml"
   cp "$file" "$dir/candidate.yaml"
-  cand=fail
+  # A candidate the API never accepted was not tested, so it is apply-failed and cannot stand in for an expected fail.
+  cand=apply-failed
   if gen=$(release_apply "$file"); then
-    verify "$gen" "$file" "$dir/candidate" && cand=pass
+    verify "$gen" "$file" "$dir/candidate"
+    cand=$(outcome $?)
   else
     log "  candidate did not apply"
   fi
@@ -274,14 +288,17 @@ for entry in "${CANDIDATES[@]}"; do
   rest=skipped
   # The self-test starts every candidate from v1, so a healthy one is reset to the saved spec too; in a gate a
   # passing candidate is the new release and stays.
-  if [ "$cand" = fail ] || [ "$MODE" = self-test ]; then
+  if [ "$cand" != pass ] || [ "$MODE" = self-test ]; then
     log "  restoring last known good"
-    if restore "$dir/restore"; then rest=pass; else rest=fail; fi
+    restore "$dir/restore"
+    rest=$(outcome $?)
   fi
   snapshot "$dir/after.yaml"
   log "  candidate $cand, restore $rest"
+  # The restore's two checks are kept apart, so a reader, and the must-fail job, can see which one failed it.
   results+=("$(jq -n --arg n "$name" --arg w "$want" --arg c "$cand" --arg r "$rest" \
-    '{candidate: $n, expected: $w, result: $c, restore: $r}')")
+    --argjson rv "$(cat "$dir/restore/verdict.json" 2>/dev/null || echo null)" \
+    '{candidate: $n, expected: $w, result: $c, restore: $r, restoreReady: $rv.ready, restoreSmoke: $rv.smoke}')")
 done
 
 summary=$(printf '%s\n' "${results[@]}" | jq -s --arg mode "$MODE" --arg corrupt "${CORRUPT_LKG:-0}" '

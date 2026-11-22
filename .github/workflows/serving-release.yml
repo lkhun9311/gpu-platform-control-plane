@@ -14,6 +14,8 @@ on:
       - internal/controller/**
       - internal/gateway/**
       - config/**
+      - Makefile
+      - .dockerignore
       - Dockerfile
       - Dockerfile.gateway
       - Dockerfile.benchharness
@@ -116,9 +118,11 @@ jobs:
             echo "the self-test exited $status; a corrupted saved spec must make it exit 1 with a verdict" >&2
             exit 1
           fi
-          # Every candidate behaved as expected and every restore failed, so the restore alone is what turned it red.
+          # Every candidate behaved as expected, and every restore applied, became Ready and then failed its smoke,
+          # so the corrupted spec alone is what turned it red.
           jq -e '.verdict == "fail" and .corruptLastKnownGood
-                 and all(.candidates[]; .result == .expected and .restore == "fail")' "$OUT/summary.json"
+                 and all(.candidates[]; .result == .expected and .restore == "fail"
+                         and .restoreReady == "pass" and .restoreSmoke == "fail")' "$OUT/summary.json"
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
