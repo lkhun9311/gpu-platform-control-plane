@@ -1,0 +1,20 @@
+#!/bin/bash
+# A fake python for the vLLM HF3FS preemption kit's offline test.
+# It answers the kit's environment probe with an A10G that torch sees, or with no CUDA when FAKE_CUDA=0.
+# `python -m pytest ...` runs the fake pytest of kit p1 in its place.
+# Anything else runs on the real python3, isolated from the caller's environment.
+case "${1:-}" in
+  */envprobe.py)
+    if [ "${FAKE_CUDA:-1}" = 1 ]; then
+      echo '{"cuda_available": true, "device_count": 1, "device_name": "NVIDIA A10G", "python": "3.12.15", "torch": "fake", "torch_cuda": "fake", "triton": "fake"}'
+    else
+      echo '{"cuda_available": false, "device_count": 0, "device_name": null, "python": "3.12.15", "torch": "fake", "torch_cuda": null, "triton": "fake"}'
+    fi
+    ;;
+  -m)
+    [ "${2:-}" = pytest ] || { echo "fake python: only -m pytest is faked, not -m ${2:-}" >&2; exit 2; }
+    shift 2
+    exec python3 -I "$(dirname "$0")/pytest_p1.py" "$@"
+    ;;
+  *) exec python3 -I "$@" ;;
+esac
