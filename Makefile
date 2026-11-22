@@ -431,7 +431,7 @@ shell-check: ## Parse every shell script under hack/, oss/ and .githooks/.
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
-	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py hack/eks-serve/prefix-route-study/*.py \
+	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/serving-release/*.py hack/eks-serve/holdcap-study/*.py hack/eks-serve/prefix-route-study/*.py \
 		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py \
 		experiments/multi-pod-ddp/*.py experiments/gateway-replica-limit/*.py experiments/mlops-lineage/*.py experiments/mlops-w2/*.py hack/slurm-ec2/*.py hack/test/slurm-ec2/aws \
 		oss/*/*/*.py; do \
