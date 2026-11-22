@@ -1,0 +1,167 @@
+name: Serving release
+
+# A CPU-stub release pipeline: deploy an InferenceDeployment candidate in kind, smoke it through the gateway, and
+# restore the last known good CR spec when it fails.
+# It does not deploy vLLM, roll back through GitOps or promise zero downtime; hack/serving-release.md says why.
+
+on:
+  pull_request:
+    paths:
+      - api/**
+      - cmd/main.go
+      - cmd/gateway/**
+      - cmd/benchharness/**
+      - internal/controller/**
+      - internal/gateway/**
+      - config/**
+      - Dockerfile
+      - Dockerfile.gateway
+      - Dockerfile.benchharness
+      - go.mod
+      - go.sum
+      - hack/serving-release.sh
+      - hack/serving-release/**
+      - .github/workflows/serving-release.yml
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: InferenceDeployment spec file in this repository, named serving/stub, on the benchharness:serving-release image
+        required: true
+        default: hack/serving-release/candidates/ttft-regression.yaml
+
+permissions: {}
+
+concurrency:
+  group: serving-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KIND_VERSION: v0.33.0
+
+jobs:
+  # The three fixed candidates; green only if the healthy one passes and both bad ones fail and are restored.
+  self-test:
+    if: github.event_name == 'pull_request'
+    name: Self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+      - name: Run the self-test
+        env:
+          MODE: self-test
+          OUT: ${{ runner.temp }}/serving-release
+        run: |
+          set +e
+          hack/serving-release.sh
+          status=$?
+          jq . "$OUT/summary.json" >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: serving-release-self-test
+          path: ${{ runner.temp }}/serving-release
+
+  # The same self-test with the saved spec corrupted, which must turn it red, and red for the restore's sake.
+  # Any other failure, a broken cluster included, leaves this job red, so it cannot pass by not running.
+  self-test-catches-a-bad-restore:
+    if: github.event_name == 'pull_request'
+    name: Self-test catches a corrupted saved spec
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+      - name: Run the self-test with a corrupted saved spec
+        env:
+          MODE: self-test
+          CORRUPT_LKG: "1"
+          OUT: ${{ runner.temp }}/serving-release
+        run: |
+          set +e
+          hack/serving-release.sh
+          status=$?
+          set -e
+          jq . "$OUT/summary.json" >>"$GITHUB_STEP_SUMMARY"
+          if [ "$status" != 1 ]; then
+            echo "the self-test exited $status; a corrupted saved spec must make it exit 1 with a verdict" >&2
+            exit 1
+          fi
+          # Every candidate behaved as expected and every restore failed, so the restore alone is what turned it red.
+          jq -e '.verdict == "fail" and .corruptLastKnownGood
+                 and all(.candidates[]; .result == .expected and .restore == "fail")' "$OUT/summary.json"
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: serving-release-corrupted-restore
+          path: ${{ runner.temp }}/serving-release
+
+  # One real candidate; red when it fails, even when the restore succeeds.
+  gate:
+    if: github.event_name == 'workflow_dispatch'
+    name: Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+      - name: Run the gate
+        env:
+          MODE: gate
+          CANDIDATE: ${{ inputs.candidate }}
+          OUT: ${{ runner.temp }}/serving-release
+        run: |
+          set +e
+          hack/serving-release.sh
+          status=$?
+          jq . "$OUT/summary.json" >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: serving-release-gate
+          path: ${{ runner.temp }}/serving-release
