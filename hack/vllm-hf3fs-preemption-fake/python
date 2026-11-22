@@ -1,7 +1,7 @@
 #!/bin/bash
 # A fake python for the vLLM HF3FS preemption kit's offline test.
 # It answers the kit's environment probe with an A10G that torch sees, or with no CUDA when FAKE_CUDA=0.
-# `python -m pytest ...` runs the fake pytest of kit p1 in its place.
+# `python -m pytest ...` runs the fake pytest of kit p1 in its place, and `python .../bench_preempt.py` kit p5's fake bench.
 # Anything else runs on the real python3, isolated from the caller's environment.
 case "${1:-}" in
   */envprobe.py)
@@ -15,6 +15,11 @@ case "${1:-}" in
     [ "${2:-}" = pytest ] || { echo "fake python: only -m pytest is faked, not -m ${2:-}" >&2; exit 2; }
     shift 2
     exec python3 -I -B "$(dirname "$0")/pytest_p1.py" "$@"
+    ;;
+  */bench_preempt.py)
+    # Kit p5's b1 runs the fake bench in place of the real one, which needs a GPU.
+    shift
+    exec python3 -I -B "$(dirname "$0")/bench_b1.py" "$@"
     ;;
   *) exec python3 -I -B "$@" ;;
 esac

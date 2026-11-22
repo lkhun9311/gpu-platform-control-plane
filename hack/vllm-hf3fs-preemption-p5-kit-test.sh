@@ -8,7 +8,9 @@
 #   the wheel commit is the new base's first parent, with no change under setup.py's blocking paths;
 #   kits p1 to p4 are left as committed;
 #   vLLM's startup check and the reset check pass on the new base's code;
-#   the verdict expects one GPU test and no CPU tests, prints each arm's pytest summary verbatim, and still judges "held-save page errors".
+#   the verdict expects one GPU test and no CPU tests, prints each arm's pytest summary verbatim, and still judges "held-save page errors";
+#   the performance run b1 after the test arms, on a fake bench, runs in its order, reports apart from the verdict,
+#   stops on a wrong has_fix, calls a pool-128 run without preemption INVALID, and leaves the verdict alone when it fails or runs out of time.
 # No GPU, no network and no AWS: python (with pytest) is the fake in hack/vllm-hf3fs-preemption-fake,
 # hf and nvidia-smi are the fakes in hack/vllm-69058-fake, and aws is a fake that records its calls.
 # The vLLM checkout is real, a detached worktree of a local vLLM repository (VLLM_SRC) at the base, with tests-only.patch applied by a real git apply
@@ -49,6 +51,9 @@ PR_HEAD=4ec2f316fb847673a5edb3ce337a0abae9263899
 PR_HEAD_TREE=441714150d9afe8fd27523f66f288568e8a8c1e8
 TF=tests/v1/kv_connector/unit/test_hf3fs_preemption.py
 TESTS_SHA256=bcbb9fec95bed88a2f7d8f399e18f7a72fb3e618e6a9e27db575662f77b31b0c
+BENCH_SHA256=575d32cc8e33e1db827c8f37b35d47c3f167b0f1fe46b6807ce78b5346613f9a
+BENCH_SRC="$HOME/workspace/storage/open-source/contributions/vllm/hf3fs-preemption-save/bench/bench_preempt.py"
+B1_ORDER_WANT="control-128 fix-128 control-128 fix-128 control-128 fix-128 control-2048 fix-2048"
 FIX_SHA256=8da42418ce7bcd85a85c19067a8c4da2dece1dbb485b765e0471759abed30eb6
 # Kit p4's pins, which p5 must not carry.
 P4_TESTS_SHA256=c21daf3b2e477c75860bec4bc5534742b6a496c7e9a08d875901cddaa0aed575
@@ -96,7 +101,7 @@ mutant() {
 # ---------------------------------------------------------------- parse and compile
 check "run.sh, this test and the fake python parse" "bash -n '$KIT/run.sh' && bash -n '$0' && bash -n '$FAKES/python'"
 check "the kit's Python, the fake pytest and the checker compile" \
-  "python3 -I -X pycache_prefix='$WORK/pyc' -m py_compile '$KIT/verdict.py' '$KIT/envprobe.py' '$FAKES/pytest_p1.py' '$CHECK'"
+  "python3 -I -X pycache_prefix='$WORK/pyc' -m py_compile '$KIT/verdict.py' '$KIT/b1_verdict.py' '$KIT/bench_preempt.py' '$KIT/envprobe.py' '$FAKES/pytest_p1.py' '$FAKES/bench_b1.py' '$CHECK'"
 if command -v shellcheck >/dev/null; then
   check "shellcheck finds no error in run.sh" "shellcheck -S error '$KIT/run.sh'"
 else
@@ -105,9 +110,16 @@ fi
 
 # ---------------------------------------------------------------- the pins
 check "the kit holds both patches with the pinned sha256s, which start bcbb9fec95bed88a and 8da42418ce7bcd85" \
-  "[ \"\$(ls '$KIT' | paste -sd' ')\" = 'envprobe.py fix-and-tests.patch run.sh tests-only.patch verdict.py' ] \
+  "[ \"\$(ls '$KIT' | paste -sd' ')\" = 'b1_verdict.py bench_preempt.py envprobe.py fix-and-tests.patch run.sh tests-only.patch verdict.py' ] \
    && [ \"\$(sha256sum '$KIT/tests-only.patch' | cut -d' ' -f1)\" = $TESTS_SHA256 ] && [ \${TESTS_SHA256:0:16} = bcbb9fec95bed88a ] \
    && [ \"\$(sha256sum '$KIT/fix-and-tests.patch' | cut -d' ' -f1)\" = $FIX_SHA256 ] && [ \${FIX_SHA256:0:16} = 8da42418ce7bcd85 ]"
+check "the kit's bench_preempt.py has the pinned sha256, which run.sh pins too" \
+  "[ \"\$(sha256sum '$KIT/bench_preempt.py' | cut -d' ' -f1)\" = $BENCH_SHA256 ] && command grep -qx 'BENCH_SHA256=$BENCH_SHA256' '$KIT/run.sh'"
+if [ -f "$BENCH_SRC" ]; then
+  check "the kit's bench_preempt.py is byte for byte storage's $BENCH_SRC" "cmp -s '$KIT/bench_preempt.py' '$BENCH_SRC'"
+else
+  echo "skip $BENCH_SRC is gone; the sha256 pin stands"
+fi
 check "run.sh pins both patches, the base by commit and tree, the fix's and the control's trees, the test blob and the wheel commit" \
   "command grep -qx 'TESTS_PATCH_SHA256=$TESTS_SHA256' '$KIT/run.sh' && command grep -qx 'FIX_PATCH_SHA256=$FIX_SHA256' '$KIT/run.sh' \
    && command grep -qx 'BASE_SHA=$BASE' '$KIT/run.sh' && command grep -qx 'BASE_TREE=$BASE_TREE' '$KIT/run.sh' \
@@ -140,14 +152,8 @@ if git -C "$SRC" cat-file -e "$PR_HEAD^{commit}" 2>"$WORK/pr.err"; then
 else
   check "the local repository holds the PR head $PR_HEAD; fetch lkhun9311/vllm fix/hf3fs-preemption-save ($(cat "$WORK/pr.err"))" "false"
 fi
-check "run.sh and envprobe.py differ from kit p4's only in p5's base, wheel, pins, PR head, command and provenance comments" \
-  "cmp -s '$ROOT/$KIT4REL/envprobe.py' '$KIT/envprobe.py' \
-   && [ \"\$(diff '$ROOT/$KIT4REL/run.sh' '$KIT/run.sh' | command grep -E '^>' | command grep -vE '^> #' \
-        | command grep -vE '^> (BASE_SHA|BASE_TREE|TESTS_PATCH_SHA256|FIX_PATCH_SHA256|FIX_TREE|CONTROL_TREE|TEST_BLOB|WHEEL_COMMIT|PR_HEAD|PR_HEAD_TREE)=' \
-        | command grep -vF 'kit p5 caps each process' | command grep -vxF '>   echo \"kit=p5\"; echo \"upstream=\$UPSTREAM\"' \
-        | command grep -vxF '> cmd() { echo python -m pytest \"\$TEST_FILE\" -q -s --tb=short; }' \
-        | command grep -vxF '>   echo \"pr=vllm-project/vllm#69271 head \$PR_HEAD tree \$PR_HEAD_TREE\"' \
-        | command grep -vxF '> [ \"\$FIX_TREE\" = \"\$PR_HEAD_TREE\" ] || stop \"the pinned fix tree \$FIX_TREE is not the PR head \$PR_HEAD'\"'\"'s tree \$PR_HEAD_TREE\"')\" = '' ]"
+# run.sh now differs from kit p4's in b1's phase, budget and stop as well, which the end-to-end runs and mutants below check.
+check "envprobe.py is kit p4's" "cmp -s '$ROOT/$KIT4REL/envprobe.py' '$KIT/envprobe.py'"
 if git -C "$SRC" cat-file -e "$BASE^{commit}" 2>"$WORK/src.err"; then
   check "the local base has the pinned tree, and its first parent is the wheel commit with no blocking-path change" \
     "[ \"\$(git -C '$SRC' rev-parse $BASE^{tree})\" = $BASE_TREE ] && [ \"\$(git -C '$SRC' rev-parse $BASE^1)\" = $WHEEL ] \
@@ -244,17 +250,17 @@ dry() {
   env -i PATH="$PATH" HOME="$HOME" KIT_DRY_RUN=1 OUT="$WORK/dry" "$@" bash "$k/run.sh" "${args[@]}" >"$WORK/dry.out" 2>&1
 }
 check "the default settings are accepted and record the order and the runtime session's command with -s, and no CUDA_LAUNCH_BLOCKING, -x or multiprocessing setting" \
-  "dry '$KIT' && command grep -qx 'budget_s=600' '$WORK/dry/settings.txt' && command grep -qx 'arm_cap_s=240' '$WORK/dry/settings.txt' \
+  "dry '$KIT' && command grep -qx 'budget_s=1800' '$WORK/dry/settings.txt' && command grep -qx 'p5_budget_s=600' '$WORK/dry/settings.txt' && command grep -qx 'b1=1' '$WORK/dry/settings.txt' && command grep -qx 'b1_cap_s=240' '$WORK/dry/settings.txt' && command grep -qx 'arm_cap_s=240' '$WORK/dry/settings.txt' \
    && command grep -qxF 'order=control fix, each in its own process' '$WORK/dry/settings.txt' \
    && command grep -qxF 'command=python -m pytest $TF -q -s --tb=short' '$WORK/dry/settings.txt'"
 check "CUDA_LAUNCH_BLOCKING set by a caller is refused rather than passed to the tests" "! dry '$KIT' -- CUDA_LAUNCH_BLOCKING=1 && command grep -qF 'runs without it' '$WORK/dry.out'"
 check "a positional argument is refused, and nothing is written" "! dry '$KIT' extra && command grep -qF 'takes no arguments' '$WORK/dry.out' && [ ! -e '$WORK/dry' ]"
-check "BUDGET_S above 600, not whole seconds, at or below the reserve, or with a leading zero is refused" \
-  "! dry '$KIT' -- BUDGET_S=601 && ! dry '$KIT' -- BUDGET_S=10m && ! dry '$KIT' -- BUDGET_S=60 && ! dry '$KIT' -- BUDGET_S=0300"
+check "BUDGET_S above 1800, not whole seconds, at or below the reserve, or with a leading zero is refused, as are a bad B1 or B1_CAP_S" \
+  "! dry '$KIT' -- B1=2 && ! dry '$KIT' -- B1_CAP_S=10 && ! dry '$KIT' -- B1_CAP_S=0240 && ! dry '$KIT' -- BUDGET_S=1801 && ! dry '$KIT' -- BUDGET_S=10m && ! dry '$KIT' -- BUDGET_S=60 && ! dry '$KIT' -- BUDGET_S=0300"
 check "ARM_CAP_S with a leading zero or under 30, and earlier kits' cap settings, are refused" \
   "! dry '$KIT' -- ARM_CAP_S=0240 && ! dry '$KIT' -- ARM_CAP_S=5 && ! dry '$KIT' -- CASE_CAP_S=180"
-m=$(mutant budgetcap run.sh 's/^BUDGET_MAX_S=600$/BUDGET_MAX_S=800/')
-mcheck "mutant: a run.sh that takes BUDGET_S=601 is caught" "! { ! dry '$m' -- BUDGET_S=601; }"
+m=$(mutant budgetcap run.sh 's/^BUDGET_MAX_S=1800$/BUDGET_MAX_S=2400/')
+mcheck "mutant: a run.sh that takes BUDGET_S=1801 is caught" "! { ! dry '$m' -- BUDGET_S=1801; }"
 m=$(mutant blockingok run.sh 's/^\[ -z "\${CUDA_LAUNCH_BLOCKING:-}" \] ||/true ||/')
 mcheck "mutant: a run.sh that lets CUDA_LAUNCH_BLOCKING through is caught" "! { ! dry '$m' -- CUDA_LAUNCH_BLOCKING=1; }"
 
@@ -263,18 +269,19 @@ S="$ROOT/hack/gpu-kit-session.sh"
 bring=$(sed -n 's/^BRINGUP_S=\([0-9]*\)$/\1/p' "$S")
 upl=$(sed -n 's/^EVIDENCE_UPLOAD_S=\([0-9]*\)$/\1/p' "$S")
 kitmax=$(sed -n 's/^BUDGET_MAX_S=\([0-9]*\)$/\1/p' "$KIT/run.sh")
-for t in g5.xlarge:0.2817:0.8579 g5.2xlarge:0.3184:0.9696; do
+for t in g5.xlarge:0.5378:0.8579 g5.2xlarge:0.6078:0.9696; do
   type=${t%%:*} want=$(echo "$t" | cut -d: -f2) backstop=${t##*:}
   rate=$(sed -n "s/^    $type) echo \"[0-9.]* \([0-9.]*\) [0-9]*\" ;;\$/\1/p" "$S")
   sched=$(INSTANCE_TYPE=$type bash "$S" --print-schedule 2>&1)
   tail_s=$(python3 -I -c 'import re,sys; d=dict(re.findall(r"(\w+)=([\w.]+)", sys.argv[1])); print(int(d["termination_s"]) - int(d["evidence_s"]))' "$sched")
   worst=$(python3 -I -c 'import sys; b,k,u,t,r = map(float, sys.argv[1:]); print(f"{(b + k + u + t) / 3600 * r:.4f} {int(b + k + u + t)}")' "${bring:-x}" "${kitmax:-x}" "${upl:-x}" "${tail_s:-x}" "${rate:-x}")
   check "$type: BUDGET_S at its maximum, $kitmax s, bills ${worst#* } s at \$$rate/h, \$${worst% *}, as run.sh's header says" \
-    "[ '$worst' = '$want 1320' ] && command grep -qF '\$$want on $type' '$KIT/run.sh'"
+    "[ '$worst' = '$want 2520' ] && command grep -qF '\$$want on $type' '$KIT/run.sh'"
   check "$type: the runner's own backstop stays \$$backstop, as run.sh's header says" \
     "[[ '$sched' == *worst_case_usd=$backstop ]] && command grep -qF '\$$backstop on $type' '$KIT/run.sh'"
 done
-check "g5.xlarge's bill at the maximum budget stays under \$0.30" "python3 -I -c 'import sys; sys.exit(0 if 0.2817 < 0.30 else 1)'"
+check "b1 adds at most \$0.2561 on g5.xlarge to kit p4's \$0.2817, within the approved \$0.30 or so, as run.sh's header says" \
+  "python3 -I -c 'import sys; sys.exit(0 if round(0.5378 - 0.2817, 4) == 0.2561 and 0.2561 <= 0.30 else 1)' && command grep -qF 'b1 adds at most \$0.2561 and \$0.2894' '$KIT/run.sh'"
 
 # ---------------------------------------------------------------- end to end on the fakes, with the real checkout, git apply and git am
 e2e() {
@@ -282,12 +289,18 @@ e2e() {
   local d="$WORK/e2e-$n"
   mkdir -p "$d/cwd" "$d/hf"
   ( cd "$d/cwd" && timeout --kill-after=5 "${E2E_OUTER_S:-120}" env PATH="$FAKES:$TOOLFAKES:$PATH" KIT_OFFLINE_TEST=1 OFFLINE_VLLM_SRC="$SRC" \
-    FAKE_HF_DIR="$d/hf" OFFLINE_MODEL_BIN_SHA256="$FAKE_BIN_SHA256" FAKE_ORDER_LOG="$d/order" OUT="$d/out" "$@" bash "$k/run.sh" >"$d/run.log" 2>&1 )
+    FAKE_HF_DIR="$d/hf" OFFLINE_MODEL_BIN_SHA256="$FAKE_BIN_SHA256" FAKE_ORDER_LOG="$d/order" FAKE_B1_LOG="$d/b1order" OUT="$d/out" "$@" bash "$k/run.sh" >"$d/run.log" 2>&1 )
 }
 v() { command grep -qx "VERDICT: $2" "$WORK/e2e-$1/out/verdict.txt"; }
 vt() { command grep -qF -- "$2" "$WORK/e2e-$1/out/verdict.txt"; }
 order() { [ -f "$WORK/e2e-$1/order" ] && paste -sd' ' "$WORK/e2e-$1/order"; }
 stopped() { [ -f "$WORK/e2e-$1/out/STOPPED" ] && command grep -qF -- "$2" "$WORK/e2e-$1/out/STOPPED"; }
+b1() { command grep -qx "B1: $2" "$WORK/e2e-$1/out/b1/b1-verdict.txt"; }
+b1t() { command grep -qF -- "$2" "$WORK/e2e-$1/out/b1/b1-verdict.txt"; }
+b1order() { [ -f "$WORK/e2e-$1/b1order" ] && paste -sd' ' "$WORK/e2e-$1/b1order"; }
+# p5kept NAME: the test arms' verdict is CONFIRMED with exit 0, no run-wide STOPPED, and verdict.txt as verdict.py wrote it before b1.
+p5kept() { [ ! -e "$WORK/e2e-$1/out/STOPPED" ] && v "$1" CONFIRMED && command grep -qx 'verdict exit=0 t=[0-9]*' "$WORK/e2e-$1/out/status.txt" \
+  && [ "$(command grep -c '^verdict exit=' "$WORK/e2e-$1/out/status.txt")" = 1 ]; }
 
 e2e "$KIT" pass FAKE_EXPECT_OFFLINE=1; rc=$?
 check "pass: CONTROL fails the comparison with preconditions met, FIX passes, and the run is CONFIRMED, exit 0" "[ $rc = 0 ] && v pass CONFIRMED"
@@ -308,6 +321,34 @@ check "pass: the verdict prints each arm's summary, held line, page errors and C
 check "pass: the hub was offline, and the run left checksums and no worktree" \
   "command grep -qx 'hub_offline=1 for the test runs' '$WORK/e2e-pass/out/settings.txt' && ( cd '$WORK/e2e-pass/out' && sha256sum -c --quiet SHA256SUMS ) \
    && ! git -C '$SRC' worktree list | command grep -qF '$WORK/e2e-pass/'"
+check "b1: after the test arms, eight processes ran in order C, F, C, F, C, F at pool 128 and C, F at 2048, and b1 is VALID apart from the verdict" \
+  "[ \"\$(b1order pass)\" = '$B1_ORDER_WANT' ] && b1 pass VALID && p5kept pass \
+   && [ \"\$(command grep -oE '^(test-[a-z]+|verdict|b1-[a-z0-9-]+|b1-verdict) ' '$WORK/e2e-pass/out/status.txt' | paste -sd' ')\" = 'test-control test-fix verdict b1-control-128-1 b1-fix-128-1 b1-control-128-2 b1-fix-128-2 b1-control-128-3 b1-fix-128-3 b1-control-2048-1 b1-fix-2048-1 b1-verdict ' ] \
+   && [ \"\$(ls '$WORK/e2e-pass/out/b1' | command grep -c 'json\$')\" = 9 ] && command grep -qF 'b1/control-128-1.json' '$WORK/e2e-pass/out/SHA256SUMS' \
+   && command grep -qF 'B1, the performance run: a separate section that does not change the verdict above.' '$WORK/e2e-pass/run.log'"
+for k in hasfixcontrol:control-128 hasfixfix:'control-128 fix-128'; do
+  mode=${k%%:*} ran=${k#*:}
+  e2e "$KIT" "b1-$mode" FAKE_B1="$mode"; rc=$?
+  check "b1 $mode: has_fix is wrong, so b1 stops after '$ran' and is NOT RUN, and the test arms' CONFIRMED and exit 0 stand" \
+    "[ $rc = 0 ] && p5kept b1-$mode && b1 b1-$mode 'NOT RUN' && [ \"\$(b1order b1-$mode)\" = '$ran' ] && [ -s '$WORK/e2e-b1-$mode/out/b1/NOT_RUN' ]"
+done
+e2e "$KIT" b1-zeropreempt FAKE_B1=zeropreempt; rc=$?
+check "b1 zeropreempt: a pool-128 run with no preemption makes b1 INVALID, its values printed as they are, and the verdict stands" \
+  "[ $rc = 0 ] && p5kept b1-zeropreempt && b1 b1-zeropreempt INVALID && b1t b1-zeropreempt 'B1 INVALID: control-128-2: preemptions=0'"
+e2e "$KIT" b1-nojson FAKE_B1=nojson; rc=$?
+check "b1 nojson: a run that dies before its JSON makes b1 INCOMPLETE, the other seven still run, and the verdict stands" \
+  "[ $rc = 0 ] && p5kept b1-nojson && b1 b1-nojson INCOMPLETE && [ \"\$(b1order b1-nojson)\" = '$B1_ORDER_WANT' ]"
+t0=$(date +%s); E2E_OUTER_S=260 e2e "$KIT" b1-hang FAKE_B1=hang BUDGET_S=200 B1_CAP_S=30; rc=$?; took=$(( $(date +%s) - t0 ))
+check "b1 hang: b1 runs out of budget and stops alone, writing b1/STOPPED, while the test arms' verdict, exit 0 and logs stand; run.sh ends inside BUDGET_S ($took s)" \
+  "[ $rc = 0 ] && p5kept b1-hang && b1 b1-hang INCOMPLETE && command grep -qF 'the budget ran out before b1-' '$WORK/e2e-b1-hang/out/b1/STOPPED' \
+   && command grep -qx 'b1-control-128-1 exit=124 t=[0-9]*' '$WORK/e2e-b1-hang/out/status.txt' && [ -s '$WORK/e2e-b1-hang/out/e2e-fix.log' ] \
+   && ( cd '$WORK/e2e-b1-hang/out' && sha256sum -c --quiet SHA256SUMS ) && [ $took -le 200 ]"
+cp -r "$KIT" "$WORK/tampered-bench" && printf '\n' >>"$WORK/tampered-bench/bench_preempt.py"
+e2e "$WORK/tampered-bench" tampered-bench; rc=$?
+check "a bench_preempt.py that is not the pinned one stops b1 before any b1 process, and the verdict stands" \
+  "[ $rc = 0 ] && p5kept tampered-bench && command grep -qF 'bench_preempt.py has sha256' '$WORK/e2e-tampered-bench/out/b1/STOPPED' && ! [ -s '$WORK/e2e-tampered-bench/b1order' ]"
+e2e "$KIT" b1-off B1=0; rc=$?
+check "B1=0 skips b1 and leaves the verdict as it is" "[ $rc = 0 ] && p5kept b1-off && command grep -qx 'b1 skipped (B1=0)' '$WORK/e2e-b1-off/out/status.txt' && ! [ -e '$WORK/e2e-b1-off/out/b1' ]"
 for kind in fixmismatch:2:FINDING fixsmallerr:2:FINDING fixother:2:FINDING fixfault:2:FINDING \
   fixnotimeout:5:INCONCLUSIVE fixprecond:5:INCONCLUSIVE controlpass:5:INCONCLUSIVE controlprecond:5:INCONCLUSIVE controlsmall:5:INCONCLUSIVE \
   controltimeout:5:INCONCLUSIVE controlkv:4:'NOT RUN' fixload:4:'NOT RUN' skip:3:INCOMPLETE nosummary:3:INCOMPLETE setupboth:4:'NOT RUN' oldline:3:INCOMPLETE; do
@@ -326,7 +367,7 @@ lastend() { command grep -E '^test-[a-z]+ exit=' "$WORK/e2e-$1/out/status.txt" |
 e2e "$KIT" hangterm FAKE_MODE=hangterm BUDGET_S=100 ARM_CAP_S=40; rc=$?
 check "hangterm: a process that ignores SIGTERM is killed after the grace, and the last step still ends by BUDGET_S less the reserve ($(lastend hangterm) s)" \
   "[ $rc = 1 ] && command grep -qx 'test-control exit=137 t=[0-9]*' '$WORK/e2e-hangterm/out/status.txt' && [ \"\$(lastend hangterm)\" -le 40 ]"
-m=$(mutant nograce run.sh 's/^  local left=\$(( BUDGET_S - RESERVE_S - KILL_GRACE_S - /  local left=$(( BUDGET_S - RESERVE_S - /')
+m=$(mutant nograce run.sh 's/^  local left=\$(( STEP_BUDGET_S - RESERVE_S - KILL_GRACE_S - /  local left=$(( STEP_BUDGET_S - RESERVE_S - /')
 [ -n "$m" ] && e2e "$m" m-nograce FAKE_MODE=hangterm BUDGET_S=100 ARM_CAP_S=40
 mcheck "mutant: a step budget that leaves out the kill grace overruns the reserve and is caught" "[ \"\$(lastend m-nograce)\" -gt 40 ]"
 for p in tests-only fix-and-tests; do
@@ -411,6 +452,16 @@ m=$(mutant notimeout run.sh 's/^  timeout --kill-after="\$KILL_GRACE_S" "\$cap" 
 [ -n "$m" ] && { E2E_OUTER_S=90 e2e "$m" m-notimeout FAKE_MODE=hang BUDGET_S=100 ARM_CAP_S=30; rc=$?; }
 mcheck "mutant: a step without its timeout overruns the budget and is caught" "[ \"\${rc:-0}\" = 124 ]"
 
+m=$(mutant b1nopreflight run.sh 's/^    if \[ -n "\$got" \] && \[ "\$got" != "\$want" \]; then$/    if false; then/')
+[ -n "$m" ] && e2e "$m" m-b1nopreflight FAKE_B1=hasfixcontrol
+mcheck "mutant: a run.sh without b1's has_fix preflight runs on past a wrong tree, and is caught" "[ \"\$(b1order m-b1nopreflight)\" = control-128 ]"
+m=$(mutant b1stopall run.sh 's/^  if \[ "\$PHASE" = b1 \]; then$/  if false; then/')
+[ -n "$m" ] && E2E_OUTER_S=260 e2e "$m" m-b1stopall FAKE_B1=hang BUDGET_S=200 B1_CAP_S=30
+mcheck "mutant: a b1 stop that writes the run-wide STOPPED and verdict is caught, since it would change the test arms' evidence" "! p5kept m-b1stopall"
+m=$(mutant b1nopin run.sh 's/^  \[ "\$got" = "\$BENCH_SHA256" \] ||/  true ||/')
+[ -n "$m" ] && printf '\n' >>"$m/bench_preempt.py" && e2e "$m" m-b1nopin
+mcheck "mutant: a run.sh that skips the bench's sha256 pin is caught" "! command grep -qF 'bench_preempt.py has sha256' '$WORK/e2e-m-b1nopin/out/b1/STOPPED' 2>/dev/null"
+
 # ---------------------------------------------------------------- mutants of verdict.py, caught by the unit checks
 caught() { ! python3 -I "$CHECK" "$1" "$FAKES" >"$WORK/mutant.log" 2>&1; }
 while IFS='|' read -r name sedexpr; do
@@ -455,6 +506,19 @@ judges the end-of-run pages|s/^ERRORS_RE = re.compile(r"held-save page errors: /
 lets the older line through|s/^OLD_ERRORS_RE = re.compile(r"relative page errors: \\\[")$/OLD_ERRORS_RE = re.compile(r"NEVER MATCHES")/
 exits 0 when inconclusive|s/{"CONFIRMED": 0, "FINDING": 2, "NOT RUN": 4, "INCONCLUSIVE": 5}/{"CONFIRMED": 0, "FINDING": 2, "NOT RUN": 4, "INCONCLUSIVE": 0}/
 MUTANTS
+while IFS='|' read -r name sedexpr; do
+  [ -n "$name" ] || continue
+  m=$(mutant "$name" b1_verdict.py "$sedexpr")
+  mcheck "mutant: b1_verdict $name is caught" "caught '$m'"
+done <<'B1MUTANTS'
+ignores a wrong has_fix|s/^        if d.get("has_fix") is not WANT_HAS_FIX\[arm\]:$/        if False:/
+lets a pool-128 run without preemption through|s/^        if pool == PREEMPT_POOL and d.get("preemptions") == 0:$/        if False:/
+ignores a run's exit status|s/^        if run\["exit"\] != 0:$/        if False:/
+ignores b1's STOPPED|s/^    for name in ("NOT_RUN", "STOPPED"):$/    for name in ("NOT_RUN",):/
+rounds the values it prints|s/^        lines.append("  " + " ".join(f"{k}={json.dumps(d.get(k))}" for k in FIELDS))$/        lines.append("  " + " ".join(f"{k}={json.dumps(round(d.get(k), 2) if isinstance(d.get(k), float) else d.get(k))}" for k in FIELDS))/
+drops the verbatim JSON|s/^        lines.extend("    " + x for x in run\["raw"\].rstrip("\\n").split("\\n"))$/        pass/
+calls an invalid b1 valid|s/^    elif rec\["invalid"\]:$/    elif False:/
+B1MUTANTS
 
 # ---------------------------------------------------------------- the runner: refusals before any AWS call
 check "the runner refuses g6, which the SCP blocks, and takes g5.2xlarge" \

@@ -235,6 +235,87 @@ padded = "========================= 1 passed, 21 warnings in 60.69s (0:01:00) ==
 r = judged(fix=(FIX[0].replace(SUMMARY_PASSED, padded), 0))
 check("a summary line in pytest's padded form is printed exactly as pytest wrote it", r["verdict"] == "CONFIRMED" and f"  pytest summary (verbatim): {padded}\n" in r["_text"])
 
+# ---------------------------------------------------------------- b1_verdict.py, the performance run's own report
+spec = importlib.util.spec_from_file_location("b1_verdict", os.path.join(KIT, "b1_verdict.py"))
+B = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(B)
+B1_ORDER = [("control", 128, 1), ("fix", 128, 1), ("control", 128, 2), ("fix", 128, 2), ("control", 128, 3), ("fix", 128, 3),
+            ("control", 2048, 1), ("fix", 2048, 1)]
+
+
+def b1_json(arm, pool, **over):
+    """A JSON as bench_preempt.py writes it, with values that a rounding would change."""
+    fix = arm == "fix"
+    d = {"has_fix": fix, "pool_blocks": pool, "num_requests": 64, "prompt_tokens": 256, "output_tokens": 256,
+         "wall_s": 61.23456789, "output_tok_per_s": 267.5612345, "steps": 4711, "step_ms_p50": 11.254321, "step_ms_p90": 13.5,
+         "step_ms_p99": 21.75, "step_ms_max": 88.125, "preemptions": 412 if pool == 128 else 0,
+         "wait_calls": 401 if fix and pool == 128 else 0, "wait_total_s": 0.81234567 if fix and pool == 128 else 0,
+         "wait_ms_p50": 1.5 if fix and pool == 128 else None, "wait_ms_max": 9.25 if fix and pool == 128 else None, "mean_step_ms": 12.0}
+    d.update(over)
+    return json.dumps(d, indent=2)
+
+
+def b1_judged(runs=None, drop=(), rcs=None, stopped=None, not_run=None, raw=None):
+    """b1_verdict on an OUT with the eight runs' JSON, less those in drop, with raw text in place of some."""
+    d = tempfile.mkdtemp(prefix="hf3fs-b1-")
+    try:
+        os.makedirs(os.path.join(d, "b1"))
+        status = []
+        for arm, pool, i in B1_ORDER:
+            name = f"{arm}-{pool}-{i}"
+            status.append(f"b1-{name} exit={(rcs or {}).get(name, 0)} t=1")
+            if name in drop:
+                continue
+            text = (raw or {}).get(name) or (runs or {}).get(name) or b1_json(arm, pool)
+            with open(os.path.join(d, "b1", f"{name}.json"), "w") as f:
+                f.write(text)
+        with open(os.path.join(d, "status.txt"), "w") as f:
+            f.write("\n".join(status) + "\n")
+        for name, text in (("STOPPED", stopped), ("NOT_RUN", not_run)):
+            if text:
+                with open(os.path.join(d, "b1", name), "w") as f:
+                    f.write(text)
+        r = B.judge(d)
+        with contextlib.redirect_stdout(io.StringIO()) as buf:
+            rc_main = B.main(["b1_verdict.py", d])
+        r["_rc"], r["_text"] = rc_main, buf.getvalue()
+        return r
+    finally:
+        shutil.rmtree(d)
+
+
+r = b1_judged()
+check("b1 VALID: eight runs, has_fix false on CONTROL and true on FIX, pool 128 preempting; exit 0", r["state"] == "VALID" and r["_rc"] == 0)
+t = r["_text"]
+check("b1 prints every run's JSON verbatim and its fields unrounded, under a heading that keeps it apart from the verdict",
+      t.startswith("B1, the performance run: a separate section that does not change the verdict above.")
+      and t.count("  verbatim:") == 8 and '    "wall_s": 61.23456789,' in t and '    "wait_total_s": 0.81234567,' in t
+      and "wall_s=61.23456789 output_tok_per_s=267.5612345 step_ms_p50=11.254321 step_ms_p90=13.5 step_ms_p99=21.75 step_ms_max=88.125" in t
+      and "preemptions=412 wait_calls=401 wait_total_s=0.81234567 wait_ms_p50=1.5 wait_ms_max=9.25" in t and "wait_ms_p50=null" in t
+      and t.rstrip().endswith("B1: VALID"))
+r = b1_judged(runs={"control-128-2": b1_json("control", 128, preemptions=0)})
+check("b1 INVALID: a pool-128 run with no preemption is reported, and its values are printed unchanged; exit 6",
+      r["state"] == "INVALID" and r["_rc"] == 6 and "B1 INVALID: control-128-2: preemptions=0" in r["_text"] and r["_text"].count("preemptions=0 ") >= 3)
+r = b1_judged(runs={"fix-2048-1": b1_json("fix", 2048, preemptions=0)})
+check("b1: a pool-2048 run with no preemption is what that control is for, and stays VALID", r["state"] == "VALID")
+r = b1_judged(runs={"control-128-1": b1_json("control", 128, has_fix=True)})
+check("b1 NOT RUN: a CONTROL run reporting has_fix true; exit 4", r["state"] == "NOT RUN" and r["_rc"] == 4 and "control-128-1: has_fix=True" in r["_text"])
+r = b1_judged(runs={"fix-128-3": b1_json("fix", 128, has_fix=False)})
+check("b1 NOT RUN: a FIX run reporting has_fix false", r["state"] == "NOT RUN" and "fix-128-3: has_fix=False" in r["_text"])
+r = b1_judged(drop=("fix-128-2", "control-128-3", "fix-128-3", "control-2048-1", "fix-2048-1"),
+              not_run="b1-fix-128-2 reported has_fix=False, where the fix tree must report True")
+check("b1 NOT RUN: run.sh's NOT_RUN outranks the runs it never made", r["state"] == "NOT RUN")
+r = b1_judged(drop=("control-2048-1", "fix-2048-1"), stopped="the budget ran out before b1-control-2048-1")
+check("b1 INCOMPLETE: a b1 that ran out of budget; exit 3", r["state"] == "INCOMPLETE" and r["_rc"] == 3 and "b1/STOPPED: the budget ran out" in r["_text"])
+r = b1_judged(drop=("fix-128-1",))
+check("b1 INCOMPLETE: a missing run", r["state"] == "INCOMPLETE" and "fix-128-1: no JSON" in r["_text"])
+r = b1_judged(rcs={"control-128-1": 124})
+check("b1 INCOMPLETE: a run cut by its cap after writing its JSON", r["state"] == "INCOMPLETE" and "exited 124" in r["_text"])
+r = b1_judged(raw={"fix-128-1": "{not json"})
+check("b1 INCOMPLETE: an unreadable JSON", r["state"] == "INCOMPLETE" and "unreadable JSON" in r["_text"])
+r = b1_judged(runs={"control-128-1": b1_json("control", 2048)})
+check("b1 INCOMPLETE: a run at another pool than its name says", r["state"] == "INCOMPLETE")
+
 print()
 print("all unit checks passed" if failures == 0 else f"{failures} unit check(s) failed")
 sys.exit(1 if failures else 0)
