@@ -1,7 +1,9 @@
-"""Unit checks for the vLLM HF3FS preemption kit p1's verdict.py, on the real CPU logs of both arms and on built GPU logs.
+"""Unit checks for the vLLM HF3FS preemption kits' verdict.py, on the real CPU logs of both arms and on built GPU logs.
 
-usage: python3 -I hack/vllm-hf3fs-preemption-kit-check.py KIT_DIR FAKE_DIR
-FAKE_DIR holds cpu-logs/e2e-{control,fix}.log, the two arms run on CPU at the pinned trees, where the GPU test skips.
+usage: python3 -I hack/vllm-hf3fs-preemption-kit-check.py KIT_DIR FAKE_DIR [--p2]
+FAKE_DIR holds cpu-logs/e2e-{control,fix}.log, the two arms run on CPU at kit p1's pinned trees, where the GPU test skips.
+--p2 checks kit p2 instead: it reads cpu-logs-p2/, the same runs at kit p2's trees,
+and adds the checks of p2's KV memory lines on run p1's real GPU logs in gpu-p1-logs/.
 Prints one ok or FAIL line per check and exits 1 if any failed.
 """
 
@@ -17,6 +19,10 @@ import tempfile
 # python3 -I ignores PYTHONDONTWRITEBYTECODE, so the import below would leave __pycache__ in the kit, which the session ships.
 sys.dont_write_bytecode = True
 KIT, FAKES = sys.argv[1], sys.argv[2]
+P2 = sys.argv[3:] == ["--p2"]
+if sys.argv[3:] not in ([], ["--p2"]):
+    sys.exit(f"unexpected arguments {sys.argv[3:]}")
+CPU_LOGS = "cpu-logs-p2" if P2 else "cpu-logs"
 spec = importlib.util.spec_from_file_location("verdict", os.path.join(KIT, "verdict.py"))
 V = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(V)
@@ -171,7 +177,7 @@ check("NOT RUN: FIX out of GPU memory", r["verdict"] == "NOT RUN")
 cap = log(gpu="raised", e_lines=["E   AssertionError: saves did not finish"], extra="WARNING huggingface_hub Cannot find the requested files in the disk cache")
 r = judged(fix=cap)
 check("a captured line that looks like a harness cause does not turn a FIX failure into NOT RUN", r["verdict"] == "FINDING")
-cpu = {a: (read("cpu-logs", f"e2e-{a}.log"), 1 if a == "control" else 0) for a in V.ARMS}
+cpu = {a: (read(CPU_LOGS, f"e2e-{a}.log"), 1 if a == "control" else 0) for a in V.ARMS}
 r = judged(control=cpu["control"], fix=cpu["fix"], env={"cuda_available": False, "device_name": None})
 check("INCOMPLETE: the real CPU logs, where the GPU test skips; CONTROL's two hook tests fail there and FIX's pass",
       r["verdict"] == "INCOMPLETE" and r["arms"]["control"]["cpu_failed"] == CPU_IDS[:2] and r["arms"]["fix"]["cpu_failed"] == []
@@ -204,6 +210,21 @@ check("verdict.txt prints each arm's summary, held line, page errors and traceba
       and "FIX: GPU test passed (exit 0): 4 passed, 20 warnings in 61.20s (0:01:01)" in t
       and "  held line: held=[20, 21, 22, 23] reused=[21, 22] hold_timed_out=False" in t and "  page errors: [0.9731, 1.0214]" in t
       and "    E   AssertionError: [0.9731, 1.0214]" in t and t.rstrip().endswith("VERDICT: CONFIRMED"))
+
+# ---------------------------------------------------------------- kit p2: the KV memory lines, on run p1's real GPU logs
+if P2:
+    gpu = {a: (read("gpu-p1-logs", f"e2e-{a}.log"), 1) for a in V.ARMS}
+    r = judged(control=gpu["control"], fix=gpu["fix"])
+    t = r["_text"]
+    check("run p1's real logs: NOT RUN in both arms on KV cache memory; exit 4",
+          r["verdict"] == "NOT RUN" and r["_rc"] == 4 and all(r["arms"][a]["gpu"] == "not run" and "KV cache memory" in r["arms"][a]["why"] for a in V.ARMS))
+    check("run p1's real logs: each arm prints vLLM's 'Available KV cache memory' line and the startup check's 'available KV cache memory' line",
+          t.count("kv memory: ") >= 4 and t.count("Available KV cache memory: 6.1 GiB") == 2
+          and t.count("larger than the available KV cache memory (0.03 GiB)") >= 2)
+    one = "(MainProcess pid=1) INFO 11-22 13:08:49 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB\n"
+    r = judged(control=(one + CONTROL[0], CONTROL[1]))
+    check("a run that passes its memory check still prints the KV memory line, and decides as before",
+          r["verdict"] == "CONFIRMED" and "  kv memory: 1:(MainProcess pid=1) INFO 11-22 13:08:49 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB" in r["_text"])
 
 print()
 print("all unit checks passed" if failures == 0 else f"{failures} unit check(s) failed")
