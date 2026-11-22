@@ -1,0 +1,6 @@
+NAME                                                    READY   STATUS    RESTARTS   AGE   IP            NODE                    NOMINATED NODE   READINESS GATES
+alert-sink-59bd5677c8-j6smd                             1/1     Running   0          14m   10.244.0.6    gwalert-control-plane   <none>           <none>
+alertmanager-kps-kube-prometheus-stack-alertmanager-0   2/2     Running   0          13m   10.244.0.9    gwalert-control-plane   <none>           <none>
+kps-kube-prometheus-stack-operator-64f648cfc4-62sw9     1/1     Running   0          13m   10.244.0.8    gwalert-control-plane   <none>           <none>
+probe-76fd58fc8c-qz2w6                                  1/1     Running   0          14m   10.244.0.4    gwalert-control-plane   <none>           <none>
+prometheus-kps-kube-prometheus-stack-prometheus-0       2/2     Running   0          13m   10.244.0.10   gwalert-control-plane   <none>           <none>
