@@ -1,0 +1,410 @@
+From 20e888ca5565b89e352fc622091248e22a4f8999 Mon Sep 17 00:00:00 2001
+From: lkhun9311 <96328441+lkhun9311@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 21:22:46 +0900
+Subject: [PATCH] [Bugfix][KV Connector] Finish HF3FS saves of preempted
+ requests before reuse
+
+Assisted-by: Claude
+Signed-off-by: lkhun9311 <96328441+lkhun9311@users.noreply.github.com>
+---
+ .../unit/test_hf3fs_preemption.py             | 322 ++++++++++++++++++
+ .../kv_connector/v1/hf3fs/hf3fs_connector.py  |  25 ++
+ .../kv_connector/v1/hf3fs/utils/common.py     |   3 +
+ 3 files changed, 350 insertions(+)
+ create mode 100644 tests/v1/kv_connector/unit/test_hf3fs_preemption.py
+
+diff --git a/tests/v1/kv_connector/unit/test_hf3fs_preemption.py b/tests/v1/kv_connector/unit/test_hf3fs_preemption.py
+new file mode 100644
+index 0000000000..b489f5e191
+--- /dev/null
++++ b/tests/v1/kv_connector/unit/test_hf3fs_preemption.py
+@@ -0,0 +1,322 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""HF3FS saves of a preempted request must not read blocks another request reuses."""
++
++import atexit
++import concurrent.futures
++import gc
++import os
++import threading
++import time
++from concurrent.futures import Future
++from unittest.mock import patch
++
++import pytest
++import torch
++
++from vllm import LLM, SamplingParams
++from vllm.config import KVTransferConfig
++from vllm.distributed.kv_transfer import get_kv_transfer_group
++from vllm.distributed.kv_transfer.kv_connector.v1.hf3fs import hf3fs_connector
++from vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector import (
++    AsyncOperationManager,
++    HF3FSKVConnector,
++)
++from vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_metadata_server import (
++    GlobalMetadataState,
++)
++from vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.common import (
++    HF3FSConnectorMetadata,
++)
++from vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.utils.hf3fs_mock_client import (
++    Hf3fsClient as MockHf3fsClient,
++)
++from vllm.v1.core.sched.output import SchedulerOutput
++
++# ===========================================================================
++# CPU: the hook waits for the preempted request's saves
++# ===========================================================================
++
++
++def _worker_with_saves(save_futures: dict[str, list[Future]]) -> HF3FSKVConnector:
++    """A worker-side connector whose save manager holds the given futures."""
++    manager = AsyncOperationManager.__new__(AsyncOperationManager)
++    manager._save_futures = save_futures
++    connector = HF3FSKVConnector.__new__(HF3FSKVConnector)
++    connector._async_manager = manager
++    return connector
++
++
++def _metadata(preempted: set[str]) -> HF3FSConnectorMetadata:
++    metadata = HF3FSConnectorMetadata()
++    metadata.preempted_req_ids = preempted
++    return metadata
++
++
++class TestHF3FSHandlePreemptions:
++    def test_scheduler_passes_preempted_requests_to_the_worker(self):
++        connector = HF3FSKVConnector.__new__(HF3FSKVConnector)
++        connector._scheduling_states = {}
++        scheduler_output = SchedulerOutput.make_empty()
++        scheduler_output.preempted_req_ids = {"A"}
++
++        metadata = connector.build_connector_meta(scheduler_output)
++
++        assert metadata.preempted_req_ids == {"A"}
++
++    def test_waits_for_the_preempted_request_saves_only(self):
++        held, other = Future(), Future()
++        connector = _worker_with_saves({"A": [held], "B": [other]})
++        waiter = threading.Thread(
++            target=connector.handle_preemptions, args=(_metadata({"A"}),)
++        )
++
++        waiter.start()
++        time.sleep(0.2)
++        # A's save is still queued, so the forward must not start yet.
++        assert waiter.is_alive()
++        held.set_result(True)
++        waiter.join(timeout=5)
++
++        # B's unfinished save did not hold the step back.
++        assert not waiter.is_alive()
++        assert not other.done()
++
++    def test_no_preemption_does_not_wait(self):
++        connector = _worker_with_saves({"A": [Future()]})
++
++        connector.handle_preemptions(_metadata(set()))
++
++
++# ===========================================================================
++# GPU: a held save of a preempted request, then a request that reuses its blocks
++# ===========================================================================
++
++E2E_MODEL = "facebook/opt-125m"
++BLOCK_SIZE = 16
++# Two 20-block prompts fill 40 of 48 blocks, so decoding soon preempts one of them.
++NUM_GPU_BLOCKS = 48
++MAX_MODEL_LEN = 1024
++DECODE_TOKENS = 300
++# The fixed connector blocks the step until the held save finishes.
++# The hold then ends on this timeout instead of on the other request finishing.
++HOLD_TIMEOUT_S = 30.0
++
++
++class InProcessMetadataService:
++    """The in-tree metadata server state, served in process instead of over HTTP."""
++
++    def __init__(self):
++        self.state = GlobalMetadataState()
++        self.num_pages: dict[int, int] = {}
++
++    def initialize(self, rank, num_pages=0, role="worker"):
++        if role == "worker":
++            self.num_pages[rank] = num_pages
++            self.state.initialize_rank(rank, num_pages)
++
++    def reset(self):
++        """Forget every stored key, as if the storage were empty."""
++        self.state = GlobalMetadataState()
++        for rank, num_pages in self.num_pages.items():
++            self.state.initialize_rank(rank, num_pages)
++
++    def allocate_pages_for_keys(self, rank, keys):
++        return list(self.state.allocate_pages_for_keys(rank, keys).items())
++
++    def confirm_write_for_keys(self, rank, key_confirmations, pages_to_release=None):
++        self.state.confirm_write_for_keys(rank, key_confirmations, pages_to_release)
++
++    def batch_key_exists(self, keys):
++        return self.state.batch_key_exists(keys)
++
++    def get_key_locations(self, rank, keys):
++        return self.state.get_key_locations(rank, keys)
++
++
++@pytest.fixture
++def in_process_metadata(monkeypatch):
++    # The engine and its worker must share this process to share the fake.
++    monkeypatch.setenv("VLLM_ENABLE_V1_MULTIPROCESSING", "0")
++    metadata = InProcessMetadataService()
++    monkeypatch.setattr(
++        hf3fs_connector, "Hf3fsMetadataClient", lambda *_a, **_k: metadata
++    )
++    monkeypatch.setattr(hf3fs_connector, "Hf3fsClient", MockHf3fsClient)
++    return metadata
++
++
++class SaveHold:
++    """Holds the first save that covers the target's blocks until released."""
++
++    def __init__(self, target_hashes: set[str]):
++        self.target_hashes = target_hashes
++        self.armed = False
++        self.held_block_ids: set[int] = set()
++        self.release = threading.Event()
++        self.timed_out = False
++
++    def wrap(self, handle_save_task):
++        hold = self
++
++        def held_save(manager, task):
++            _, block_ids, block_hashes, _, _ = task
++            if hold.armed and hold.target_hashes & set(block_hashes):
++                hold.armed = False
++                hold.held_block_ids = set(block_ids)
++                hold.timed_out = not hold.release.wait(HOLD_TIMEOUT_S)
++            return handle_save_task(manager, task)
++
++        return held_save
++
++
++def _prompt(tag: str) -> str:
++    return " ".join(f"{tag} item {i} costs {i * 7} dollars." for i in range(36))
++
++
++def _wait_for_saves(manager: AsyncOperationManager, timeout: float = 120.0):
++    deadline = time.monotonic() + timeout
++    while True:
++        pending = [f for fs in manager._save_futures.values() for f in fs]
++        if manager._save_queue.empty() and all(f.done() for f in pending):
++            # A task taken off the queue registers no future change until it ends.
++            time.sleep(1.0)
++            if manager._save_queue.empty():
++                concurrent.futures.wait(pending)
++                return
++        assert time.monotonic() < deadline, "saves did not finish"
++        time.sleep(0.05)
++
++
++def _read_pages(worker, metadata, hashes) -> list[torch.Tensor]:
++    pages = metadata.get_key_locations(0, hashes)
++    assert all(page is not None for page in pages), "a target block was not stored"
++    path = os.path.join(worker._storage_path, "hf3fs_vllm_data_file_0")
++    out = []
++    with open(path, "rb") as f:
++        for page in pages:
++            f.seek(page * worker._bytes_per_page)
++            raw = bytearray(f.read(worker._bytes_per_page))
++            out.append(torch.frombuffer(raw, dtype=worker._dtype).float())
++    return out
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
++class TestHF3FSPreemptionEndToEnd:
++    def test_preempted_request_saves_its_own_kv(self, tmp_path, in_process_metadata):
++        metadata = in_process_metadata
++        transfer_config = KVTransferConfig(
++            kv_connector="HF3FSKVConnector",
++            kv_role="kv_both",
++            kv_connector_extra_config={
++                "hf3fs_storage_path": str(tmp_path),
++                "hf3fs_file_size": 256 * 1024 * 1024,
++                "hf3fs_client_numjobs": 2,
++            },
++        )
++        gc.collect()
++        torch.accelerator.empty_cache()
++        with patch("signal.signal"):
++            llm = LLM(
++                model=E2E_MODEL,
++                enforce_eager=True,
++                gpu_memory_utilization=0.3,
++                max_model_len=MAX_MODEL_LEN,
++                block_size=BLOCK_SIZE,
++                num_gpu_blocks_override=NUM_GPU_BLOCKS,
++                enable_prefix_caching=True,
++                kv_transfer_config=transfer_config,
++            )
++        scheduler = llm.llm_engine.engine_core.engine_core.scheduler
++        worker = get_kv_transfer_group()
++        manager = worker._async_manager
++        connectors = [scheduler.connector, worker]
++        target, other = _prompt("Target"), _prompt("Other")
++        target_ids = llm.get_tokenizer().encode(target)
++        num_blocks = len(target_ids) // BLOCK_SIZE
++        target_hashes = scheduler.connector._generate_block_hashes(
++            target_ids[: num_blocks * BLOCK_SIZE], 0
++        )
++        hold = SaveHold(set(target_hashes))
++        seen = {"preempted": False, "reused": set()}
++        try:
++            # Reference pages: the target alone, nothing else in the batch.
++            llm.generate(
++                [target], SamplingParams(temperature=0, max_tokens=1), use_tqdm=False
++            )
++            _wait_for_saves(manager)
++            reference = _read_pages(worker, metadata, target_hashes)
++
++            # Start again from empty storage and an empty local prefix cache.
++            metadata.reset()
++            assert llm.reset_prefix_cache()
++
++            preempt = scheduler._preempt_request
++            update = scheduler.update_from_output
++
++            def record_preempt(request, *args, **kwargs):
++                if list(request.prompt_token_ids) == target_ids:
++                    seen["preempted"] = True
++                return preempt(request, *args, **kwargs)
++
++            def release_when_other_is_done(*args, **kwargs):
++                result = update(*args, **kwargs)
++                running = {r.request_id: r for r in scheduler.running if r is not None}
++                for request in running.values():
++                    if list(request.prompt_token_ids) == target_ids:
++                        continue
++                    ids = scheduler.kv_cache_manager.get_block_ids(request.request_id)
++                    seen["reused"] |= set(ids[0]) & hold.held_block_ids
++                others_running = any(
++                    list(r.prompt_token_ids) != target_ids for r in running.values()
++                )
++                if seen["preempted"] and not others_running:
++                    hold.release.set()
++                return result
++
++            scheduler._preempt_request = record_preempt
++            scheduler.update_from_output = release_when_other_is_done
++            hold.armed = True
++            with patch.object(
++                AsyncOperationManager,
++                "_handle_save_task",
++                hold.wrap(AsyncOperationManager._handle_save_task),
++            ):
++                # The target arrives second, so it is the one preempted.
++                llm.generate(
++                    [other, target],
++                    SamplingParams(
++                        temperature=0, max_tokens=DECODE_TOKENS, ignore_eos=True
++                    ),
++                    use_tqdm=False,
++                )
++                hold.release.set()
++                _wait_for_saves(manager)
++            stored = _read_pages(worker, metadata, target_hashes)
++        finally:
++            for connector in connectors:
++                atexit.unregister(connector.close)
++            llm.llm_engine.engine_core.shutdown()
++            for connector in connectors:
++                connector.close()
++            del llm, connectors, worker, manager
++            gc.collect()
++            torch.accelerator.empty_cache()
++
++        # The scenario happened: the target was preempted with a save held,
++        # and the other request was given blocks that save still had to read.
++        assert hold.held_block_ids, "no save of the target was held"
++        assert seen["preempted"], "the target was not preempted"
++        assert seen["reused"], "no held block was reused by the other request"
++        print(
++            f"held={sorted(hold.held_block_ids)} reused={sorted(seen['reused'])} "
++            f"hold_timed_out={hold.timed_out}"
++        )
++
++        # Batching can move the values slightly, another request's KV cannot.
++        errors = [
++            ((s - r).norm() / r.norm().clamp_min(1e-6)).item()
++            for s, r in zip(stored, reference)
++        ]
++        print(f"relative page errors: {[round(e, 4) for e in errors]}")
++        assert max(errors) < 0.05, errors
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
+index 497eeecc0d..45b13aa782 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
+@@ -238,6 +238,15 @@ class AsyncOperationManager:
+         """Check if all save operations for a request are completed."""
+         return all(future.done() for future in self._save_futures[request_id])
+ 
++    def wait_for_saves(self, request_ids: set[str]) -> None:
++        """Block until every queued save of these requests has finished."""
++        futures = [
++            future
++            for request_id in request_ids
++            for future in self._save_futures.get(request_id, ())
++        ]
++        concurrent.futures.wait(futures)
++
+     def _save_worker(self) -> None:
+         """Background worker for handling save operations."""
+         torch.accelerator.set_device_index(self._device)
+@@ -607,6 +616,21 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+             logger.error("HF3FS client initialization failed: %s", e)
+             raise
+ 
++    def handle_preemptions(self, kv_connector_metadata: KVConnectorMetadata) -> None:
++        """Finish the saves of preempted requests before their blocks are reused.
++
++        A save gathers its blocks on the save thread, after the step that wrote them.
++        Preemption frees the blocks at once.
++        This step's forward can then write another request's KV into them.
++        Waiting here keeps the gather reading the preempted request's own KV.
++        """
++        if not isinstance(kv_connector_metadata, HF3FSConnectorMetadata):
++            return
++        manager = getattr(self, "_async_manager", None)
++        if manager is None or not kv_connector_metadata.preempted_req_ids:
++            return
++        manager.wait_for_saves(kv_connector_metadata.preempted_req_ids)
++
+     def save_kv_layer(
+         self,
+         layer_name: str,
+@@ -783,6 +807,7 @@ class HF3FSKVConnector(KVConnectorBase_V1):
+     ) -> KVConnectorMetadata:
+         """Build connector metadata for scheduling step."""
+         metadata = HF3FSConnectorMetadata()
++        metadata.preempted_req_ids = set(scheduler_output.preempted_req_ids or ())
+ 
+         for request_id in scheduler_output.finished_req_ids:
+             self._scheduling_states.pop(request_id, None)
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py
+index d0e20bc94c..b0e038b34b 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/utils/common.py
+@@ -133,6 +133,9 @@ class HF3FSConnectorMetadata(KVConnectorMetadata):
+ 
+     def __init__(self):
+         self.requests: list[HF3FSRequestMetadata] = []
++        # Requests preempted in this step.
++        # Their blocks may be reused by this step's forward.
++        self.preempted_req_ids: set[str] = set()
+ 
+     def add_request(self, request_metadata: HF3FSRequestMetadata) -> None:
+         """Add request to metadata."""
+-- 
+2.53.0
+

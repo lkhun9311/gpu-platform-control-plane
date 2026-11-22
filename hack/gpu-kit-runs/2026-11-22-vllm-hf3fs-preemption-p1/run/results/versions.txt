@@ -1,0 +1,15 @@
+tests_patch_sha256=0dd71c18920fb49a3f8feab1755db2bc239669f815dd0e51c4e6d81267d44edf
+fix_patch_sha256=276a4d3148dc145b4bf4223df07ade72255a0e62b85f076e6cf7834b7ffc8508
+base commit=17323e0b1ca54296cc3016b72d481ecffc17e69b tree=a410ffdbc9d649f1f42940c1d8c0a3d7b6d771bc
+base_first_parent=e29c741da8d11e2ae7ba381bb78b6f703812cae1 wheel_commit=e29c741da8d11e2ae7ba381bb78b6f703812cae1
+fix commit=020baed7be0910057b5da1d91587826a727e3320 tree=883fa9981d3361141c6997ec9fdd9aa8d34a8dc9 parent=17323e0b1ca54296cc3016b72d481ecffc17e69b
+handle_preemptions_defs control=0 fix=1
+control tree=cb462c3b25e5a49eabf7d86b7a93558b362b1dd1
+control test_blob=b489f5e191a91c3b1361cd721ab8ec41f6811467
+Using precompiled wheel commit e29c741da8d11e2ae7ba381bb78b6f703812cae1 with variant cu132
+test_pins=pytest==9.2.0 pytest-asyncio==1.4.0 tblib==3.1.0 httpx==0.27.2
+{"cuda_available": true, "device_count": 1, "device_name": "NVIDIA A10G", "python": "3.12.15", "torch": "2.14.0+cu130", "torch_cuda": "13.0", "triton": "3.8.0"}
+model_rev=27dcfa74d334bc871f3234de431e71c6eeba5dd6
+control tree=cb462c3b25e5a49eabf7d86b7a93558b362b1dd1
+control test_blob=b489f5e191a91c3b1361cd721ab8ec41f6811467
+fix test_blob=b489f5e191a91c3b1361cd721ab8ec41f6811467
