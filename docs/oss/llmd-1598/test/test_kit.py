@@ -421,6 +421,13 @@ class AfterPilot(unittest.TestCase):
         # One forwarded before its release, one with no record at all.
         self.assertEqual(A.early_decisions(burst, {}, env), 2)
         self.assertEqual(A.early_decisions(burst, {"0": 0.6, "1": 0.6, "2": 0.6}, {}), 0)
+        # Forwarded while the last byte's write was in progress: after it began, before the clock was read after it.
+        during = [dict(r, send_begin_abs=0.4995) for r in burst[:1]]
+        self.assertEqual(A.early_decisions(during, {"0": 0.4998}, {}), 0)
+        self.assertEqual(A.early_decisions(during, {"0": 0.4990}, {}), 1)
+        env2 = {"0": {"start": "0.4", "route_us": "99800"}}
+        self.assertTrue(A.burst_valid(during, [], {}, {}, env2, with_preloads=False)[0])
+        self.assertFalse(A.burst_valid(burst[:1], [], {}, {}, env2, with_preloads=False)[0])
 
     def test_burst_release_rules(self):
         pre = [row(rid=f"p{i}", endpoint=f"e{i + 1}", sent=0.0, first=1.0) for i in range(3)]
@@ -545,6 +552,9 @@ srv.serve_forever()
             # Primed 0.2 s earlier, yet no body was complete at the server until its last byte left, which is after the
             # previous request's last byte had been written (sent_abs is read just after each write returns).
             self.assertGreater(got[r["rid"]], primed_by)
+            # The write's start is kept as the bound a routing decision must not precede.
+            self.assertLessEqual(r["send_begin_abs"], r["sent_abs"])
+            self.assertLessEqual(r["send_begin_abs"], got[r["rid"]])
             if prev is not None:
                 self.assertGreater(got[r["rid"]], prev["sent_abs"])
             self.assertTrue(A.completed(r), r)
@@ -564,7 +574,8 @@ srv.serve_forever()
         # One second of streaming against a 0.3 s deadline: cut off, not completed, however steadily it streams.
         rows = sender.run("127.0.0.1", self.port, self.reqs(1, mt=99), 0.3, delay=0.01)
         self.assertFalse(A.completed(rows[0]))
-        self.assertIn("deadline", rows[0]["error"] or "")
+        # Cut off either at the next read (the deadline) or inside a blocked read (the socket timeout set to what was left).
+        self.assertRegex(rows[0]["error"] or "", "deadline|timed out")
         self.assertLess(rows[0]["end_abs"] - rows[0]["sent_abs"], 0.5)
 
 
@@ -833,6 +844,21 @@ class VerdictPilot2(unittest.TestCase):
         self.assertIn("release_primed", v["apparatus_failures"]["K-A1"])
         # The staggered cell is spread by design and passes.
         self.assertNotIn("Kstagger-A1", v["apparatus_failures"])
+
+    def test_no_valid_k_burst_is_incomplete(self):
+        out = self.make()
+        # Every K-A1 preload produced its first event before the burst was decided: no burst is valid, so K measured nothing.
+        p = os.path.join(out, "cells", "K-A1", "rows.jsonl")
+        with open(p) as f:
+            rows = [json.loads(x) for x in f]
+        for r in rows:
+            if r["population"] == "preload":
+                r["first_event_t"] = r["sent_abs"] + 0.05
+        with open(p, "w") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in rows))
+        rc, v = self.run_verdict(out)
+        self.assertEqual(rc, 3)
+        self.assertEqual(v["k_unmeasured"], ["K-A1"])
 
     def test_missing_anchor_is_incomplete(self):
         rc, v = self.run_verdict(self.make(("a_censored",)))

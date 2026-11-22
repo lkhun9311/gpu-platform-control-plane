@@ -238,9 +238,13 @@ def main_pilot2(out, state):
               for n in ("K-A1", "Kequal-A1", "Kstagger-A1") if n in cells and "bursts" in cells[n]}
     # B's geometry check at every rate A1 ran, not only at the first pilot's 10/s, which was below any main grid rate.
     v["b_lost_reuse_a1"] = {n: (c.get("reuse") or {}).get("lost_share") for n, c in cells.items() if n.startswith("ramp-B-A1-")}
+    # K and K-equal must each have measured something: with every burst invalid (preloads finished before the decisions, or
+    # a release that failed), the release checks alone could pass while no burst share was measured at all.
+    no_k = [n for n in ("K-A1", "Kequal-A1") if not (cells.get(n) or {}).get("valid_bursts")]
+    v["k_unmeasured"] = no_k
     if failed:
         rc, word = 4, "APPARATUS FAILED"
-    elif state.get("stopped") or missing or any(a["anchor"] is None for a in anchors.values()):
+    elif state.get("stopped") or missing or no_k or any(a["anchor"] is None for a in anchors.values()):
         rc, word = 3, "INCOMPLETE"
     else:
         rc, word = 0, "APPARATUS HOLDS"

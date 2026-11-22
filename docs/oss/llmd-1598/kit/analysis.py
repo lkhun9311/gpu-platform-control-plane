@@ -328,7 +328,7 @@ def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy, max_spa
             return False, "a burst request was decided after a preload's first event", basis
     # A request is primed to its last byte before the release, so a decision before that byte left the client means the
     # router picked on a partial body, and the release did not hold the burst back.
-    if any(d < s for d, s in zip(decided, sends)):
+    if any(d < r.get("send_begin_abs", r["sent_abs"]) for d, r in zip(decided, burst_rows)):
         return False, "a burst request was decided before its release", basis
     if max_span is not None and max(sends) - min(sends) > max_span:
         return False, "the release was spread over more than the registered span", basis
@@ -336,12 +336,13 @@ def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy, max_spa
 
 
 def early_decisions(burst_rows, epp_picked, envoy):
-    """How many of a primed burst's requests were decided (EPP pick, else Envoy's forward) before their last byte left the
-    client, or have no decision or send time at all; anything but zero means the priming did not hold the burst back."""
+    """How many of a primed burst's requests were decided (EPP pick, else Envoy's forward) before their last byte's write
+    began, or have no decision or send time at all; anything but zero means the priming did not hold the burst back.
+    The write's start, not its end, is the bound: Envoy can forward during the write, before the client reads its clock."""
     n = 0
     for r in burst_rows:
         d = epp_picked.get(r["rid"]) if r["rid"] in epp_picked else envoy_forward_t(envoy.get(r["rid"]) or {})
-        if d is None or r.get("sent_abs") is None or d < r["sent_abs"]:
+        if d is None or r.get("sent_abs") is None or d < r.get("send_begin_abs", r["sent_abs"]):
             n += 1
     return n
 

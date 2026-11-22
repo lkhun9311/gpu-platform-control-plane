@@ -309,6 +309,9 @@ class Burst:
                 while time.time() < rows[i]["sched_abs"]:
                     pass
                 try:
+                    # Envoy can forward the request while sendall has the GIL released, before sent_abs is read, so the
+                    # time just before the write is kept too: it is the bound a decision must not precede.
+                    rows[i]["send_begin_abs"] = time.time()
                     # The raw socket, not HTTPConnection.send: a reader thread is already inside getresponse here.
                     c.sock.sendall(self.bodies[i][-1:])
                     rows[i]["sent_abs"] = time.time()
