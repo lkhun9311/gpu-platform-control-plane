@@ -1,6 +1,6 @@
 # GPU platform operator runbook
 
-For the on-call engineer of this platform's training clusters.
+For the on-call engineer of this platform's training clusters, and, in section 8, of its inference gateway.
 It assumes `kubectl`, a POSIX shell (`grep`, `head`) and the out-of-band machine console; every command below is copy-paste ready once the placeholders in `<angle brackets>` are filled in.
 Where the drill cluster (kind) and production (EKS) differ, the EKS form is marked **EKS**.
 
@@ -251,3 +251,84 @@ Found by the 2026-11-07 drill (`hack/drill/results-20261107/README.md`); each is
 - **One faulted card quarantines its whole node** (section 3, step 2); per-card exclusion needs the device plugin to stop advertising that card.
 - **Nothing shows a cohort's lendable quota directly**; compute it as in section 2, step 2.
 - **A hung machine is recognised from the console and the Lease, not by the platform** (section 4); the platform does not read the out-of-band console.
+
+## 8. Serving: an engine Pod terminated, a 503 surge
+
+The gateway is `deploy/gateway` in `gpu-platform-control-plane-system`; each model is served by an `InferenceDeployment` in the tenant's target namespace, whose controller owns a Deployment and a Service of the same name (Pods labelled `app.kubernetes.io/instance=<name>`).
+Read the dashboard's Gateway row first. Each panel answers one question, and two of them count the same request differently:
+
+| panel | counts | a request whose stream an engine death cut short |
+|---|---|---|
+| Requests that ended in 5xx (final status) | requests, by the status the client got | not here: it is counted under the 2xx it had already sent |
+| Failed backend attempts and fallback rescues | attempts (a request tried twice counts twice), and requests a second backend rescued | not here either |
+| Responses cut short after starting | started responses ended early, by `cause`; no status label | here, as `upstream_aborted` |
+| Gateway TTFB | first byte, a lower bound on time to first token, not TTFT | |
+
+A panel showing "no series" means the counter has never been incremented since the gateway started, not a measured zero.
+
+The two serving alerts are in `config/prometheus/gateway_rules.yaml`:
+`GatewayUpstreamErrorsReachingClients` fires when a model's final-5xx rate over 5 minutes stays above 0.1 per second for 5 minutes;
+`GatewayModelDegraded` fires when a spare backend has been rescuing a model's requests for 10 minutes.
+
+### 8.1 An engine Pod terminated
+
+What happens, in order:
+- New requests reach a Service with no ready endpoint: the connection fails and the gateway answers 502 (504 on a timeout).
+  If the model has a second `InferenceDeployment`, the gateway tries it once; the failed attempt counts in `upstream_errors_total` and a rescue in `backend_fallbacks_total`, and the client gets the spare's answer.
+- Streams that were already answering are cut: the client had a 200 and its connection is aborted.
+  They count under 200 in `requests_total`, so only the cut-short panel (`cause="upstream_aborted"`) and the request record's `cutShort` field show them.
+- The `InferenceDeployment` controller replaces the Pod.
+  On kind, with the benchharness stub, the first client error came 49 ms after the delete and 200s resumed after about 1.3 s, endpoint propagation included ([FR-002 record](../../hack/chaos-fr002-serving-pod-killed.md)); a GPU engine loading weights takes far longer, and that was not measured there.
+- A kill that short does not fire `GatewayUpstreamErrorsReachingClients`: the rule needs a 5xx rate above 0.1 per second over a 5-minute window, about 30 failed requests, and needs it held for 5 minutes.
+  A backend with no Pod for minutes does fire it; [the kind rehearsal](../../hack/gateway-alert-delivery.md) records the fault, the firing and the resolved notification at a webhook receiver.
+
+Steps:
+1. `kubectl -n <ns> get inferencedeployment <name> -o jsonpath='{.spec.replicas}{"\n"}'`: a 0 here was set by someone, and the controller holds it; scaling the Deployment by hand is undone within one reconcile.
+2. `kubectl -n <ns> get pods -l app.kubernetes.io/instance=<name> -o wide`, then `kubectl -n <ns> describe pod <pod>` for the last state (`OOMKilled`, `Evicted`, `Error`) and `kubectl -n <ns> logs <pod> --previous` for an engine that keeps restarting.
+3. `kubectl -n <ns> get endpointslices -l kubernetes.io/service-name=<name>`: the gateway can reach the model only once an endpoint here reads ready.
+4. A Pod on a node that went `NotReady` is a node problem first: section 3 for a GPU fault, section 4's machine steps for a lost machine.
+5. Tell the tenant that streams in flight at the time were cut and the gateway does not replay a started stream; their client has to retry.
+
+### 8.2 A 503 surge
+
+A dead engine shows as 502 or 504, not 503.
+A 503 comes from one of five places, and only the last is the engine:
+
+| source | where | how to tell |
+|---|---|---|
+| the api-keys Secret could not be read | `internal/gateway/server.go:475` | `tenant=""` and `model=""` on the series; log `cannot read the api-keys secret` |
+| the rate limiter was never initialised | `internal/gateway/server.go:512` | `model=""`; log `rate limiter was never initialised` |
+| a holding admitter ran out of room to hold | `internal/gateway/server.go:346` | the response's `X-Admission-Reason` header |
+| the request record's arrival line could not be written | `internal/gateway/server.go:569` | only with `--request-record-path`; log `cannot write the request record` (section 8.3) |
+| the engine answered 503 itself | `internal/gateway/proxy.go:874` | passed through as the engine's status; not retried and not a failed attempt, so `upstream_errors_total` stays flat |
+
+`sum by (tenant, model) (rate(gpuaas_gateway_requests_total{code="503"}[5m]))` gives the labels; then
+`kubectl -n gpu-platform-control-plane-system logs deploy/gateway | grep -E 'cannot read the api-keys secret|rate limiter was never initialised|cannot write the request record'`.
+If none of those lines appear and the labels carry a model, read that model's engine logs (step 2 of 8.1): an engine still loading weights, out of memory, or at capacity answers 503 with the connection accepted.
+
+### 8.3 The request record and its trade-offs
+
+With `--request-record-path`, the gateway appends one JSON line per event to that file (`internal/gateway/requestrecord.go`).
+The flag's help says it is for benchmark runs (`cmd/gateway/main.go:168`), and the deployed `config/gateway` does not set it.
+
+- `arrive`, once the body has been read: `requestId`, `tenant`, `arrivedUnixNanos` (`requestrecord.go:48`).
+  A request refused before its body is read (401, 403, the limiter's 429) has no arrive line.
+- `done`, on every way out of the handler (`server.go:447`): `requestId`, `tenant`, `tier`, `decision`, `reason`, `status`, `priority`, `answered`, `cutShort`, and the stamps `entered`, `arrived`, `recorded`, `deciding`, `decided`, `handoff`, `released`, `firstContent`, `ended` (`requestrecord.go:71`).
+
+Three trade-offs, each from the code:
+1. **The arrival line is synced per request.** `arrive` writes and calls `Sync` before it returns, under the recorder's one mutex (`requestrecord.go:129`, the lock at `:134`, the sync at `:139`), and it runs before routing and admission (`server.go:569`).
+   So a request the gateway admits always has a line on disk, and every request with a body waits for an fsync, one at a time across the process.
+   `recordedUnixNanos` is stamped after the sync (`requestrecord.go:201`), so that cost is measured rather than assumed.
+2. **The done line has no sync of its own** (`requestrecord.go:142`).
+   It reaches the disk with the next arrival's fsync of the same file, the kernel's writeback, or the sync in `Close` at shutdown (`requestrecord.go:37`, called from `cmd/gateway/main.go:337`).
+   A crash loses the done lines written since the last of these, and a failed done write is ignored (`requestrecord.go:329`); the analysis finds the missing line by its join and treats the arm as ineligible (`requestrecord.go:327`).
+3. **A failed arrival write refuses the request with 503** (`server.go:569`): serving it would leave admitted work the measurement cannot see.
+   The 503 is counted in `requests_total` with the tenant and model, so a full disk or an unwritable record path turns every request with a body into a 503 and can fire `GatewayUpstreamErrorsReachingClients` with every engine healthy.
+   Free the space, or restart the gateway without the flag if the run is over.
+
+### 8.4 What this section does not cover
+
+- **Central logging.** The request record is a local file in the gateway Pod and gateway logs are read with `kubectl logs`; nothing ships either elsewhere.
+- **TPOT in Grafana.** The gateway measures first byte and whole-request duration only; no series measures time per output token, so no panel shows it.
+- **HA.** The gateway runs one replica (`config/gateway/deployment.yaml`, because the rate-limit buckets live in process memory), so a gateway Pod restart is an outage for every model; this section has no procedure for it.
+- **A Redis outage.** Shared rate limiting is not on `dev` yet (#670); its entry is added with it.
