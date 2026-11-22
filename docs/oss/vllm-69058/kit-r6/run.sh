@@ -1,35 +1,44 @@
 #!/bin/bash
-# One-GPU confirmation for vLLM #69058, kit r6: our additions to PR #69095 with the runtime session's shutdown fix.
+# One-GPU confirmation for vLLM #69058, kit r6: the shutdown fix on our additions to PR #69095, against a control without it.
 # hack/gpu-kit-session.sh runs this unmodified on one A10G, g5.xlarge or g5.2xlarge, with OUT set.
 #
-# Run r5 placed the fault in a shutdown race: after request 7 failed, the test's finally block shut the engine down before closing the connectors,
-# and a save still queued on the save worker gathered from the freed KV cache.
-# The runtime session's fix, commit c41f7726 on review/69095-additions, makes HF3FSKVConnector.shutdown() call close()
-# and has the test close the connectors before the engine shuts down.
-# That commit is not pushed, so this kit applies it with git am, from the patch pinned below, on review/69095-additions at 9ee44f04.
-# git am writes a new commit id, so the result is pinned by its tree, the same tree c41f7726 has, and by its parent.
-# The one command, as the spec gives it, both cases in one process, no -x, no CUDA_LAUNCH_BLOCKING:
-#   VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd" -q -p no:cacheprovider --tb=long
-# Expected: 2 passed and no illegal memory access; anything else is a FINDING, unless it is a harness cause such as the KV cache memory error.
+# Run r5 placed the fault in a shutdown race: after request 7 failed, the engine shut down and freed the KV cache
+# while a save still queued on the save worker had yet to gather from it.
+# The runtime session's fix, commit 3682de70, gives HF3FSKVConnector a shutdown() that stops and joins its threads.
+# The test keeps the original teardown order, engine shutdown first and connector close after,
+# so a pass must come through gpu_worker -> ensure_kv_transfer_shutdown -> HF3FSKVConnector.shutdown().
+# Two arms on one instance:
+#   CONTROL, review/69095-additions at 9ee44f04, unchanged and without the override;
+#   FIX, the same commit with the fix applied by git am from the patch pinned below.
+# git am writes a new commit id, so FIX is pinned by its tree, the tree of 3682de70, and by its parent 9ee44f04.
+# The two arms' test files may differ only in the comment lines the patch adds, which run.sh checks.
+# Each case runs in its own pytest process, since an illegal address poisons the process that hits it, in this order:
+#   CONTROL [fail], FIX [fail], CONTROL [recompute], FIX [recompute]
+# with the runtime session's command for each, no CUDA_LAUNCH_BLOCKING and no -x:
+#   VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[<case>]" -q -p no:cacheprovider --tb=short
+# verdict.py says CONFIRMED only when FIX passes both cases with no illegal access and CONTROL [fail] faults.
 # Every step's exit code goes to $OUT/status.txt, and verdict.py writes $OUT/verdict.json.
-# This script exits with the verdict's status: 0 as expected, 2 a finding, 3 incomplete, 4 not run for a harness cause, 1 stopped.
+# This script exits with the verdict's status: 0 confirmed, 2 a finding, 3 incomplete, 4 not run, 5 inconclusive, 1 stopped.
 #
 # THE ENVIRONMENT.
 # As in kit r5: Python 3.12 from the session, vLLM installed with VLLM_USE_PRECOMPILED=1 and the wheel of dd8c1578 named explicitly,
 # the test packages the arm's CUDA test lock pins, and facebook/opt-125m at revision 27dcfa74d3 with its weights' sha256 pinned, after which the hub is offline.
+# One install serves both arms, since FIX changes only Python files.
 #
 # THE BUDGET.
 # The session gives bring-up 300 s and the evidence upload 60 s, and confirms termination 360 s after the upload's deadline.
-# So with BUDGET_S seconds here the bill runs to 300 + BUDGET_S + 60 + 360 s, which is 1,170 s at the default 450 s:
-# $0.2497 on g5.xlarge at $0.7683/h all in, and $0.2822 on g5.2xlarge at $0.8683/h, the same A10G with more memory, for when g5.xlarge Spot is scarce.
-# This script refuses BUDGET_S above 450.
-# Run r5 reached its tests at 65 s, so the one test step gets what is left, at most E2E_CAP_S, 330 s by default.
+# So with BUDGET_S seconds here the bill runs to 300 + BUDGET_S + 60 + 360 s, which is 1,400 s at the default 680 s:
+# $0.2988 on g5.xlarge at $0.7683/h all in, and $0.3377 on g5.2xlarge at $0.8683/h, the same A10G with more memory.
+# This script refuses BUDGET_S above 680, which keeps g5.xlarge under $0.30.
+# Run r5 reached its tests at 65 s; its faulting [fail] process took 152 s and its passing [recompute] process 18 s.
+# Four processes then need about 65 + 152 + 4 x 20 or so, about 300 s in all, which leaves 620 s of usable budget a wide margin.
+# Each process is capped at CASE_CAP_S, 180 s by default, or what the budget has left, so a hung case cannot starve the rest past the budget.
 # Every command that can wait runs under a timeout for what is left of the budget less a reserve for the verdict, so run.sh ends inside BUDGET_S.
 # The bill above assumes the session's evidence upload and termination go as planned.
 # The session lets a stalled upload run to 3,660 s after launch and stops the instance at 3,720 s, so the true worst case stays the session's:
 # $0.8579 on g5.xlarge and $0.9696 on g5.2xlarge.
 #
-# Settings (KIT_ENV through the session): BUDGET_S (default and maximum 450) and E2E_CAP_S (the test step's cap, default 330).
+# Settings (KIT_ENV through the session): BUDGET_S (default and maximum 680) and CASE_CAP_S (each process's cap, default 180).
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${OUT:-$HERE/results}
@@ -37,27 +46,30 @@ UPSTREAM=https://github.com/vllm-project/vllm.git
 FORK=https://github.com/lkhun9311/vllm.git
 BASE_SHA=9ee44f044e6f3bbc49b96facb4cfda659cd783a5
 BASE_TREE=5cdf5ed74707a1e5fb0509a058c1d86aba70d3cb
-PATCH="$HERE/c41f7726-shutdown.patch"
-# The sha256 of storage's review-69095/c41f7726-shutdown.patch at commit 0b20acb2 on origin/main.
-PATCH_SHA256=21adc4fcca8da477b23cebd447082679b231d33f18070fd75378e0e7b73bd42c
+PATCH="$HERE/3682de70-shutdown.patch"
+# The sha256 of storage's review-69095/3682de70-shutdown.patch at commit 5b4da0a0 on origin/main.
+PATCH_SHA256=7fb6e3d4a384edd8855f90a74bc137584ee9b7a46c07e56d373a5f2a0836bbf8
 # The commit the patch was made from, and its tree, which the applied result must have.
-FIX_SHA=c41f7726f65880039674767691073d52ce502ef9
-FIX_TREE=fb3683d3d688b435cdb2d18070aa1f8692bc598f
+FIX_SHA=3682de705760f9fed1386895903eb048c5808acc
+FIX_TREE=3cff702eda635bcbdfd3d320bfcd791098b404ce
 MODEL=facebook/opt-125m
 MODEL_REV=27dcfa74d334bc871f3234de431e71c6eeba5dd6
 # The hub's LFS sha256 for pytorch_model.bin at MODEL_REV.
 MODEL_BIN_SHA256=2d74da6615135c58cf3cf9ad4cb11e7c613ff9e55fe658a47ab83b6c8d1174a9
 # The files vLLM reads for this model; the repository's TensorFlow and Flax weights are left out.
 MODEL_FILES=(config.json generation_config.json merges.txt vocab.json special_tokens_map.json tokenizer_config.json pytorch_model.bin)
-BUDGET_S=${BUDGET_S:-450}
-BUDGET_MAX_S=450
-E2E_CAP_S=${E2E_CAP_S:-330}
-# The precompiled wheel's commit, the arm's merge-base with main, whose published wheels runs r4 and r5 installed.
+BUDGET_S=${BUDGET_S:-680}
+BUDGET_MAX_S=680
+CASE_CAP_S=${CASE_CAP_S:-180}
+# The precompiled wheel's commit, the arms' merge-base with main, whose published wheels runs r4 and r5 installed.
 WHEEL_COMMIT=dd8c157895f01875bc5f44c51003bbe330647330
 # Left for verdict.py and the checksums after the last timed step.
 RESERVE_S=60
 TEST_FILE=tests/v1/kv_connector/unit/test_hf3fs_load_failure.py
-CMD=(python -m pytest "$TEST_FILE::TestHF3FSLoadFailureEndToEnd" -q -p no:cacheprovider --tb=long)
+# The four processes in order, as arm:case.
+RUNS=(control:fail fix:fail control:recompute fix:recompute)
+# cmd CASE: the runtime session's command for one case.
+cmd() { echo python -m pytest "$TEST_FILE::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[$1]" -q -p no:cacheprovider --tb=short; }
 ENV=(VLLM_ENABLE_V1_MULTIPROCESSING=0)
 START=$(date +%s)
 
@@ -66,10 +78,10 @@ START=$(date +%s)
 # A leading zero is refused, since bash arithmetic would read it as octal and change or break the budget.
 [[ $BUDGET_S =~ ^[1-9][0-9]*$ ]] && [ "$BUDGET_S" -gt "$RESERVE_S" ] && [ "$BUDGET_S" -le "$BUDGET_MAX_S" ] ||
   { echo "BUDGET_S=$BUDGET_S: it must be whole seconds above $RESERVE_S and at most $BUDGET_MAX_S" >&2; exit 1; }
-[[ $E2E_CAP_S =~ ^[1-9][0-9]*$ ]] && [ "$E2E_CAP_S" -ge 30 ] || { echo "E2E_CAP_S=$E2E_CAP_S: it must be whole seconds without a leading zero, at least 30" >&2; exit 1; }
-# CUDA_LAUNCH_BLOCKING would serialise the launches and could hide the race this run confirms gone, so it is refused rather than passed through.
+[[ $CASE_CAP_S =~ ^[1-9][0-9]*$ ]] && [ "$CASE_CAP_S" -ge 30 ] || { echo "CASE_CAP_S=$CASE_CAP_S: it must be whole seconds without a leading zero, at least 30" >&2; exit 1; }
+# CUDA_LAUNCH_BLOCKING would serialise the launches and could hide the race this run checks, so it is refused rather than passed through.
 [ -z "${CUDA_LAUNCH_BLOCKING:-}" ] || { echo "CUDA_LAUNCH_BLOCKING is set; this confirmation runs without it" >&2; exit 1; }
-for v in PYTEST_CAP_S LLM_CAP_S UNIT_CAP_S; do [ -z "${!v:-}" ] || { echo "$v is set; kit r6 caps its one step with E2E_CAP_S" >&2; exit 1; }; done
+for v in PYTEST_CAP_S LLM_CAP_S UNIT_CAP_S E2E_CAP_S; do [ -z "${!v:-}" ] || { echo "$v is set; kit r6 caps each process with CASE_CAP_S" >&2; exit 1; }; done
 mkdir -p "$OUT" || exit 1
 # A rerun into the same OUT would leave the earlier logs for verdict.py to read, so only an empty OUT is used.
 if [ -n "$(ls -A "$OUT")" ]; then echo "OUT=$OUT is not empty; each run writes a new directory" >&2; exit 1; fi
@@ -106,16 +118,16 @@ step() {
 
 {
   echo "kit=r6"; echo "upstream=$UPSTREAM"; echo "fork=$FORK"
-  echo "base=review/69095-additions $BASE_SHA tree $BASE_TREE"
-  echo "patch=c41f7726-shutdown.patch sha256 $PATCH_SHA256, storage commit 0b20acb2, applied with git am"
-  echo "pin=the applied commit's tree $FIX_TREE (that of $FIX_SHA) and its parent $BASE_SHA; git am writes a new commit id"
+  echo "control=review/69095-additions $BASE_SHA tree $BASE_TREE, unchanged"
+  echo "fix=$BASE_SHA plus 3682de70-shutdown.patch (sha256 $PATCH_SHA256, storage commit 5b4da0a0) by git am, pinned by tree $FIX_TREE, the tree of $FIX_SHA"
   echo "model=$MODEL"; echo "model_rev_pin=$MODEL_REV"; echo "model_bin_sha256_pin=$MODEL_BIN_SHA256"
-  echo "budget_s=$BUDGET_S"; echo "e2e_cap_s=$E2E_CAP_S"; echo "wheel_commit=$WHEEL_COMMIT"
-  echo "command=${ENV[*]} ${CMD[*]}"
+  echo "budget_s=$BUDGET_S"; echo "case_cap_s=$CASE_CAP_S"; echo "wheel_commit=$WHEEL_COMMIT"
+  echo "order=${RUNS[*]}, each in its own process"
+  for c in fail recompute; do echo "command_$c=${ENV[*]} $(cmd "$c")"; done
 } > "$OUT/settings.txt"
 [ "${KIT_DRY_RUN:-}" = 1 ] && { echo "dry run: settings accepted"; cat "$OUT/settings.txt"; exit 0; }
 
-# ---------------------------------------------------------------- the patch and the base, pinned
+# ---------------------------------------------------------------- the patch and the two arms, pinned
 got=$(sha256sum "$PATCH" | cut -d' ' -f1)
 echo "patch_sha256=$got" > "$OUT/versions.txt"
 [ "$got" = "$PATCH_SHA256" ] || stop "the shutdown patch has sha256 $got, not the pinned $PATCH_SHA256"
@@ -134,23 +146,43 @@ else
 fi
 git -C vllm cat-file -e "$BASE_SHA^{commit}" 2>> "$OUT/pins.log" || stop "commit $BASE_SHA is not in the fetched repository"
 tree=$(git -C vllm rev-parse "$BASE_SHA^{tree}")
-echo "base commit=$BASE_SHA tree=$tree" >> "$OUT/versions.txt"
-[ "$tree" = "$BASE_TREE" ] || stop "the base $BASE_SHA has tree $tree, not the pinned $BASE_TREE"
+echo "control commit=$BASE_SHA tree=$tree" >> "$OUT/versions.txt"
+[ "$tree" = "$BASE_TREE" ] || stop "the control $BASE_SHA has tree $tree, not the pinned $BASE_TREE"
 # The clone has no blobs, so the checkout that fetches them runs as a timed step.
-step materialize-base 300 --log "$OUT/materialize-base.log" git -C vllm checkout -q --detach -f "$BASE_SHA" || stop "could not check out the base; see materialize-base.log"
+step materialize-control 300 --log "$OUT/materialize-control.log" git -C vllm checkout -q --detach -f "$BASE_SHA" || stop "could not check out the control; see materialize-control.log"
 # git am needs an identity for the commit it writes; the result is checked by its tree, which the identity does not touch.
 step git-am 60 --log "$OUT/git-am.log" git -C vllm -c user.name=kit -c user.email=kit@localhost -c commit.gpgsign=false am -q "$PATCH" ||
   stop "the shutdown patch did not apply with git am; see git-am.log"
-head=$(git -C vllm rev-parse HEAD)
-tree=$(git -C vllm rev-parse HEAD^{tree})
-parent=$(git -C vllm rev-parse HEAD^)
-echo "applied commit=$head tree=$tree parent=$parent (the source commit is $FIX_SHA)" >> "$OUT/versions.txt"
-[ "$parent" = "$BASE_SHA" ] || stop "the applied commit's parent is $parent, not $BASE_SHA"
-[ "$tree" = "$FIX_TREE" ] || stop "the applied commit has tree $tree, not $FIX_TREE, the tree of $FIX_SHA"
-[ -z "$(git -C vllm status --porcelain --untracked-files=no)" ] || stop "the checkout has changes besides the applied commit"
-{ git -C vllm log -1 --format='%H %T %P %s'; git -C vllm diff --stat HEAD^ HEAD; } > "$OUT/tree.txt" 2>&1
+FIX_HEAD=$(git -C vllm rev-parse HEAD)
+tree=$(git -C vllm rev-parse "$FIX_HEAD^{tree}")
+parent=$(git -C vllm rev-parse "$FIX_HEAD^")
+echo "fix commit=$FIX_HEAD tree=$tree parent=$parent (the source commit is $FIX_SHA)" >> "$OUT/versions.txt"
+[ "$parent" = "$BASE_SHA" ] || stop "the fix commit's parent is $parent, not $BASE_SHA"
+[ "$tree" = "$FIX_TREE" ] || stop "the fix commit has tree $tree, not $FIX_TREE, the tree of $FIX_SHA"
+# The two arms must run the same test: the fix may add comment lines to it and nothing else.
+git -C vllm diff -U0 "$BASE_SHA" "$FIX_HEAD" -- "$TEST_FILE" > "$OUT/test-diff.txt" || stop "could not diff the arms' test files"
+command grep -E '^[+-]' "$OUT/test-diff.txt" | command grep -vE '^(\+\+\+|---) ' > "$OUT/test-diff-lines.txt"
+! command grep -vE '^\+[[:space:]]*#' "$OUT/test-diff-lines.txt" > "$OUT/test-diff-noncomment.txt" ||
+  stop "the arms' test files differ in more than added comment lines; see test-diff-noncomment.txt"
+# The control must not carry the override that the fix adds.
+# The connector's module already has one shutdown(), on its operation manager, so the fix must add exactly one more.
+CONNECTOR=vllm/distributed/kv_transfer/kv_connector/v1/hf3fs/hf3fs_connector.py
+n_control=$(git -C vllm show "$BASE_SHA:$CONNECTOR" | command grep -c '^    def shutdown(self)')
+n_fix=$(git -C vllm show "$FIX_HEAD:$CONNECTOR" | command grep -c '^    def shutdown(self)')
+echo "shutdown_defs control=$n_control fix=$n_fix" >> "$OUT/versions.txt"
+[ "$n_fix" = $(( n_control + 1 )) ] || stop "the fix's connector defines shutdown() $n_fix times and the control's $n_control; the fix must add exactly one"
 
-# ---------------------------------------------------------------- install, with precompiled kernels
+# arm NAME: checks out the control commit or the fix commit, and refuses any other change.
+arm() {
+  local want
+  if [ "$1" = control ]; then want=$BASE_SHA; else want=$FIX_HEAD; fi
+  git -C vllm checkout -q --detach -f "$want" || stop "could not check out the $1 arm"
+  [ "$(git -C vllm rev-parse HEAD)" = "$want" ] || stop "the $1 arm is not at $want"
+  [ -z "$(git -C vllm status --porcelain --untracked-files=no)" ] || stop "the $1 arm has tracked changes"
+}
+
+# ---------------------------------------------------------------- install, with precompiled kernels, at the control
+arm control
 # KIT_OFFLINE_TEST=1 skips the install for hack/vllm-69058-kit-test.sh, which puts fake python, hf and nvidia-smi on PATH; settings.txt says so.
 if [ "${KIT_OFFLINE_TEST:-}" = 1 ]; then
   echo "offline_test=1 (fake python, pytest, hf and nvidia-smi; nothing installed)" >> "$OUT/settings.txt"
@@ -191,12 +223,18 @@ echo "model_rev=$(basename "$snap")" >> "$OUT/versions.txt"
 [ "$(basename "$snap")" = "$MODEL_REV" ] || stop "$MODEL main is at revision $(basename "$snap"), not the pinned $MODEL_REV"
 ( cd "$snap" && sha256sum "${MODEL_FILES[@]}" ) > "$OUT/model-files.sha256" 2>&1 || stop "the snapshot $snap lacks a file; see model-files.sha256"
 command grep -qx "$MODEL_BIN_SHA256  pytorch_model.bin" "$OUT/model-files.sha256" || stop "pytorch_model.bin is not the pinned sha256 $MODEL_BIN_SHA256"
-# From here the test reads only the checked snapshot, so a hub change mid-run cannot reach it.
+# From here the tests read only the checked snapshot, so a hub change mid-run cannot reach them.
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
-echo "hub_offline=1 for the test run" >> "$OUT/settings.txt"
+echo "hub_offline=1 for the test runs" >> "$OUT/settings.txt"
 
-# ---------------------------------------------------------------- the one step
-step test-e2e "$E2E_CAP_S" --log "$OUT/e2e.log" env -C vllm "${ENV[@]}" "${CMD[@]}"
+# ---------------------------------------------------------------- the four processes
+for r in "${RUNS[@]}"; do
+  a=${r%%:*} c=${r##*:}
+  arm "$a"
+  # read -a splits cmd's words; the node id has no spaces, so the words are the command's arguments.
+  read -r -a words <<< "$(cmd "$c")"
+  step "test-$a-$c" "$CASE_CAP_S" --log "$OUT/e2e-$a-$c.log" env -C vllm "${ENV[@]}" "${words[@]}"
+done
 [ "${KIT_OFFLINE_TEST:-}" = 1 ] && git -C "$OFFLINE_VLLM_SRC" worktree remove --force "$PWD/vllm"
 finish
 exit "$VERDICT_RC"
