@@ -373,6 +373,10 @@ b1() {
   got=$(sha256sum "$BENCH" | cut -d' ' -f1)
   echo "bench_sha256=$got" > "$OUT/b1/versions.txt"
   [ "$got" = "$BENCH_SHA256" ] || { ( stop "bench_preempt.py has sha256 $got, not the pinned $BENCH_SHA256" ); return 0; }
+  # b1 deletes only the directory it made, so a b1-tmp that is already there is refused rather than written into or deleted.
+  [ ! -e "$PWD/b1-tmp" ] || { ( stop "$PWD/b1-tmp already exists, and b1 neither writes into nor deletes what it did not make" ); return 0; }
+  mkdir "$PWD/b1-tmp" || { ( stop "could not make $PWD/b1-tmp" ); return 0; }
+  B1_TMP_MADE=1
   for r in "${B1_RUNS[@]}"; do
     a=${r%%:*} pool=${r#*:} i=${pool#*:} pool=${pool%%:*}
     # Each checkout and each process runs in a subshell, so a stop inside them ends b1 and nothing else.
@@ -400,8 +404,9 @@ b1() {
 if [ "$B1" = 1 ]; then
   PHASE=b1
   STEP_BUDGET_S=$BUDGET_S
+  B1_TMP_MADE=0
   b1
-  rm -rf "$PWD/b1-tmp"
+  [ "$B1_TMP_MADE" = 1 ] && rm -rf "$PWD/b1-tmp"
   timeout --kill-after=5 25 "$(py)" "$HERE/b1_verdict.py" "$OUT" > "$OUT/b1/b1-verdict.txt" 2>&1
   B1_RC=$?
   echo "b1-verdict exit=$B1_RC t=$(( $(date +%s) - START ))" >> "$OUT/status.txt"

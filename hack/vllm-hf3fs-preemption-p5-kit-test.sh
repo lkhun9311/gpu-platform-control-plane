@@ -362,6 +362,11 @@ cp -r "$KIT" "$WORK/nodisk" && sed -i 's/^B1_MIN_FREE_GB=10$/B1_MIN_FREE_GB=1000
 e2e "$WORK/nodisk" b1-nodisk; rc=$?
 check "b1 stops before its first run when too little disk is free, and the verdict stands" \
   "[ $rc = 0 ] && p5kept b1-nodisk && command grep -qF 'GB free before b1-control-128-1, under 1000000' '$WORK/e2e-b1-nodisk/out/b1/STOPPED' && ! [ -s '$WORK/e2e-b1-nodisk/b1order' ]"
+mkdir -p "$WORK/e2e-b1-tmpthere/cwd/b1-tmp" && echo keep >"$WORK/e2e-b1-tmpthere/cwd/b1-tmp/someone-elses-file"
+e2e "$KIT" b1-tmpthere; rc=$?
+check "a b1-tmp already in the working directory stops b1 before any run, is left as it was, and the verdict stands" \
+  "[ $rc = 0 ] && p5kept b1-tmpthere && command grep -qF 'b1-tmp already exists' '$WORK/e2e-b1-tmpthere/out/b1/STOPPED' \
+   && [ \"\$(cat '$WORK/e2e-b1-tmpthere/cwd/b1-tmp/someone-elses-file')\" = keep ] && ! [ -s '$WORK/e2e-b1-tmpthere/b1order' ]"
 e2e "$KIT" b1-only P5=0; rc=$?
 check "P5=0, a b1-only session: no test process, no test verdict, all eight b1 runs, and run.sh exits with b1's VALID, 0" \
   "[ $rc = 0 ] && b1 b1-only VALID && command grep -qx 'test arms skipped (P5=0)' '$WORK/e2e-b1-only/out/status.txt' \
@@ -499,6 +504,9 @@ mcheck "mutant: a run.sh that runs the test arms under P5=0 is caught" "[ -s '$W
 m=$(mutant b1keeptmp run.sh 's/^    rm -rf "\$tmp"$/    true/')
 [ -n "$m" ] && e2e "$m" m-b1keeptmp
 mcheck "mutant: a run.sh that leaves each run's storage on disk is caught" "! b1 m-b1keeptmp VALID"
+m=$(mutant b1tmpguard run.sh 's/^  \[ ! -e "\$PWD\/b1-tmp" \] ||/  true ||/; s/^  mkdir "\$PWD\/b1-tmp" ||/  mkdir -p "$PWD\/b1-tmp" ||/')
+[ -n "$m" ] && mkdir -p "$WORK/e2e-m-b1tmpguard/cwd/b1-tmp" && echo keep >"$WORK/e2e-m-b1tmpguard/cwd/b1-tmp/someone-elses-file" && e2e "$m" m-b1tmpguard
+mcheck "mutant: a run.sh that takes over an existing b1-tmp is caught" "! [ -e '$WORK/e2e-m-b1tmpguard/cwd/b1-tmp/someone-elses-file' ] || ! command grep -qF 'b1-tmp already exists' '$WORK/e2e-m-b1tmpguard/out/b1/STOPPED' 2>/dev/null"
 m=$(mutant b1nodiskguard run.sh 's/^B1_MIN_FREE_GB=10$/B1_MIN_FREE_GB=1000000/; s/^    \[ "\${free_gb:-0}" -ge "\$B1_MIN_FREE_GB" \] ||/    true ||/')
 [ -n "$m" ] && e2e "$m" m-b1nodiskguard
 mcheck "mutant: a run.sh without the free-space guard is caught" "! command grep -qF 'GB free before' '$WORK/e2e-m-b1nodiskguard/out/b1/STOPPED' 2>/dev/null"
