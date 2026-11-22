@@ -290,3 +290,27 @@ func TestProbeOKNeedsTheTokenContract(t *testing.T) {
 var shellDefault = Shell
 
 func timeAfterMs(n int) <-chan time.Time { return time.After(time.Duration(n) * time.Millisecond) }
+
+// TestStageSendsTheAPIKeyOnEverySegment: the gateway refuses a request without the key, so every segment must carry it.
+func TestStageSendsTheAPIKeyOnEverySegment(t *testing.T) {
+	inner := fakeEngine(t, nil)
+	defer inner.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer k1" {
+			http.Error(w, "no key", http.StatusUnauthorized)
+			return
+		}
+		inner.Config.Handler.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	dir := filepath.Join(t.TempDir(), "stage")
+	if err := stageCmd([]string{"--contract", committedContract, "--segments", "a:40:0.3,b:40:0.3", "--seed", "3",
+		"--target", srv.URL, "--out", dir, "--request-id-prefix", "k", "--api-key", "k1"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range readRows(t, filepath.Join(dir, "raw.jsonl")) {
+		if r.Disposition != bench.DispositionCompleted {
+			t.Fatalf("row %d of %s: %s %d", r.Index, r.Tenant, r.Disposition, r.HTTPStatus)
+		}
+	}
+}

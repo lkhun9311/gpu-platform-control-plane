@@ -297,6 +297,8 @@ func stageCmd(args []string, out io.Writer) error {
 	target := fs.String("target", "", "engine base URL")
 	dir := fs.String("out", "", "directory for trace.jsonl, raw.jsonl and meta.json; must not exist")
 	idPrefix := fs.String("request-id-prefix", "", "X-Request-Id prefix, unique per stage")
+	// The engine takes no key; the gateway on kind does, and its measurement replays the same stages through it.
+	apiKey := fs.String("api-key", "", "bearer key sent with every request; empty sends none")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -333,7 +335,15 @@ func stageCmd(args []string, out io.Writer) error {
 	if err := writeJSON(*dir+"/meta.json", meta); err != nil {
 		return err
 	}
-	sender := bench.NewHTTPSender(*target, w.ServedModelName, nil, timeout, conn)
+	// The sender looks a key up by the row's tenant, which here is its segment, so every segment gets the one key.
+	var keys map[string]string
+	if *apiKey != "" {
+		keys = map[string]string{}
+		for _, s := range segs {
+			keys[s.Name] = *apiKey
+		}
+	}
+	sender := bench.NewHTTPSender(*target, w.ServedModelName, keys, timeout, conn)
 	sender.SetRequestIDPrefix(*idPrefix)
 	if err := sender.SetSampling(c.Sampling()); err != nil {
 		return err
