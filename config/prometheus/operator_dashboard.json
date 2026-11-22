@@ -439,8 +439,8 @@
   },
   {
    "type": "timeseries",
-   "title": "Requests per second by status class",
-   "description": "Split by code, not totalled. A gateway returning 500s at full rate is indistinguishable from a healthy one on a request-rate panel.",
+   "title": "Requests per second by final status code",
+   "description": "requests_total is stamped once per request with the status the client got, refusals before any backend (401, 403, 429) included. Split by code, not totalled: a gateway returning 500s at full rate is indistinguishable from a healthy one on a request-rate panel. A response cut short after it started is counted here under the 2xx it had already sent; the cut-short panel below is the only place it shows.",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -453,7 +453,8 @@
    },
    "fieldConfig": {
     "defaults": {
-     "unit": "reqps"
+     "unit": "reqps",
+     "noValue": "no series: no request counted"
     }
    },
    "targets": [
@@ -466,8 +467,8 @@
   },
   {
    "type": "timeseries",
-   "title": "Request duration p99 and p50",
-   "description": "Both, because a p99 alone cannot say whether a spike hit every request or only the tail. The gap between them is the shape of the degradation.",
+   "title": "End-to-end request duration p99 and p50",
+   "description": "Whole-request duration, observed when the handler returns, over requests handed to a backend. For a stream it runs until the stream closes, so it is dominated by output length and is neither TTFB nor TTFT. Both quantiles, because a p99 alone cannot say whether a spike hit every request or only the tail.",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -480,7 +481,8 @@
    },
    "fieldConfig": {
     "defaults": {
-     "unit": "s"
+     "unit": "s",
+     "noValue": "no series: no request handed to a backend"
     }
    },
    "targets": [
@@ -498,8 +500,8 @@
   },
   {
    "type": "timeseries",
-   "title": "Upstream errors and backend fallbacks",
-   "description": "upstream_errors counts failures that reached the client; backend_fallbacks counts failures a later backend absorbed. The second rising while the first stays flat is the retry path working, and that distinction is the whole reason both exist.",
+   "title": "Requests that ended in 5xx (final status)",
+   "description": "What the client got: requests_total with a 5xx final status, one count per request however many backends were tried. This is the series GatewayUpstreamErrorsReachingClients reads, over the same 5m window; it fires above 0.1 per second held for 5m. It includes 5xx the gateway wrote itself (502 and 504 when no backend answered, 503 when the request record could not be written). No series means no request has ended in 5xx since the gateway started, not a measured zero.",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -512,19 +514,109 @@
    },
    "fieldConfig": {
     "defaults": {
-     "unit": "reqps"
+     "unit": "reqps",
+     "noValue": "no series: no 5xx since start"
+    }
+   },
+   "targets": [
+    {
+     "expr": "sum by (model, code) (rate(gpuaas_gateway_requests_total{code=~\"5..\"}[5m]))",
+     "legendFormat": "{{code}} {{model}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Gateway time to first byte (TTFB) p99 and p50, not TTFT",
+   "description": "Time until the first response byte reached the client, over requests that produced one, including the 502 and 504 the gateway wrote itself. On a stream the status line and headers come before the first token, so this is a lower bound on TTFT and is not TTFT. TPOT is not measured by the gateway and has no panel.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 12,
+    "x": 12,
+    "y": 46
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "noValue": "no series: no first byte observed"
+    }
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(gpuaas_gateway_time_to_first_byte_seconds_bucket[2m])))",
+     "legendFormat": "TTFB p99",
+     "refId": "A"
+    },
+    {
+     "expr": "histogram_quantile(0.50, sum by (le) (rate(gpuaas_gateway_time_to_first_byte_seconds_bucket[2m])))",
+     "legendFormat": "TTFB p50",
+     "refId": "B"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Failed backend attempts and fallback rescues",
+   "description": "upstream_errors_total counts failed ATTEMPTS, including the ones a later backend then rescued, so a request whose two attempts both failed counts twice; it is not what reached the client (the final 5xx panel is). backend_fallbacks_total counts requests a later backend answered 2xx or 3xx after an earlier one failed. Attempts rising with rescues keeping pace is redundancy absorbing the failures; attempts rising alone, with final 5xx rising, is the model failing.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 12,
+    "x": 0,
+    "y": 52
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps",
+     "noValue": "no series: no failed attempt or rescue since start"
     }
    },
    "targets": [
     {
      "expr": "sum by (model) (rate(gpuaas_gateway_upstream_errors_total[2m]))",
-     "legendFormat": "upstream error {{model}}",
+     "legendFormat": "failed attempt {{model}}",
      "refId": "A"
     },
     {
      "expr": "sum by (model) (rate(gpuaas_gateway_backend_fallbacks_total[2m]))",
-     "legendFormat": "fallback {{model}}",
+     "legendFormat": "rescued by fallback {{model}}",
      "refId": "B"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Responses cut short after starting (no status label)",
+   "description": "Responses that had started and ended before their upstream finished them, by cause: upstream_aborted (the engine died or dropped the connection), client_gone, idle_timeout. The status line was already sent, so requests_total counts each of these under the 2xx it had, and this counter carries no status label. It is the only series where a stream cut by an engine Pod dying mid-response shows up.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 12,
+    "x": 12,
+    "y": 52
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps",
+     "noValue": "no series: no response cut short since start"
+    }
+   },
+   "targets": [
+    {
+     "expr": "sum by (model, cause) (rate(gpuaas_gateway_responses_cut_short_total[2m]))",
+     "legendFormat": "{{cause}} {{model}}",
+     "refId": "A"
     }
    ]
   },
@@ -539,12 +631,13 @@
    "gridPos": {
     "h": 6,
     "w": 12,
-    "x": 12,
-    "y": 46
+    "x": 0,
+    "y": 58
    },
    "fieldConfig": {
     "defaults": {
-     "unit": "reqps"
+     "unit": "reqps",
+     "noValue": "no series: no refusal or decision recorded"
     }
    },
    "targets": [
