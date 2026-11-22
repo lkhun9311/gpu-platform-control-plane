@@ -4,6 +4,7 @@ Commands (each reads the contract the kit ships, never a copy of its numbers):
 
     analysis.py rung CONTRACT STAGE_DIR           one pilot rung's stability verdict; exit 0 stable, 10 unstable
     analysis.py plan CONTRACT PILOT_DIR           the saturation rule over the rung verdicts; writes cycle-plan.json
+    analysis.py cycle CONTRACT STAGE_DIR          the recovery rule on one cycle; exit 0 recovered, 10 not recovered
     analysis.py report CONTRACT RESULTS_DIR       the session's ledgers, quantiles, recovery, restarts and exclusion rules
 
 Any input the rules cannot be applied to is refused with exit 2 and a reason, rather than scored.
@@ -519,6 +520,16 @@ def main(argv):
                 json.dump(p, f, indent=2)
             print(json.dumps(p, indent=2))
             return 0
+        if cmd == "cycle":
+            meta, rows = read_stage(argv[3])
+            segs = {s["name"]: s for s in meta["segments"]}
+            if list(segs) != ["baseline", "saturation", "overload", "recovery"]:
+                raise Refused(f"{argv[3]}: a cycle's segments are baseline, saturation, overload and recovery, not {list(segs)}")
+            cw = contract["cycle"]["stage_warmup_s"] * 1000
+            base = stage_summary(rows, segs["baseline"], segs["baseline"]["startMs"] + cw, contract, meta["outputTokens"])
+            rec = recovery(rows, base, segs["recovery"], contract, meta["outputTokens"])
+            print(json.dumps(rec, indent=2))
+            return EXIT_STABLE if rec["recovered"] else EXIT_UNSTABLE
         if cmd == "report":
             rep = report(contract, argv[3])
             with open(os.path.join(argv[3], "report.json"), "w") as f:
