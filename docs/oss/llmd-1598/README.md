@@ -38,7 +38,9 @@ bash hack/llmd-1598-kit-test.sh
 
 `run.sh` needs `STAGE`, passed through the session's `KIT_ENV`:
 - `pilot`: the first pilot's plan, which ran on 2026-11-21 (`hack/gpu-kit-runs/2026-11-21-llmd-1598-pilot`; K is now released primed, with 12 bursts).
-- `pilot2`: the second pilot of the spec's third revision: A1 and A3 ramps on A and B and A1's on W942 at `-v=2`, from 64/s in x1.25 steps, each arm stopping at its first failure; K, K-equal and K-stagger under A1 with the primed release. Its verdict exits 0 only with a grid anchor (the lowest bracketed knee) for A, B and W942.
+- `pilot2`: the second pilot of the spec's third revision: A1 and A3 ramps on A and B and A1's on W942 at `-v=2`, from 64/s in x1.25 steps, each arm stopping at its first failure; K, K-equal and K-stagger (4 ms, a feasibility probe judged by frozen rules) under A1 with the primed release; on seeds 4 and 944, which the main run does not use. Its verdict exits 0 only with a grid anchor (the lowest bracketed knee) for A, B and W942 and at least one valid K and K-equal burst.
+
+`TMPDIR` moves the offline gate's scratch off `/tmp` when it is short of space or inodes.
 
 The main sessions (X1 to X3, Y1 to Y3) are written after P2, from P2's registered grid.
 

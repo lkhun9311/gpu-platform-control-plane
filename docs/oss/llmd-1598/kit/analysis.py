@@ -211,6 +211,22 @@ def recover_endpoints(rows, envoy):
     return rows
 
 
+def envoy_first_byte_t(rec):
+    """When the upstream's first response byte reached Envoy: its forward time plus the upstream TTFB, or None."""
+    f = envoy_forward_t(rec)
+    try:
+        return None if f is None else f + float(rec["ttfb_us"]) / 1e6
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def preload_visible_until(p, envoy):
+    """The last moment a preload can be relied on as in-flight load: the earlier of Envoy's upstream first byte and the
+    client's first event, whichever are recorded."""
+    ts = [t for t in (envoy_first_byte_t(envoy.get(p["rid"]) or {}), p.get("first_event_t")) if t is not None]
+    return min(ts) if ts else None
+
+
 def envoy_forward_t(rec):
     """When Envoy sent a request upstream: its start plus the downstream-receive-to-upstream-send duration, or None."""
     try:
@@ -291,7 +307,9 @@ def largest_share(rows):
 def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy, max_span=None, with_preloads=True):
     """K's burst is valid only if the scorer saw all three engines loaded for the whole burst: the three preloads went to
     three distinct engines, all three were registered (PreRequest) before any burst request left the client, and every
-    burst request was decided before any preload produced its first event.
+    burst request was decided before any preload stopped counting as load.
+    The EPP frees a preload's in-flight tokens on its response, which reaches Envoy before the client, so the bound is the
+    earlier of Envoy's upstream first byte and the client's first event; the client's alone was not conservative.
     K-equal sends no preloads (`with_preloads` False), so only the release conditions below apply to it; the first version
     held it to the preload conditions too, which no K-equal burst could ever meet.
 
@@ -305,7 +323,7 @@ def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy, max_spa
         eps = [p.get("endpoint") for p in preload_rows]
         if len(preload_rows) != 3 or None in eps or len(set(eps)) != 3:
             return False, "preloads not on three distinct engines", None
-        firsts = [p.get("first_event_t") for p in preload_rows]
+        firsts = [preload_visible_until(p, envoy) for p in preload_rows]
         if any(f is None for f in firsts):
             return False, "a preload produced no event", None
     elif preload_rows:
@@ -325,7 +343,7 @@ def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy, max_spa
         if max(registered) >= min(sends):
             return False, "a preload was registered after the burst began", basis
         if max(decided) >= min(firsts):
-            return False, "a burst request was decided after a preload's first event", basis
+            return False, "a burst request was decided after a preload's first response byte", basis
     # A request is primed to its last byte before the release, so a decision before that byte left the client means the
     # router picked on a partial body, and the release did not hold the burst back.
     if any(d < r.get("send_begin_abs", r["sent_abs"]) for d, r in zip(decided, burst_rows)):
@@ -359,25 +377,152 @@ def release_ok(spans, early, limit, share=0.9):
     return sum(1 for x in spans if x is not None and x <= limit) >= share * len(spans)
 
 
-def informed_share(n_preloads, preload_tokens, burst, prompt_tokens, engines=4):
-    """The idle engine's share of a burst when every pick sees every earlier one, under a scorer that balances in-flight
-    prompt tokens: the burst fills the idle engine until all engines hold the same tokens, then spreads evenly.
+def fluid_reference(n_preloads, preload_tokens, burst, prompt_tokens, engines=4):
+    """The static fluid-allocation reference: the idle engine's share of a burst if the burst's tokens were poured until
+    every engine held the same in-flight tokens (21.51 of 64 with K's three 4,000-token preloads, 16 with none).
 
-    The pilot's -v=2 bursts gave the idle engine 21 or 22 of 64 every time, against 21.5 from this, so this is the share a
-    race-free token-load picker gives, and only the excess over it is concentration from picks that did not see each other.
+    It is descriptive only.
+    A discrete race-free allocator gives a different number (sequential_reference below gives 22), completions during a
+    burst change the load it assumes, and neither agreement with it nor excess over it shows whether picks saw each other.
     """
     total = n_preloads * preload_tokens + burst * prompt_tokens
     share = total / engines / prompt_tokens
     return min(float(burst), max(burst / engines, share))
 
 
-def percentile_ci(values, p=99, conf=0.95):
-    """A nearest-rank percentile with its distribution-free confidence interval, and how many rows lie above it.
+def sequential_reference(n_preloads, preload_tokens, burst, prompt_tokens, engines=4):
+    """Request counts per engine from a sequential least-in-flight-tokens allocator with no completions, idle engine first:
+    the discrete counterpart of fluid_reference, reported beside it ([22, 14, 14, 14] for K)."""
+    load = [0] + [preload_tokens] * n_preloads + [0] * (engines - 1 - n_preloads)
+    counts = [0] * engines
+    for _ in range(burst):
+        i = min(range(engines), key=lambda k: (load[k], k))
+        load[i] += prompt_tokens
+        counts[i] += 1
+    return counts
 
-    The interval is the pair of order statistics [x_(l), x_(u)] with P(l <= B <= u - 1) >= conf for B ~ Binomial(n, p/100),
-    the usual exact interval for a quantile; it needs no assumption about the latency distribution.
-    `beyond` is n minus the percentile's rank: with fewer than 10 rows above it a p99 is decided by a handful of requests,
-    which the design reports beside the value rather than treating it as measured.
+
+# Burst invalidity reasons that say the apparatus did not do what it says, the same whichever router ran; any other
+# reason (preload placement, timing the router produced, failed requests) is the arm's own outcome and counts against it.
+APPARATUS_REASONS = ("the release was spread over more than the registered span",
+                     "a burst request was decided before its release",
+                     "a registration, decision or send time is missing")
+# The registered minimum share of a seed's bursts usable in both arms of a paired K comparison (9 of 12).
+MIN_PAIRED_COVERAGE = 0.75
+# K's burst performance guardrail: the candidate's burst TTFT p95 and median burst makespan at most this times the baseline's.
+K_GUARDRAIL = 1.10
+
+
+def paired_bursts(base, cand, min_coverage=MIN_PAIRED_COVERAGE):
+    """C2 on identical burst IDs: `base` and `cand` map burst id -> {"valid", "why", "largest", "completed"}.
+
+    A burst excluded for an apparatus reason in either arm leaves both; a burst invalid for any other reason, or with a
+    failed request, stays in as a failure of the arm it happened in.
+    The registered C2 ratio (candidate mean largest share <= 0.75 x baseline's) is read only over bursts valid in both.
+    """
+    ids = sorted(set(base) | set(cand))
+    excluded, both, failures = [], [], {"base": 0, "cand": 0}
+    for b in ids:
+        x, y = base.get(b), cand.get(b)
+        if x is None or y is None:
+            excluded.append((b, "missing in one arm"))
+            continue
+        why = [w for w in (x["why"], y["why"]) if w in APPARATUS_REASONS]
+        if why:
+            excluded.append((b, why[0]))
+            continue
+        bad = False
+        for arm, z in (("base", x), ("cand", y)):
+            if not z["valid"] or not z.get("completed", True):
+                failures[arm] += 1
+                bad = True
+        if not bad:
+            both.append(b)
+    usable = len(ids) - len(excluded)
+    coverage = usable / len(ids) if ids else 0.0
+    res = {"bursts": len(ids), "excluded": excluded, "treatment_failures": failures, "paired_valid": both,
+           "coverage": coverage, "covered": coverage >= min_coverage}
+    if both and res["covered"]:
+        mb = sum(base[b]["largest"] for b in both) / len(both)
+        mc = sum(cand[b]["largest"] for b in both) / len(both)
+        res.update(base_mean=mb, cand_mean=mc, contrast=mc - mb,
+                   c2=("meets" if mc <= 0.75 * mb else "fails") if failures["cand"] <= failures["base"] else "fails")
+    else:
+        res["c2"] = "unavailable"
+    return res
+
+
+def burst_perf(burst_rows):
+    """One burst's service: TTFTs (infinite for a failed request) and makespan, release to the last response's end, which
+    includes whatever the router spent per request, a reservation included."""
+    tt = [ttft(r) for r in burst_rows]
+    starts = [r.get("send_begin_abs", r.get("sent_abs")) for r in burst_rows]
+    ends = [r.get("end_abs") for r in burst_rows]
+    if None in starts or None in ends or not burst_rows or not all(completed(r) for r in burst_rows):
+        return {"ttft": tt, "makespan": INF}
+    return {"ttft": tt, "makespan": max(ends) - min(starts)}
+
+
+def k_guardrail(base_perf, cand_perf, limit=K_GUARDRAIL):
+    """Whether the candidate served the paired bursts no worse than `limit` x the baseline: pooled burst TTFT p95 and the
+    median burst makespan; it must hold before a smaller largest share is read as spreading the burst better."""
+    if not base_perf or not cand_perf:
+        return {"holds": False, "why": "no paired bursts"}
+    tb = nearest_rank([t for p in base_perf for t in p["ttft"]], 95)
+    tc = nearest_rank([t for p in cand_perf for t in p["ttft"]], 95)
+    mb = sorted(p["makespan"] for p in base_perf)[(len(base_perf) - 1) // 2]
+    mc = sorted(p["makespan"] for p in cand_perf)[(len(cand_perf) - 1) // 2]
+    ok_t = ratio_outcome(tc, tb, limit) in ("meets", "categorical_improvement")
+    ok_m = ratio_outcome(mc, mb, limit) in ("meets", "categorical_improvement")
+    return {"holds": ok_t and ok_m, "ttft_p95": [tb, tc], "makespan_median": [mb, mc]}
+
+
+# K-stagger's feasibility rules, frozen before the second pilot: a burst's release gaps are acceptable when the smallest
+# is at least half the spacing and the median within 10% of it; the probe is usable in the main run only if at least 90% of
+# its bursts have acceptable gaps, at least 75% are valid, and at least 95% of consecutive requests had the predecessor
+# forwarded by Envoy before the next one's last byte was written.
+STAGGER_GAP_SHARE, STAGGER_VALID_SHARE, STAGGER_PREDECESSOR_SHARE = 0.9, 0.75, 0.95
+
+
+def stagger_gaps_ok(burst_rows, stagger):
+    starts = sorted(r.get("send_begin_abs", r.get("sent_abs")) for r in burst_rows if r.get("sent_abs") is not None)
+    if len(starts) != len(burst_rows) or len(starts) < 2:
+        return False
+    gaps = sorted(b - a for a, b in zip(starts, starts[1:]))
+    med = gaps[(len(gaps) - 1) // 2]
+    return gaps[0] >= 0.5 * stagger and 0.9 * stagger <= med <= 1.1 * stagger
+
+
+def predecessor_forwarded(burst_rows, envoy):
+    """Consecutive pairs (by release) in which the earlier request was forwarded by Envoy before the later one's last byte
+    began to be written, and how many pairs there were."""
+    order = sorted(burst_rows, key=lambda r: r.get("send_begin_abs", r.get("sent_abs") or INF))
+    ok = 0
+    for a, b in zip(order, order[1:]):
+        f = envoy_forward_t(envoy.get(a["rid"]) or {})
+        t = b.get("send_begin_abs", b.get("sent_abs"))
+        if f is not None and t is not None and f < t:
+            ok += 1
+    return ok, max(0, len(order) - 1)
+
+
+def stagger_usable(gaps_ok, valid, pred_ok, pred_pairs):
+    """K-stagger's frozen feasibility rule over a cell's bursts; usable means it can run as a dynamic spacing intervention,
+    not that it measures a race."""
+    n = len(gaps_ok)
+    if not n or not pred_pairs:
+        return False
+    return (sum(gaps_ok) >= STAGGER_GAP_SHARE * n and sum(valid) >= STAGGER_VALID_SHARE * n
+            and pred_ok >= STAGGER_PREDECESSOR_SHARE * pred_pairs)
+
+
+def percentile_ci(values, p=99, conf=0.95):
+    """A nearest-rank percentile, its row count and rank, how many rows lie above it, and an iid-reference interval.
+
+    The interval is the pair of order statistics [x_(l), x_(u)] with P(l <= B <= u - 1) >= conf for B ~ Binomial(n, p/100).
+    It would be a 95% interval only if the rows were independent draws, and requests in one cell are not: in the pilot,
+    14 of the 18 rows at or above A1's p99 fell in the same second.
+    So it is labelled an iid reference and is never read as the precision of a p99; the seeds are the independent unit.
     """
     v = sorted(values)
     n = len(v)
@@ -396,8 +541,8 @@ def percentile_ci(values, p=99, conf=0.95):
     # l: the largest rank with P(B <= l - 1) <= alpha; u: the smallest rank with P(B <= u - 1) >= 1 - alpha.
     lo = max((r for r in range(1, n + 1) if cdf[r - 1] <= alpha), default=None)
     up = next((r for r in range(1, n + 1) if cdf[r - 1] >= 1 - alpha), None)
-    return {"value": v[k - 1], "n": n, "rank": k, "beyond": n - k, "decided": n - k >= 10,
-            "ci": [v[lo - 1] if lo else None, v[up - 1] if up else None]}
+    return {"value": v[k - 1], "n": n, "rank": k, "beyond": n - k,
+            "iid_reference_interval": [v[lo - 1] if lo else None, v[up - 1] if up else None]}
 
 
 def grid_anchor(ramps):
@@ -422,6 +567,21 @@ def grid_anchor(ramps):
         if kind not in ("bracketed", "at_least"):
             return None, f"{a}: {kind}, so its knee is below every rate it ran"
     return low, "ok"
+
+
+def balanced_replays(spare_by_seed, units):
+    """W942's descriptive replays, frozen before the main run: `units` in priority order, each (label, {seed: seconds}) for
+    one more A1 and A2 trace at one rate; a unit is taken only if every seed's session still has the time for it, so every
+    seed and both arms always hold the same replay set, and the first unit that does not fit everywhere ends the plan.
+    Replays repeat one trace: they are reported per seed and per replay, never as independent samples."""
+    left, plan = dict(spare_by_seed), []
+    for label, cost in units:
+        if set(cost) != set(left) or any(left[k] < cost[k] for k in left):
+            break
+        for k in left:
+            left[k] -= cost[k]
+        plan.append(label)
+    return plan
 
 
 GRID = (0.6, 0.9, 1.2, 1.5)

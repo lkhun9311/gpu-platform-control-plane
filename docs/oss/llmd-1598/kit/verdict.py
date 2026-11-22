@@ -107,19 +107,35 @@ def judge_cell(cdir):
             top, counts = analysis.largest_share(br)
             shares.append(top)
             sends = [r["sent_abs"] for r in br if r.get("sent_abs") is not None]
-            valid.append({"burst": b["burst"], "valid": vok, "why": vwhy, "basis": basis, "largest": top, "counts": counts,
-                          "idle_engine": sorted(set(meta["engines"]) - {p.get("endpoint") for p in pr}),
-                          "release_span_s": (max(sends) - min(sends)) if len(sends) == len(br) and sends else None,
-                          "early": analysis.early_decisions(br, epp["picked"] if v5 else {}, envoy) if primed else None})
+            perf = analysis.burst_perf(br)
+            entry = {"burst": b["burst"], "valid": vok, "why": vwhy, "basis": basis, "largest": top, "counts": counts,
+                     "idle_engine": sorted(set(meta["engines"]) - {p.get("endpoint") for p in pr}),
+                     "release_span_s": (max(sends) - min(sends)) if len(sends) == len(br) and sends else None,
+                     "early": analysis.early_decisions(br, epp["picked"] if v5 else {}, envoy) if primed else None,
+                     "completed": all(analysis.completed(r) for r in br), "makespan_s": perf["makespan"],
+                     "ttft_p95_s": analysis.nearest_rank(perf["ttft"], 95)}
+            if meta.get("stagger"):
+                # The staggered release's own timing: its actual gaps, and whether each request's predecessor had been
+                # forwarded before it was released.
+                entry["gaps_ok"] = analysis.stagger_gaps_ok(br, meta["stagger"])
+                entry["predecessor_forwarded"] = analysis.predecessor_forwarded(br, envoy)
+            valid.append(entry)
         res["bursts"] = valid
         vs = [v["largest"] for v in valid if v["valid"]]
         res["valid_bursts"] = len(vs)
         res["mean_largest_valid"] = (sum(vs) / len(vs)) if vs else None
-        # The share a race-free token-load picker gives the idle engine; only the excess over it is concentration.
+        # Two descriptive references for the idle engine's share, never a race detector: the static fluid allocation and a
+        # sequential least-token allocation with no completions.
         npre = 3 if meta.get("k_preloads", True) else 0
-        res["informed_share"] = analysis.informed_share(npre, W.PRELOAD_TOKENS, W.K_SIZE, W.K_PROMPT)
+        res["fluid_reference"] = analysis.fluid_reference(npre, W.PRELOAD_TOKENS, W.K_SIZE, W.K_PROMPT)
+        res["sequential_reference"] = analysis.sequential_reference(npre, W.PRELOAD_TOKENS, W.K_SIZE, W.K_PROMPT)
         if res["mean_largest_valid"] is not None:
-            res["excess_over_informed"] = res["mean_largest_valid"] - res["informed_share"]
+            res["share_minus_fluid"] = res["mean_largest_valid"] - res["fluid_reference"]
+        res["invalid_reasons"] = sorted({v["why"] for v in valid if not v["valid"]})
+        if meta.get("stagger"):
+            pred = [v["predecessor_forwarded"] for v in valid]
+            res["stagger_usable"] = analysis.stagger_usable([v["gaps_ok"] for v in valid], [v["valid"] for v in valid],
+                                                            sum(p[0] for p in pred), sum(p[1] for p in pred))
         if primed:
             # Every primed burst counts toward this check, valid or not, so an apparatus that cannot release at once fails.
             c["release_primed"] = analysis.release_ok([v["release_span_s"] for v in valid], [v["early"] for v in valid], span)
@@ -232,7 +248,8 @@ def main_pilot2(out, state):
         r, why = analysis.grid_anchor(ramps)
         anchors[block] = {"ramps": ramps, "anchor": r, "why": why, "grid": analysis.grid_rates(r) if r else None}
     v["anchors"] = anchors
-    v["k"] = {n: {k: cells[n].get(k) for k in ("valid_bursts", "mean_largest_valid", "informed_share", "excess_over_informed")}
+    v["k"] = {n: {k: cells[n].get(k) for k in ("valid_bursts", "mean_largest_valid", "fluid_reference", "sequential_reference",
+                                                 "share_minus_fluid", "invalid_reasons", "stagger_usable")}
               | {"spans_ms": [None if b["release_span_s"] is None else round(b["release_span_s"] * 1e3, 3)
                               for b in cells[n].get("bursts", [])]}
               for n in ("K-A1", "Kequal-A1", "Kstagger-A1") if n in cells and "bursts" in cells[n]}

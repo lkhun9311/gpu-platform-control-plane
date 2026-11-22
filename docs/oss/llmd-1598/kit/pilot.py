@@ -39,6 +39,9 @@ RAMP_AB = [10, 20, 40, 80]
 # A3, spreading the same requests over four, near 150/s; the top rungs leave room for that estimate to be low.
 LADDER2 = {"A": [64, 80, 100, 125, 156, 195, 244], "B": [64, 80, 100, 125, 156, 195, 244], "W942": [1.75, 2.9, 4.4]}
 STAGES = ("pilot", "pilot2")
+# The second pilot draws its prompts and arrivals from seeds the main run does not use (main: 1, 2, 3 and 941, 942, 943), so
+# no main schedule is seen before the main run; the first pilot already used seeds 1 and 942, which the amendment records.
+P2_SEED, P2_W942_SEED = 4, 944
 
 
 def cell_bound(kind, block, reqs=None, stagger=0.0):
@@ -340,17 +343,18 @@ class Pilot:
         self.state["calibration"][f"cold_p50_{tag}_s"] = analysis.nearest_rank(ct, 50)
         self.state["calibration"][f"warm_p50_{tag}_s"] = analysis.nearest_rank(wt, 50)
 
-    def ramp(self, block, rates, slo_key, arm="A3", verbosity=5):
+    def ramp(self, block, rates, slo_key, arm="A3", verbosity=5, seed=1, w942_seed=942):
         slo = self.state["calibration"].get(slo_key)
         # The first pilot named its A3 ramp cells without the arm; the second pilot ramps two arms, so its names carry it.
         stem = f"ramp-{block}" if self.a.stage == "pilot" else f"ramp-{block}-{arm}"
         results = []
         for rate in rates:
             if block == "W942":
-                reqs = W.w942(942, rate, f"{stem}-{rate}")
+                reqs = W.w942(w942_seed, rate, f"{stem}-{rate}")
             else:
-                reqs = W.steady(block, 1, rate, f"{stem}-{rate}")
-            rows = self.cell(f"{stem}-{rate:g}", arm, block, verbosity=verbosity, reqs=reqs, rate=rate, seed=1)
+                reqs = W.steady(block, seed, rate, f"{stem}-{rate}")
+            rows = self.cell(f"{stem}-{rate:g}", arm, block, verbosity=verbosity, reqs=reqs, rate=rate,
+                             seed=w942_seed if block == "W942" else seed)
             if rows is None:
                 break
             ev = [r for r in rows if r["population"] == "eval"]
@@ -372,17 +376,18 @@ class Pilot:
         self.state["calibration"].update(W.REGISTERED)
         self.start_engines("AK")
         for arm in ("A1", "A3"):
-            self.ramp("A", LADDER2["A"], "slo_A_s", arm=arm, verbosity=2)
-        self.cell("K-A1", "A1", "K", verbosity=2, kind="K", seed=1)
-        self.cell("Kequal-A1", "A1", "K", verbosity=2, kind="K", seed=1, k_preloads=False)
-        self.cell("Kstagger-A1", "A1", "K", verbosity=2, kind="K", seed=1, stagger=W.K_STAGGER_S)
+            self.ramp("A", LADDER2["A"], "slo_A_s", arm=arm, verbosity=2, seed=P2_SEED)
+        self.cell("K-A1", "A1", "K", verbosity=2, kind="K", seed=P2_SEED)
+        self.cell("Kequal-A1", "A1", "K", verbosity=2, kind="K", seed=P2_SEED, k_preloads=False)
+        # A feasibility probe of the 4 ms spacing, judged by stagger_usable's frozen rules; it decides nothing about a race.
+        self.cell("Kstagger-A1", "A1", "K", verbosity=2, kind="K", seed=P2_SEED, stagger=W.K_STAGGER_S)
         # W942's three rungs before B's ladder: B's knee is the least known, so if time runs short it is B's top rungs that
         # are skipped, not W942's anchor.
         self.start_engines("W")
-        self.ramp("W942", LADDER2["W942"], "slo_W942_s", arm="A1", verbosity=2)
+        self.ramp("W942", LADDER2["W942"], "slo_W942_s", arm="A1", verbosity=2, w942_seed=P2_W942_SEED)
         self.start_engines("B")
         for arm in ("A1", "A3"):
-            self.ramp("B", LADDER2["B"], "slo_B_s", arm=arm, verbosity=2)
+            self.ramp("B", LADDER2["B"], "slo_B_s", arm=arm, verbosity=2, seed=P2_SEED)
         self.stop_engines()
         self.state["timings"]["plan_s"] = round(time.time() - t0, 1)
         self.save()

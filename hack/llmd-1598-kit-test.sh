@@ -17,7 +17,8 @@ cd "$(dirname "$0")/.." || exit 1
 KIT=docs/oss/llmd-1598/kit
 TEST=docs/oss/llmd-1598/test
 BIN=${KIT_TEST_BIN:-$HOME/.cache/llmd1598-bin}
-WORK=$(mktemp -d /tmp/llmd1598-kit-test.XXXXXX)
+# TMPDIR moves the scratch off /tmp when /tmp is short of space or inodes; the end-to-end runs leave about 800 files each.
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/llmd1598-kit-test.XXXXXX")
 fails=0
 ok() { echo "ok   $*"; }
 bad() { echo "FAIL $*"; fails=$((fails + 1)); }

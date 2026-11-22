@@ -380,22 +380,105 @@ class AfterPilot(unittest.TestCase):
 
     def test_percentile_ci(self):
         res = A.percentile_ci(list(range(2000)), 99)
-        self.assertEqual((res["value"], res["rank"], res["beyond"], res["decided"]), (1979, 1980, 20, True))
-        self.assertEqual(res["ci"], [1970, 1988])
+        self.assertEqual((res["value"], res["n"], res["rank"], res["beyond"]), (1979, 2000, 1980, 20))
+        self.assertEqual(res["iid_reference_interval"], [1970, 1988])
+        # No precision verdict: requests in a cell are not independent, so nothing here says a p99 is "decided".
+        self.assertNotIn("decided", res)
+        self.assertEqual(A.percentile_ci(list(range(1000)), 99)["iid_reference_interval"], [982, 996])
         small = A.percentile_ci(list(range(223)), 99)
-        self.assertEqual((small["beyond"], small["decided"]), (2, False))
+        self.assertEqual(small["beyond"], 2)
         # 223 rows cannot bound a p99 from above: the interval stays open rather than borrowing the maximum.
-        self.assertIsNone(small["ci"][1])
-        self.assertEqual(A.percentile_ci(list(range(1010)), 99)["decided"], True)
-        self.assertEqual(A.percentile_ci(list(range(1000)), 99)["decided"], True)
-        self.assertEqual(A.percentile_ci(list(range(999)), 99)["decided"], False)
+        self.assertIsNone(small["iid_reference_interval"][1])
         self.assertIsNone(A.percentile_ci([], 99))
 
-    def test_informed_share(self):
-        # The first pilot's -v=2 bursts: 21, 21, 22, 21, 22, 22 against this.
-        self.assertAlmostEqual(A.informed_share(3, 4000, 64, 544), 21.5147, places=3)
-        self.assertEqual(A.informed_share(0, 4000, 64, 544), 16.0)
-        self.assertEqual(A.informed_share(3, 400000, 64, 544), 64.0)
+    def test_references(self):
+        self.assertAlmostEqual(A.fluid_reference(3, 4000, 64, 544), 21.5147, places=3)
+        self.assertEqual(A.fluid_reference(0, 4000, 64, 544), 16.0)
+        self.assertEqual(A.fluid_reference(3, 400000, 64, 544), 64.0)
+        # A race-free sequential allocator already exceeds the fluid reference, which is why neither is a race detector.
+        self.assertEqual(A.sequential_reference(3, 4000, 64, 544), [22, 14, 14, 14])
+        self.assertEqual(A.sequential_reference(0, 4000, 64, 544), [16, 16, 16, 16])
+
+    def kb(self, valid=True, why="ok", largest=20, completed=True):
+        return {"valid": valid, "why": why, "largest": largest, "completed": completed}
+
+    def test_paired_bursts(self):
+        base = {b: self.kb(largest=24) for b in range(12)}
+        cand = {b: self.kb(largest=17) for b in range(12)}
+        r = A.paired_bursts(base, cand)
+        self.assertEqual((r["c2"], r["coverage"], len(r["paired_valid"])), ("meets", 1.0, 12))
+        self.assertAlmostEqual(r["contrast"], -7)
+        self.assertEqual(A.paired_bursts(base, {b: self.kb(largest=19) for b in range(12)})["c2"], "fails")
+        # An apparatus exclusion in either arm takes the burst out of both; four of twelve leave 67% < 75%: unavailable.
+        app = {**cand, **{b: self.kb(False, "a burst request was decided before its release") for b in range(4)}}
+        r = A.paired_bursts(base, app)
+        self.assertEqual((r["covered"], r["c2"], len(r["excluded"])), (False, "unavailable", 4))
+        gone = {**cand, 0: self.kb(False, "a registration, decision or send time is missing")}
+        self.assertEqual((A.paired_bursts(base, gone)["excluded"], A.paired_bursts(base, gone)["treatment_failures"]),
+                         ([(0, "a registration, decision or send time is missing")], {"base": 0, "cand": 0}))
+        three = {**cand, **{b: self.kb(False, "the release was spread over more than the registered span") for b in range(3)}}
+        self.assertEqual(A.paired_bursts(base, three)["c2"], "meets")
+        # Invalid for the arm's own reason: a failure of that arm, not an exclusion, and it fails C2 even with a lower share.
+        own = {**cand, 0: self.kb(False, "preloads not on three distinct engines")}
+        r = A.paired_bursts(base, own)
+        self.assertEqual((r["treatment_failures"], r["c2"], r["excluded"]), ({"base": 0, "cand": 1}, "fails", []))
+        self.assertEqual(A.paired_bursts(base, {**cand, 0: self.kb(completed=False)})["treatment_failures"]["cand"], 1)
+        self.assertEqual(A.paired_bursts(base, {b: cand[b] for b in range(11)})["excluded"], [(11, "missing in one arm")])
+
+    def test_burst_perf_and_guardrail(self):
+        rows = [dict(row(rid=str(i), sched=1.0, sent=1.0, first=1.1 + i * 0.01), end_abs=1.5 + i * 0.01) for i in range(4)]
+        p = A.burst_perf(rows)
+        self.assertAlmostEqual(p["makespan"], 0.53)
+        self.assertTrue(math.isinf(A.burst_perf(rows[:3] + [dict(rows[3], done=False)])["makespan"]))
+        slow = [dict(r, end_abs=r["end_abs"] + 0.2) for r in rows]
+        self.assertTrue(A.k_guardrail([p] * 3, [p] * 3)["holds"])
+        self.assertFalse(A.k_guardrail([p] * 3, [A.burst_perf(slow)] * 3)["holds"])
+        late = [dict(r, first_text_t=r["first_text_t"] + 0.05) for r in rows]
+        self.assertFalse(A.k_guardrail([p] * 3, [A.burst_perf(late)] * 3)["holds"])
+        self.assertFalse(A.k_guardrail([], [p])["holds"])
+
+    def test_stagger_rules(self):
+        rows = [dict(row(rid=str(i), sent=1.0 + i * 0.004), send_begin_abs=1.0 + i * 0.004) for i in range(8)]
+        self.assertTrue(A.stagger_gaps_ok(rows, 0.004))
+        bunched = [dict(r, send_begin_abs=1.0 + i * 0.0015) for i, r in enumerate(rows)]
+        self.assertFalse(A.stagger_gaps_ok(bunched, 0.004))
+        # Every gap 3 ms: none below half the spacing, but the median is outside 3.6 to 4.4 ms.
+        even_short = [dict(r, send_begin_abs=1.0 + i * 0.003) for i, r in enumerate(rows)]
+        self.assertFalse(A.stagger_gaps_ok(even_short, 0.004))
+        one_short = [dict(r, send_begin_abs=r["send_begin_abs"] + (0.0025 if i == 4 else 0)) for i, r in enumerate(rows)]
+        self.assertFalse(A.stagger_gaps_ok(one_short, 0.004))
+        env = {r["rid"]: {"start": str(r["send_begin_abs"]), "route_us": "1000"} for r in rows}
+        self.assertEqual(A.predecessor_forwarded(rows, env), (7, 7))
+        env["2"] = {"start": "1.0", "route_us": "20000"}
+        self.assertEqual(A.predecessor_forwarded(rows, env), (6, 7))
+        self.assertTrue(A.stagger_usable([True] * 12, [True] * 9 + [False] * 3, 95, 100))
+        self.assertFalse(A.stagger_usable([True] * 12, [True] * 8 + [False] * 4, 95, 100))
+        self.assertFalse(A.stagger_usable([True] * 10 + [False] * 2, [True] * 12, 95, 100))
+        self.assertFalse(A.stagger_usable([True] * 12, [True] * 12, 94, 100))
+        self.assertFalse(A.stagger_usable([], [], 0, 0))
+
+    def test_preload_visibility_uses_envoys_first_byte(self):
+        pre = [row(rid=f"p{i}", endpoint=f"e{i + 1}", sent=0.0, first=1.0) for i in range(3)]
+        burst = [row(rid=str(i), sent=0.5) for i in range(4)]
+        env = {p["rid"]: {"start": "0.0", "route_us": "100000", "ttfb_us": "800000"} for p in pre}
+        env.update({r["rid"]: {"start": "0.4", "route_us": "104000"} for r in burst})
+        self.assertTrue(A.burst_valid(burst, pre, {}, {}, env)[0])
+        # The preload's first byte reached Envoy at 0.5 s, before the burst's decisions at 0.504 s, although the client saw
+        # it only at 1.0 s: the EPP may already have freed it.
+        early = dict(env, p1={"start": "0.0", "route_us": "100000", "ttfb_us": "400000"})
+        self.assertEqual(A.burst_valid(burst, pre, {}, {}, early)[1], "a burst request was decided after a preload's first response byte")
+
+    def test_balanced_replays(self):
+        units = [("0.9", {941: 140, 942: 145, 943: 136}), ("0.9", {941: 140, 942: 145, 943: 136}),
+                 ("1.2", {941: 120, 942: 124, 943: 117})]
+        self.assertEqual(A.balanced_replays({941: 800, 942: 800, 943: 800}, units), ["0.9", "0.9", "1.2"])
+        # Seed 942 cannot fit the third unit, so no seed gets it.
+        self.assertEqual(A.balanced_replays({941: 800, 942: 400, 943: 800}, units), ["0.9", "0.9"])
+        self.assertEqual(A.balanced_replays({941: 800, 942: 100, 943: 800}, units), [])
+
+    def test_p2_seeds_are_not_main_seeds(self):
+        import pilot
+        self.assertEqual((pilot.P2_SEED, pilot.P2_W942_SEED), (4, 944))
 
     def test_grid_anchor(self):
         self.assertEqual(A.grid_anchor({"A1": (75, "bracketed"), "A3": (156, "bracketed")}), (75, "ok"))
@@ -804,7 +887,10 @@ class VerdictPilot2(unittest.TestCase):
             ramps[block][arm] = {"results": res, "r": r, "kind": kind, "slo_s": 0.2}
         wide = 0.0001 if "spread" not in faults else 0.00004 * 100
         for name, pre, stagger in (("K-A1", True, 0.0), ("Kequal-A1", False, 0.0), ("Kstagger-A1", True, 0.004)):
-            rows, bursts = self.k_rows(name, pre, stagger or (wide / 63 if name == "K-A1" else 0.00001), stagger)
+            spread = stagger or (wide / 63 if name == "K-A1" else 0.00001)
+            if stagger and "stagger_short" in faults:
+                spread = 0.003
+            rows, bursts = self.k_rows(name, pre, spread, stagger)
             self.write_cell(out, name, "A1", "K", "K", rows, bursts, {"release": "primed", "k_preloads": pre, "stagger": stagger})
             cells.append(name)
         with open(os.path.join(out, "pilot.json"), "w") as f:
@@ -831,12 +917,22 @@ class VerdictPilot2(unittest.TestCase):
         self.assertEqual(v["anchors"]["W942"]["grid"], [1.74, 2.61, 3.48, 4.35])
         k = v["k"]
         self.assertEqual(k["K-A1"]["valid_bursts"], 4)
-        self.assertAlmostEqual(k["K-A1"]["informed_share"], 21.5147, places=3)
-        self.assertAlmostEqual(k["K-A1"]["excess_over_informed"], 24 - 21.5147, places=3)
+        self.assertAlmostEqual(k["K-A1"]["fluid_reference"], 21.5147, places=3)
+        self.assertEqual(k["K-A1"]["sequential_reference"], [22, 14, 14, 14])
+        self.assertAlmostEqual(k["K-A1"]["share_minus_fluid"], 24 - 21.5147, places=3)
         # K-equal has no preloads: its bursts are judged on the release alone, against an even 16.
         self.assertEqual(k["Kequal-A1"]["valid_bursts"], 4)
-        self.assertEqual(k["Kequal-A1"]["informed_share"], 16.0)
+        self.assertEqual(k["Kequal-A1"]["fluid_reference"], 16.0)
+        # The 4 ms probe's gaps, validity and predecessor forwarding meet the frozen rules.
+        self.assertIs(k["Kstagger-A1"]["stagger_usable"], True)
+        self.assertIsNone(k["K-A1"]["stagger_usable"])
         self.assertIn("ramp-B-A1-80", v["b_lost_reuse_a1"])
+
+    def test_short_stagger_gaps_make_the_probe_unusable(self):
+        rc, v = self.run_verdict(self.make(("stagger_short",)))
+        # The probe decides nothing about the apparatus or P2's exit; it only says whether K-stagger can join the main run.
+        self.assertEqual(rc, 0)
+        self.assertIs(v["k"]["Kstagger-A1"]["stagger_usable"], False)
 
     def test_spread_release_fails_the_apparatus(self):
         rc, v = self.run_verdict(self.make(("spread",)))
