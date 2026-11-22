@@ -194,8 +194,9 @@ done
 check "controlprecond: the verdict names the precondition not met" "vt controlprecond 'precondition not met: held block reused'"
 t0=$(date +%s); e2e "$KIT" hang FAKE_MODE=hang BUDGET_S=100 ARM_CAP_S=30; rc=$?; took=$(( $(date +%s) - t0 ))
 check "hang: each process is cut at its cap or the budget left, and run.sh ends inside BUDGET_S ($took s)" \
-  "[ $rc = 3 ] && command grep -qx 'test-control exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' \
-   && { command grep -qx 'test-fix exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' || stopped hang 'the budget ran out before test-fix'; } && v hang INCOMPLETE && [ $took -le 100 ]"
+  "command grep -qx 'test-control exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' \
+   && { { [ $rc = 3 ] && command grep -qx 'test-fix exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt'; } || { [ $rc = 1 ] && stopped hang 'the budget ran out before test-fix'; }; } \
+   && v hang INCOMPLETE && [ $took -le 100 ]"
 # lastend NAME: the t= of the last timed step, which must come before BUDGET_S less the reserve the verdict and checksums need.
 lastend() { command grep -E '^test-[a-z]+ exit=' "$WORK/e2e-$1/out/status.txt" | tail -n 1 | sed 's/.* t=//'; }
 e2e "$KIT" hangterm FAKE_MODE=hangterm BUDGET_S=100 ARM_CAP_S=40; rc=$?
