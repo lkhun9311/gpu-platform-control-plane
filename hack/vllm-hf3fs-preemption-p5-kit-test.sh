@@ -401,7 +401,7 @@ mcheck "mutant: a CONTROL patched with the fix is stopped by the control's tree 
 m=$(mutant controlfixedunguarded run.sh 's/^    git -C vllm apply "\$TESTS_PATCH"/    git -C vllm apply "$FIX_PATCH"/; s/^    \[ "\$t" = "\$CONTROL_TREE" \] ||/    true ||/')
 [ -n "$m" ] && e2e "$m" m-controlfixedunguarded
 mcheck "mutant: a CONTROL patched with the fix, past the tree pin, does not report CONFIRMED" "[ -f '$WORK/e2e-m-controlfixedunguarded/out/verdict.txt' ] && ! v m-controlfixedunguarded CONFIRMED"
-m=$(mutant nos run.sh 's/ -q -p no:cacheprovider -s --tb=short; }$/ -q -p no:cacheprovider --tb=short; }/')
+m=$(mutant nos run.sh 's/ -q -s --tb=short; }$/ -q --tb=short; }/')
 [ -n "$m" ] && e2e "$m" m-nos
 mcheck "mutant: test runs without -s do not report CONFIRMED" "[ -f '$WORK/e2e-m-nos/out/verdict.txt' ] && ! v m-nos CONFIRMED"
 m=$(mutant offline run.sh 's/^export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1$/true/')
