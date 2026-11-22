@@ -34,7 +34,8 @@ mkdir -p "$OUT" || exit 1
 # A rerun into the same OUT would leave an earlier run's stages for the report to read, so only an empty OUT is used.
 if [ -n "$(ls -A "$OUT")" ]; then echo "OUT=$OUT is not empty; each run writes a new directory" >&2; exit 1; fi
 : > "$OUT/status.txt"
-PY=python3
+# The session puts its pinned Python 3.12 on PATH as python3.12, while python3 stays the AMI's; the rehearsal host may have only python3.
+PY=$(command -v python3.12 || command -v python3)
 
 step() { # name, then the command; records the exit code and returns it
   local name=$1; shift
@@ -209,9 +210,12 @@ fi
 step warmup "$CR" stage --contract "$C" --segments "$WARMUP" --seed "$WARMUP_SEED" --target "$TARGET" \
   --out "$OUT/warmup" --request-id-prefix warmup > "$OUT/warmup.log" 2>&1 || stop "the warm-up did not record; see warmup.log"
 mkdir -p "$OUT/pilot"
-# The pilot leaves time for the cycle, the restarts and the report, whichever ends first: its own budget or that.
+# The pilot leaves time for the cycle, two restarts at their bound and the report, whichever ends first: its own budget or that.
+# Two, not three: a warm restart took about 100 s against its 240 s bound in the 2026-11-16 readiness runs, so reserving
+# three bounds would cut the pilot short to protect time a restart almost never uses, and a third restart that finds too
+# little time left is skipped and recorded rather than run past the budget.
 pilot_end=$(( $(date +%s) + PILOT_BUDGET_S ))
-room=$(( START + BUDGET_S - CYCLE_WORST_S - RESTARTS * RESTART_WORST_S - RESERVE_S ))
+room=$(( START + BUDGET_S - CYCLE_WORST_S - 2 * RESTART_WORST_S - RESERVE_S ))
 [ "$room" -lt "$pilot_end" ] && pilot_end=$room
 read -r -a rungs <<< "$RUNGS"
 read -r -a seeds <<< "$SEEDS"
