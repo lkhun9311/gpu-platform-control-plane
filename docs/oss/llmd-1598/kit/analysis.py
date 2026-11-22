@@ -413,13 +413,33 @@ MIN_PAIRED_COVERAGE = 0.75
 K_GUARDRAIL = 1.10
 
 
-def paired_bursts(base, cand, min_coverage=MIN_PAIRED_COVERAGE):
-    """C2 on identical burst IDs: `base` and `cand` map burst id -> {"valid", "why", "largest", "completed"}.
+def apparatus_fault(entry, span_limit):
+    """A burst's apparatus fault, checked on its own rather than read from burst_valid's first reason, which can name an
+    arm's outcome (preload placement) and hide a release fault behind it; None when the apparatus did what it says."""
+    if entry.get("early"):
+        return "a burst request was decided before its release"
+    if entry.get("release_span_s") is None:
+        return "a registration, decision or send time is missing"
+    if span_limit is not None and entry["release_span_s"] > span_limit:
+        return "the release was spread over more than the registered span"
+    return None
 
-    A burst excluded for an apparatus reason in either arm leaves both; a burst invalid for any other reason, or with a
-    failed request, stays in as a failure of the arm it happened in.
-    The registered C2 ratio (candidate mean largest share <= 0.75 x baseline's) is read only over bursts valid in both.
+
+def paired_bursts(base, cand, min_coverage=MIN_PAIRED_COVERAGE):
+    """C2 on identical burst IDs: `base` and `cand` map burst id -> {"valid", "why", "largest", "completed"} and, from the
+    verdict, "apparatus" (apparatus_fault's answer).
+
+    A burst with an apparatus fault in either arm leaves both; a burst invalid for any other reason, or with a failed
+    request, stays in as a failure of the arm it happened in, and a candidate with more such failures than the baseline
+    fails C2 whatever its shares.
+    The registered C2 ratio (candidate mean largest share <= 0.75 x baseline's) is read only over bursts valid in both, and
+    only when those jointly valid pairs are at least `min_coverage` of the seed's bursts; otherwise it is unavailable.
     """
+    def fault(z):
+        if "apparatus" in z:
+            return z["apparatus"]
+        return z["why"] if z["why"] in APPARATUS_REASONS else None
+
     ids = sorted(set(base) | set(cand))
     excluded, both, failures = [], [], {"base": 0, "cand": 0}
     for b in ids:
@@ -427,7 +447,7 @@ def paired_bursts(base, cand, min_coverage=MIN_PAIRED_COVERAGE):
         if x is None or y is None:
             excluded.append((b, "missing in one arm"))
             continue
-        why = [w for w in (x["why"], y["why"]) if w in APPARATUS_REASONS]
+        why = [w for w in (fault(x), fault(y)) if w]
         if why:
             excluded.append((b, why[0]))
             continue
@@ -438,15 +458,17 @@ def paired_bursts(base, cand, min_coverage=MIN_PAIRED_COVERAGE):
                 bad = True
         if not bad:
             both.append(b)
-    usable = len(ids) - len(excluded)
-    coverage = usable / len(ids) if ids else 0.0
+    coverage = len(both) / len(ids) if ids else 0.0
     res = {"bursts": len(ids), "excluded": excluded, "treatment_failures": failures, "paired_valid": both,
            "coverage": coverage, "covered": coverage >= min_coverage}
-    if both and res["covered"]:
+    if both:
         mb = sum(base[b]["largest"] for b in both) / len(both)
         mc = sum(cand[b]["largest"] for b in both) / len(both)
-        res.update(base_mean=mb, cand_mean=mc, contrast=mc - mb,
-                   c2=("meets" if mc <= 0.75 * mb else "fails") if failures["cand"] <= failures["base"] else "fails")
+        res.update(base_mean=mb, cand_mean=mc, contrast=mc - mb)
+    if failures["cand"] > failures["base"]:
+        res["c2"] = "fails"
+    elif both and res["covered"]:
+        res["c2"] = "meets" if res["cand_mean"] <= 0.75 * res["base_mean"] else "fails"
     else:
         res["c2"] = "unavailable"
     return res
@@ -474,7 +496,9 @@ def k_guardrail(base_perf, cand_perf, limit=K_GUARDRAIL):
     mc = sorted(p["makespan"] for p in cand_perf)[(len(cand_perf) - 1) // 2]
     ok_t = ratio_outcome(tc, tb, limit) in ("meets", "categorical_improvement")
     ok_m = ratio_outcome(mc, mb, limit) in ("meets", "categorical_improvement")
-    return {"holds": ok_t and ok_m, "ttft_p95": [tb, tc], "makespan_median": [mb, mc]}
+    # Every candidate request must have completed; one failure in many bursts moves neither the pooled p95 nor the median.
+    done = all(not math.isinf(p["makespan"]) for p in cand_perf)
+    return {"holds": ok_t and ok_m and done, "candidate_completed": done, "ttft_p95": [tb, tc], "makespan_median": [mb, mc]}
 
 
 # K-stagger's feasibility rules, frozen before the second pilot: a burst's release gaps are acceptable when the smallest

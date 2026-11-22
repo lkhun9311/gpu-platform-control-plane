@@ -424,6 +424,28 @@ class AfterPilot(unittest.TestCase):
         self.assertEqual((r["treatment_failures"], r["c2"], r["excluded"]), ({"base": 0, "cand": 1}, "fails", []))
         self.assertEqual(A.paired_bursts(base, {**cand, 0: self.kb(completed=False)})["treatment_failures"]["cand"], 1)
         self.assertEqual(A.paired_bursts(base, {b: cand[b] for b in range(11)})["excluded"], [(11, "missing in one arm")])
+        # Eleven arm-invalid bursts in each arm leave one jointly valid pair: too few for a contrast, whatever it says.
+        thin_b = {**base, **{b: self.kb(False, "preloads not on three distinct engines", 24) for b in range(11)}}
+        thin_c = {**cand, **{b: self.kb(False, "preloads not on three distinct engines") for b in range(11)}}
+        r = A.paired_bursts(thin_b, thin_c)
+        self.assertEqual((r["c2"], round(r["coverage"], 3)), ("unavailable", 0.083))
+        # The apparatus check stands on its own: a release fault excludes the burst even behind an arm's own reason.
+        hidden = {**cand, 0: dict(self.kb(False, "preloads not on three distinct engines"),
+                                  apparatus="the release was spread over more than the registered span")}
+        r = A.paired_bursts(base, hidden)
+        self.assertEqual((r["excluded"], r["treatment_failures"]["cand"]),
+                         ([(0, "the release was spread over more than the registered span")], 0))
+        self.assertEqual(A.paired_bursts(base, {**cand, 0: dict(cand[0], apparatus=None)})["c2"], "meets")
+
+    def test_apparatus_fault(self):
+        self.assertIsNone(A.apparatus_fault({"early": 0, "release_span_s": 0.0005}, 0.002))
+        self.assertEqual(A.apparatus_fault({"early": 1, "release_span_s": 0.0005}, 0.002),
+                         "a burst request was decided before its release")
+        self.assertEqual(A.apparatus_fault({"early": 0, "release_span_s": 0.003}, 0.002),
+                         "the release was spread over more than the registered span")
+        self.assertIsNone(A.apparatus_fault({"early": 0, "release_span_s": 0.252}, None))
+        self.assertEqual(A.apparatus_fault({"early": 0, "release_span_s": None}, 0.002),
+                         "a registration, decision or send time is missing")
 
     def test_burst_perf_and_guardrail(self):
         rows = [dict(row(rid=str(i), sched=1.0, sent=1.0, first=1.1 + i * 0.01), end_abs=1.5 + i * 0.01) for i in range(4)]
@@ -436,6 +458,10 @@ class AfterPilot(unittest.TestCase):
         late = [dict(r, first_text_t=r["first_text_t"] + 0.05) for r in rows]
         self.assertFalse(A.k_guardrail([p] * 3, [A.burst_perf(late)] * 3)["holds"])
         self.assertFalse(A.k_guardrail([], [p])["holds"])
+        # One failed request in twelve bursts moves neither the pooled p95 nor the median makespan, and still fails it.
+        failed = A.burst_perf(rows[:3] + [dict(rows[3], done=False)])
+        self.assertFalse(A.k_guardrail([p] * 12, [p] * 11 + [failed])["holds"])
+        self.assertTrue(A.k_guardrail([p] * 11 + [failed], [p] * 12)["holds"])
 
     def test_stagger_rules(self):
         rows = [dict(row(rid=str(i), sent=1.0 + i * 0.004), send_begin_abs=1.0 + i * 0.004) for i in range(8)]
@@ -938,6 +964,9 @@ class VerdictPilot2(unittest.TestCase):
         rc, v = self.run_verdict(self.make(("spread",)))
         self.assertEqual(rc, 4)
         self.assertIn("release_primed", v["apparatus_failures"]["K-A1"])
+        spread = "the release was spread over more than the registered span"
+        self.assertEqual({b["apparatus"] for b in v["cells"]["K-A1"]["bursts"]}, {spread})
+        self.assertEqual({b["apparatus"] for b in v["cells"]["Kequal-A1"]["bursts"]}, {None})
         # The staggered cell is spread by design and passes.
         self.assertNotIn("Kstagger-A1", v["apparatus_failures"])
 

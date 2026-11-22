@@ -114,6 +114,8 @@ def judge_cell(cdir):
                      "early": analysis.early_decisions(br, epp["picked"] if v5 else {}, envoy) if primed else None,
                      "completed": all(analysis.completed(r) for r in br), "makespan_s": perf["makespan"],
                      "ttft_p95_s": analysis.nearest_rank(perf["ttft"], 95)}
+            if primed:
+                entry["apparatus"] = analysis.apparatus_fault(entry, span)
             if meta.get("stagger"):
                 # The staggered release's own timing: its actual gaps, and whether each request's predecessor had been
                 # forwarded before it was released.
