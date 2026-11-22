@@ -6,7 +6,7 @@ It answers two questions:
 - Does the apparatus work end to end on real engines: the token ledger, the lifecycle joins, router credit joined to `cached_tokens`, the 4 Hz load sampler, and each cell's validity checks?
 - Does K's burst concentrate at all under A1?
 
-**Not launched.** The main run is decided after the pilot.
+The pilot ran on 2026-11-21 ($1.95): the apparatus held and no effect showed; the spec's third revision ("Main-run design after the pilot") says why and adds a second pilot, `STAGE=pilot2` below. Nothing after the pilot is launched.
 
 ## Arms
 
@@ -34,11 +34,19 @@ It answers two questions:
 bash hack/llmd-1598-kit-test.sh
 ```
 
-## Launch (not run; needs the owner's go)
+## Stages
+
+`run.sh` needs `STAGE`, passed through the session's `KIT_ENV`:
+- `pilot`: the first pilot's plan, which ran on 2026-11-21 (`hack/gpu-kit-runs/2026-11-21-llmd-1598-pilot`; K is now released primed, with 12 bursts).
+- `pilot2`: the second pilot of the spec's third revision: A1 and A3 ramps on A and B and A1's on W942 at `-v=2`, from 64/s in x1.25 steps, each arm stopping at its first failure; K, K-equal and K-stagger under A1 with the primed release. Its verdict exits 0 only with a grid anchor (the lowest bracketed knee) for A, B and W942.
+
+The main sessions (X1 to X3, Y1 to Y3) are written after P2, from P2's registered grid.
+
+## Launch of the second pilot (not run; needs the owner's go)
 
 ```
-SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.12xlarge OUT=hack/gpu-kit-runs/<date>-llmd-1598-pilot \
-  bash hack/gpu-kit-session.sh docs/oss/llmd-1598/kit
+SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.12xlarge OUT=hack/gpu-kit-runs/<date>-llmd-1598-pilot2 \
+  KIT_ENV='STAGE=pilot2;BUDGET_S=3250' bash hack/gpu-kit-session.sh docs/oss/llmd-1598/kit
 ```
 
 Worst case: the runner's g5.12xlarge constants, a $3.48/h Spot cap plus $0.0683/h of disk and IPv4, billed to the 4,020 s termination deadline, **$3.9623**, under its $4.00 per-session cap, which it checks before buying.

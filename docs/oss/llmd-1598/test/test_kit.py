@@ -7,6 +7,7 @@ import math
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 # mutate.py points KIT_DIR at a mutated copy of the kit; otherwise the tests read the committed one.
@@ -359,6 +360,214 @@ class Logs(unittest.TestCase):
         self.assertEqual(bad, 1)
 
 
+class AfterPilot(unittest.TestCase):
+    """The rules the main-run design added after the first pilot."""
+
+    def test_failed_after_first_token_is_infinite(self):
+        # It produced text, then the stream broke: a failure, so TTFT is infinite, as the design registers.
+        self.assertTrue(math.isinf(A.ttft(row(done=False, first=0.1))))
+        self.assertTrue(math.isinf(A.ttft(row(ct=2, first=0.1))))
+
+    def test_empty_text_token_times_the_first_token(self):
+        r = row(sched=1.0, first=None)
+        self.assertTrue(math.isinf(A.ttft(r)))
+        r["first_token_t"] = 1.2
+        self.assertAlmostEqual(A.ttft(r), 0.2)
+        # Text, when there is any, still decides.
+        r2 = row(sched=1.0, first=1.3)
+        r2["first_token_t"] = 1.25
+        self.assertAlmostEqual(A.ttft(r2), 0.3)
+
+    def test_percentile_ci(self):
+        res = A.percentile_ci(list(range(2000)), 99)
+        self.assertEqual((res["value"], res["rank"], res["beyond"], res["decided"]), (1979, 1980, 20, True))
+        self.assertEqual(res["ci"], [1970, 1988])
+        small = A.percentile_ci(list(range(223)), 99)
+        self.assertEqual((small["beyond"], small["decided"]), (2, False))
+        # 223 rows cannot bound a p99 from above: the interval stays open rather than borrowing the maximum.
+        self.assertIsNone(small["ci"][1])
+        self.assertEqual(A.percentile_ci(list(range(1010)), 99)["decided"], True)
+        self.assertEqual(A.percentile_ci(list(range(1000)), 99)["decided"], True)
+        self.assertEqual(A.percentile_ci(list(range(999)), 99)["decided"], False)
+        self.assertIsNone(A.percentile_ci([], 99))
+
+    def test_informed_share(self):
+        # The first pilot's -v=2 bursts: 21, 21, 22, 21, 22, 22 against this.
+        self.assertAlmostEqual(A.informed_share(3, 4000, 64, 544), 21.5147, places=3)
+        self.assertEqual(A.informed_share(0, 4000, 64, 544), 16.0)
+        self.assertEqual(A.informed_share(3, 400000, 64, 544), 64.0)
+
+    def test_grid_anchor(self):
+        self.assertEqual(A.grid_anchor({"A1": (75, "bracketed"), "A3": (156, "bracketed")}), (75, "ok"))
+        self.assertEqual(A.grid_anchor({"A1": (75, "bracketed"), "A3": (244, "at_least")})[0], 75)
+        self.assertIsNone(A.grid_anchor({"A1": (64, "at_least"), "A3": (100, "bracketed")})[0])
+        self.assertIsNone(A.grid_anchor({"A1": (64, "below"), "A3": (100, "bracketed")})[0])
+        self.assertIsNone(A.grid_anchor({"A1": (244, "at_least"), "A3": (244, "at_least")})[0])
+        self.assertIsNone(A.grid_anchor({})[0])
+        self.assertEqual(A.grid_rates(2.9), [1.74, 2.61, 3.48, 4.35])
+
+    def test_release_ok(self):
+        self.assertTrue(A.release_ok([0.0005] * 12, [0] * 12, 0.002))
+        self.assertTrue(A.release_ok([0.0005] * 11 + [0.003], [0] * 12, 0.002))
+        self.assertFalse(A.release_ok([0.0005] * 10 + [0.003] * 2, [0] * 12, 0.002))
+        self.assertFalse(A.release_ok([0.0005] * 12, [0] * 11 + [1], 0.002))
+        self.assertTrue(A.release_ok([0.25] * 12, [0] * 12, None))
+        self.assertFalse(A.release_ok([], [], 0.002))
+        self.assertFalse(A.release_ok([None] * 12, [0] * 12, 0.002))
+
+    def test_early_decisions(self):
+        burst = [row(rid=str(i), sent=0.5) for i in range(3)]
+        env = {"0": {"start": "0.4", "route_us": "101000"}, "1": {"start": "0.4", "route_us": "99000"}}
+        # One forwarded before its release, one with no record at all.
+        self.assertEqual(A.early_decisions(burst, {}, env), 2)
+        self.assertEqual(A.early_decisions(burst, {"0": 0.6, "1": 0.6, "2": 0.6}, {}), 0)
+
+    def test_burst_release_rules(self):
+        pre = [row(rid=f"p{i}", endpoint=f"e{i + 1}", sent=0.0, first=1.0) for i in range(3)]
+        burst = [row(rid=str(i), sent=0.5 + i * 0.0002) for i in range(4)]
+        env = {p["rid"]: {"start": "0.0", "route_us": "100000"} for p in pre}
+        env.update({r["rid"]: {"start": "0.4", "route_us": "104000"} for r in burst})
+        self.assertTrue(A.burst_valid(burst, pre, {}, {}, env, max_span=0.002)[0])
+        # Forwarded before its last byte left: the router picked on a partial body.
+        early = dict(env, **{"2": {"start": "0.4", "route_us": "99000"}})
+        self.assertEqual(A.burst_valid(burst, pre, {}, {}, early)[1], "a burst request was decided before its release")
+        spread = [dict(r, sent_abs=0.5 + i * 0.001) for i, r in enumerate(burst)]
+        self.assertFalse(A.burst_valid(spread, pre, {}, {}, env, max_span=0.002)[0])
+        self.assertTrue(A.burst_valid(spread, pre, {}, {}, env, max_span=None)[0])
+        # K-equal: no preloads, only the release conditions.
+        self.assertTrue(A.burst_valid(burst, [], {}, {}, env, max_span=0.002, with_preloads=False)[0])
+        self.assertFalse(A.burst_valid(burst, [], {}, {}, env, with_preloads=True)[0])
+        self.assertFalse(A.burst_valid(burst, pre, {}, {}, env, with_preloads=False)[0])
+
+    def test_k_constants(self):
+        import pilot
+        self.assertEqual((W.K_BURSTS, W.K_SIZE, W.K_RELEASE_SPAN_S, W.K_STAGGER_S), (12, 64, 0.002, 0.004))
+        # The staggered release must end inside the ~0.3 s the pilot's preloads stayed in prefill after a burst.
+        self.assertLess((W.K_SIZE - 1) * W.K_STAGGER_S, 0.3)
+        self.assertEqual(pilot.LADDER2["A"], [64, 80, 100, 125, 156, 195, 244])
+        self.assertEqual(W.REGISTERED, {"peak_prefill_tps": 8869, "slo_A_s": 0.23, "slo_B_s": 0.16, "slo_W942_s": 3.05})
+        self.assertEqual(pilot.cell_bound("K", "K"), 15 + 12 * 14)
+        self.assertAlmostEqual(pilot.cell_bound("K", "K", stagger=0.004), 15 + 12 * (14 + 63 * 0.004))
+        w = W.w942(942, 1.74, "x")
+        self.assertAlmostEqual(pilot.cell_bound("steady", "W942", w), 15 + 223 / 1.74 + 45, places=6)
+        self.assertAlmostEqual(pilot.cell_bound("steady", "A", W.steady("A", 1, 100, "x")), 15 + 30 + 20, delta=0.1)
+
+    def test_workers_cover_the_schedule(self):
+        import sender
+        reqs = [{"offset": i / 180.0} for i in range(180 * 40)]
+        # 180/s with a 20 s timeout can hold 25 s of arrivals outstanding, far over the first pilot's fixed 256.
+        self.assertEqual(sender.workers_for(reqs, 20.0), 180 * 25 + 1)
+        self.assertEqual(sender.workers_for([{"offset": 0.0}] * 64, 10.0), 64)
+        with self.assertRaises(ValueError):
+            sender.run("127.0.0.1", 1, [dict(r, rid=str(i), population="eval", prefix=None, max_tokens=1, prompt=[1])
+                                        for i, r in enumerate(reqs * 2)], 20.0)
+
+
+class SenderOnAServer(unittest.TestCase):
+    """The sender against a local streaming server: the primed release and the whole-request deadline."""
+
+    # The server runs in its own process, as Envoy does: in this process its threads would compete with the release loop
+    # for the GIL, which the real burst never does.
+    SERVER = r"""
+import http.server, json, sys, time
+class H(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    def log_message(self, *a):
+        pass
+    def do_POST(self):
+        try:
+            self.serve()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+    def serve(self):
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        print("GOT", self.headers["x-request-id"], repr(time.time()), flush=True)
+        slow = json.loads(body).get("max_tokens") == 99
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        def chunk(b):
+            self.wfile.write(b"%x\r\n%s\r\n" % (len(b), b))
+            self.wfile.flush()
+        # The first token decodes to no text, as a partial UTF-8 sequence does; a slow request streams for a second.
+        time.sleep(0.05)
+        for i in range(20 if slow else 2):
+            chunk(b'data: {"choices": [{"text": "%s"}]}\n\n' % (b"" if i == 0 else b"x"))
+            if slow:
+                time.sleep(0.05)
+        u = {"prompt_tokens": 1, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": 0}}
+        chunk(b"data: " + json.dumps({"choices": [], "usage": u}).encode() + b"\n\n")
+        chunk(b"data: [DONE]\n\n")
+        chunk(b"")
+# A backlog for 64 connections opened at once; the default 5 drops SYNs and stalls the priming for seconds.
+http.server.ThreadingHTTPServer.request_queue_size = 256
+srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+print("PORT", srv.server_address[1], flush=True)
+srv.serve_forever()
+"""
+
+    def setUp(self):
+        import subprocess
+        self.proc = subprocess.Popen([sys.executable, "-I", "-c", self.SERVER], stdout=subprocess.PIPE, text=True)
+        self.port = int(self.proc.stdout.readline().split()[1])
+
+    def got(self):
+        self.proc.terminate()
+        out, _ = self.proc.communicate(timeout=10)
+        return {ln.split()[1]: float(ln.split()[2]) for ln in out.splitlines() if ln.startswith("GOT")}
+
+    def tearDown(self):
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            self.proc.wait(10)
+        self.proc.stdout.close()
+
+    def reqs(self, n, mt=2):
+        return [{"rid": f"r{i}", "offset": 0.0, "prompt": list(range(300)), "max_tokens": mt, "prefix": None,
+                 "population": "eval"} for i in range(n)]
+
+    def test_primed_burst_reaches_the_server_only_at_release(self):
+        import sender
+        b = sender.Burst("127.0.0.1", self.port, self.reqs(64), 5.0).prime()
+        time.sleep(0.2)
+        primed_by = time.time()
+        rows = b.release(delay=0.02)
+        spans = [max(r["sent_abs"] for r in rows) - min(r["sent_abs"] for r in rows)]
+        # A loaded test host can delay a release; the best of five shows what the release does when it is not delayed.
+        for k in range(4):
+            more = sender.Burst("127.0.0.1", self.port, [dict(q, rid=f"{q['rid']}-{k}") for q in self.reqs(64)], 5.0).prime()
+            more = more.release(delay=0.02)
+            spans.append(max(r["sent_abs"] for r in more) - min(r["sent_abs"] for r in more))
+        self.assertLess(min(spans), W.K_RELEASE_SPAN_S, spans)
+        got = self.got()
+        for prev, r in zip([None] + rows[:-1], rows):
+            # Primed 0.2 s earlier, yet no body was complete at the server until its last byte left, which is after the
+            # previous request's last byte had been written (sent_abs is read just after each write returns).
+            self.assertGreater(got[r["rid"]], primed_by)
+            if prev is not None:
+                self.assertGreater(got[r["rid"]], prev["sent_abs"])
+            self.assertTrue(A.completed(r), r)
+            # The first token decoded to no text; its event still times it.
+            self.assertIsNotNone(r["first_token_t"])
+            self.assertLess(r["first_token_t"], r["first_text_t"])
+
+    def test_staggered_release(self):
+        import sender
+        rows = sender.Burst("127.0.0.1", self.port, self.reqs(8), 5.0).prime().release(stagger=0.004)
+        gaps = sorted(b["sent_abs"] - a["sent_abs"] for a, b in zip(rows, rows[1:]))
+        self.assertTrue(0.0035 < gaps[len(gaps) // 2] < 0.0045, gaps)
+        self.assertAlmostEqual(rows[-1]["sched_abs"] - rows[0]["sched_abs"], 7 * 0.004, places=6)
+
+    def test_whole_request_deadline(self):
+        import sender
+        # One second of streaming against a 0.3 s deadline: cut off, not completed, however steadily it streams.
+        rows = sender.run("127.0.0.1", self.port, self.reqs(1, mt=99), 0.3, delay=0.01)
+        self.assertFalse(A.completed(rows[0]))
+        self.assertIn("deadline", rows[0]["error"] or "")
+        self.assertLess(rows[0]["end_abs"] - rows[0]["sent_abs"], 0.5)
+
+
 class Verdict(unittest.TestCase):
     """verdict.main on a synthetic OUT: every plan cell, then faults that must change the verdict."""
 
@@ -509,6 +718,126 @@ class Verdict(unittest.TestCase):
 
     def test_missing_cell_is_incomplete(self):
         self.assertEqual(self.run_verdict(self.make(("drop_cell",))), 3)
+
+
+class VerdictPilot2(unittest.TestCase):
+    """verdict.main on a synthetic second pilot: anchors, the primed release, and K-equal's bursts."""
+
+    ENG = Verdict.ENG
+
+    def write_cell(self, out, name, arm, block, kind, rows, bursts=(), meta_extra=None):
+        cdir = os.path.join(out, "cells", name)
+        os.makedirs(cdir)
+        acc = [{"rid": r["rid"], "upstream": r["endpoint"], "start": str(r["sent_abs"] - 0.0005), "route_us": "1000"} for r in rows]
+        deltas = {}
+        for e in self.ENG:
+            mine = [r for r in rows if r["endpoint"] == e]
+            deltas[e] = {"prompt": sum(r["usage"]["prompt_tokens"] for r in mine),
+                         "generation": sum(r["usage"]["completion_tokens"] for r in mine),
+                         "cached": sum(r["usage"]["cached_tokens"] for r in mine), "success": len(mine), "preemptions": 0}
+        t0 = rows[0]["sent_abs"] - 1
+        meta = {"cell": name, "arm": arm, "block": block, "kind": kind, "verbosity": 2, "engines": self.ENG,
+                "idle_at_start": True, "reset": {e: True for e in self.ENG}, "window": [t0, t0 + 10], "deltas": deltas,
+                "bursts": list(bursts), "stagger": 0.0}
+        meta.update(meta_extra or {})
+        for fname, lines in (("cell.json", None), ("rows.jsonl", rows), ("access.log", acc), ("epp.log", [])):
+            with open(os.path.join(cdir, fname), "w") as f:
+                if lines is None:
+                    json.dump(meta, f)
+                else:
+                    f.write("".join(json.dumps(x) + "\n" for x in lines))
+        with open(os.path.join(cdir, "samples.jsonl"), "w") as f:
+            t = t0
+            while t <= t0 + 10:
+                f.write("".join(json.dumps({"t": t, "engine": e, "running": 1, "waiting": 0, "kv": 0.1}) + "\n" for e in self.ENG))
+                t += 0.25
+        with open(os.path.join(cdir, "epp-metrics.prom"), "w") as f:
+            f.write('llm_d_epp_scheduler_e2e_duration_seconds_bucket{le="0.001"} 100\n'
+                    'llm_d_epp_scheduler_e2e_duration_seconds_bucket{le="+Inf"} 100\n')
+
+    def k_rows(self, name, preloads, spread, stagger, top=24):
+        t0 = 1795246000.0
+        rows, bursts = [], []
+        for b in range(4):
+            base = t0 + 10 * b
+            pre = ([row(rid=f"{name}-b{b}-p{j}", endpoint=self.ENG[j + 1], mt=1, pt=4000, sent=base, sched=base, first=base + 0.5,
+                        pop="preload") for j in range(3)] if preloads else [])
+            burst = [row(rid=f"{name}-b{b}-{i}", endpoint=self.ENG[0] if i < top else self.ENG[1 + i % 3], mt=2, pt=544,
+                         sent=base + 0.1 + i * spread, sched=base + 0.1 + i * stagger, first=base + 0.3) for i in range(64)]
+            for r in pre + burst:
+                r["lag_s"] = r["sent_abs"] - r["sched_abs"] if r["population"] != "preload" else 0.0
+            rows += pre + burst
+            bursts.append({"burst": b, "rids": [r["rid"] for r in burst], "preloads": [r["rid"] for r in pre]})
+        return rows, bursts
+
+    def make(self, faults=()):
+        out = tempfile.mkdtemp()
+        cells, ramps = [], {"A": {}, "B": {}, "W942": {}}
+        ladders = {("A", "A1"): [(64, True), (80, False)], ("A", "A3"): [(64, True), (80, True), (100, False)],
+                   ("B", "A1"): [(64, True), (80, True), (100, False)], ("B", "A3"): [(64, True), (80, False)],
+                   ("W942", "A1"): [(1.75, True), (2.9, True), (4.4, True)]}
+        if "a_censored" in faults:
+            ladders[("A", "A1")] = [(64, True)]
+        t0 = 1795250000.0
+        for (block, arm), res in ladders.items():
+            for rate, _ok in res:
+                name = f"ramp-{block}-{arm}-{rate:g}"
+                rows = [row(rid=f"{name}-{i}", endpoint=self.ENG[i % 4], prefix="P0", pt=544, mt=4, cached=512 if i >= 4 else 0,
+                            sent=t0 + i * 0.1, sched=t0 + i * 0.1, first=t0 + i * 0.1 + 0.05, last=t0 + i * 0.1 + 0.1,
+                            pop="warmup" if i < 4 else "eval") for i in range(40)]
+                for r in rows:
+                    r["lag_s"] = 0.001
+                self.write_cell(out, name, arm, "B" if block == "B" else ("W942" if block == "W942" else "A"), "steady", rows)
+                cells.append(name)
+            r, kind = A.bracket(res)
+            ramps[block][arm] = {"results": res, "r": r, "kind": kind, "slo_s": 0.2}
+        wide = 0.0001 if "spread" not in faults else 0.00004 * 100
+        for name, pre, stagger in (("K-A1", True, 0.0), ("Kequal-A1", False, 0.0), ("Kstagger-A1", True, 0.004)):
+            rows, bursts = self.k_rows(name, pre, stagger or (wide / 63 if name == "K-A1" else 0.00001), stagger)
+            self.write_cell(out, name, "A1", "K", "K", rows, bursts, {"release": "primed", "k_preloads": pre, "stagger": stagger})
+            cells.append(name)
+        with open(os.path.join(out, "pilot.json"), "w") as f:
+            json.dump({"stage": "pilot2", "cells": cells, "ramps": ramps, "timings": {}, "skipped": []}, f)
+        return out
+
+    def run_verdict(self, out):
+        with open(os.devnull, "w") as devnull:
+            old, sys.stdout = sys.stdout, devnull
+            try:
+                rc = verdict.main(out)
+            finally:
+                sys.stdout = old
+        with open(os.path.join(out, "verdict.json")) as f:
+            return rc, json.load(f)
+
+    def test_holds_with_anchors(self):
+        rc, v = self.run_verdict(self.make())
+        self.assertEqual(rc, 0, v["apparatus_failures"])
+        self.assertEqual(v["anchors"]["A"]["anchor"], 64)
+        self.assertEqual(v["anchors"]["B"]["anchor"], 64)
+        # W942: A1 censored at 4.4 above the first pilot's bracketed A3 knee, so A3's 2.9 anchors it.
+        self.assertEqual(v["anchors"]["W942"]["anchor"], 2.9)
+        self.assertEqual(v["anchors"]["W942"]["grid"], [1.74, 2.61, 3.48, 4.35])
+        k = v["k"]
+        self.assertEqual(k["K-A1"]["valid_bursts"], 4)
+        self.assertAlmostEqual(k["K-A1"]["informed_share"], 21.5147, places=3)
+        self.assertAlmostEqual(k["K-A1"]["excess_over_informed"], 24 - 21.5147, places=3)
+        # K-equal has no preloads: its bursts are judged on the release alone, against an even 16.
+        self.assertEqual(k["Kequal-A1"]["valid_bursts"], 4)
+        self.assertEqual(k["Kequal-A1"]["informed_share"], 16.0)
+        self.assertIn("ramp-B-A1-80", v["b_lost_reuse_a1"])
+
+    def test_spread_release_fails_the_apparatus(self):
+        rc, v = self.run_verdict(self.make(("spread",)))
+        self.assertEqual(rc, 4)
+        self.assertIn("release_primed", v["apparatus_failures"]["K-A1"])
+        # The staggered cell is spread by design and passes.
+        self.assertNotIn("Kstagger-A1", v["apparatus_failures"])
+
+    def test_missing_anchor_is_incomplete(self):
+        rc, v = self.run_verdict(self.make(("a_censored",)))
+        self.assertEqual(rc, 3)
+        self.assertIsNone(v["anchors"]["A"]["anchor"])
 
 
 if __name__ == "__main__":

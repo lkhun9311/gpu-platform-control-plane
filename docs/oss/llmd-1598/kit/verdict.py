@@ -19,6 +19,7 @@ sys.path.insert(0, HERE)
 import analysis  # noqa: E402
 import logs  # noqa: E402
 import sampler  # noqa: E402
+import workloads as W  # noqa: E402
 
 PLAN = ["log-A-A1-v2", "log-A-A1-v5", "log-K-A1-v2", "log-K-A1-v5", "switch-A-A2", "switch-A-A3", "pressure-B-A1"]
 K_THRESHOLD = 24
@@ -71,6 +72,8 @@ def judge_cell(cdir):
     res["n_eval"] = len(ev)
     res["completed"] = sum(analysis.completed(r) for r in ev)
     res["ttft_p50_s"], res["ttft_p95_s"], res["ttft_p99_s"] = (analysis.nearest_rank(tt, p) for p in (50, 95, 99))
+    # The p99's interval and how many rows lie above it, so a p99 decided by a handful of requests is visible as such.
+    res["ttft_p99"] = analysis.percentile_ci(tt, 99)
     res["reused_fraction"] = analysis.reused_fraction(ev)
     try:
         with open(os.path.join(cdir, "epp-metrics.prom")) as f:
@@ -93,18 +96,33 @@ def judge_cell(cdir):
     if meta["kind"] == "K":
         shares, valid = [], []
         rows_by = {r["rid"]: r for r in rows}
+        # A primed burst released at once must have gone out within the registered span; a staggered one is spread by design.
+        primed = meta.get("release") == "primed"
+        span = W.K_RELEASE_SPAN_S if primed and not meta.get("stagger") else None
         for b in meta.get("bursts", []):
             br = [rows_by[x] for x in b["rids"]]
             pr = [rows_by[x] for x in b["preloads"]]
-            vok, vwhy, basis = analysis.burst_valid(br, pr, epp["picked"] if v5 else {}, epp["prerequest"] if v5 else {}, envoy)
+            vok, vwhy, basis = analysis.burst_valid(br, pr, epp["picked"] if v5 else {}, epp["prerequest"] if v5 else {}, envoy,
+                                                     max_span=span, with_preloads=meta.get("k_preloads", True))
             top, counts = analysis.largest_share(br)
             shares.append(top)
+            sends = [r["sent_abs"] for r in br if r.get("sent_abs") is not None]
             valid.append({"burst": b["burst"], "valid": vok, "why": vwhy, "basis": basis, "largest": top, "counts": counts,
-                          "idle_engine": sorted(set(meta["engines"]) - {p.get("endpoint") for p in pr})})
+                          "idle_engine": sorted(set(meta["engines"]) - {p.get("endpoint") for p in pr}),
+                          "release_span_s": (max(sends) - min(sends)) if len(sends) == len(br) and sends else None,
+                          "early": analysis.early_decisions(br, epp["picked"] if v5 else {}, envoy) if primed else None})
         res["bursts"] = valid
         vs = [v["largest"] for v in valid if v["valid"]]
         res["valid_bursts"] = len(vs)
         res["mean_largest_valid"] = (sum(vs) / len(vs)) if vs else None
+        # The share a race-free token-load picker gives the idle engine; only the excess over it is concentration.
+        npre = 3 if meta.get("k_preloads", True) else 0
+        res["informed_share"] = analysis.informed_share(npre, W.PRELOAD_TOKENS, W.K_SIZE, W.K_PROMPT)
+        if res["mean_largest_valid"] is not None:
+            res["excess_over_informed"] = res["mean_largest_valid"] - res["informed_share"]
+        if primed:
+            # Every primed burst counts toward this check, valid or not, so an apparatus that cannot release at once fails.
+            c["release_primed"] = analysis.release_ok([v["release_span_s"] for v in valid], [v["early"] for v in valid], span)
     return res
 
 
@@ -115,6 +133,8 @@ def main(out):
     except FileNotFoundError:
         print("INCOMPLETE: no pilot.json")
         return 3
+    if state.get("stage") == "pilot2":
+        return main_pilot2(out, state)
     cells = {}
     for name in state.get("cells", []):
         try:
@@ -174,6 +194,69 @@ def main(out):
             lines.append(f"{key}: {v[key]}")
     lines.append(f"calibration: {state.get('calibration')}")
     lines.append(f"ramps: {state.get('ramps')}")
+    print("\n".join(lines))
+    with open(os.path.join(out, "verdict.txt"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return rc
+
+
+
+# The second pilot's cells that must exist whatever the ramps do: each ladder's first rung, and K released at once and staggered.
+PLAN2 = ["ramp-A-A1-64", "ramp-A-A3-64", "K-A1", "Kequal-A1", "Kstagger-A1", "ramp-B-A1-64", "ramp-B-A3-64", "ramp-W942-A1-1.75"]
+
+
+def main_pilot2(out, state):
+    """Judge the second pilot: the apparatus checks on every cell, the grid anchor for A, B and W942, K's primed release,
+    and B's lost reuse under A1 at each ramp rate.
+
+    Exit 0 the apparatus holds and every block has an anchor; 3 incomplete (a cell missing, the run stopped, or a block whose
+    knees did not give an anchor); 4 the apparatus failed a check.
+    """
+    cells = {}
+    for name in state.get("cells", []):
+        try:
+            cells[name] = judge_cell(os.path.join(out, "cells", name))
+        except Exception as e:  # noqa: BLE001 - a cell that cannot be judged is reported, not skipped silently
+            cells[name] = {"cell": name, "error": f"{type(e).__name__}: {e}", "checks": {"judged": False}}
+    v = {"stage": "pilot2", "cells": cells, "ramps": state.get("ramps"), "timings": state.get("timings"),
+         "skipped": state.get("skipped"), "stopped": state.get("stopped")}
+    failed = {n: [k for k, ok in c["checks"].items() if not ok] for n, c in cells.items()}
+    failed = {n: f for n, f in failed.items() if f}
+    missing = [n for n in PLAN2 if n not in cells]
+    v["apparatus_failures"], v["plan_cells_missing"] = failed, missing
+    anchors = {}
+    for block in ("A", "B", "W942"):
+        ramps = {arm: (d["r"], d["kind"]) for arm, d in (state.get("ramps") or {}).get(block, {}).items()}
+        for arm, rk in W.PILOT_RAMPS.get(block, {}).items():
+            ramps.setdefault(arm, tuple(rk))
+        r, why = analysis.grid_anchor(ramps)
+        anchors[block] = {"ramps": ramps, "anchor": r, "why": why, "grid": analysis.grid_rates(r) if r else None}
+    v["anchors"] = anchors
+    v["k"] = {n: {k: cells[n].get(k) for k in ("valid_bursts", "mean_largest_valid", "informed_share", "excess_over_informed")}
+              | {"spans_ms": [None if b["release_span_s"] is None else round(b["release_span_s"] * 1e3, 3)
+                              for b in cells[n].get("bursts", [])]}
+              for n in ("K-A1", "Kequal-A1", "Kstagger-A1") if n in cells and "bursts" in cells[n]}
+    # B's geometry check at every rate A1 ran, not only at the first pilot's 10/s, which was below any main grid rate.
+    v["b_lost_reuse_a1"] = {n: (c.get("reuse") or {}).get("lost_share") for n, c in cells.items() if n.startswith("ramp-B-A1-")}
+    if failed:
+        rc, word = 4, "APPARATUS FAILED"
+    elif state.get("stopped") or missing or any(a["anchor"] is None for a in anchors.values()):
+        rc, word = 3, "INCOMPLETE"
+    else:
+        rc, word = 0, "APPARATUS HOLDS"
+    v["verdict"] = word
+    with open(os.path.join(out, "verdict.json"), "w") as f:
+        json.dump(v, f, indent=1, sort_keys=True, default=str)
+    lines = [f"verdict: {word}"]
+    lines += [f"  {n}: failed {', '.join(f)}" for n, f in sorted(failed.items())]
+    if missing:
+        lines.append(f"  plan cells not run: {', '.join(missing)}")
+    if state.get("stopped"):
+        lines.append(f"  stopped: {state['stopped']}")
+    for block, a in anchors.items():
+        lines.append(f"anchor {block}: {a['anchor']} ({a['why']}); grid {a['grid']}; ramps {a['ramps']}")
+    lines.append(f"K: {v['k']}")
+    lines.append(f"B lost reuse under A1 by rate: {v['b_lost_reuse_a1']}")
     print("\n".join(lines))
     with open(os.path.join(out, "verdict.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")

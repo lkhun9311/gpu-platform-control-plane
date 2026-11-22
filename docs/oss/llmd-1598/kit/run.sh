@@ -7,7 +7,8 @@
 # Every step's exit code goes to $OUT/status.txt.
 # The exit status is the verdict's: 0 the apparatus holds, 3 incomplete, 4 the apparatus failed, 1 a stop before the verdict.
 #
-# Settings (KIT_ENV through the session): BUDGET_S (default 3150, at most 3250).
+# Settings (KIT_ENV through the session): STAGE (required: pilot, the first pilot's plan of 2026-11-21, or pilot2, the
+# knee-bracketing second pilot), BUDGET_S (default 3150, at most 3250).
 # Offline test only: KIT_OFFLINE_TEST=1 with KIT_TEST_BIN (a directory holding epp-a1, epp-a2 and envoy) skips the GPU and every
 # download and runs the same pilot.py and verdict.py against fake engines.
 set -uo pipefail
@@ -34,6 +35,7 @@ VLLM_SHA256=79ca4b3cd74aec08c4bf476bdf0cb15735b605ae5368526a2faae1e30f044ca2
 MODEL=Qwen/Qwen2.5-3B-Instruct
 MODEL_REV=aa8e72537993ba99e69dfaafa59ed015b17504d1
 BUDGET_S=${BUDGET_S:-3150}
+STAGE=${STAGE:-}
 ROOT=/opt/llmd1598
 START=$(date +%s)
 mkdir -p "$OUT" || exit 1
@@ -67,6 +69,12 @@ PY=python3
 
 # ---------------------------------------------------------------- settings, refused before anything is downloaded
 [[ $BUDGET_S =~ ^[0-9]+$ ]] && [ "$BUDGET_S" -le 3250 ] || stop "BUDGET_S=$BUDGET_S: whole seconds, at most 3250, inside the session's 3,300 s"
+# No default stage: a launch that forgot it would otherwise buy a session that repeats the first pilot.
+case "$STAGE" in
+  pilot) PLAN_TEXT="calibration, isolated TTFT, A3 ramps A B W942, logging v2/v5 on A and K, A2 and A3 on A, B pressure (pilot.py run())" ;;
+  pilot2) PLAN_TEXT="A1 and A3 ramps on A and B and A1 on W942 at -v=2 from 64/s, K, K-equal and K-stagger under A1 primed (pilot.py run_pilot2())" ;;
+  *) stop "STAGE='$STAGE': set STAGE=pilot or STAGE=pilot2" ;;
+esac
 # The arms, the model, the engine flags and the plan are the design's, so a setting that would move one is refused rather than ignored.
 for v in KIT_ROUTER_SHA KIT_PR_SHA KIT_MODEL KIT_VLLM KIT_ARMS KIT_PLAN KIT_RATES KIT_SEEDS KIT_PEAK; do
   [ -z "${!v:-}" ] || stop "$v is set; the arms, model, engines and plan are fixed by the design"
@@ -77,7 +85,8 @@ done
   echo "vllm=$VLLM_WHEEL sha256=$VLLM_SHA256"; echo "model=$MODEL@$MODEL_REV"
   echo "arms=A1 guide optimized-baseline on 733d0e4e; A2 the same config on 733d0e4e+#4313; A3 max-score-picker alone (round-robin)"
   echo "engines=4 x vllm serve, one per GPU, --max-num-seqs 16, prefix caching, block 16; AK 4096 tokens/4096 blocks, B 2048/400, W 8192/default"
-  echo "plan=calibration, isolated TTFT, A3 ramps A B W942, logging v2/v5 on A and K, A2 and A3 on A, B pressure (pilot.py run())"
+  echo "stage=$STAGE"
+  echo "plan=$PLAN_TEXT"
   echo "budget_s=$BUDGET_S"
 } > "$OUT/settings.txt"
 [ "${KIT_DRY_RUN:-}" = 1 ] && { echo "dry run: settings accepted"; cat "$OUT/settings.txt"; exit 0; }
@@ -85,9 +94,9 @@ done
 if [ "${KIT_OFFLINE_TEST:-}" = 1 ]; then
   echo "offline_test=1 (fake engines; EPP and Envoy from KIT_TEST_BIN)" >> "$OUT/settings.txt"
   B=${KIT_TEST_BIN:?the offline test sets KIT_TEST_BIN}
-  step pilot "$PY" -I "$HERE/pilot.py" --out "$OUT" --mode offline --budget-s "${KIT_TEST_BUDGET_S:-900}" \
+  step pilot "$PY" -I "$HERE/pilot.py" --out "$OUT" --mode offline --stage "$STAGE" --budget-s "${KIT_TEST_BUDGET_S:-900}" \
     --epp-a1 "$B/epp-a1" --epp-a2 "$B/epp-a2" --envoy "$B/envoy" --fake-engine "${KIT_TEST_FAKE:?}" \
-    --time-scale "${KIT_TEST_SCALE:-0.2}" $(for f in ${KIT_TEST_FAULTS:-}; do printf -- '--fault %s ' "$f"; done) > "$OUT/pilot-stdout.txt" 2>&1
+    --time-scale "${KIT_TEST_SCALE:-0.2}" --fake-itl-ms "${KIT_TEST_ITL_MS:-4}" $(for f in ${KIT_TEST_FAULTS:-}; do printf -- '--fault %s ' "$f"; done) > "$OUT/pilot-stdout.txt" 2>&1
   finish
   exit $VERDICT_RC
 fi
@@ -152,7 +161,7 @@ echo "setup_s=$(( $(date +%s) - START ))" | tee -a "$OUT/status.txt"
 left=$(( BUDGET_S - ($(date +%s) - START) - 60 ))
 [ "$left" -gt 600 ] || stop "only $left s left after setup"
 # The pilot's own process (sender, sampler) runs on cores the engines, the EPP and Envoy do not use.
-step pilot taskset -c 36-47 "$PY" -I "$HERE/pilot.py" --out "$OUT" --mode gpu --budget-s "$left" \
+step pilot taskset -c 36-47 "$PY" -I "$HERE/pilot.py" --out "$OUT" --mode gpu --stage "$STAGE" --budget-s "$left" \
   --epp-a1 "$ROOT/epp-a1" --epp-a2 "$ROOT/epp-a2" --envoy "$ROOT/envoy" --venv "$ROOT/venv" --model-dir "$ROOT/model" \
   > "$OUT/pilot-stdout.txt" 2>&1
 finish

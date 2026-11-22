@@ -31,18 +31,23 @@ bad() { echo "FAIL $*"; fails=$((fails + 1)); }
 # ---------------------------------------------------------------- 3
 bash -n "$KIT/run.sh" && ok "run.sh parses" || bad "run.sh does not parse"
 o=$WORK/dry; mkdir -p "$o"
-OUT=$o KIT_DRY_RUN=1 bash "$KIT/run.sh" > "$WORK/dry.log" 2>&1 && grep -q 'settings accepted' "$WORK/dry.log" \
-  && ok "dry run accepts the defaults" || bad "dry run"
+for st in pilot pilot2; do
+  o=$WORK/dry-$st; mkdir -p "$o"
+  OUT=$o STAGE=$st KIT_DRY_RUN=1 bash "$KIT/run.sh" > "$WORK/dry-$st.log" 2>&1 && grep -q 'settings accepted' "$WORK/dry-$st.log" \
+    && grep -q "^stage=$st$" "$o/settings.txt" && ok "dry run accepts STAGE=$st" || bad "dry run STAGE=$st"
+done
 refuse() { # label, then env assignments; run.sh must exit non-zero and print why
   local label=$1; shift
   local o=$WORK/refuse-$label; mkdir -p "$o"
   if env "$@" OUT="$o" KIT_DRY_RUN=1 bash "$KIT/run.sh" > "$o.log" 2>&1; then bad "run.sh accepted $label"; else ok "run.sh refuses $label: $(tail -1 "$o.log" | cut -c1-90)"; fi
 }
-refuse budget BUDGET_S=3300
-refuse pin ROUTER_SHA=0000000000000000000000000000000000000000
-refuse override KIT_ARMS=A1
+refuse budget STAGE=pilot2 BUDGET_S=3300
+refuse no-stage STAGE=
+refuse unknown-stage STAGE=main
+refuse pin STAGE=pilot2 ROUTER_SHA=0000000000000000000000000000000000000000
+refuse override STAGE=pilot2 KIT_ARMS=A1
 o=$WORK/nonempty; mkdir -p "$o"; touch "$o/leftover"
-if OUT=$o KIT_DRY_RUN=1 bash "$KIT/run.sh" > "$WORK/nonempty.log" 2>&1; then bad "run.sh accepted a non-empty OUT"; else ok "run.sh refuses a non-empty OUT"; fi
+if OUT=$o STAGE=pilot2 KIT_DRY_RUN=1 bash "$KIT/run.sh" > "$WORK/nonempty.log" 2>&1; then bad "run.sh accepted a non-empty OUT"; else ok "run.sh refuses a non-empty OUT"; fi
 
 if [ "${SKIP_E2E:-}" = 1 ]; then
   echo "SKIPPED the end-to-end runs (SKIP_E2E=1); this is not a pass of steps 4 and 5"
@@ -70,10 +75,10 @@ fi
 [ "$(sha256sum "$BIN/envoy" | cut -d' ' -f1)" = "$ENVOY_SHA256" ] && ok "envoy matches the pinned sha256" || { bad "envoy sha256"; exit 1; }
 ok "EPP binaries: $(sha256sum "$BIN/epp-a1" "$BIN/epp-a2" | awk '{print substr($1,1,12)}' | tr '\n' ' ')"
 
-e2e() { # label, expected exit, budget, faults, then a check on the verdict
-  local label=$1 want=$2 budget=$3 faults=$4 expect=$5
+e2e() { # label, expected exit, budget, faults, a check on the verdict, then the stage and the fake engines' ITL
+  local label=$1 want=$2 budget=$3 faults=$4 expect=$5 stage=${6:-pilot} itl=${7:-4}
   local o=$WORK/e2e-$label
-  OUT=$o KIT_OFFLINE_TEST=1 KIT_TEST_BIN=$BIN KIT_TEST_FAKE=$PWD/$TEST/fake_engine.py KIT_TEST_BUDGET_S=$budget \
+  OUT=$o STAGE=$stage KIT_TEST_ITL_MS=$itl KIT_OFFLINE_TEST=1 KIT_TEST_BIN=$BIN KIT_TEST_FAKE=$PWD/$TEST/fake_engine.py KIT_TEST_BUDGET_S=$budget \
     KIT_TEST_FAULTS="$faults" bash "$KIT/run.sh" > "$o.log" 2>&1
   local rc=$?
   if [ "$rc" = "$want" ] && grep -qE "$expect" "$o/verdict.txt" 2>/dev/null; then
@@ -88,6 +93,9 @@ e2e() { # label, expected exit, budget, faults, then a check on the verdict
 e2e clean 0 1500 "" '^verdict: APPARATUS HOLDS'
 e2e token-off-by-one 4 150 "token_off_by_one" 'failed .*ledger'
 e2e reset-fails 4 150 "reset_fails" 'failed .*reset'
+# The second pilot on fake engines slow enough (25 ms a token) that both ladders find a knee: the verdict must hold with an
+# anchor for every block, and K's primed bursts must have gone out within the registered span.
+e2e pilot2 0 1500 "" '^verdict: APPARATUS HOLDS' pilot2 25
 
 echo
 if [ "$fails" = 0 ]; then echo "all checks passed ($WORK)"; exit 0; else echo "$fails check(s) failed ($WORK)"; exit 1; fi

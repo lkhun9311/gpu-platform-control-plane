@@ -23,9 +23,25 @@ BLOCKS = {
     "A": (2, 512, 32, 30.0, 5.0, 20.0),
     "B": (48, 256, 32, 40.0, 10.0, 20.0),
 }
-K_BURSTS, K_SIZE, K_PROMPT, K_TIMEOUT = 6, 64, 544, 10.0
+# Twelve bursts, not the first pilot's six: 12 x 64 = 768 rows a cell and 2,304 over three seeds for K's pooled p99, and twelve
+# largest shares a cell for the mean C1 and C2 read; sixteen would not fit session X under the kit's 3,300 s at every bound.
+K_BURSTS, K_SIZE, K_PROMPT, K_TIMEOUT = 12, 64, 544, 10.0
+# The largest a burst's 64 last bytes may be spread and the burst still count as released at once: below the 5 ms spacing
+# that kept the effect in the thread's simulator, and the first pilot's thread sends took 5.7 to 7.5 ms.
+K_RELEASE_SPAN_S = 0.002
+# K-stagger's spacing is 4 ms, not the 20 ms first registered.
+# Sixty-three 20 ms gaps take 1.26 s, and the pilot's preloads produced their first event about 0.3 s after the burst, after
+# which no engine is least loaded and every later request is an invalid burst member.
+# 63 x 4 ms = 252 ms ends inside that window, and 4 ms is longer than the EPP's own pick-to-PreRequest gap the pilot logged
+# at -v=5 (median 0.85 to 2.28 ms a burst), so each staggered pick can see the ones before.
+K_STAGGER_S = 0.004
 PRELOAD_TOKENS = 4000
 W942 = dict(prompts=48, prefix=7680, suffix=256, out=64, phase2_rate=1.6, phase2_s=100.0, timeout=45.0)
+# What the first pilot measured (hack/gpu-kit-runs/2026-11-21-llmd-1598-pilot), fixed by the registration amendment for every
+# later session so A1's and A2's config and the SLOs are the same bytes in every session instead of re-measured per instance.
+REGISTERED = {"peak_prefill_tps": 8869, "slo_A_s": 0.23, "slo_B_s": 0.16, "slo_W942_s": 3.05}
+# The first pilot's A3 ramp on W942, the one knee it bracketed; the second pilot ramps A1 on W942 only.
+PILOT_RAMPS = {"W942": {"A3": (2.9, "bracketed")}}
 
 
 def _ids(rng, n):

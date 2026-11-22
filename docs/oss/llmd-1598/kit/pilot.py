@@ -1,4 +1,5 @@
-"""The llm-d-router #1598 pilot: 18 cells on four engines behind one EPP and Envoy, as the design's "Pilot" section lays out.
+"""The llm-d-router #1598 pilots on four engines behind one EPP and Envoy: --stage pilot is the first pilot's 18 cells (the
+design's "Pilot" section), --stage pilot2 the knee-bracketing second pilot of its third revision.
 
 run.sh installs and builds, then runs this; it writes every cell under OUT/cells and the pilot's own measurements to
 OUT/pilot.json, and verdict.py judges them.
@@ -11,6 +12,7 @@ import hashlib
 import http.client
 import json
 import os
+import resource
 import shutil
 import statistics
 import subprocess
@@ -30,8 +32,28 @@ import workloads as W  # noqa: E402
 ENVOY_PORT, ENVOY_ADMIN, EPP_GRPC, EPP_HEALTH, EPP_METRICS = 18080, 19000, 19002, 19003, 19090
 # Engine configurations: (max_model_len, num_gpu_blocks_override or None for vLLM's own sizing).
 ENGINE_CFG = {"AK": (4096, 4096), "B": (2048, 400), "W": (8192, None)}
-CELL_BOUND = {"A": 65, "B": 75, "K": 99, "W942": 180}
 RAMP_AB = [10, 20, 40, 80]
+# The second pilot's ladders, x1.25 apart from 64/s: the first pilot passed every step to 80/s under A3, and A1 put A's two
+# prefixes on two engines and sat at its knee at 72/s, so both arms climb one ladder and each stops at its first failure.
+# Seven rungs reach 244/s: A1 at 72/s ran 36/s on each of its two engines with 10.6 of 16 slots busy and a queue, which puts
+# A3, spreading the same requests over four, near 150/s; the top rungs leave room for that estimate to be low.
+LADDER2 = {"A": [64, 80, 100, 125, 156, 195, 244], "B": [64, 80, 100, 125, 156, 195, 244], "W942": [1.75, 2.9, 4.4]}
+STAGES = ("pilot", "pilot2")
+
+
+def cell_bound(kind, block, reqs=None, stagger=0.0):
+    """A cell's worst-case seconds: 15 s of resets, router start and scrapes, the schedule, and the request timeout as drain.
+
+    K's is per burst: 1 s of priming and preloads, the 10 s timeout and 3 s of drain, plus the stagger's 63 gaps.
+    W942's schedule is its scaled trace: at 1.74/s its 223 requests take 128 s, over the 120 s the first design assumed.
+    """
+    if kind == "K":
+        return 15 + W.K_BURSTS * (14 + (W.K_SIZE - 1) * stagger)
+    if kind == "probe":
+        return {"A": 65, "B": 75, "W942": 180}[block]
+    span = max((r["offset"] for r in reqs), default=0.0)
+    timeout = W.BLOCKS[block][5] if block in W.BLOCKS else W.W942["timeout"]
+    return 15 + span + timeout
 
 
 class Pilot:
@@ -46,7 +68,7 @@ class Pilot:
         base = 8000 if a.mode == "gpu" else 18100
         self.engines = [f"127.0.0.1:{base + i}" for i in range(4)]
         self.names = {f"default/vllm-{i}": e for i, e in enumerate(self.engines)}
-        self.state = {"mode": a.mode, "cells": [], "skipped": [], "timings": {}, "calibration": {}, "ramps": {}}
+        self.state = {"mode": a.mode, "stage": a.stage, "cells": [], "skipped": [], "timings": {}, "calibration": {}, "ramps": {}}
         self.endpoints_file = os.path.join(self.out, "endpoints.yaml")
         with open(self.endpoints_file, "w") as f:
             f.write("endpoints:\n")
@@ -101,7 +123,7 @@ class Pilot:
                 env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(i), VLLM_SERVER_DEV_MODE="1", HF_HUB_OFFLINE="1")
             else:
                 cmd = [sys.executable, "-I", self.a.fake_engine, "--port", port, "--blocks", str(blocks or 24576),
-                       "--max-seqs", "16", "--prefill-us", "200", "--itl-ms", "4"] + sum((["--fault", x] for x in self.a.fault), [])
+                       "--max-seqs", "16", "--prefill-us", "200", "--itl-ms", str(self.a.fake_itl_ms)] + sum((["--fault", x] for x in self.a.fault), [])
                 env = dict(os.environ)
             with open(os.path.join(self.out, f"engine-{cfg}-{i}.cmd"), "w") as f:
                 f.write(" ".join(cmd) + "\n")
@@ -209,7 +231,7 @@ class Pilot:
 
     # ------------------------------------------------------------------ one cell
     def cell(self, name, arm, block, verbosity=5, reqs=None, rate=None, seed=1, kind="steady", stagger=0.0, k_preloads=True):
-        bound = CELL_BOUND["K" if kind == "K" else block]
+        bound = cell_bound(kind, block, reqs, stagger)
         if self.left() < bound:
             self.state["skipped"].append({"cell": name, "why": f"{self.left():.0f} s left, bound {bound} s"})
             self.log(f"skip {name}: not enough time")
@@ -218,6 +240,9 @@ class Pilot:
         os.makedirs(cdir, exist_ok=True)
         meta = {"cell": name, "arm": arm, "block": block, "rate": rate, "seed": seed, "kind": kind, "verbosity": verbosity,
                 "stagger": stagger, "engine_cfg": self.engine_cfg, "engines": self.engines, "start": time.time()}
+        if kind == "K":
+            # Every K burst is now primed to its last byte and released at once; the first pilot's were thread sends.
+            meta["release"], meta["k_preloads"] = "primed", k_preloads
         meta["idle_at_start"] = self.idle()
         meta["reset"] = self.reset()
         procs = None
@@ -231,7 +256,7 @@ class Pilot:
             if kind == "steady":
                 meta["schedule_sha256"] = W.schedule_hash(reqs)
                 timeout = W.BLOCKS[block][5] if block in W.BLOCKS else W.W942["timeout"]
-                rows = sender.run("127.0.0.1", ENVOY_PORT, reqs, time.time() + 0.5, timeout)
+                rows = sender.run("127.0.0.1", ENVOY_PORT, reqs, timeout)
             elif kind == "K":
                 rows, meta["bursts"] = self.k_cell(name, seed, stagger, k_preloads)
             elif kind == "probe":
@@ -268,11 +293,13 @@ class Pilot:
         return rows
 
     def k_cell(self, name, seed, stagger, with_preloads):
-        """K's bursts: three in-prefill preloads sent through the router one after another, then 64 requests at once."""
+        """K's bursts: 64 requests primed to their last byte, three in-prefill preloads sent through the router one after
+        another, then the 64 last bytes at once (or 20 ms apart for K-stagger)."""
         rows, bursts = [], []
         for b, burst in enumerate(W.k_bursts(seed, name)):
             pre_rows, threads = [], []
             pool = sender.Pool("127.0.0.1", ENVOY_PORT, 3, W.K_TIMEOUT)
+            primed = sender.Burst("127.0.0.1", ENVOY_PORT, burst, W.K_TIMEOUT).prime()
             if with_preloads:
                 for p in W.preloads(seed, name, b):
                     t = threading.Thread(target=lambda p=p: pre_rows.append(sender.one(pool, p, time.time())), daemon=True)
@@ -280,7 +307,7 @@ class Pilot:
                     threads.append(t)
                     # The EPP adds a preload to its in-flight tokens at PreRequest, within milliseconds of receiving it.
                     time.sleep(0.05)
-            brows = sender.run("127.0.0.1", ENVOY_PORT, burst, time.time() + 0.02, W.K_TIMEOUT, stagger=stagger)
+            brows = primed.release(stagger=stagger, delay=0.02)
             for t in threads:
                 t.join(W.K_TIMEOUT + 5)
             pool.close()
@@ -313,15 +340,17 @@ class Pilot:
         self.state["calibration"][f"cold_p50_{tag}_s"] = analysis.nearest_rank(ct, 50)
         self.state["calibration"][f"warm_p50_{tag}_s"] = analysis.nearest_rank(wt, 50)
 
-    def ramp(self, block, rates, slo_key):
+    def ramp(self, block, rates, slo_key, arm="A3", verbosity=5):
         slo = self.state["calibration"].get(slo_key)
+        # The first pilot named its A3 ramp cells without the arm; the second pilot ramps two arms, so its names carry it.
+        stem = f"ramp-{block}" if self.a.stage == "pilot" else f"ramp-{block}-{arm}"
         results = []
         for rate in rates:
             if block == "W942":
-                reqs = W.w942(942, rate, f"ramp-{block}-{rate}")
+                reqs = W.w942(942, rate, f"{stem}-{rate}")
             else:
-                reqs = W.steady(block, 1, rate, f"ramp-{block}-{rate}")
-            rows = self.cell(f"ramp-{block}-{rate:g}", "A3", block, reqs=reqs, rate=rate, seed=1)
+                reqs = W.steady(block, 1, rate, f"{stem}-{rate}")
+            rows = self.cell(f"{stem}-{rate:g}", arm, block, verbosity=verbosity, reqs=reqs, rate=rate, seed=1)
             if rows is None:
                 break
             ev = [r for r in rows if r["population"] == "eval"]
@@ -330,8 +359,33 @@ class Pilot:
             if not ok:
                 break
         r, kind = analysis.bracket(results)
-        self.state["ramps"][block] = {"results": results, "r": r, "kind": kind, "slo_s": slo}
+        if self.a.stage == "pilot":
+            self.state["ramps"][block] = {"results": results, "r": r, "kind": kind, "slo_s": slo}
+        else:
+            self.state["ramps"].setdefault(block, {})[arm] = {"results": results, "r": r, "kind": kind, "slo_s": slo}
         return r
+
+    def run_pilot2(self):
+        """The second pilot: bracket A1's and A3's knees on A and B and A1's on W942, so the main grid can be anchored on
+        the lowest knee, and check K's primed release on real engines; at -v=2, which the first pilot's logging rule kept."""
+        t0 = time.time()
+        self.state["calibration"].update(W.REGISTERED)
+        self.start_engines("AK")
+        for arm in ("A1", "A3"):
+            self.ramp("A", LADDER2["A"], "slo_A_s", arm=arm, verbosity=2)
+        self.cell("K-A1", "A1", "K", verbosity=2, kind="K", seed=1)
+        self.cell("Kequal-A1", "A1", "K", verbosity=2, kind="K", seed=1, k_preloads=False)
+        self.cell("Kstagger-A1", "A1", "K", verbosity=2, kind="K", seed=1, stagger=W.K_STAGGER_S)
+        # W942's three rungs before B's ladder: B's knee is the least known, so if time runs short it is B's top rungs that
+        # are skipped, not W942's anchor.
+        self.start_engines("W")
+        self.ramp("W942", LADDER2["W942"], "slo_W942_s", arm="A1", verbosity=2)
+        self.start_engines("B")
+        for arm in ("A1", "A3"):
+            self.ramp("B", LADDER2["B"], "slo_B_s", arm=arm, verbosity=2)
+        self.stop_engines()
+        self.state["timings"]["plan_s"] = round(time.time() - t0, 1)
+        self.save()
 
     def run(self):
         t0 = time.time()
@@ -375,6 +429,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--mode", choices=["gpu", "offline"], required=True)
+    ap.add_argument("--stage", choices=STAGES, required=True)
     ap.add_argument("--budget-s", type=float, required=True)
     ap.add_argument("--epp-a1", required=True)
     ap.add_argument("--epp-a2", required=True)
@@ -384,11 +439,20 @@ def main():
     ap.add_argument("--fake-engine", default="")
     ap.add_argument("--fault", action="append", default=[])
     ap.add_argument("--time-scale", type=float, default=1.0)
+    # Offline only: slower fake decoding gives the second pilot's ladders a knee to find on fake engines.
+    ap.add_argument("--fake-itl-ms", type=float, default=4.0)
     a = ap.parse_args()
+    # An overloaded cell holds thousands of connections open (workers_for in sender.py), and Envoy, started from here, holds
+    # two for each; the usual soft limit of 1,024 descriptors would fail them as connection errors, so it is raised to the
+    # hard limit and recorded.
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft != resource.RLIM_INFINITY and (hard == resource.RLIM_INFINITY or soft < hard):
+        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
     p = Pilot(a)
+    p.state["nofile"] = list(resource.getrlimit(resource.RLIMIT_NOFILE))
     rc = 0
     try:
-        p.run()
+        p.run() if a.stage == "pilot" else p.run_pilot2()
     except Exception as e:  # noqa: BLE001 - the verdict reads what was measured before the stop
         p.state["stopped"] = f"{type(e).__name__}: {e}"
         p.log(f"STOPPED {p.state['stopped']}")

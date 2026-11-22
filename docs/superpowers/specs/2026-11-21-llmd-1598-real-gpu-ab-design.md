@@ -1,7 +1,7 @@
 # A real-GPU A/B for llm-d-router #1598, bursty request distribution
 
-Date: 2026-11-21. Status: **design, revised twice ("Revisions" at the end); nothing bought, nothing posted upstream.**
-Budget: pilot about $3, main run about $20 to $24; the pilot is run first and the main run is decided after it.
+Date: 2026-11-21. Status: **design, revised three times ("Revisions" at the end); the pilot ran on 2026-11-21 ($1.95); the main run is not bought; nothing posted upstream.**
+Budget: pilot about $3 (spent $1.95), main run about $20 to $24; **the third revision ("Main-run design after the pilot") adds a second pilot and supersedes the main-run load, sessions and cost below where they differ.**
 This page fixes the arms, workloads, apparatus, measurements, pre-registered criteria and cost before any harness code is written.
 The harness is built in a follow-up, from this page.
 
@@ -244,6 +244,8 @@ If #4313's head moves before the main run, the registered head `d44cd676` is sti
 
 ## Cells, time and cost
 
+The third revision replaces this section's grid anchor, K bursts and spacing, cell bounds, sessions and cost; it is kept as the design that was registered before the pilot.
+
 **Cell count, main run: 123.**
 A: 3 arms × 4 rates × 3 seeds = 36; B: 36; W942: 36; K: 3 arms × 3 seeds = 9; K-stagger and K-equal: A1 × 3 seeds = 3 each.
 Pilot: 18 cells (ramps 11, logging 4, arm switching 2, B pressure 1), none in the criteria.
@@ -348,3 +350,90 @@ It is the upstream reservation candidate, so it replaced `weighted-random-picker
 | K's prompts unqualified against the gist's; prompts possibly reused across bursts | the gist's burst sends `"hello"`; a reused prompt warms a later burst | in the comparability table; all 384 prompts of a cell have distinct first router blocks |
 | TPOT over `completion_tokens − 1` for every request | undefined for one-token outputs | defined for ≥ 2 tokens, labelled client TPOT |
 | 16 slots as equal capacity | equal sequence counts do not make continuously batched capacity equal | an intentional cap; occupancy and waiting reported |
+
+**Third revision: main-run design after the pilot** (from `b02c9e31`, the pilot's evidence, `hack/gpu-kit-runs/2026-11-21-llmd-1598-pilot`).
+Nothing in it changes the arms, the workloads' prompt shapes, the hypotheses or a criterion's threshold; three changes touch how a criterion is computed and are marked **owner's decision** below.
+Every figure in this revision was recomputed from the pilot's `rows.jsonl`, `samples.jsonl`, `cell.json`, engine logs and the off-tree EPP log of `log-K-A1-v5`.
+
+*What the pilot showed.* The apparatus held (ledger, joins, sampler, credit join, dispatch lag p99 ≤ 7.6 ms in every cell), and none of the effects the main run measures showed:
+
+| signal | measured | why it did not show |
+|---|---|---|
+| K concentration under A1 | largest shares 21, 21, 22, 21, 22, 22 at `-v=2` (mean 21.5); 19, 29, 26, 30, 20, 18 at `-v=5` (mean 23.7); threshold 24 | Not a small burst: a race-free token-load picker gives the idle engine (3 × 4,000 + 64 × 544) / 4 / 544 = **21.5** of 64, so `-v=2` is exactly the informed allocation and shows no stale-snapshot picks. The client's thread sends spread each burst over **5.7 to 7.5 ms** (median gap 0.06 ms), the region where the thread's simulator still kept the effect (5 ms) but where every real EPP pick could see the previous one. At `-v=5` the picks spread over 31 to 39 ms and 57 to 62 of each burst's 64 picks happened while an earlier pick had not reached `PreRequest` (at most 10 to 16 at once), which is where the larger shares came from; that is logging slowing the scheduler, not the default's behaviour |
+| B cache pressure under A1 | A1 at 10/s: 6 first fills, **0 lost reuse** of 312; 12 to 14 prefixes an engine, at most 224 of 400 blocks | The working set fits under affinity (48 × 16 / 4 = 192 blocks an engine, 0.48 of the 400) and the check ran at 10/s, below any main grid rate (0.6 × r_B ≥ 48/s), with 0.5 to 0.7 requests running an engine. Pressure itself exists: A3's spray lost reuse on **28.2%** of requests at 10/s and **57.1%** at 80/s |
+| A and B knees | A3 passed 10, 20, 40, 80/s on both; at 80/s A's p99 was 64.4 ms against a 230 ms SLO with 5.3 to 5.7 of 16 slots running and nothing waiting; B's p99 136.4 ms against 160 ms with 8.2 to 8.7 running | The ladder stopped at 80/s. A's requests reuse 512 of 544 tokens, so each engine prefills 32 tokens a request; capacity is the decode slots, far above 80/s |
+| the grid anchor | **A1 and A2 put all of A's requests on two of the four engines** (869 and 872 of 1,741 at 72/s), with 10.6 of 16 slots running, up to 12 waiting, and 95.98% within the SLO: A1's knee in A is about 72 to 80/s | A3 spreads the same requests over four engines, so its knee is about twice A1's (36/s an engine in both cases), near 150/s. A grid of 0.6 to 1.5 × A3's knee would put every rate above A1's and A2's knee: C3's "normal operation" would compare two overloaded arms and C4 would be censored below for both |
+| sender | peak outstanding 44 (A, 80/s) and 65 (B, 80/s) against the 256-worker pool; achieved rate equal to the schedule | Not capped here, but at 1.5 × a knee near 120/s with 20 s timeouts an overloaded arm holds up to about 3,600 requests, and the pool would have delayed sends |
+| p99 sample sizes | A 1,741 to 1,993 rows a cell (17 to 20 above the p99 rank); K 384 (3); W942 223 (2) | K's and W942's p99 are decided by two or three requests |
+| W942 bound | `223 / (0.6 × 2.9) = 128.2 s` of replay at 0.6 ×; seeds 941 and 943 have 207 and 197 requests | the "at most 120 s" bound was wrong for seed 942 |
+| TTFT | 9 completed evaluation rows (≤ 2 output tokens) whose tokens decoded to no text read TTFT = ∞ | the first token's event was not recorded when its text was empty |
+| logging | `-v=5` raised K's EPP scheduling p99 bucket from 1 ms to 50 ms (and client p99 from 1.44 to 1.94 s) | the registered rule keeps **`-v=2` in every main cell**: C8, the per-request decision join and EPP-log attribution are unavailable, as already registered |
+
+Measured times: setup 67 s (registered bound 640 s), engine starts 93, 62 and 60 s, A cells 42.5 s (bound 65), B 52 s (75), K 30 to 31 s for six bursts (99), W942 65 to 142 s; launch to confirmed termination 33 min.
+
+*The changes.*
+
+| was | why it was wrong or weak | now |
+|---|---|---|
+| a main run right after the pilot | A and B were not bracketed, which the go/no-go above already sends to a second pilot | **a second pilot, P2** (STAGE=pilot2, implemented): A1 and A3 each climb 64, 80, 100, 125, 156, 195, 244/s on A and on B, stopping at their first failure; A1 climbs 1.75, 2.9, 4.4/s on W942 (A3's W942 knee, 2.9/s, is the pilot's); K, K-equal and K-stagger under A1 with the release below; all at `-v=2`. P2's verdict exits 0 only with an anchor for every block |
+| `r_w` = A3's knee | see "the grid anchor" above | **`r_w` = the lowest bracketed knee among A1 and A3** (P2's ramps; W942 adds the pilot's A3 2.9/s). An arm censored above at a rate at or over the other's bracketed knee cannot be the minimum; an arm that failed its lowest rate, or two censored arms, give no anchor, and the main run is not bought. A3's highest passing rate may then be censored at "≥ 1.5 ×", which still reports how much more round-robin carries in A |
+| K's 64 requests sent by 64 threads | 5.7 to 7.5 ms of spread, not "released at once" | **primed release**: each request is written whole except its body's last byte, then the preloads go out, then one thread writes the 64 last bytes; the EPP cannot pick before it has the whole body, so the scheduler receives the burst within that loop (median 0.55 ms over ten 64-request bursts on the loaded development host, 0.42 to 3.48 ms). A burst counts only if its 64 last bytes left within **2 ms** and no request was decided (Envoy forward time, at `-v=2`) before its own last byte; a cell whose primed release fails on more than 10% of bursts, or decides anything early, fails the apparatus |
+| 6 bursts a K cell | 384 rows a cell; a p99 three rows deep | **12 bursts** (768 rows a cell, 2,304 an arm over three seeds, 23 rows above the p99 rank; twelve shares a seed for C1 and C2). Sixteen would not fit session X at its bounds |
+| C1's 24-of-64 threshold read alone | a race-free picker already gives the idle engine 21.5 | threshold unchanged; the **informed share (21.5; 16 in K-equal) and each cell's excess over it** are reported beside it, and the excess is the evidence of stale-snapshot picks that `-v=2` can still give without EPP logs |
+| C2's K part: A2 ≤ 0.75 × A1 | if A1 sits at the informed 21.5, A2 would need ≤ 16.1, below what any load-balancing picker gives, so the criterion is unreachable by construction; with A1 at 24 it needs 18 | **owner's decision**, recommended: A2's excess over 21.5 ≤ 0.75 × A1's excess, decided only where C1 shows; the ratio of raw shares is still published |
+| K-stagger 20 ms apart | 63 × 20 ms = 1.26 s, while the pilot's preloads produced their first event about 0.26 to 0.30 s after the burst's decisions: every request after the first ~15 would see no least-loaded engine, so no K-stagger burst could be valid | **owner's decision**, recommended: **4 ms** spacing (63 × 4 ms = 252 ms, inside that window, and longer than the EPP's pick-to-`PreRequest` gap logged at `-v=5`, median 0.85 to 2.28 ms a burst), so the control still asks "does a burst whose picks see each other spread to the informed share"; alternative: drop K-stagger and attribute with the informed excess and K-equal alone. P2 runs it at 4 ms and records whether its bursts are valid |
+| K-equal's bursts held to the preload conditions | K-equal has no preloads, so every one of its bursts would have been invalid | release conditions only |
+| B's geometry check at 10/s, once | below every grid rate | geometry unchanged (the thread's 48 prefixes and 400 blocks). P2 reports A1's lost reuse at every rate it climbs, and the main run decides "B tests cache pressure for A1" **per seed at 0.6 × and 0.9 ×** from A1's own cells (≥ 1% lost reuse), the rates where C3 is judged; where it does not, C3's B part is reported as steady affinity, as already registered. A3's lost reuse is reported in every B cell |
+| p95 decides C3, p99 beside it | the owner asked for p99 first | every percentile is published as **p99 first**, with its row count, the rows above its rank, and a distribution-free 95% interval (the order statistics [x_(l), x_(u)] with P(l ≤ Binomial(n, 0.99) ≤ u − 1) ≥ 0.95). **Owner's decision**, recommended: **C3's TTFT part decides on p99** (same 1.20 × threshold) where both paired cells have ≥ 10 rows above the p99 rank, which A's and B's grids give whenever r_A ≥ 66.7/s and r_B ≥ 55.6/s (0.6 × r × 25 or 30 s ≥ 1,000 rows); otherwise p95 as registered. In the pilot the same A schedule under A1 and A2 gave p99 287.9 and 285.4 ms with intervals of ±5%, so a 1.20 × threshold is resolvable at that depth. W942 (197 to 223 rows a trace) keeps p95 for C2, C5 and C6 |
+| one W942 trace per arm, seed and rate | a p99 two rows deep | each Y session also replays the **A1 and A2 traces at 0.9 × twice more and at 1.2 × once more** (same schedule, reset between), filling the session to its bound: a pooled W942 p99 over 1,881 (0.9 ×) and 1,254 (1.2 ×) rows an arm, 18 and 12 rows above its rank. The criteria use the first trace only, so a replay can never change an outcome word; replays of one trace are not independent seeds and are labelled as replays |
+| fixed 256 sender workers; origin set before the connections opened | an overloaded cell would have been sent late, and the dispatch-lag rule would have voided the very cells that bracket a knee | workers = the most requests scheduled in any (timeout + 5 s) span, refused above 8,192, with the open-file limit raised to its hard limit for them and for Envoy; the origin is set after every connection and worker is ready |
+| the socket timeout as the "whole-request timeout" | it bounds each read, so a request still streaming could outlive 20 s and the cell bounds | an absolute deadline per request (20 s A and B, 10 s K, 45 s W942), cut off and recorded as a timeout |
+| TTFT finite for a request that failed after its first token; ∞ for a completed request whose tokens decoded to no text | the registered rule is "a failed request has TTFT = ∞"; and the first token's event is the first token | TTFT = ∞ unless the request completed; otherwise the first non-empty text event, or the first event carrying a choice when no text came |
+| `peakPrefillThroughput` and the SLOs measured per session | A1's and A2's config bytes, and the SLOs, would differ between sessions | fixed by this amendment: **8,869 tokens/s, SLO_A 230 ms, SLO_B 160 ms, SLO_W942 3.05 s** |
+| per-cell bounds from the design's constants | W942 at 0.6 × runs 128 s | each cell's bound is 15 s + its own schedule's span + its timeout (K: 15 + 12 × (14 s + the stagger's 63 gaps)) |
+
+*Sample sizes, per arm.* Examples use r_A = 75/s, r_B = 125/s and r_W942 = 2.9/s; P2 fixes the real values.
+
+| block | rows a cell (rows above the p99 rank) | pooled over three seeds | p99 |
+|---|---|---|---|
+| A at 0.6 / 0.9 / 1.2 / 1.5 × | 1,125 (11) / 1,688 (16) / 2,250 (22) / 2,813 (28) | 3,375 to 8,438 | decided per seed |
+| B at the same | 2,250 (22) to 5,625 (56) | 6,750 to 16,875 | decided per seed |
+| K, K-equal, K-stagger | 768 (7) | 2,304 (23) | pooled only |
+| W942, A1 and A2 at 0.9 × | 197 to 223 a trace, 3 traces | 1,881 (18) | pooled, replays labelled |
+| W942, A1 and A2 at 1.2 × | 2 traces | 1,254 (12) | pooled, replays labelled |
+| W942, A3, and every arm at 0.6 × and 1.5 × | 1 trace | 627 (6) | reported, not decided |
+
+*Sessions, in order, one at a time* (the 48-vCPU Spot quota is one g5.12xlarge; each session's termination is confirmed before the next is requested).
+Bounds use setup 300 s (measured 67 s), engine starts 120 s (measured 60 to 93 s), every cell at its bound, inside `BUDGET_S` 3,250 less 60 s.
+
+| session | contents | bound | expected kit time |
+|---|---|---:|---:|
+| P2 | A's ramps, K, K-equal and K-stagger under A1, W942's ramp, then B's ramps (the ladder with the least known knee last) | 3,607 s if no rung ever fails, which leaves no anchor anyway (late cells are skipped and recorded); about 2,980 s when A1 stops at 100/s and A3 at 195/s on A and each stops after five rungs on B | about 1,750 s |
+| X1, X2, X3 (seeds 1, 2, 3) | A (12 cells), K (3 arms), K-equal, K-stagger, then B (12 cells) | 300 + 120 + 780 + 549 + 183 + 186 + 120 + 900 = **3,138 s** | about 1,850 s |
+| Y1, Y2, Y3 (seeds 941, 942, 943) | W942's 12 cells, then the A1 and A2 replays | 2,852 s (941), **2,957 s** (942), about 2,800 s (943) at r_W942 = 2.9/s | about 2,000 s |
+
+If P2's W942 anchor is below 2.9/s, the Y traces stretch: the replays are cut first (the registered criteria do not use them), then the amendment drops W942's 0.6 × rate as already registered.
+
+| | sessions | worst case | expected |
+|---|---:|---:|---:|
+| P2 | 1 | **$3.96** | about $2.3 (about 38 min launch to termination: 100 s bring-up, the kit, about 7 min of upload and termination as in the pilot) |
+| main run | 6 | **$23.77** (6 × $3.9623) | about $15 (X about $2.4 each, Y about $2.5 each) |
+| from now | 7 | **$27.74** | about $17 |
+
+Each session's worst case is the runner's $3.9623 (the $3.48/h cap plus $0.0683/h, billed to the 4,020 s termination deadline), under its $4.00 cap; the main run's worst case stays the $23.77 estimated before the pilot, and P2 is the separate spending decision the go/no-go already named.
+Spending already made: the pilot, $1.95.
+
+*Rejected alternatives.*
+
+| alternative | why not |
+|---|---|
+| B with 128 prefixes, so that even perfect affinity overflows 400 blocks (512 blocks an engine) and A1 must show pressure | It makes B a different workload from the thread's B (48 prefixes), which is what B is compared with; B already measures what the thread's B measured (spray under pressure, affinity within capacity). Pressure for A1, if it comes, comes from spill at high rates (#4042), and the per-rate check records it |
+| making K show by raising the EPP's verbosity, pinning the EPP to fewer cores or growing the burst and rescaling 24 of 64 | each changes the system or the registered test; the pilot already shows `-v=5` producing larger shares by slowing picks |
+| keeping the A3-only anchor | C3 and C4 would compare two overloaded arms in A, and C4 would be censored below for both |
+| an x1.5 A3 ladder to 640/s | about twice as many cells above the predicted knee near 150/s; the x1.25 ladder to 244/s covers 1.6 × that prediction |
+| 24 K bursts for A1 and A2 and 6 for the others | unequal sample sizes across arms in the same comparison; K's TTFT is not in any criterion, and 2,304 pooled rows already put 23 rows above its p99 |
+| a fourth W942 session with four more traces per seed for A1 and A2 (about 3,100 rows a p99) | puts the main run's worst case at $27.74 (from now $31.70), over the $24 estimate, for replays of the same traces, which are not independent; offered to the owner as an option, not in the plan |
+| shortening W942's phase 2, or time-scaling K | changes the workload's composition, which the design fixed |
+
+*Kit status.* P2 is implemented (`run.sh` STAGE=pilot2, `pilot.py run_pilot2`, `verdict.py main_pilot2`) with the primed release, the sender and TTFT fixes, the anchor rule, the percentile interval and the release checks, each under unit tests and mutants, and P2 runs end to end offline against the real EPP and Envoy with fake engines.
+The main sessions X and Y, and the criteria judge, are written after P2, from P2's registered grid; their judge must also check what the pilot's verdict did not: every arm's schedule hash equal for a block, seed and rate, the EPP binary and config hashes against the registered ones, and K-stagger's validity per burst.

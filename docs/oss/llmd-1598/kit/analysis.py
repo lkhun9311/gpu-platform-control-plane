@@ -19,10 +19,20 @@ def completed(row):
 
 
 def ttft(row):
-    """Seconds from the scheduled send to the first non-empty text event; a request that never produced text is infinite."""
-    if row.get("status") != 200 or row.get("first_text_t") is None:
+    """Seconds from the scheduled send to the first token's event; a request that did not complete is infinite.
+
+    The first non-empty text event marks the first token, except when a completed request's tokens all decoded to no text
+    (a partial UTF-8 sequence), where the first event carrying a choice does.
+    A request that failed after its first token is a failure too, so its TTFT is infinite, as the design registers.
+    """
+    if not completed(row):
         return INF
-    return row["first_text_t"] - row["sched_abs"]
+    t = row.get("first_text_t")
+    if t is None:
+        t = row.get("first_token_t")
+    if t is None:
+        return INF
+    return t - row["sched_abs"]
 
 
 def client_tpot(row):
@@ -278,10 +288,12 @@ def largest_share(rows):
     return max(counts.values()) if counts else 0, counts
 
 
-def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy):
+def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy, max_span=None, with_preloads=True):
     """K's burst is valid only if the scorer saw all three engines loaded for the whole burst: the three preloads went to
     three distinct engines, all three were registered (PreRequest) before any burst request left the client, and every
     burst request was decided before any preload produced its first event.
+    K-equal sends no preloads (`with_preloads` False), so only the release conditions below apply to it; the first version
+    held it to the preload conditions too, which no K-equal burst could ever meet.
 
     At -v=5 the EPP's PreRequest and pick times are used.
     Without them each is bounded from Envoy's record (the upstream send follows PreRequest and the pick), which can only
@@ -289,12 +301,15 @@ def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy):
     time is no earlier than its decision.
     A burst with any time missing is invalid, never assumed valid.
     """
-    eps = [p.get("endpoint") for p in preload_rows]
-    if len(preload_rows) != 3 or None in eps or len(set(eps)) != 3:
-        return False, "preloads not on three distinct engines", None
-    firsts = [p.get("first_event_t") for p in preload_rows]
-    if any(f is None for f in firsts):
-        return False, "a preload produced no event", None
+    if with_preloads:
+        eps = [p.get("endpoint") for p in preload_rows]
+        if len(preload_rows) != 3 or None in eps or len(set(eps)) != 3:
+            return False, "preloads not on three distinct engines", None
+        firsts = [p.get("first_event_t") for p in preload_rows]
+        if any(f is None for f in firsts):
+            return False, "a preload produced no event", None
+    elif preload_rows:
+        return False, "a burst registered with no preloads has preload rows", None
     rids = [r["rid"] for r in burst_rows + preload_rows]
     basis = "epp" if all(x in epp_picked for x in rids) and all(p["rid"] in epp_prereq for p in preload_rows) else "envoy"
     if basis == "epp":
@@ -304,13 +319,115 @@ def burst_valid(burst_rows, preload_rows, epp_picked, epp_prereq, envoy):
         registered = [envoy_forward_t(envoy.get(p["rid"]) or {}) for p in preload_rows]
         decided = [envoy_forward_t(envoy.get(r["rid"]) or {}) for r in burst_rows]
     sends = [r.get("sent_abs") for r in burst_rows]
-    if None in registered or None in decided or None in sends:
+    if not burst_rows or None in registered or None in decided or None in sends:
         return False, "a registration, decision or send time is missing", basis
-    if max(registered) >= min(sends):
-        return False, "a preload was registered after the burst began", basis
-    if max(decided) >= min(firsts):
-        return False, "a burst request was decided after a preload's first event", basis
+    if with_preloads:
+        if max(registered) >= min(sends):
+            return False, "a preload was registered after the burst began", basis
+        if max(decided) >= min(firsts):
+            return False, "a burst request was decided after a preload's first event", basis
+    # A request is primed to its last byte before the release, so a decision before that byte left the client means the
+    # router picked on a partial body, and the release did not hold the burst back.
+    if any(d < s for d, s in zip(decided, sends)):
+        return False, "a burst request was decided before its release", basis
+    if max_span is not None and max(sends) - min(sends) > max_span:
+        return False, "the release was spread over more than the registered span", basis
     return True, "ok", basis
+
+
+def early_decisions(burst_rows, epp_picked, envoy):
+    """How many of a primed burst's requests were decided (EPP pick, else Envoy's forward) before their last byte left the
+    client, or have no decision or send time at all; anything but zero means the priming did not hold the burst back."""
+    n = 0
+    for r in burst_rows:
+        d = epp_picked.get(r["rid"]) if r["rid"] in epp_picked else envoy_forward_t(envoy.get(r["rid"]) or {})
+        if d is None or r.get("sent_abs") is None or d < r["sent_abs"]:
+            n += 1
+    return n
+
+
+def release_ok(spans, early, limit, share=0.9):
+    """The primed release worked: no request decided before its release in any burst, and at least `share` of the bursts
+    went out within `limit` (None: a staggered cell, spread by design).
+    One slow burst is an invalid burst, as the design treats any unmet burst condition; most of them failing is the
+    apparatus not doing what it says."""
+    if not spans or any(e for e in early):
+        return False
+    if limit is None:
+        return True
+    return sum(1 for x in spans if x is not None and x <= limit) >= share * len(spans)
+
+
+def informed_share(n_preloads, preload_tokens, burst, prompt_tokens, engines=4):
+    """The idle engine's share of a burst when every pick sees every earlier one, under a scorer that balances in-flight
+    prompt tokens: the burst fills the idle engine until all engines hold the same tokens, then spreads evenly.
+
+    The pilot's -v=2 bursts gave the idle engine 21 or 22 of 64 every time, against 21.5 from this, so this is the share a
+    race-free token-load picker gives, and only the excess over it is concentration from picks that did not see each other.
+    """
+    total = n_preloads * preload_tokens + burst * prompt_tokens
+    share = total / engines / prompt_tokens
+    return min(float(burst), max(burst / engines, share))
+
+
+def percentile_ci(values, p=99, conf=0.95):
+    """A nearest-rank percentile with its distribution-free confidence interval, and how many rows lie above it.
+
+    The interval is the pair of order statistics [x_(l), x_(u)] with P(l <= B <= u - 1) >= conf for B ~ Binomial(n, p/100),
+    the usual exact interval for a quantile; it needs no assumption about the latency distribution.
+    `beyond` is n minus the percentile's rank: with fewer than 10 rows above it a p99 is decided by a handful of requests,
+    which the design reports beside the value rather than treating it as measured.
+    """
+    v = sorted(values)
+    n = len(v)
+    if n == 0:
+        return None
+    q = p / 100.0
+    k = max(1, math.ceil(q * n))
+    # Binomial(n, q) cumulative probabilities from log-space terms, exact enough for n in the tens of thousands.
+    logs = [math.lgamma(n + 1) - math.lgamma(i + 1) - math.lgamma(n - i + 1)
+            + (i * math.log(q) if i else 0.0) + ((n - i) * math.log1p(-q) if n - i else 0.0) for i in range(n + 1)]
+    cdf, acc = [], 0.0
+    for lg in logs:
+        acc += math.exp(lg)
+        cdf.append(acc)
+    alpha = (1 - conf) / 2
+    # l: the largest rank with P(B <= l - 1) <= alpha; u: the smallest rank with P(B <= u - 1) >= 1 - alpha.
+    lo = max((r for r in range(1, n + 1) if cdf[r - 1] <= alpha), default=None)
+    up = next((r for r in range(1, n + 1) if cdf[r - 1] >= 1 - alpha), None)
+    return {"value": v[k - 1], "n": n, "rank": k, "beyond": n - k, "decided": n - k >= 10,
+            "ci": [v[lo - 1] if lo else None, v[up - 1] if up else None]}
+
+
+def grid_anchor(ramps):
+    """The rate the main grid is scaled from: the lowest knee among the arms ramped, so the grid holds the baseline's knee.
+
+    `ramps` maps an arm to (r, kind) from bracket().
+    The pilot's A3-only rule would have put A at 0.6 to 1.5 x A3's knee, while A1 put both of A's prefixes on two of the
+    four engines and was at its own knee at 72/s; every grid rate would then have been past A1's and A2's knees, C3 would
+    have compared two overloaded arms, and C4 would have been censored below for both.
+    A censored arm decides only when the order is still known: an arm that passed everything up to at least the other's
+    bracketed knee cannot hold the minimum, and an arm that failed its lowest rate, or two censored arms, give no anchor.
+    """
+    if not ramps:
+        return None, "no ramp"
+    brk = {a: r for a, (r, kind) in ramps.items() if kind == "bracketed"}
+    if not brk:
+        return None, "no arm's knee was bracketed"
+    low = min(brk.values())
+    for a, (r, kind) in ramps.items():
+        if kind == "at_least" and r < low:
+            return None, f"{a} passed only up to {r}, below the lowest bracketed knee {low}"
+        if kind not in ("bracketed", "at_least"):
+            return None, f"{a}: {kind}, so its knee is below every rate it ran"
+    return low, "ok"
+
+
+GRID = (0.6, 0.9, 1.2, 1.5)
+
+
+def grid_rates(anchor):
+    return [round(m * anchor, 2) for m in GRID]
 
 
 def imbalance(samples, engines):
