@@ -23,7 +23,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${OUT:-$HERE/results}
 REPO_URL=https://github.com/lkhun9311/gpu-platform-control-plane
 # The commit whose cmd/capacityrun this kit builds; the kit's own commit comes later and cannot name itself.
-SRC_SHA=1599150915643f705027bcb23298a72726850287
+SRC_SHA=b45b1e519c63143f8da63c6bc1bedb518f334c7f
 # go.mod's toolchain, checksum as go.dev publishes it.
 GO_TGZ=go1.27.4.linux-amd64.tar.gz
 GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840

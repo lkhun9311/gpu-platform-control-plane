@@ -128,6 +128,13 @@ def ttft_ms(row):
     return None if s is None or f is None else (f - s) / 1e6
 
 
+def tpot_ms(row):
+    """(last content - first content) / (completion tokens - 1); None when there is no gap to divide."""
+    f, l = nanos(row, "firstContentNanos"), nanos(row, "lastContentNanos")
+    n = row.get("engineOutputTokens") or 0
+    return None if f is None or l is None or n < 2 else (l - f) / 1e6 / (n - 1)
+
+
 def e2e_ms(row):
     s, d = nanos(row, "sendNanos"), nanos(row, "doneNanos")
     return None if s is None or d is None else (d - s) / 1e6
@@ -301,6 +308,7 @@ def stage_summary(rows, seg, measured_start, contract, output_tokens):
         "completed_fraction": led["completed"] / led["sent"] if led["sent"] else None,
         "ttft": quantiles([ttft_ms(r) for r in done], min_p99),
         "e2e": quantiles([e2e_ms(r) for r in done], min_p99),
+        "tpot": quantiles([t for t in (tpot_ms(r) for r in done) if t is not None], min_p99),
         "completed_rps": len(done) / seconds,
         "output_tokens_per_s": sum(r["engineOutputTokens"] for r in done) / seconds,
     }
@@ -309,8 +317,9 @@ def stage_summary(rows, seg, measured_start, contract, output_tokens):
 def recovery(rows, base, rec_seg, contract, output_tokens):
     """The recovery rule: tumbling windows by intended arrival from the end of overload."""
     rc = contract["recovery"]
-    if base["ttft"]["p99"] is None:
-        raise Refused(f"the baseline has too few completed requests (n={base['ttft']['n']}) to be the recovery reference")
+    # The rule compares p90s and sets no baseline minimum, so only a baseline with no completed request has no reference.
+    if base["ttft"]["p90"] is None:
+        raise Refused("the baseline completed no request, so there is no p90 to recover to")
     limit = rc["p90_ratio"] * base["ttft"]["p90"] + rc["p90_slack_ms"]
     w_ms = rc["window_s"] * 1000
     count = int((rec_seg["endMs"] - rec_seg["startMs"]) // w_ms)
@@ -359,6 +368,34 @@ def engine_peaks(samples, origin_s, seg):
     return peak
 
 
+def read_gpu_samples(path):
+    """nvidia-smi's CSV, timestamp first, as wall-clock seconds; the instance's clock is UTC."""
+    import datetime
+
+    out = []
+    if not os.path.exists(path):
+        return out
+    with open(path) as f:
+        for line in f:
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 4 or parts[0] == "timestamp":
+                continue
+            try:
+                t = datetime.datetime.strptime(parts[0], "%Y/%m/%d %H:%M:%S.%f").replace(tzinfo=datetime.timezone.utc).timestamp()
+                out.append({"t": t, "util": float(parts[1].split()[0]), "mem_mib": float(parts[2].split()[0]), "mem_total_mib": float(parts[3].split()[0])})
+            except ValueError:
+                continue
+    return out
+
+
+def gpu_peaks(samples, origin_s, seg):
+    a, b = origin_s + seg["startMs"] / 1000, origin_s + seg["endMs"] / 1000
+    inside = [s for s in samples if a <= s["t"] < b]
+    if not inside:
+        return {"samples": 0, "util_pct": "not recorded", "mem_mib": "not recorded"}
+    return {"samples": len(inside), "util_pct": max(s["util"] for s in inside), "mem_mib": max(s["mem_mib"] for s in inside)}
+
+
 def lag_check(rows, contract):
     m = contract["metrics"]
     sent = [r for r in rows if r.get("disposition") != "unsent"]
@@ -374,6 +411,7 @@ def report(contract, results_dir):
     rungs = sorted(f"pilot/{d}" for d in os.listdir(pilot)) if os.path.isdir(pilot) else []
     stage_dirs = [d for d in ["warmup", *rungs, "cycle"] if os.path.isfile(os.path.join(results_dir, d, "meta.json"))]
     samples = read_samples(os.path.join(results_dir, "engine-samples.jsonl"))
+    gpu = read_gpu_samples(os.path.join(results_dir, "gpu-samples.csv"))
     for d in stage_dirs:
         path = os.path.join(results_dir, d)
         try:
@@ -405,6 +443,7 @@ def report(contract, results_dir):
             s = stage_summary(rows, seg, seg["startMs"] + skip, contract, out_tokens)
             if origin is not None:
                 s["engine"] = engine_peaks(samples, origin, seg)
+                s["gpu"] = gpu_peaks(gpu, origin, seg)
             entry["segments"][seg["name"]] = s
         if d == "cycle":
             segs = {s["name"]: s for s in meta["segments"]}
@@ -438,24 +477,31 @@ def report(contract, results_dir):
 
 def render(rep):
     out = [f"contract {rep['contract']}"]
+    # When the pilot did not establish saturation the contract forbids the word overload for the stage above R_sat.
+    over = "overload" if rep.get("plan", {}).get("overload_is_overload") else "higher-rate stage (not established as overload)"
     if "plan" in rep:
         p = rep["plan"]
         out.append(f"pilot: {p.get('status')}, R_sat {p.get('r_sat')}, first unstable {p.get('first_unstable')}")
     for d, e in rep["stages"].items():
         out.append(f"[{d}] dispatch lag: {e['lag']['lagged']} of {e['lag']['sent']} over the bound")
         for name, s in e["segments"].items():
+            if d == "cycle" and name == "overload":
+                name = over
             led = s["ledger"]
             out.append(f"  {name}: planned {led['planned']} = unsent {led['unsent']} + sent {led['sent']}; sent = completed {led['completed']} + rejected {led['rejected']} + failed {led['failed']}; http/stream {led['cross']}")
             if "ttft" in s:
                 out.append("    " + fmt_q("TTFT", s["ttft"]) + f"; completed fraction {s['completed_fraction']}")
                 out.append("    " + fmt_q("E2E", s["e2e"]) + f"; {s['completed_rps']:.2f} completed req/s, {s['output_tokens_per_s']:.1f} output tok/s")
+                out.append("    " + fmt_q("TPOT", s["tpot"]))
+                if "gpu" in s:
+                    out.append(f"    GPU peak of 1 s samples: {s['gpu']}")
                 if "engine" in s:
                     out.append(f"    engine peak of 1 s scrapes: {s['engine']}")
         if "saturation_held" in e:
             out.append(f"  saturation held: {e['saturation_held']['stable']} {e['saturation_held']['reasons']}")
             rec = e["recovery"]
             if rec.get("recovered"):
-                out.append(f"  recovery: {rec['recovery_s']} s after overload (p90 limit {rec['limit_p90_ms']:.1f} ms)")
+                out.append(f"  recovery: {rec['recovery_s']} s after the {over} ended (p90 limit {rec['limit_p90_ms']:.1f} ms)")
             else:
                 out.append(f"  recovery: {rec.get('result', rec.get('refused'))}")
             out.append(f"  engine drain: {e.get('engine_drain_s')}")
