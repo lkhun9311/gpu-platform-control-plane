@@ -1,6 +1,7 @@
 """Check, on CPU and before any GPU is bought, that the HF3FS preemption test's engine can start and its requests fit.
 
-usage: python hack/vllm-hf3fs-preemption-startup-check.py VLLM_CHECKOUT MODEL_REV
+usage: python hack/vllm-hf3fs-preemption-startup-check.py VLLM_CHECKOUT MODEL_REV [--reset]
+--reset, for kit p4 on, also checks the prefix cache reset that run p3 stopped at; see check_reset.
 MODEL_REV is the model revision the GPU kit pins, and both the tokenizer and the model config are loaded at it,
 so the counts and layer shapes checked here are those of the snapshot the GPU run checks, whatever the local refs/main says.
 Run it with a CPU vLLM environment's python, with PYTHONPATH and the working directory set to VLLM_CHECKOUT,
@@ -104,11 +105,102 @@ def _full_layers(spec, n):
     return {f"layers.{i}.attn": full_layer(spec) for i in range(n)}
 
 
+# The most steps the reset helper may take; the p4 test's own default is 50.
+RESET_MAX_STEPS = 100
+
+
+class _Failed(Exception):
+    pass
+
+
+def check_reset(checkout):
+    """The setup step run p3 stopped at: the bare `assert llm.reset_prefix_cache()` must be gone,
+    replaced by a bounded `_reset_prefix_cache(llm)` that steps the engine until the blocks are freed.
+    The helper itself, read from the test file, is then run against vLLM's real BlockPool from the checkout,
+    holding 16 blocks as run p3's log reported, which a fake engine frees on its Nth step.
+    """
+    src = open(os.path.join(checkout, TEST_FILE)).read()
+    tree = ast.parse(src)
+    helper = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_reset_prefix_cache"), None)
+    check("the test defines _reset_prefix_cache", helper is not None)
+    if helper is None:
+        return
+    bare = [n for n in ast.walk(tree) if isinstance(n, ast.Assert) and "reset_prefix_cache()" in ast.unparse(n.test)]
+    check("no bare assert on llm.reset_prefix_cache() is left in the test", not bare)
+    gpu = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "test_preempted_request_saves_its_own_kv"), None)
+    calls = [n for n in ast.walk(gpu) if isinstance(n, ast.Call) and ast.unparse(n) == "_reset_prefix_cache(llm)"] if gpu else []
+    check("the GPU test calls _reset_prefix_cache(llm) once, where the bare assert was", len(calls) == 1)
+    # Bounded: one for loop over range(max_steps), a whole-number default no larger than RESET_MAX_STEPS, no while loop, and a failure after it.
+    args = helper.args
+    defaults = dict(zip([a.arg for a in args.args][-len(args.defaults):], args.defaults)) if args.defaults else {}
+    bound = defaults.get("max_steps")
+    loops = [n for n in ast.walk(helper) if isinstance(n, (ast.For, ast.While))]
+    # The failure is a statement of the helper's own body that comes after its loop.
+    fails = [i for i, n in enumerate(helper.body)
+             if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call) and ast.unparse(n.value.func) == "pytest.fail"]
+    loop_at = [i for i, n in enumerate(helper.body) if isinstance(n, ast.For)]
+    bounded = (isinstance(bound, ast.Constant) and isinstance(bound.value, int) and 0 < bound.value <= RESET_MAX_STEPS
+               and len(loops) == 1 and isinstance(loops[0], ast.For) and ast.unparse(loops[0].iter) == "range(max_steps)"
+               and len(loop_at) == 1 and any(i > loop_at[0] for i in fails))
+    check(f"_reset_prefix_cache is bounded: for over range(max_steps), max_steps={ast.unparse(bound) if bound else None} <= {RESET_MAX_STEPS}, then pytest.fail", bounded)
+    if not bounded:
+        return
+    from vllm.v1.core.block_pool import BlockPool
+
+    class Engine:
+        def __init__(self, pool, held, free_on):
+            self.pool, self.held, self.free_on, self.steps = pool, held, free_on, 0
+
+        def step(self):
+            # The finished request's blocks are freed only once a later step reports its saves done.
+            self.steps += 1
+            if self.steps == self.free_on:
+                self.pool.free_blocks(self.held)
+
+    class LLM:
+        def __init__(self, free_on):
+            self.pool = BlockPool(48, enable_caching=True, hash_block_size=16)
+            self.llm_engine = Engine(self.pool, self.pool.get_new_blocks(16), free_on)
+
+        def reset_prefix_cache(self):
+            return self.pool.reset_prefix_cache()
+
+    class Time:
+        slept = 0.0
+
+        @classmethod
+        def sleep(cls, s):
+            cls.slept += s
+
+    class Pytest:
+        @staticmethod
+        def fail(msg):
+            raise _Failed(msg)
+
+    ns = {"time": Time, "pytest": Pytest}
+    exec(compile(ast.Module(body=[helper], type_ignores=[]), TEST_FILE, "exec"), ns)
+    llm = LLM(free_on=3)
+    ns["_reset_prefix_cache"](llm)
+    check(f"with 16 blocks freed on the 3rd engine step, the helper resets the prefix cache after 3 steps (took {llm.llm_engine.steps})",
+          llm.llm_engine.steps == 3 and llm.pool.get_num_free_blocks() == 47)
+    llm = LLM(free_on=None)
+    try:
+        ns["_reset_prefix_cache"](llm)
+        failed = False
+    except _Failed:
+        failed = True
+    check(f"with blocks never freed, the helper fails after its {bound.value} steps rather than waiting on (took {llm.llm_engine.steps})",
+          failed and llm.llm_engine.steps == bound.value)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        sys.exit("usage: vllm-hf3fs-preemption-startup-check.py VLLM_CHECKOUT MODEL_REV")
+    reset = sys.argv[3:] == ["--reset"]
+    if len(sys.argv) != 3 + reset:
+        sys.exit("usage: vllm-hf3fs-preemption-startup-check.py VLLM_CHECKOUT MODEL_REV [--reset]")
     try:
         main(sys.argv[1], sys.argv[2])
+        if reset:
+            check_reset(sys.argv[1])
     except Exception as e:
         # An import or load that fails must read as a failed check, never as a short pass.
         check(f"the startup check ran to the end ({type(e).__name__}: {e})", False)

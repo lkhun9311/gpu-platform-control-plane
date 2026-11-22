@@ -22,6 +22,8 @@ FAKE_MODE bends the run:
   fixload         FIX cannot load the model offline;
   skip            the GPU test is skipped in both, as without CUDA;
   nosummary       FIX dies before its summary;
+  setupboth       both arms fail at the prefix cache reset, before the page comparison, as run p3 did;
+  oldline         both arms print the older test's "relative page errors" line instead of kit p4's;
   hang            every run never returns;
   hangterm        every run never returns and ignores SIGTERM, so only the kill after the grace ends it.
 Each run appends its arm to FAKE_ORDER_LOG when it is set, so the offline test can check the order.
@@ -54,6 +56,8 @@ if not os.path.exists(TF):
     print("no tests ran in 0.01s")
     sys.exit(4)
 arm = "fix" if "    def handle_preemptions(" in open(CONNECTOR).read() else "control"
+# Kit p4's test compares the pages read right after the held save, and prints them on their own line.
+HELD_SAVE = "held-save page errors" in open(TF).read()
 if os.environ.get("FAKE_ORDER_LOG"):
     with open(os.environ["FAKE_ORDER_LOG"], "a") as f:
         f.write(arm + "\n")
@@ -88,6 +92,8 @@ else:
     cpu_fail = ["test_waits_for_the_preempted_request_saves_only"] if mode == "fixcpufail" else []
 if mode == "skip":
     gpu = "skip"
+if mode == "setupboth":
+    gpu = "E   Failed: the local prefix cache could not be reset"
 
 progress = "".join("F" if t in cpu_fail else "." for t in ("test_scheduler_passes_preempted_requests_to_the_worker",
                                                           "test_waits_for_the_preempted_request_saves_only", "test_no_preemption_does_not_wait"))
@@ -102,7 +108,11 @@ if mode == "nosummary" and arm == "fix":
 prints = []
 if isinstance(gpu, tuple):
     held, reused, timed_out, errors, _ = gpu
-    prints = [f"held={held} reused={reused} hold_timed_out={timed_out}", f"relative page errors: {errors}"]
+    if HELD_SAVE and mode != "oldline":
+        prints = [f"held={held} reused={reused} hold_timed_out={timed_out}", f"end-of-run page errors: {[0.0007, 0.0004]}",
+                  f"held-save page errors: {errors}"]
+    else:
+        prints = [f"held={held} reused={reused} hold_timed_out={timed_out}", f"relative page errors: {errors}"]
 gpu_failed = isinstance(gpu, str) and gpu != "skip" or isinstance(gpu, tuple) and gpu[4] is not None
 if with_s and prints:
     print(f"\n{P} INFO 11-22 21:00:01 [llm.py:1] Supported tasks: ['generate']")

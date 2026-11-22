@@ -1,0 +1,45 @@
+> +import functools
+> +        # Read right after the held save, before a later save can rewrite the pages.
+> +        self.after_held = None
+> +        self.snapshot = None
+> +                result = handle_save_task(manager, task)
+> +                hold.snapshot = hold.after_held()
+> +                return result
+> +def _reset_prefix_cache(llm, max_steps: int = 50) -> None:
+> +    """Step the engine until the finished request's blocks are freed, then reset.
+> +
+> +    HF3FS frees a finished request's blocks only once its saves are reported done.
+> +    That report comes back on a later engine step.
+> +    The scheduler still steps while it has finished request IDs to send.
+> +    """
+> +    for _ in range(max_steps):
+> +        if llm.reset_prefix_cache():
+> +            return
+> +        llm.llm_engine.step()
+> +        time.sleep(0.05)
+> +    pytest.fail("the local prefix cache could not be reset")
+> +
+> +
+> +        hold.after_held = functools.partial(
+> +            _read_pages, worker, metadata, target_hashes
+> +        )
+< +            assert llm.reset_prefix_cache()
+> +            _reset_prefix_cache(llm)
+> +        def relative_errors(pages):
+> +            return [
+> +                ((p - r).norm() / r.norm().clamp_min(1e-6)).item()
+> +                for p, r in zip(pages, reference)
+> +            ]
+> +
+> +        # The pages at the end are informational: a later save may rewrite them.
+> +        print(
+> +            f"end-of-run page errors: {[round(e, 4) for e in relative_errors(stored)]}"
+> +        )
+> +        assert hold.snapshot is not None, "the held save did not finish"
+< +        errors = [
+< +            ((s - r).norm() / r.norm().clamp_min(1e-6)).item()
+< +            for s, r in zip(stored, reference)
+< +        ]
+< +        print(f"relative page errors: {[round(e, 4) for e in errors]}")
+> +        errors = relative_errors(hold.snapshot)
+> +        print(f"held-save page errors: {[round(e, 4) for e in errors]}")

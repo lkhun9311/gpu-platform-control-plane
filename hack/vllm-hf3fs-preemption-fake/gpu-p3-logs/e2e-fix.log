@@ -1,0 +1,141 @@
+/opt/kit/work/.venv/lib/python3.12/site-packages/pytest_asyncio/plugin.py:299: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+...(MainProcess pid=2764) INFO 11-22 14:30:57 [startup.py:96] non-default args: {'max_model_len': 736, 'block_size': 16, 'enable_prefix_caching': True, 'gpu_memory_utilization': 0.3, 'disable_log_stats': True, 'enforce_eager': True, 'num_gpu_blocks_override': 48, 'kv_transfer_config': KVTransferConfig(kv_connector='HF3FSKVConnector', engine_id='6364d89c-62b9-4731-bc79-b72b26330a96', kv_buffer_device='cuda', kv_role='kv_both', kv_port=14579, kv_connector_extra_config={'hf3fs_storage_path': '/tmp/pytest-of-root/pytest-1/test_preempted_request_saves_i0', 'hf3fs_file_size': 268435456, 'hf3fs_client_numjobs': 2}, kv_connector_module_path=None, enable_permute_local_kv=False, kv_load_failure_policy='fail'), 'model': '/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6'}
+(MainProcess pid=2764) WARNING 11-22 14:30:57 [arg_utils.py:1993] The global random seed is set to 0. Since VLLM_ENABLE_V1_MULTIPROCESSING is set to False, this may affect the random state of the Python process that launched vLLM.
+(MainProcess pid=2764) INFO 11-22 14:30:57 [model.py:772] Resolved architecture: OPTForCausalLM
+(MainProcess pid=2764) INFO 11-22 14:30:57 [model.py:2388] Using max model len 736
+(MainProcess pid=2764) INFO 11-22 14:30:58 [scheduler.py:388] Chunked prefill is enabled with max_num_batched_tokens=8192.
+(MainProcess pid=2764) WARNING 11-22 14:30:58 [vllm.py:1851] Enforce eager set, disabling torch.compile, CUDAGraphs, and JIT kernel warmup. This is equivalent to setting -cc.mode=none -cc.cudagraph_mode=none and --kernel_config.enable_jit_warmup=False
+(MainProcess pid=2764) WARNING 11-22 14:30:58 [vllm.py:1875] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+(MainProcess pid=2764) INFO 11-22 14:30:58 [kernel.py:578] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native'])
+(MainProcess pid=2764) INFO 11-22 14:30:58 [vllm.py:2075] Cudagraph is disabled under eager mode
+(MainProcess pid=2764) WARNING 11-22 14:30:58 [vllm.py:2348] Turning off hybrid kv cache manager because `--kv-transfer-config` selects a KV connector that does not support it. Impact: hybrid SSM models (e.g. Jamba, Bamba) require HMA and will fail at startup without it; models with sliding window attention will run with reduced performance. To add HMA support to a KV connector, subclass `SupportsHMA` defined in kv_connector/v1/base.py (for MultiConnector, all child connectors must support HMA).
+(MainProcess pid=2764) INFO 11-22 14:30:58 [compilation.py:429] Enabled custom fusions: norm_quant, act_quant
+(MainProcess pid=2764) INFO 11-22 14:30:58 [core.py:154] Initializing a V1 LLM engine (v0.34.0rc1.dev1140+g17323e0b1) with config: model='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', speculative_config=None, tokenizer='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.float16, max_seq_len=736, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=None, quantization_config=None, enforce_eager=True, aux_output_config=AuxOutputConfig(enable_return_routed_experts=False, max_bytes=None), kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, per_request_spec_decode_metrics='none', kv_cache_metrics=False, kv_cache_metrics_sample=0.01, custom_histogram_buckets=None, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False, jit_monitor_mode='warn', jit_monitor_verbose=False), seed=0, served_model_name=/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['all'], 'ir_enable_torch_wrap': False, 'splitting_ops': [], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_token_budget': 5120, 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.NONE: 0>, 'use_breakable_cudagraph': False, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': [], 'prefill_cudagraph_capture_token_sizes': None, 'max_prefill_cudagraph_capture_tokens': None, 'decode_cudagraph_capture_request_sizes': None, 'max_decode_cudagraph_capture_requests': None, 'max_decode_cudagraph_capture_tokens': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': True, 'fuse_act_quant': True, 'fuse_attn_quant': False, 'fuse_allreduce_rms': False, 'enable_qk_norm_rope_fusion': False, 'fuse_rope_kvcache_cat_mla': False, 'fuse_act_padding': False, 'fuse_qk_norm_rope_kvcache': False}, 'max_cudagraph_capture_size': 0, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native'], rotary_embedding=['vllm_c', 'native'], rotary_embedding_query_only=['vllm_c', 'native']), enable_flashinfer_autotune=True, enable_flashinfer_mm_encoder_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_rocm_aiter_gemm_warmup=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', step5_attention_backend='native', sparse_indexer_topk_backend='auto', flashinfer_sparse_mla_kernel='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable', b12x_moe_uncompressed_scales=False)
+(MainProcess pid=2764) INFO 11-22 14:30:58 [parallel_state.py:1981] world_size=1 rank=0 local_rank=0 distributed_init_method=file:///tmp/vllm_dist_e38e0083cf94428e89cb0dc88785b2d5 backend=nccl
+(MainProcess pid=2764) INFO 11-22 14:30:58 [parallel_state.py:2461] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, ETP rank 0, EP rank N/A, EPLB rank N/A
+(MainProcess pid=2764) INFO 11-22 14:30:59 [cuda.py:240] NVIDIA Confidential Computing not detected via NVML
+(MainProcess pid=2764) INFO 11-22 14:30:59 [model_runner.py:421] Loading model from scratch...
+(MainProcess pid=2764) INFO 11-22 14:31:00 [flash_attn.py:1201] Using FlashAttention version 2
+(MainProcess pid=2764) INFO 11-22 14:31:00 [base_loader.py:100] Initializing model took 0.785495 seconds
+Loading pt checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.53it/s]
+Loading pt checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.52it/s]
+
+(MainProcess pid=2764) INFO 11-22 14:31:00 [default_loader.py:570] Loading weights took 0.23 seconds
+(MainProcess pid=2764) INFO 11-22 14:31:00 [utils.py:417] Backends selected for OPTForCausalLM (/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6):
+(MainProcess pid=2764) INFO 11-22 14:31:00 [utils.py:417]   layer     | count | backend                 | modules
+(MainProcess pid=2764) INFO 11-22 14:31:00 [utils.py:417]   attention |    12 | FLASH_ATTN              | model.decoder.layers.[0-11].self_attn.attn
+(MainProcess pid=2764) INFO 11-22 14:31:00 [utils.py:417]   linear    |    50 | unquantized [w=float16] | model.decoder.embed_tokens, model.decoder.layers.[0-11].self_attn.{qkv_proj,out_proj}, model.decoder.layers.[0-11].{fc1,fc2}, lm_head
+(MainProcess pid=2764) INFO 11-22 14:31:00 [model_runner.py:461] Model loading took 0.24 GiB memory and 1.177169 seconds
+(MainProcess pid=2764) INFO 11-22 14:31:00 [topk_topp_sampler.py:119] Using FlashInfer for top-p & top-k sampling.
+(MainProcess pid=2764) INFO 11-22 14:31:00 [torch_utils.py:302] Reducing Torch threads from 2 to 1 for serving. Set OMP_NUM_THREADS in the external environment to override.
+(MainProcess pid=2764) INFO 11-22 14:31:00 [utils.py:428] Using LBNHC KV cache layout.
+(MainProcess pid=2764) INFO 11-22 14:31:01 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB
+(MainProcess pid=2764) INFO 11-22 14:31:01 [kv_cache_planning.py:1519] Overriding num_gpu_blocks=11104 with num_gpu_blocks_override=48
+(MainProcess pid=2764) INFO 11-22 14:31:01 [kv_cache_utils.py:1123] GPU KV cache size: 768 tokens, Maximum concurrency for 736 tokens per request: 1.04x
+(MainProcess pid=2764) INFO 11-22 14:31:01 [factory.py:71] Creating v1 connector with name: HF3FSKVConnector and engine_id: 6364d89c-62b9-4731-bc79-b72b26330a96
+(MainProcess pid=2764) WARNING 11-22 14:31:01 [base.py:249] Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+(MainProcess pid=2764) INFO 11-22 14:31:01 [hf3fs_connector.py:501] Using MLA: False
+(MainProcess pid=2764) INFO 11-22 14:31:01 [hf3fs_connector.py:534] HF3FSKVConnector initialized: path=/tmp/pytest-of-root/pytest-1/test_preempted_request_saves_i0, role=WORKER
+(MainProcess pid=2764) INFO 11-22 14:31:01 [hf3fs_metadata_server.py:99] Initialized rank 0 with 455 pages
+(MainProcess pid=2764) INFO 11-22 14:31:01 [hf3fs_connector.py:126] AsyncOperationManager initialized for rank 0
+(MainProcess pid=2764) INFO 11-22 14:31:01 [gpu_worker.py:1229] Free memory on device (21.73/22.06 GiB) on startup. Desired GPU memory utilization is (0.3, 6.62 GiB). Actual usage is 0.32 GiB for consumed memory (weights + non-torch), 0.19 GiB for peak activation, and 0.0 GiB for CUDAGraph memory. Replace gpu_memory_utilization config with `--kv-cache-memory=6392644404` (5.95 GiB) to fit into requested memory, or `--kv-cache-memory=22620983296` (21.07 GiB) to fully utilize gpu memory. Current kv cache memory in use is 6.1 GiB.
+(MainProcess pid=2764) INFO 11-22 14:31:02 [core.py:457] init engine (profile, create kv cache, warmup model) took 1.43 s
+(MainProcess pid=2764) INFO 11-22 14:31:02 [factory.py:71] Creating v1 connector with name: HF3FSKVConnector and engine_id: 6364d89c-62b9-4731-bc79-b72b26330a96
+(MainProcess pid=2764) WARNING 11-22 14:31:02 [base.py:249] Initializing KVConnectorBase_V1. This API is experimental and subject to change in the future as we iterate the design.
+(MainProcess pid=2764) INFO 11-22 14:31:02 [hf3fs_connector.py:501] Using MLA: False
+(MainProcess pid=2764) INFO 11-22 14:31:02 [hf3fs_connector.py:534] HF3FSKVConnector initialized: path=/tmp/pytest-of-root/pytest-1/test_preempted_request_saves_i0, role=SCHEDULER
+(MainProcess pid=2764) INFO 11-22 14:31:02 [hf.py:754] Detected the chat template content format to be 'string'. You can set `--chat-template-content-format` to override this.
+(MainProcess pid=2764) INFO 11-22 14:31:02 [hf3fs_connector.py:759] Token matching for 0-8fa67029: 0 matched (0 blocks), 0 new hits, prompt len 253
+(MainProcess pid=2764) INFO 11-22 14:31:02 [hf3fs_connector.py:451] Saved 0-8fa67029: 15 blocks in 0.02s
+(MainProcess pid=2764) INFO 11-22 14:31:03 [hf3fs_metadata_server.py:99] Initialized rank 0 with 455 pages
+(MainProcess pid=2764) WARNING 11-22 14:31:03 [block_pool.py:873] Failed to reset prefix cache because some blocks (16) are not freed yet
+(MainProcess pid=2764) INFO 11-22 14:31:04 [hf3fs_connector.py:467] AsyncOperationManager shutdown completed
+(MainProcess pid=2764) INFO 11-22 14:31:04 [hf3fs_connector.py:945] HF3FS clients closed
+F
+=================================== FAILURES ===================================
+_____ TestHF3FSPreemptionEndToEnd.test_preempted_request_saves_its_own_kv ______
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py:255: in test_preempted_request_saves_its_own_kv
+    assert llm.reset_prefix_cache()
+E   AssertionError: assert False
+E    +  where False = reset_prefix_cache()
+E    +    where reset_prefix_cache = LLM(model='/root/.cache/huggingface/hub/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6').reset_prefix_cache
+=============================== warnings summary ===============================
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py:3504: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/moe_w4a16_kernel.py:2893: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:29: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:31: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:34: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:968: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:970: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:427: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    epi_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:2391: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/cute_dsl/low_latency_blockscaled_gemm.py:103: DeprecationWarning: cutlass.utils.smem_allocator.get_smem_capacity_in_bytes is deprecated; use cutlass.memory.get_smem_capacity_in_bytes instead. It will be removed in a future release.
+    _SMEM_CAPACITY_BYTES = cutlass.utils.get_smem_capacity_in_bytes("sm_100")
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_rubin.py:218: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_chunked.py:95: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gdn_kernels/delta_rule_dsl/collective_store_tma.py:6: DeprecationWarning: cutlass.utils.tensormap_manager.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils.tensormap_manager import TensorMapManager, TensorMapUpdateMode
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_cp_prefill.py:55: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/flashinfer/cute_dsl/availability.py:136: DeprecationWarning: Arch from arch.py is deprecated. Use Arch from enums.py instead.
+    from cutlass.base_dsl.arch import Arch
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/quack/copy_utils.py:15: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    from cutlass.utils import LayoutEnum, block_copy
+
+tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+  /opt/kit/work/.venv/lib/python3.12/site-packages/quack/copy_utils.py:562: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    layout_c: cutlass.utils.LayoutEnum,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+1 failed, 3 passed, 20 warnings in 9.23s

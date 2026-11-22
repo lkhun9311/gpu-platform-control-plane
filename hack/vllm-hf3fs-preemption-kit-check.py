@@ -1,10 +1,12 @@
 """Unit checks for the vLLM HF3FS preemption kits' verdict.py, on the real CPU logs of both arms and on built GPU logs.
 
-usage: python3 -I hack/vllm-hf3fs-preemption-kit-check.py KIT_DIR FAKE_DIR [--p2 | --p3]
+usage: python3 -I hack/vllm-hf3fs-preemption-kit-check.py KIT_DIR FAKE_DIR [--p2 | --p3 | --p4]
 FAKE_DIR holds cpu-logs/e2e-{control,fix}.log, the two arms run on CPU at kit p1's pinned trees, where the GPU test skips.
 --p2 checks kit p2 instead: it reads cpu-logs-p2/, the same runs at kit p2's trees,
 and adds the checks of p2's KV memory lines on run p1's real GPU logs in gpu-p1-logs/.
 --p3 checks kit p3 the same way, on cpu-logs-p3/ and run p2's real GPU logs in gpu-p2-logs/.
+--p4 checks kit p4, whose test prints "held-save page errors" and "end-of-run page errors" in place of "relative page errors":
+the built logs use that format, and run p3's real GPU logs in gpu-p3-logs/, where both arms stop before the comparison, must give NOT RUN.
 Prints one ok or FAIL line per check and exits 1 if any failed.
 """
 
@@ -21,11 +23,15 @@ import tempfile
 sys.dont_write_bytecode = True
 KIT, FAKES = sys.argv[1], sys.argv[2]
 # Each later kit: its CPU logs, the earlier run whose real GPU logs it is checked on, and the KV memory that run had.
-LATER = {"--p2": ("cpu-logs-p2", "p1", "6.1 GiB"), "--p3": ("cpu-logs-p3", "p2", "14.92 GiB")}
+LATER = {"--p2": ("cpu-logs-p2", "p1", "6.1 GiB"), "--p3": ("cpu-logs-p3", "p2", "14.92 GiB"), "--p4": ("cpu-logs-p4", "p3", "6.1 GiB")}
 P2 = len(sys.argv) == 4 and sys.argv[3] in LATER
-if sys.argv[3:] not in ([], ["--p2"], ["--p3"]):
+if sys.argv[3:] not in ([], ["--p2"], ["--p3"], ["--p4"]):
     sys.exit(f"unexpected arguments {sys.argv[3:]}")
 CPU_LOGS, RUN, KV_GIB = LATER[sys.argv[3]] if P2 else ("cpu-logs", None, None)
+P4 = sys.argv[3:] == ["--p4"]
+# The line the test prints the judged page errors on, and the label verdict.py prints them under.
+PAGE_LABEL = "held-save page errors" if P4 else "relative page errors"
+RENDER_LABEL = "  held-save page errors: " if P4 else "  page errors: "
 spec = importlib.util.spec_from_file_location("verdict", os.path.join(KIT, "verdict.py"))
 V = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(V)
@@ -61,7 +67,9 @@ def log(cpu_fail=(), held="held=[20, 21, 22, 23] reused=[21, 22] hold_timed_out=
     prog = "".join("F" if i in cpu_fail else "." for i in range(3))
     prints = []
     if gpu in ("passed", "mismatch"):
-        prints = [x for x in (held, f"relative page errors: {errors}" if errors else None) if x]
+        # Kit p4's test prints the end-of-run pages first, for information, and then the held-save pages it compares.
+        end = "end-of-run page errors: [0.0007, 0.0004]" if P4 else None
+        prints = [x for x in (held, end, f"{PAGE_LABEL}: {errors}" if errors else None) if x]
     if s and prints:
         out.append(prog + "(EngineCore pid=1) INFO 11-22 21:00:01 [llm.py:1] Supported tasks: ['generate']")
         out.extend(prints)
@@ -198,7 +206,7 @@ r = judged(fix=("...Fatal Python error: Aborted\n", 134))
 check("INCOMPLETE: FIX dying before its summary without a fault", r["verdict"] == "INCOMPLETE")
 r = judged(fix=(FIX[0], 124))
 check("INCOMPLETE: FIX cut by its cap", r["verdict"] == "INCOMPLETE")
-r = judged(fix=("1 passed in 9.0s\nheld=[20] reused=[21] hold_timed_out=True\nrelative page errors: [0.001]\n", 0))
+r = judged(fix=(f"1 passed in 9.0s\nheld=[20] reused=[21] hold_timed_out=True\n{PAGE_LABEL}: [0.001]\n", 0))
 check("INCOMPLETE: a FIX process that ran one test, not the file's four", r["verdict"] == "INCOMPLETE" and "does not count" in r["why"])
 r = judged(env={"cuda_available": False, "device_name": None})
 check("INCOMPLETE: no CUDA", r["verdict"] == "INCOMPLETE")
@@ -211,11 +219,11 @@ t = r["_text"]
 check("verdict.txt prints each arm's summary, held line, page errors and traceback, then the verdict",
       "CONTROL: GPU test mismatch (exit 1): 3 failed, 1 passed, 20 warnings in 61.20s (0:01:01)" in t
       and "FIX: GPU test passed (exit 0): 4 passed, 20 warnings in 61.20s (0:01:01)" in t
-      and "  held line: held=[20, 21, 22, 23] reused=[21, 22] hold_timed_out=False" in t and "  page errors: [0.9731, 1.0214]" in t
+      and "  held line: held=[20, 21, 22, 23] reused=[21, 22] hold_timed_out=False" in t and RENDER_LABEL + "[0.9731, 1.0214]" in t
       and "    E   AssertionError: [0.9731, 1.0214]" in t and t.rstrip().endswith("VERDICT: CONFIRMED"))
 
 # ---------------------------------------------------------------- kits p2 and p3: the KV memory lines, on the earlier run's real GPU logs
-if P2:
+if P2 and not P4:
     gpu = {a: (read(f"gpu-{RUN}-logs", f"e2e-{a}.log"), 1) for a in V.ARMS}
     r = judged(control=gpu["control"], fix=gpu["fix"])
     t = r["_text"]
@@ -228,6 +236,40 @@ if P2:
     r = judged(control=(one + CONTROL[0], CONTROL[1]))
     check("a run that passes its memory check still prints the KV memory line, and decides as before",
           r["verdict"] == "CONFIRMED" and "  kv memory: 1:(MainProcess pid=1) INFO 11-22 13:08:49 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB" in r["_text"])
+
+# ---------------------------------------------------------------- kit p4: the held-save line, and a setup step failing in both arms
+if P4:
+    gpu = {a: (read("gpu-p3-logs", f"e2e-{a}.log"), 1) for a in V.ARMS}
+    r = judged(control=gpu["control"], fix=gpu["fix"])
+    check("run p3's real logs: both arms stopped at the prefix cache reset, line 255, before the comparison, which is NOT RUN and not a FINDING; exit 4",
+          r["verdict"] == "NOT RUN" and r["_rc"] == 4 and all(r["arms"][a]["gpu"] == "failed" and r["arms"][a]["fail_at"] == 255 for a in V.ARMS)
+          and "both arms' GPU tests failed before the page comparison" in r["why"])
+    check("run p3's real logs: each arm still prints vLLM's 'Available KV cache memory' line",
+          r["_text"].count(f"Available KV cache memory: {KV_GIB}") == 2)
+    early = log(gpu="raised", e_lines=["E   Failed: the local prefix cache could not be reset"])
+    r = judged(fix=early)
+    check("FINDING: FIX failing before the comparison while CONTROL reached it and failed it", r["verdict"] == "FINDING" and r["arms"]["fix"]["gpu"] == "failed")
+    r = judged(control=log(cpu_fail=(0, 1), gpu="raised", e_lines=["E   Failed: the local prefix cache could not be reset"]), fix=early)
+    check("NOT RUN: both arms failing before the comparison, built", r["verdict"] == "NOT RUN")
+    r = judged(control=log(cpu_fail=(0, 1), gpu="raised", e_lines=["E   Failed: the local prefix cache could not be reset"]))
+    check("INCONCLUSIVE: CONTROL failing before the comparison while FIX passes", r["verdict"] == "INCONCLUSIVE")
+    old_c = CONTROL[0].replace("held-save page errors: ", "relative page errors: ").replace("end-of-run page errors: [0.0007, 0.0004]\n", "")
+    old_f = FIX[0].replace("held-save page errors: ", "relative page errors: ").replace("end-of-run page errors: [0.0007, 0.0004]\n", "")
+    r = judged(control=(old_c, 1), fix=(old_f, 0))
+    check("INCOMPLETE: logs with only the older 'relative page errors' line decide nothing, though they would have CONFIRMED",
+          r["verdict"] == "INCOMPLETE" and all("older test's page errors line" in r["arms"][a]["why"] for a in V.ARMS))
+    # A FIX log failing its comparison at 1.0214, with no CPU failure, whose page line is the older one.
+    old_fail = log(held="held=[20] reused=[21] hold_timed_out=True")[0]
+    old_fail = old_fail.replace("held-save page errors: ", "relative page errors: ").replace("end-of-run page errors: [0.0007, 0.0004]\n", "")
+    r = judged(fix=(old_fail, 1))
+    check("INCOMPLETE, not FINDING: a FIX log whose only page line is the older one, at 1.0214", r["verdict"] == "INCOMPLETE")
+    r = judged(fix=(FIX[0].replace("end-of-run page errors: [0.0007, 0.0004]", "end-of-run page errors: [0.9, 1.0]"), 0))
+    check("the end-of-run pages are information only: FIX's end-of-run 1.0 with held-save 0.0012 still CONFIRMS, and both lines are printed",
+          r["verdict"] == "CONFIRMED" and "  end-of-run page errors (information only): [0.9, 1.0]" in r["_text"] and "  held-save page errors: [0.0012, 0.0009]" in r["_text"])
+    r = judged(fix=log(held="held=[20] reused=[21] hold_timed_out=True", errors=None, gpu="mismatch",
+                       e_lines=["E   AssertionError: the held save did not finish"]))
+    check("FINDING: FIX whose held save never finished, so no held-save line, while CONTROL reached the comparison",
+          r["verdict"] == "FINDING" and r["arms"]["fix"]["errors"] is None)
 
 print()
 print("all unit checks passed" if failures == 0 else f"{failures} unit check(s) failed")
