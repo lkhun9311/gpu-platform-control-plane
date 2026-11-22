@@ -244,8 +244,7 @@ orders by the file instead of the captured blocks|s/^    for block in (b for s i
 numbers lines from zero|s/^    for i, line in enumerate(lines, start=1):$/    for i, line in enumerate(lines):/
 reads logs in text mode|s/ errors="replace", newline="").read())$/ errors="replace").read())/
 calls an unlisted case passed|s/^    covered = parsed\["summary"\] is not None and parsed\["counts"\].get("passed", 0) == len(unlisted)$/    covered = parsed["summary"] is not None/
-ignores a case with no outcome|s/^            if rec\["cases"\]\[case\]\["outcome"\] == "not run or unknown":$/            if False:/
-ignores a run with no DIAG line|s/^        if not any("DIAG" in x for x in parsed\["lines"\]) and parsed\["summary"\] and any(parsed\["outcomes"\].values()):$/        if False:/
+ignores a case with no outcome|s/^            if c\["outcome"\] == "not run or unknown":$/            if False:/
 ignores a missing summary|s/^        if parsed\["summary"\] is None:$/        if False:/
 ignores pytest's exit code|s/^        elif rc not in (0, 1):$/        elif False:/
 ignores skips|s/^        if parsed\["counts"\].get("skipped"):$/        if False:/
