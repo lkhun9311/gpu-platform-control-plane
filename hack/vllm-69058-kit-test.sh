@@ -105,15 +105,21 @@ dry() {
 }
 check "the default settings are accepted and record the one command exactly as the spec gives it" \
   "dry '$KIT' && command grep -qx 'budget_s=450' '$WORK/dry/settings.txt' && command grep -qx 'e2e_cap_s=360' '$WORK/dry/settings.txt' \
-   && command grep -qx 'command=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest $TF::TestHF3FSLoadFailureEndToEnd -q -p no:cacheprovider --tb=long' '$WORK/dry/settings.txt'"
-check "the command has no -x, so both cases run" "! command grep -E '^CMD=.*(-x|--exitfirst)' '$KIT/run.sh'"
+   && command grep -qx 'command_fail=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest $TF::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[fail] -q -p no:cacheprovider --tb=long' '$WORK/dry/settings.txt' \
+   && command grep -qx 'command_recompute=CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest $TF::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[recompute] -q -p no:cacheprovider --tb=long' '$WORK/dry/settings.txt' \
+   && command grep -qx 'processes=one per case, since an illegal address poisons the process that hit it' '$WORK/dry/settings.txt' \
+   && command grep -qx 'wheel_commit=dd8c157895f01875bc5f44c51003bbe330647330' '$WORK/dry/settings.txt'"
+check "the command has no -x, so a case runs to its end" "! command grep -E '^cmd\(\).*(-x|--exitfirst)' '$KIT/run.sh' && command grep -q '^cmd() { echo python -m pytest' '$KIT/run.sh'"
+check "the install names the wheel commit and refuses a log that does not show it, so setup.py cannot fall back to a nightly wheel" \
+  "command grep -qx 'WHEEL_COMMIT=dd8c157895f01875bc5f44c51003bbe330647330' '$KIT/run.sh' && command grep -qF 'VLLM_PRECOMPILED_WHEEL_COMMIT=\"\$WHEEL_COMMIT\" uv pip install' '$KIT/run.sh' \
+   && command grep -qF 'command grep -q \"Using precompiled wheel commit \$WHEEL_COMMIT\" \"\$OUT/install-vllm.log\" || stop' '$KIT/run.sh'"
 check "a positional argument is refused, and nothing is written" "! dry '$KIT' extra && command grep -qF 'takes no arguments' '$WORK/dry.out' && [ ! -e '$WORK/dry' ]"
 check "BUDGET_S=451, which would take the bill past \$0.25, is refused" "! dry '$KIT' -- BUDGET_S=451 && command grep -qF 'at most 450' '$WORK/dry.out'"
 check "BUDGET_S that is not whole seconds, at or below the reserve, or with a leading zero is refused" \
   "! dry '$KIT' -- BUDGET_S=10m && ! dry '$KIT' -- BUDGET_S=60 && ! dry '$KIT' -- BUDGET_S=0300"
-check "E2E_CAP_S with a leading zero or under 30 is refused" "! dry '$KIT' -- E2E_CAP_S=0360 && ! dry '$KIT' -- E2E_CAP_S=5"
+check "E2E_CAP_S with a leading zero or under 30 is refused" "! dry '$KIT' -- E2E_CAP_S=0180 && ! dry '$KIT' -- E2E_CAP_S=5"
 check "earlier kits' cap settings are refused rather than ignored" "! dry '$KIT' -- UNIT_CAP_S=300 && ! dry '$KIT' -- LLM_CAP_S=600 && ! dry '$KIT' -- PYTEST_CAP_S=300"
-mkdir -p "$WORK/used" && echo old >"$WORK/used/e2e.log"
+mkdir -p "$WORK/used" && echo old >"$WORK/used/e2e-fail.log"
 env -i PATH="$PATH" HOME="$HOME" KIT_DRY_RUN=1 OUT="$WORK/used" bash "$KIT/run.sh" >"$WORK/used.out" 2>&1; rc=$?
 check "an OUT that holds an earlier run is refused" "[ $rc != 0 ] && command grep -qF 'is not empty' '$WORK/used.out'"
 m=$(mutant budgetcap run.sh 's/^BUDGET_MAX_S=450$/BUDGET_MAX_S=600/')
@@ -152,9 +158,11 @@ v() { command grep -qx "VERDICT: $2" "$WORK/e2e-$1/out/verdict.txt"; }
 vt() { command grep -qF -- "$2" "$WORK/e2e-$1/out/verdict.txt"; }
 
 e2e "$KIT" pass FAKE_EXPECT_OFFLINE=1; rc=$?
-check "pass: both cases fail with the fault and DIAG lines, and the diagnostic is COMPLETE, exit 0" "[ $rc = 0 ] && v pass COMPLETE"
-check "pass: each case's verdict has its first illegal access, the last DIAG sync ok before it, and its grep lines" \
-  "vt pass 'case [fail]: FAILED+ERROR' && vt pass 'case [recompute]: FAILED' \
+check "pass: both cases fail with the fault and DIAG records, each in its own process, and the diagnostic is COMPLETE, exit 0" "[ $rc = 0 ] && v pass COMPLETE"
+check "pass: each case's verdict has its first illegal access, the last DIAG sync ok before it, the same-request sync, and its grep lines" \
+  "vt pass 'case [fail] (its own process, exit 1): FAILED+ERROR' && vt pass 'case [recompute] (its own process, exit 1): FAILED+ERROR' \
+   && [ \"\$(command grep -c '^  last DIAG sync ok before it for request 6-aa: [0-9]*:.*DIAG save 6-aa pre-gather sync ok\$' '$WORK/e2e-pass/out/verdict.txt')\" = 2 ] \
+   && vt pass 'caution: the patch adds device-wide torch.cuda.synchronize()' \
    && [ \"\$(command grep -c '^  last DIAG sync ok before it: [0-9]*:.*DIAG step forward sync ok\$' '$WORK/e2e-pass/out/verdict.txt')\" = 2 ] \
    && [ \"\$(command grep -c '^  first illegal memory access: [0-9]*:.*Task execution error: Triton Error \[CUDA\]: an illegal memory access' '$WORK/e2e-pass/out/verdict.txt')\" = 2 ] \
    && vt pass 'DIAG load 7-bb read failed' && vt pass 'Failing 1 request(s)' && vt pass 'Read operation failed for Loaded request 7-bb'"
@@ -169,8 +177,8 @@ check "pass: the records hold the commits and trees, the patch's and the test fi
    && command grep -qx 'test_file_sha256=af58d2b74ba20c35ec547e70648e0a9de04736edbd5cf6e63c3e3780d2574217' '$WORK/e2e-pass/out/versions.txt' \
    && command grep -qx 'model_rev=27dcfa74d334bc871f3234de431e71c6eeba5dd6' '$WORK/e2e-pass/out/versions.txt'"
 check "pass: the files are checked out under timed steps before any read, the hub is offline, and the full log is kept" \
-  "[ \"\$(command grep -oE '^(materialize-test-src|materialize-arm|apply-check|envprobe|test-e2e)' '$WORK/e2e-pass/out/status.txt' | paste -sd' ')\" = 'materialize-test-src materialize-arm apply-check envprobe test-e2e' ] \
-   && command grep -qx 'hub_offline=1 for the test run' '$WORK/e2e-pass/out/settings.txt' && [ -s '$WORK/e2e-pass/out/e2e.log' ]"
+  "[ \"\$(command grep -oE '^(nvidia-smi|materialize-test-src|materialize-arm|apply-check|envprobe|test-fail|test-recompute)' '$WORK/e2e-pass/out/status.txt' | paste -sd' ')\" = 'nvidia-smi materialize-test-src materialize-arm apply-check envprobe test-fail test-recompute' ] \
+   && command grep -qx 'hub_offline=1 for the test run' '$WORK/e2e-pass/out/settings.txt' && [ -s '$WORK/e2e-pass/out/e2e-fail.log' ] && [ -s '$WORK/e2e-pass/out/e2e-recompute.log' ]"
 check "pass: the run leaves checksums of everything it wrote and removed its worktree" \
   "( cd '$WORK/e2e-pass/out' && sha256sum -c --quiet SHA256SUMS ) && ! git -C '$SRC' worktree list | command grep -qF '$WORK/e2e-pass/'"
 e2e "$KIT" oor FAKE_MODE=oor; rc=$?
@@ -184,12 +192,20 @@ check "nosummary: pytest dying before its summary is INCOMPLETE, exit 3" "[ $rc 
 e2e "$KIT" nocuda FAKE_CUDA=0; rc=$?
 check "no CUDA is INCOMPLETE, exit 3" "[ $rc = 3 ] && v nocuda INCOMPLETE"
 e2e "$KIT" hf_fail FAKE_HF=fail; rc=$?
-check "a failed model download stops the run before the test" "[ $rc = 1 ] && command grep -qF 'hf download facebook/opt-125m failed' '$WORK/e2e-hf_fail/out/STOPPED' && ! [ -e '$WORK/e2e-hf_fail/out/e2e.log' ]"
+check "a failed model download stops the run before the test" "[ $rc = 1 ] && command grep -qF 'hf download facebook/opt-125m failed' '$WORK/e2e-hf_fail/out/STOPPED' && ! [ -e '$WORK/e2e-hf_fail/out/e2e-fail.log' ]"
 e2e "$KIT" hf_badsha FAKE_HF=badsha; rc=$?
 check "other weights stop the run" "[ $rc = 1 ] && command grep -qF 'is not the pinned sha256' '$WORK/e2e-hf_badsha/out/STOPPED'"
 t0=$(date +%s); e2e "$KIT" hang FAKE_MODE=hang BUDGET_S=100 E2E_CAP_S=30; rc=$?; took=$(( $(date +%s) - t0 ))
-check "hang: the test is cut at its cap, the verdict is INCOMPLETE, and run.sh ends inside BUDGET_S ($took s)" \
-  "[ $rc = 3 ] && command grep -qx 'test-e2e exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' && v hang INCOMPLETE && [ $took -le 100 ]"
+check "hang: each case is cut at its cap or the budget left, the verdict is INCOMPLETE, and run.sh ends inside BUDGET_S ($took s)" \
+  "[ $rc = 3 ] && command grep -qx 'test-fail exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' && command grep -qx 'test-recompute exit=124 t=[0-9]*' '$WORK/e2e-hang/out/status.txt' \
+   && v hang INCOMPLETE && [ $took -le 100 ]"
+e2e "$KIT" nodiag FAKE_MODE=nodiag; rc=$?
+check "nodiag: failed cases whose only DIAG text is traceback source are INCOMPLETE, exit 3" "[ $rc = 3 ] && v nodiag INCOMPLETE && vt nodiag 'failed with no DIAG record of its own'"
+e2e "$KIT" noread FAKE_MODE=noread; rc=$?
+check "noread: failed cases that never reached the failed read are INCOMPLETE, exit 3" "[ $rc = 3 ] && v noread INCOMPLETE && vt noread 'never reached the failure it is about'"
+t0=$(date +%s); e2e "$KIT" nvhang FAKE_NVSMI=hang BUDGET_S=100; rc=$?; took=$(( $(date +%s) - t0 ))
+check "a hanging nvidia-smi is cut by its timeout and stops the run inside BUDGET_S ($took s)" \
+  "[ $rc = 1 ] && command grep -qF 'nvidia-smi failed' '$WORK/e2e-nvhang/out/STOPPED' && [ $took -le 100 ]"
 
 cp -r "$KIT" "$WORK/tampered" && printf '\n' >>"$WORK/tampered/diag-r5-on-bb14b997.diff"
 e2e "$WORK/tampered" tampered; rc=$?
@@ -212,9 +228,18 @@ mcheck "mutant: a run.sh without the patch's file guard is caught" "! command gr
 m=$(mutant noblocking run.sh 's/^ENV=(CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0)$/ENV=(VLLM_ENABLE_V1_MULTIPROCESSING=0)/')
 [ -n "$m" ] && e2e "$m" m-noblocking
 mcheck "mutant: the test without CUDA_LAUNCH_BLOCKING=1 does not report COMPLETE" "! v m-noblocking COMPLETE"
-m=$(mutant withx run.sh 's/^CMD=(python -m pytest "\$TEST_FILE::TestHF3FSLoadFailureEndToEnd" -q -p no:cacheprovider --tb=long)$/CMD=(python -m pytest "$TEST_FILE::TestHF3FSLoadFailureEndToEnd" -q -p no:cacheprovider -x --tb=long)/')
+m=$(mutant withx run.sh 's/ -q -p no:cacheprovider --tb=long; }$/ -q -p no:cacheprovider -x --tb=long; }/')
 [ -n "$m" ] && e2e "$m" m-withx
 mcheck "mutant: the test with -x does not report COMPLETE" "! v m-withx COMPLETE"
+m=$(mutant onecase run.sh 's/^CASES=(fail recompute)$/CASES=(fail)/')
+[ -n "$m" ] && e2e "$m" m-onecase
+mcheck "mutant: a run that leaves out the [recompute] case does not report COMPLETE" "! v m-onecase COMPLETE"
+m=$(mutant oneprocess run.sh 's/::test_failed_read_honors_policy\[\$1\]" -q/" -q/')
+[ -n "$m" ] && e2e "$m" m-oneprocess
+mcheck "mutant: running the whole class in each process instead of one case does not report COMPLETE" "! v m-oneprocess COMPLETE"
+m=$(mutant nvtimeout run.sh "s/^step nvidia-smi 60 --log \"\\\$OUT\/gpu.txt\" bash -c '\(.*\)' || stop/{ \1; } > \"\$OUT\/gpu.txt\" 2>\&1 || stop/")
+[ -n "$m" ] && { E2E_OUTER_S=70 e2e "$m" m-nvtimeout FAKE_NVSMI=hang BUDGET_S=100; rc=$?; }
+mcheck "mutant: nvidia-smi without its timeout hangs past the budget and is caught" "[ \"\${rc:-0}\" = 124 ]"
 m=$(mutant notreepin run.sh 's/^ARM_SHA=bb14b99792981d8dcebcce5fe7eacfb46e4258fb$/ARM_SHA=2f170a0fed20fd84dfcf6da2a3a8188a32f67e4e/; s/^  \[ "\$tree" = "\$3" \] ||/  true ||/')
 [ -n "$m" ] && e2e "$m" m-notreepin
 mcheck "mutant: a run.sh without the tree pin runs another commit and is caught" "! { [ -f '$WORK/e2e-m-notreepin/out/STOPPED' ] && command grep -qF 'has tree' '$WORK/e2e-m-notreepin/out/STOPPED'; }"
@@ -237,21 +262,27 @@ while IFS='|' read -r name sedexpr; do
 done <<'MUTANTS'
 drops Failing from the grep|s/^GREP_RE = re.compile(r"DIAG|illegal|Failing|Read operation failed")$/GREP_RE = re.compile(r"DIAG|illegal|Read operation failed")/
 finds no DIAG sync|s/^SYNC_OK_RE = re.compile(r"DIAG .\*sync ok")$/SYNC_OK_RE = re.compile(r"NEVER MATCHES")/
-takes the first DIAG sync instead of the last|s/^            last_sync = next(((i, x) for i, x in reversed(block\[:hit\]) if SYNC_OK_RE.search(x)), None)$/            last_sync = next(((i, x) for i, x in block[:hit] if SYNC_OK_RE.search(x)), None)/
-takes a DIAG sync after the fault|s/^            last_sync = next(((i, x) for i, x in reversed(block\[:hit\]) if SYNC_OK_RE.search(x)), None)$/            last_sync = next(((i, x) for i, x in reversed(block) if SYNC_OK_RE.search(x)), None)/
-misses out-of-range lines|s/^OUT_OF_RANGE_RE = re.compile(r"DIAG save .\*out of range")$/OUT_OF_RANGE_RE = re.compile(r"NEVER MATCHES")/
-orders by the file instead of the captured blocks|s/^    for block in (b for s in sections for b in captured_blocks(s)):$/    for block in ():/
+counts DIAG text in traceback source as a record|s/^DIAG_RECORD_RE = re.compile(.*$/DIAG_RECORD_RE = re.compile(r"DIAG ")/
+takes the first sync instead of the last|s/f"{sync\[-1\]\[4\]}:{sync\[-1\]\[5\]}" if sync else None/f"{sync[0][4]}:{sync[0][5]}" if sync else None/
+orders by the file instead of by time|s/^    return sorted(out, key=lambda r: (r\[0\], r\[1\], r\[2\], r\[3\]))$/    return out/
+ignores the capture phase|s/^    return sorted(out, key=lambda r: (r\[0\], r\[1\], r\[2\], r\[3\]))$/    return sorted(out, key=lambda r: (r[1], r[2], r[3]))/
+lets untimed lines jump ahead of timed ones|s/^        phase, stamp = None, "~"$/        phase, stamp = None, ""/; s/phase, stamp, block_no = PHASES\[m.group(2)\], "~", block_no + 1/phase, stamp, block_no = PHASES[m.group(2)], "", block_no + 1/
+drops the same-request filter|s/^    same = \[r for r in sync if req and req\[-1\] in REQUEST_RE.findall(r\[5\])\]$/    same = sync/
+accepts a failed case with no DIAG record|s/^        if not diag:$/        if False:/
+accepts a case that never reached the failed read|s/^        if not any(FAILED_READ_RE.search(r\[5\]) for r in recs):$/        if False:/
+skips captured records for the first fault|s/^    first = next((r for r in recs if ILLEGAL_RE.search(r\[5\])), None)$/    first = None/
+takes another case's sections|s/^            current = m.group(1) == case$/            current = True/
 numbers lines from zero|s/^    for i, line in enumerate(lines, start=1):$/    for i, line in enumerate(lines):/
-reads logs in text mode|s/ errors="replace", newline="").read())$/ errors="replace").read())/
-calls an unlisted case passed|s/^    covered = parsed\["summary"\] is not None and parsed\["counts"\].get("passed", 0) == len(unlisted)$/    covered = parsed["summary"] is not None/
-ignores a case with no outcome|s/^            if c\["outcome"\] == "not run or unknown":$/            if False:/
-ignores a missing summary|s/^        if parsed\["summary"\] is None:$/        if False:/
-ignores pytest's exit code|s/^        elif rc not in (0, 1):$/        elif False:/
-ignores skips|s/^        if parsed\["counts"\].get("skipped"):$/        if False:/
+reads logs in text mode|s/ errors="replace", newline="").read(), case)$/ errors="replace").read(), case)/
+calls a case passed without its count|s/^    elif p\["summary"\] and p\["counts"\].get("passed") == 1 and not p\["counts"\].get("failed") and not p\["counts"\].get("errors"):$/    elif p["summary"]:/
+ignores a missing summary|s/^    if p\["summary"\] is None:$/    if False:/
+ignores pytest's exit code|s/^    elif rc not in (0, 1):$/    elif False:/
+ignores skips|s/^    if p\["counts"\].get("skipped"):$/    if False:/
+ignores an unknown outcome|s/^    if rec\["outcome"\] == "unknown" and p\["summary"\] is not None:$/    if False:/
+ignores a missing log|s/^        rec\["gaps"\].append("no log")$/        pass/
 ignores no CUDA|s/^        if env.get("cuda_available") is not True or not env.get("device_name"):$/        if False:/
 ignores a stopped run|s/^    if os.path.exists(os.path.join(out, "STOPPED")):$/    if False:/
-accepts a failed case with no DIAG of its own|s/^            if c\["outcome"\] not in ("passed", "not run or unknown") and not own_diag:$/            if False:/
-never flags a case that ran after an earlier fault|s/^            if c\["first_illegal"\] and not earlier_fault:$/            if False:/
+drops the patch caution|s/^    lines.append(f"caution: {rec\['caution'\]}")$/    pass/
 exits 0 on INCOMPLETE|s/^    return 0 if rec\["verdict"\] == "COMPLETE" else 3$/    return 0/
 MUTANTS
 
