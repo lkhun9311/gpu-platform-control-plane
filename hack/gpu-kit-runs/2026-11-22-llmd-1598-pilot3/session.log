@@ -1,0 +1,83 @@
+== gpu kit docs/oss/llmd-1598/kit at 16ab5da59bf13105ac41ddb3cd8ddf7819b7f4b3, from 16ab5da59bf13105ac41ddb3cd8ddf7819b7f4b3, into hack/gpu-kit-runs/2026-11-22-llmd-1598-pilot3
+== hard stop 3720 s after LaunchTime; worst case 4020 s at $3.5483/h all in, $3.9623, under $4.00
+== Spot g5.12xlarge under $3.48/h, cheapest first: ap-northeast-2c ap-northeast-2a ap-northeast-2d (ap-northeast-2a	3.403400 ap-northeast-2d	3.421400 ap-northeast-2c	3.299100)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6 run(s) and 0 error(s) in the last 30 minutes
+== before the purchase checks: credentials expire in 189 minutes
+== before the purchase: credentials expire in 189 minutes
+== launching g5.12xlarge Spot (cap $3.48/h, $3.5483/h all in), study-deadline 2026-11-22T18:01:59Z -- the instance bills from here
+== launched i-01fcf7205b26c09b4 in ap-northeast-2a
+== LaunchTime 2026-11-22T17:01:06+00:00; the sweeper's deadline moved to 2026-11-22T18:02:36Z
+== the wait ended with status 0 ()
+== waiting up to 3495s for EC2 to report the instance terminated
+== terminating i-01fcf7205b26c09b4
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is shutting-down
+== i-01fcf7205b26c09b4 is terminated
+== evidence returned; termination confirmed; run.sh exit 0

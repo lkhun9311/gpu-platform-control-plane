@@ -1,0 +1,2793 @@
+{
+ "acceptance": {
+  "A1/A2 coverage": true,
+  "A1/A2 jointly valid": [
+   12,
+   12
+  ],
+  "K-A1 no early decision": true,
+  "K-A1 preloads": true,
+  "K-A2 no early decision": true,
+  "K-A2 preloads": true,
+  "K-A3 no early decision": true,
+  "K-A3 preloads": true,
+  "Kequal-A1 no early decision": true,
+  "Kstagger usable": true,
+  "Kstagger-A1 no early decision": true,
+  "Kstagger-A1 preloads": true
+ },
+ "apparatus_failures": {},
+ "cells": {
+  "K-A1": {
+   "arm": "A1",
+   "block": "K",
+   "bursts": [
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 0,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 15,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.7189154624938965,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      472.98,
+      472.935,
+      472.561
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009303092956542969,
+     "ttft_p95_s": 1.202915906906128,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 1,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 15,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "makespan_s": 1.7028999328613281,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      470.962,
+      471.758,
+      471.537
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009403228759765625,
+     "ttft_p95_s": 1.2499141693115234,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 2,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 15,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.693002700805664,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.552,
+      471.601,
+      471.249
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009319782257080078,
+     "ttft_p95_s": 1.199488878250122,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 3,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 15
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "makespan_s": 1.7378225326538086,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.135,
+      472.173,
+      470.586
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009493827819824219,
+     "ttft_p95_s": 1.2589802742004395,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 4,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 22,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8002"
+     ],
+     "largest": 22,
+     "makespan_s": 1.7983839511871338,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.294,
+      471.628,
+      471.107
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.000982046127319336,
+     "ttft_p95_s": 1.2124762535095215,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 5,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 22,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8001"
+     ],
+     "largest": 22,
+     "makespan_s": 1.8252217769622803,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      470.723,
+      471.708,
+      471.794
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009560585021972656,
+     "ttft_p95_s": 1.1981196403503418,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 6,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 15,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.8260011672973633,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.573,
+      471.303,
+      471.403
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0008959770202636719,
+     "ttft_p95_s": 1.249854326248169,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 7,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 22,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8001"
+     ],
+     "largest": 22,
+     "makespan_s": 1.8355753421783447,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      470.979,
+      471.619,
+      471.696
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009577274322509766,
+     "ttft_p95_s": 1.1969804763793945,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 8,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 22
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 22,
+     "makespan_s": 1.8547585010528564,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.834,
+      471.308,
+      471.433
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009465217590332031,
+     "ttft_p95_s": 1.1961524486541748,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 9,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 15
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "makespan_s": 1.7160353660583496,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.501,
+      470.754,
+      471.553
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009472370147705078,
+     "ttft_p95_s": 1.1996004581451416,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 10,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 15,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.749631643295288,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.549,
+      471.476,
+      471.446
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009343624114990234,
+     "ttft_p95_s": 1.2045035362243652,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 11,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 15,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.7925593852996826,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.453,
+      471.705,
+      471.654
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009670257568359375,
+     "ttft_p95_s": 1.19600248336792,
+     "valid": true,
+     "why": "ok"
+    }
+   ],
+   "cell": "K-A1",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "release_primed": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 768,
+   "epp_sched_p99_s": 0.0005,
+   "fluid_reference": 21.514705882352942,
+   "imbalance_cv": 0.5807048868946076,
+   "imbalance_windows": 31,
+   "invalid_reasons": [],
+   "lag_p99_s": 0.0010335445404052734,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 3248,
+      "prompt": 139904,
+      "success": 200
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3248,
+      "preemptions": 0,
+      "prompt": 139904,
+      "success": 200
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 3214,
+      "prompt": 141184,
+      "success": 196
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3214,
+      "preemptions": 0,
+      "prompt": 141184,
+      "success": 196
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 2841,
+      "prompt": 140832,
+      "success": 189
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 2841,
+      "preemptions": 0,
+      "prompt": 140832,
+      "success": 189
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 3452,
+      "prompt": 139872,
+      "success": 219
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3452,
+      "preemptions": 0,
+      "prompt": 139872,
+      "success": 219
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "mean_largest_valid": 21.333333333333332,
+   "n_eval": 768,
+   "reused_fraction": 0.0,
+   "sampler": "ok",
+   "sequential_reference": [
+    22,
+    14,
+    14,
+    14
+   ],
+   "share_minus_fluid": -0.18137254901960986,
+   "ttft_p50_s": 0.8218276500701904,
+   "ttft_p95_s": 1.2426397800445557,
+   "ttft_p99": {
+    "beyond": 7,
+    "iid_reference_interval": [
+     1.346513271331787,
+     1.4545800685882568
+    ],
+    "n": 768,
+    "rank": 761,
+    "value": 1.3541865348815918
+   },
+   "ttft_p99_s": 1.3541865348815918,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "valid_bursts": 12,
+   "verbosity": 2
+  },
+  "K-A2": {
+   "arm": "A2",
+   "block": "K",
+   "bursts": [
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 0,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 15,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.741689920425415,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      470.833,
+      471.502,
+      471.303
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009450912475585938,
+     "ttft_p95_s": 1.2016072273254395,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 1,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 15,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "makespan_s": 1.796567440032959,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      470.752,
+      471.273,
+      471.401
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009291172027587891,
+     "ttft_p95_s": 1.2491130828857422,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 2,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 15,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.7517690658569336,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.298,
+      471.486,
+      471.106
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009753704071044922,
+     "ttft_p95_s": 1.196176528930664,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 3,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 15
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "makespan_s": 1.6940462589263916,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      472.025,
+      471.222,
+      471.371
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009050369262695312,
+     "ttft_p95_s": 1.1980781555175781,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 4,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 15,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.7221779823303223,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.595,
+      471.688,
+      471.274
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009241104125976562,
+     "ttft_p95_s": 1.199897050857544,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 5,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 15,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "makespan_s": 1.7444727420806885,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.032,
+      471.169,
+      471.425
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009543895721435547,
+     "ttft_p95_s": 1.2491657733917236,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 6,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 15,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.8240103721618652,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.306,
+      471.616,
+      471.334
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009450912475585938,
+     "ttft_p95_s": 1.2039713859558105,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 7,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 15,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "makespan_s": 1.6922454833984375,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.275,
+      471.55,
+      471.671
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009703636169433594,
+     "ttft_p95_s": 1.1979389190673828,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 8,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 15,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.8475120067596436,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.441,
+      470.926,
+      471.329
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009407997131347656,
+     "ttft_p95_s": 1.2124159336090088,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 9,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 15
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "makespan_s": 1.681037187576294,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.238,
+      471.042,
+      471.416
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009415149688720703,
+     "ttft_p95_s": 1.2007453441619873,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 10,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 15,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.7040674686431885,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.655,
+      471.272,
+      471.467
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009119510650634766,
+     "ttft_p95_s": 1.1977229118347168,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 11,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 15,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 21
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "makespan_s": 1.722196340560913,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      474.057,
+      471.433,
+      471.06
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0010197162628173828,
+     "ttft_p95_s": 1.2496356964111328,
+     "valid": true,
+     "why": "ok"
+    }
+   ],
+   "cell": "K-A2",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "release_primed": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 768,
+   "epp_sched_p99_s": 0.001,
+   "fluid_reference": 21.514705882352942,
+   "imbalance_cv": 0.581801482368852,
+   "imbalance_windows": 31,
+   "invalid_reasons": [],
+   "lag_p99_s": 0.0010304450988769531,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 3414,
+      "prompt": 140064,
+      "success": 213
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3414,
+      "preemptions": 0,
+      "prompt": 140064,
+      "success": 213
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 2603,
+      "prompt": 141024,
+      "success": 183
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 2603,
+      "preemptions": 0,
+      "prompt": 141024,
+      "success": 183
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 3163,
+      "prompt": 141568,
+      "success": 184
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3163,
+      "preemptions": 0,
+      "prompt": 141568,
+      "success": 184
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 3575,
+      "prompt": 139136,
+      "success": 224
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3575,
+      "preemptions": 0,
+      "prompt": 139136,
+      "success": 224
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "mean_largest_valid": 21.0,
+   "n_eval": 768,
+   "reused_fraction": 0.0,
+   "sampler": "ok",
+   "sequential_reference": [
+    22,
+    14,
+    14,
+    14
+   ],
+   "share_minus_fluid": -0.514705882352942,
+   "ttft_p50_s": 0.821108341217041,
+   "ttft_p95_s": 1.2165324687957764,
+   "ttft_p99": {
+    "beyond": 7,
+    "iid_reference_interval": [
+     1.3031213283538818,
+     1.3935308456420898
+    ],
+    "n": 768,
+    "rank": 761,
+    "value": 1.3195719718933105
+   },
+   "ttft_p99_s": 1.3195719718933105,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "valid_bursts": 12,
+   "verbosity": 2
+  },
+  "K-A3": {
+   "arm": "A3",
+   "block": "K",
+   "bursts": [
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 0,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.7751514911651611,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.201,
+      471.623,
+      471.442
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009739398956298828,
+     "ttft_p95_s": 1.2516531944274902,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 1,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8002"
+     ],
+     "largest": 16,
+     "makespan_s": 1.7546679973602295,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.485,
+      471.083,
+      473.982
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009508132934570312,
+     "ttft_p95_s": 1.2505366802215576,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 2,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8001"
+     ],
+     "largest": 16,
+     "makespan_s": 1.8085558414459229,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.086,
+      471.403,
+      471.249
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009675025939941406,
+     "ttft_p95_s": 1.2522518634796143,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 3,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 16,
+     "makespan_s": 1.7560086250305176,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.405,
+      472.114,
+      471.336
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009222030639648438,
+     "ttft_p95_s": 1.2564265727996826,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 4,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.793703317642212,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.872,
+      471.051,
+      471.374
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009222030639648438,
+     "ttft_p95_s": 1.25270676612854,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 5,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8002"
+     ],
+     "largest": 16,
+     "makespan_s": 1.7508130073547363,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.513,
+      471.268,
+      471.372
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009386539459228516,
+     "ttft_p95_s": 1.2507567405700684,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 6,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8001"
+     ],
+     "largest": 16,
+     "makespan_s": 1.8194704055786133,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.4,
+      471.7,
+      471.493
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0010037422180175781,
+     "ttft_p95_s": 1.249446153640747,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 7,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 16,
+     "makespan_s": 1.7537240982055664,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.304,
+      471.369,
+      471.973
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009260177612304688,
+     "ttft_p95_s": 1.2516043186187744,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 8,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.7790253162384033,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      474.925,
+      474.216,
+      473.449
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009641647338867188,
+     "ttft_p95_s": 1.2508857250213623,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 9,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8002"
+     ],
+     "largest": 16,
+     "makespan_s": 1.7536895275115967,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.725,
+      471.459,
+      471.5
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0010223388671875,
+     "ttft_p95_s": 1.2491388320922852,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 10,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8001"
+     ],
+     "largest": 16,
+     "makespan_s": 1.7436602115631104,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.517,
+      471.726,
+      471.739
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0010695457458496094,
+     "ttft_p95_s": 1.2493667602539062,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 11,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 16,
+     "makespan_s": 1.7856614589691162,
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      472.087,
+      471.486,
+      472.008
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.0009770393371582031,
+     "ttft_p95_s": 1.249906063079834,
+     "valid": true,
+     "why": "ok"
+    }
+   ],
+   "cell": "K-A3",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "release_primed": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 768,
+   "epp_sched_p99_s": 0.001,
+   "fluid_reference": 21.514705882352942,
+   "imbalance_cv": 0.23352573515008127,
+   "imbalance_windows": 24,
+   "invalid_reasons": [],
+   "lag_p99_s": 0.001074075698852539,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 3293,
+      "prompt": 140448,
+      "success": 201
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3293,
+      "preemptions": 0,
+      "prompt": 140448,
+      "success": 201
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 3083,
+      "prompt": 140448,
+      "success": 201
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3083,
+      "preemptions": 0,
+      "prompt": 140448,
+      "success": 201
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 3378,
+      "prompt": 140448,
+      "success": 201
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3378,
+      "preemptions": 0,
+      "prompt": 140448,
+      "success": 201
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 3001,
+      "prompt": 140448,
+      "success": 201
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3001,
+      "preemptions": 0,
+      "prompt": 140448,
+      "success": 201
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "mean_largest_valid": 16.0,
+   "n_eval": 768,
+   "reused_fraction": 0.0,
+   "sampler": "ok",
+   "sequential_reference": [
+    22,
+    14,
+    14,
+    14
+   ],
+   "share_minus_fluid": -5.514705882352942,
+   "ttft_p50_s": 0.8231494426727295,
+   "ttft_p95_s": 1.2517588138580322,
+   "ttft_p99": {
+    "beyond": 7,
+    "iid_reference_interval": [
+     1.274763584136963,
+     1.3216617107391357
+    ],
+    "n": 768,
+    "rank": 761,
+    "value": 1.3203761577606201
+   },
+   "ttft_p99_s": 1.3203761577606201,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "valid_bursts": 12,
+   "verbosity": 2
+  },
+  "Kequal-A1": {
+   "arm": "A1",
+   "block": "K",
+   "bursts": [
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 0,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.4231114387512207,
+     "release_span_s": 0.001027822494506836,
+     "ttft_p95_s": 0.9478600025177002,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 1,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.4098482131958008,
+     "release_span_s": 0.0010006427764892578,
+     "ttft_p95_s": 0.9349684715270996,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 2,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.4335463047027588,
+     "release_span_s": 0.0011668205261230469,
+     "ttft_p95_s": 0.9374856948852539,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 3,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.4338016510009766,
+     "release_span_s": 0.0010440349578857422,
+     "ttft_p95_s": 0.9507584571838379,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 4,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.4208130836486816,
+     "release_span_s": 0.0009615421295166016,
+     "ttft_p95_s": 0.936896562576294,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 5,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.435295820236206,
+     "release_span_s": 0.0009944438934326172,
+     "ttft_p95_s": 0.9393177032470703,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 6,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 17,
+      "127.0.0.1:8002": 15,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 17,
+     "makespan_s": 1.4665722846984863,
+     "release_span_s": 0.000990152359008789,
+     "ttft_p95_s": 0.9418494701385498,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 7,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.428985595703125,
+     "release_span_s": 0.0010879039764404297,
+     "ttft_p95_s": 0.9364867210388184,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 8,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.4067597389221191,
+     "release_span_s": 0.001001119613647461,
+     "ttft_p95_s": 0.938187837600708,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 9,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.4254577159881592,
+     "release_span_s": 0.0009753704071044922,
+     "ttft_p95_s": 0.9488623142242432,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 10,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.4304375648498535,
+     "release_span_s": 0.000949859619140625,
+     "ttft_p95_s": 0.939375638961792,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 11,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 16,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 16,
+      "127.0.0.1:8003": 16
+     },
+     "early": 0,
+     "idle_engine": [
+      "127.0.0.1:8000",
+      "127.0.0.1:8001",
+      "127.0.0.1:8002",
+      "127.0.0.1:8003"
+     ],
+     "largest": 16,
+     "makespan_s": 1.4275264739990234,
+     "release_span_s": 0.0009675025939941406,
+     "ttft_p95_s": 0.9472982883453369,
+     "valid": true,
+     "why": "ok"
+    }
+   ],
+   "cell": "Kequal-A1",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "release_primed": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 768,
+   "epp_sched_p99_s": 0.002,
+   "fluid_reference": 16.0,
+   "imbalance_cv": 0.11906158418824309,
+   "imbalance_windows": 24,
+   "invalid_reasons": [],
+   "lag_p99_s": 0.0011301040649414062,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 3332,
+      "prompt": 104448,
+      "success": 192
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3332,
+      "preemptions": 0,
+      "prompt": 104448,
+      "success": 192
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 3191,
+      "prompt": 104992,
+      "success": 193
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3191,
+      "preemptions": 0,
+      "prompt": 104992,
+      "success": 193
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 3036,
+      "prompt": 103904,
+      "success": 191
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3036,
+      "preemptions": 0,
+      "prompt": 103904,
+      "success": 191
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 3160,
+      "prompt": 104448,
+      "success": 192
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3160,
+      "preemptions": 0,
+      "prompt": 104448,
+      "success": 192
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "mean_largest_valid": 16.083333333333332,
+   "n_eval": 768,
+   "reused_fraction": 0.0,
+   "sampler": "ok",
+   "sequential_reference": [
+    16,
+    16,
+    16,
+    16
+   ],
+   "share_minus_fluid": 0.08333333333333215,
+   "ttft_p50_s": 0.624000072479248,
+   "ttft_p95_s": 0.9441556930541992,
+   "ttft_p99": {
+    "beyond": 7,
+    "iid_reference_interval": [
+     0.9480471611022949,
+     0.9536716938018799
+    ],
+    "n": 768,
+    "rank": 761,
+    "value": 0.9510140419006348
+   },
+   "ttft_p99_s": 0.9510140419006348,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "valid_bursts": 12,
+   "verbosity": 2
+  },
+  "Kstagger-A1": {
+   "arm": "A1",
+   "block": "K",
+   "bursts": [
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 0,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 22
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 22,
+     "makespan_s": 1.9669291973114014,
+     "predecessor_forwarded": [
+      62,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.271,
+      471.393,
+      471.507
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.25199031829833984,
+     "ttft_p95_s": 1.0013246536254883,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 1,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 22
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 22,
+     "makespan_s": 1.7551684379577637,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.192,
+      471.437,
+      471.072
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.25196075439453125,
+     "ttft_p95_s": 0.995128870010376,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 2,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 22
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 22,
+     "makespan_s": 1.7868037223815918,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.513,
+      471.421,
+      471.341
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.25195980072021484,
+     "ttft_p95_s": 1.0124824047088623,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 3,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 22
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 22,
+     "makespan_s": 1.8825414180755615,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.066,
+      471.56,
+      471.151
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.2519564628601074,
+     "ttft_p95_s": 1.079247236251831,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 4,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 22,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8001"
+     ],
+     "largest": 22,
+     "makespan_s": 1.9356255531311035,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.663,
+      471.43,
+      471.508
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.2519552707672119,
+     "ttft_p95_s": 0.9879629611968994,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 5,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 22,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8002"
+     ],
+     "largest": 22,
+     "makespan_s": 1.6722688674926758,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.262,
+      471.779,
+      471.688
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.251953125,
+     "ttft_p95_s": 0.973160982131958,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 6,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 22,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 22,
+     "makespan_s": 1.746236801147461,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.974,
+      471.269,
+      471.836
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.2519876956939697,
+     "ttft_p95_s": 1.0368413925170898,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 7,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 22,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 22,
+     "makespan_s": 1.9236547946929932,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      473.376,
+      472.182,
+      472.1
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.2519831657409668,
+     "ttft_p95_s": 1.0210442543029785,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 8,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 22,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 22,
+     "makespan_s": 1.9218549728393555,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      472.019,
+      472.096,
+      471.906
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.2519538402557373,
+     "ttft_p95_s": 1.016000509262085,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 9,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 22
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 22,
+     "makespan_s": 1.8541898727416992,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      472.091,
+      471.232,
+      471.888
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.25198936462402344,
+     "ttft_p95_s": 0.9954507350921631,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 10,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 22
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 22,
+     "makespan_s": 1.767364263534546,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.67,
+      471.638,
+      472.455
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.2519841194152832,
+     "ttft_p95_s": 0.9899797439575195,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "apparatus": null,
+     "basis": "envoy",
+     "burst": 11,
+     "completed": true,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 22
+     },
+     "early": 0,
+     "gaps_ok": true,
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 22,
+     "makespan_s": 1.8666410446166992,
+     "predecessor_forwarded": [
+      63,
+      63
+     ],
+     "preload_body_missing": false,
+     "preload_header_to_body_ms": [
+      471.958,
+      471.528,
+      472.028
+     ],
+     "preloads": {
+      "body_times": true,
+      "distinct": true,
+      "registered": true
+     },
+     "release_span_s": 0.2519643306732178,
+     "ttft_p95_s": 1.1454343795776367,
+     "valid": true,
+     "why": "ok"
+    }
+   ],
+   "cell": "Kstagger-A1",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "release_primed": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 768,
+   "epp_sched_p99_s": 0.0001,
+   "fluid_reference": 21.514705882352942,
+   "imbalance_cv": 0.5937600204616669,
+   "imbalance_windows": 30,
+   "invalid_reasons": [],
+   "lag_p99_s": 0.0008935928344726562,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 3220,
+      "prompt": 140448,
+      "success": 201
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3220,
+      "preemptions": 0,
+      "prompt": 140448,
+      "success": 201
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 3122,
+      "prompt": 139744,
+      "success": 187
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3122,
+      "preemptions": 0,
+      "prompt": 139744,
+      "success": 187
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 2812,
+      "prompt": 139744,
+      "success": 187
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 2812,
+      "preemptions": 0,
+      "prompt": 139744,
+      "success": 187
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 3601,
+      "prompt": 141856,
+      "success": 229
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 3601,
+      "preemptions": 0,
+      "prompt": 141856,
+      "success": 229
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "mean_largest_valid": 22.0,
+   "n_eval": 768,
+   "reused_fraction": 0.0,
+   "sampler": "ok",
+   "sequential_reference": [
+    22,
+    14,
+    14,
+    14
+   ],
+   "share_minus_fluid": 0.485294117647058,
+   "stagger_usable": true,
+   "ttft_p50_s": 0.7185714244842529,
+   "ttft_p95_s": 1.016000509262085,
+   "ttft_p99": {
+    "beyond": 7,
+    "iid_reference_interval": [
+     1.1537411212921143,
+     1.2306489944458008
+    ],
+    "n": 768,
+    "rank": 761,
+    "value": 1.1941893100738525
+   },
+   "ttft_p99_s": 1.1941893100738525,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "valid_bursts": 12,
+   "verbosity": 2
+  }
+ },
+ "k": {
+  "K-A1": {
+   "fluid_reference": 21.514705882352942,
+   "invalid_reasons": [],
+   "mean_largest_valid": 21.333333333333332,
+   "sequential_reference": [
+    22,
+    14,
+    14,
+    14
+   ],
+   "stagger_usable": null,
+   "valid_bursts": 12
+  },
+  "K-A2": {
+   "fluid_reference": 21.514705882352942,
+   "invalid_reasons": [],
+   "mean_largest_valid": 21.0,
+   "sequential_reference": [
+    22,
+    14,
+    14,
+    14
+   ],
+   "stagger_usable": null,
+   "valid_bursts": 12
+  },
+  "K-A3": {
+   "fluid_reference": 21.514705882352942,
+   "invalid_reasons": [],
+   "mean_largest_valid": 16.0,
+   "sequential_reference": [
+    22,
+    14,
+    14,
+    14
+   ],
+   "stagger_usable": null,
+   "valid_bursts": 12
+  },
+  "Kequal-A1": {
+   "fluid_reference": 16.0,
+   "invalid_reasons": [],
+   "mean_largest_valid": 16.083333333333332,
+   "sequential_reference": [
+    16,
+    16,
+    16,
+    16
+   ],
+   "stagger_usable": null,
+   "valid_bursts": 12
+  },
+  "Kstagger-A1": {
+   "fluid_reference": 21.514705882352942,
+   "invalid_reasons": [],
+   "mean_largest_valid": 22.0,
+   "sequential_reference": [
+    22,
+    14,
+    14,
+    14
+   ],
+   "stagger_usable": true,
+   "valid_bursts": 12
+  }
+ },
+ "plan_cells_missing": [],
+ "skipped": [],
+ "stage": "pilot3",
+ "stopped": null,
+ "timings": {
+  "engines_AK_s": 97.1,
+  "plan_s": 329.9
+ },
+ "verdict": "APPARATUS HOLDS"
+}

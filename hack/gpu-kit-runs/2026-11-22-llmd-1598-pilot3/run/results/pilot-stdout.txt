@@ -1,0 +1,7 @@
+17:05:34 engines AK ready in 97 s
+17:06:22 cell K-A1 A1 K rate=None v=2: 804 rows in 47.5 s
+17:07:09 cell K-A2 A2 K rate=None v=2: 804 rows in 47.1 s
+17:07:56 cell K-A3 A3 K rate=None v=2: 804 rows in 47.5 s
+17:08:38 cell Kequal-A1 A1 K rate=None v=2: 768 rows in 41.5 s
+17:09:26 cell Kstagger-A1 A1 K rate=None v=2: 804 rows in 48.3 s
+pilot exit=0 t=403
