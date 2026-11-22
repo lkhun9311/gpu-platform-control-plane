@@ -4,19 +4,25 @@
 #
 # Run r4 showed both arms crash the same way: request 7's read fails, the scheduler fails it,
 # and then "Task execution error: Triton Error [CUDA]: an illegal memory access" follows for saved request 6.
-# The fault is in #69095's own failure path, so this kit runs one arm, #69095's head, with the runtime session's diagnostic patch.
+# r4 observed the fault after #69095's own failure path ran in both arms, though not where it began, so this kit runs one arm,
+# #69095's head, with the runtime session's diagnostic patch.
 # The patch (diag-r5-on-bb14b997.diff, pinned below) only adds logging and torch.cuda.synchronize() in the HF3FS connector.
 # The test file is arm B's from run r4, copied in from 9ee44f04 with the same sha256.
-# The one command, with no -x so both the fail and recompute cases run:
-#   CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd" -q -p no:cacheprovider --tb=long
-# The verdict keeps, for each case, the lines matching DIAG, illegal, Failing or Read operation failed,
-# the last "DIAG ... sync ok" before the first illegal memory access, and any "DIAG save ... out of range" line.
+# The runtime session's command is the spec's, with no -x, run once per case in its own process:
+#   CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0 python -m pytest "tests/v1/kv_connector/unit/test_hf3fs_load_failure.py::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[<case>]" -q -p no:cacheprovider --tb=long
+# The spec ran both cases in one process, but an illegal address is sticky for the whole process,
+# so [recompute] would fail on [fail]'s fault before it reached its own; separate processes give each case its own result.
+# The verdict keeps, for each case, the lines of its log matching DIAG, illegal, Failing or Read operation failed,
+# the first illegal memory access in time, the last "DIAG ... sync ok" record before it, the last one for the request the fault names,
+# and any "DIAG save ... out of range" record.
 # pytest prints a case's captured output only when the case fails or errors, so a passing case has no lines to extract, and the verdict says so.
+# The patch's torch.cuda.synchronize() calls change timing, so a case that passes under it does not show the fault gone; run r4 is the run without them.
 # Every step's exit code goes to $OUT/status.txt, and verdict.py writes $OUT/verdict.json.
 # This script exits with the verdict's status: 0 the diagnostic is complete, 3 incomplete, 1 stopped.
 #
 # THE ENVIRONMENT.
-# As in kit r4: Python 3.12 from the session, vLLM installed with VLLM_USE_PRECOMPILED=1 (the wheel of the arm's base on main, dd8c1578),
+# As in kit r4: Python 3.12 from the session, vLLM installed with VLLM_USE_PRECOMPILED=1 and the wheel of the arm's base on main, dd8c1578, named explicitly,
+# so setup.py cannot fall back to a nightly wheel when it fails to look up main; the install log must show that commit.
 # the test packages its CUDA test lock pins, and facebook/opt-125m at revision 27dcfa74d3 with its weights' sha256 pinned, after which the hub is offline.
 #
 # THE BUDGET.
@@ -24,11 +30,12 @@
 # The session gives bring-up 300 s and the evidence upload 60 s, and confirms termination 360 s after the upload's deadline.
 # So with BUDGET_S seconds here the bill runs to 300 + BUDGET_S + 60 + 360 s, which is 1,170 s and $0.2497 at the default 450 s.
 # The runtime session asked for about $0.25 or less, which is reached at 1,171 s, so this script refuses BUDGET_S above 450.
-# Run r4 reached its tests at 67 s and its end-to-end step took 134 s with -x; both cases here may take about twice that.
-# Every long step runs under a timeout for what is left of the budget less a reserve for the verdict, so run.sh ends inside BUDGET_S.
-# The session's own hard stop, 3,720 s after launch, is the backstop if this script's budget did not hold, and that worst case is the session's $0.8579.
+# Run r4 reached its tests at 67 s and its [fail] case took 134 s, so each case gets E2E_CAP_S, 180 s by default, or what the budget has left.
+# Every command that can wait runs under a timeout for what is left of the budget less a reserve for the verdict, so run.sh ends inside BUDGET_S.
+# The bill above assumes the session's evidence upload and termination go as planned.
+# The session lets a stalled upload run to 3,660 s after launch and stops the instance at 3,720 s, so the true worst case stays the session's $0.8579.
 #
-# Settings (KIT_ENV through the session): BUDGET_S (default and maximum 450) and E2E_CAP_S (the test step's cap, default 360).
+# Settings (KIT_ENV through the session): BUDGET_S (default and maximum 450) and E2E_CAP_S (each case's cap, default 180).
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${OUT:-$HERE/results}
@@ -53,10 +60,14 @@ MODEL_BIN_SHA256=2d74da6615135c58cf3cf9ad4cb11e7c613ff9e55fe658a47ab83b6c8d1174a
 MODEL_FILES=(config.json generation_config.json merges.txt vocab.json special_tokens_map.json tokenizer_config.json pytorch_model.bin)
 BUDGET_S=${BUDGET_S:-450}
 BUDGET_MAX_S=450
-E2E_CAP_S=${E2E_CAP_S:-360}
+E2E_CAP_S=${E2E_CAP_S:-180}
+# The precompiled wheel's commit, the arm's merge-base with main, whose published wheels run r4 installed.
+WHEEL_COMMIT=dd8c157895f01875bc5f44c51003bbe330647330
 # Left for verdict.py and the checksums after the last timed step.
 RESERVE_S=60
-CMD=(python -m pytest "$TEST_FILE::TestHF3FSLoadFailureEndToEnd" -q -p no:cacheprovider --tb=long)
+CASES=(fail recompute)
+# cmd CASE: the spec's command for one case, the same flags, its own node id.
+cmd() { echo python -m pytest "$TEST_FILE::TestHF3FSLoadFailureEndToEnd::test_failed_read_honors_policy[$1]" -q -p no:cacheprovider --tb=long; }
 # The engine runs in the test's process, and a CUDA fault is reported at the launch that caused it.
 ENV=(CUDA_LAUNCH_BLOCKING=1 VLLM_ENABLE_V1_MULTIPROCESSING=0)
 START=$(date +%s)
@@ -68,7 +79,7 @@ START=$(date +%s)
   { echo "BUDGET_S=$BUDGET_S: it must be whole seconds above $RESERVE_S and at most $BUDGET_MAX_S, which keeps g5.xlarge under \$0.25" >&2; exit 1; }
 [[ $E2E_CAP_S =~ ^[1-9][0-9]*$ ]] && [ "$E2E_CAP_S" -ge 30 ] || { echo "E2E_CAP_S=$E2E_CAP_S: it must be whole seconds without a leading zero, at least 30" >&2; exit 1; }
 # Earlier kits' settings are refused rather than ignored, since nothing here reads them.
-for v in PYTEST_CAP_S LLM_CAP_S UNIT_CAP_S; do [ -z "${!v:-}" ] || { echo "$v is set; kit r5 runs one step, capped by E2E_CAP_S" >&2; exit 1; }; done
+for v in PYTEST_CAP_S LLM_CAP_S UNIT_CAP_S; do [ -z "${!v:-}" ] || { echo "$v is set; kit r5 caps each case with E2E_CAP_S" >&2; exit 1; }; done
 mkdir -p "$OUT" || exit 1
 # A rerun into the same OUT would leave the earlier logs for verdict.py to read, so only an empty OUT is used.
 if [ -n "$(ls -A "$OUT")" ]; then echo "OUT=$OUT is not empty; each run writes a new directory" >&2; exit 1; fi
@@ -77,11 +88,11 @@ if [ -n "$(ls -A "$OUT")" ]; then echo "OUT=$OUT is not empty; each run writes a
 finish() {
   local py=python
   command -v python > /dev/null || py=python3
-  timeout 30 "$py" "$HERE/verdict.py" "$OUT" > "$OUT/verdict.txt" 2>&1
+  timeout --kill-after=5 30 "$py" "$HERE/verdict.py" "$OUT" > "$OUT/verdict.txt" 2>&1
   VERDICT_RC=$?
   echo "verdict exit=$VERDICT_RC t=$(( $(date +%s) - START ))" >> "$OUT/status.txt"
   cat "$OUT/verdict.txt"
-  ( cd "$OUT" && find . -type f ! -name SHA256SUMS | LC_ALL=C sort | xargs -d '\n' sha256sum > SHA256SUMS )
+  ( cd "$OUT" && find . -type f ! -name SHA256SUMS | LC_ALL=C sort | timeout --kill-after=5 30 xargs -d '\n' sha256sum > SHA256SUMS )
 }
 VERDICT_RC=1
 stop() { # the reason; the run ends here and says why
@@ -110,7 +121,9 @@ step() {
   echo "test_file_sha256_pin=$TEST_FILE_SHA256"
   echo "model=$MODEL"; echo "model_rev_pin=$MODEL_REV"; echo "model_bin_sha256_pin=$MODEL_BIN_SHA256"
   echo "budget_s=$BUDGET_S"; echo "e2e_cap_s=$E2E_CAP_S"
-  echo "command=${ENV[*]} ${CMD[*]}"
+  for c in "${CASES[@]}"; do echo "command_$c=${ENV[*]} $(cmd "$c")"; done
+  echo "processes=one per case, since an illegal address poisons the process that hit it"
+  echo "wheel_commit=$WHEEL_COMMIT"
 } > "$OUT/settings.txt"
 [ "${KIT_DRY_RUN:-}" = 1 ] && { echo "dry run: settings accepted"; cat "$OUT/settings.txt"; exit 0; }
 
@@ -124,7 +137,8 @@ command grep '^diff --git ' "$DIFF" > "$OUT/diff-files.txt"
 ! command grep -vE '^diff --git a/(vllm/[^ ]*\.py) b/\1$' "$OUT/diff-files.txt" > "$OUT/diff-files-outside.txt" ||
   stop "the diagnostic patch touches a file other than Python under vllm/; see diff-files-outside.txt"
 command -v nvidia-smi > /dev/null || stop "nvidia-smi is not on PATH"
-{ nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv; nvidia-smi -L; } > "$OUT/gpu.txt" 2>&1 || stop "nvidia-smi failed; see gpu.txt"
+# A driver in a bad state can hang nvidia-smi, so it gets a timeout like every other command that can wait.
+step nvidia-smi 60 --log "$OUT/gpu.txt" bash -c 'nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv && nvidia-smi -L' || stop "nvidia-smi failed; see gpu.txt"
 if [ "${KIT_OFFLINE_TEST:-}" = 1 ]; then
   # The offline test has no network, so the checkout is a detached worktree of a local vLLM repository that holds both commits.
   [ -d "${OFFLINE_VLLM_SRC:-}" ] || stop "KIT_OFFLINE_TEST=1 needs OFFLINE_VLLM_SRC, a local vLLM repository"
@@ -174,9 +188,12 @@ if [ "${KIT_OFFLINE_TEST:-}" = 1 ]; then
   echo "offline_model_bin_sha256=$MODEL_BIN_SHA256" >> "$OUT/settings.txt"
 else
   command -v uv > /dev/null || stop "uv is required"
-  uv venv -q --python 3.12 .venv && . .venv/bin/activate || stop "could not make the venv"
-  # -v keeps setup.py's lines naming the wheel commit it chose.
-  step install-vllm 300 --log "$OUT/install-vllm.log" env -C vllm VLLM_USE_PRECOMPILED=1 uv pip install -v -e . || stop "vLLM did not install; see install-vllm.log"
+  step venv 60 --log "$OUT/venv.log" uv venv -q --python 3.12 .venv || stop "could not make the venv; see venv.log"
+  . .venv/bin/activate || stop "could not activate the venv"
+  # -v keeps setup.py's lines naming the wheel commit it used, which must be the pinned one.
+  step install-vllm 300 --log "$OUT/install-vllm.log" env -C vllm VLLM_USE_PRECOMPILED=1 VLLM_PRECOMPILED_WHEEL_COMMIT="$WHEEL_COMMIT" uv pip install -v -e . ||
+    stop "vLLM did not install; see install-vllm.log"
+  command grep -q "Using precompiled wheel commit $WHEEL_COMMIT" "$OUT/install-vllm.log" || stop "the install did not use the precompiled wheel of $WHEEL_COMMIT; see install-vllm.log"
   # The test-only packages vLLM's tests/conftest.py imports, at the versions the arm's CUDA test lock pins.
   pins=()
   for p in pytest pytest-asyncio tblib httpx; do
@@ -208,10 +225,14 @@ command grep -qx "$MODEL_BIN_SHA256  pytorch_model.bin" "$OUT/model-files.sha256
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 echo "hub_offline=1 for the test run" >> "$OUT/settings.txt"
 
-# ---------------------------------------------------------------- the one step
-step test-e2e "$E2E_CAP_S" --log "$OUT/e2e.log" env -C vllm "${ENV[@]}" "${CMD[@]}"
+# ---------------------------------------------------------------- each case in its own process
+for c in "${CASES[@]}"; do
+  # read -a splits cmd's words; the node id has no spaces, so the words are the command's arguments.
+  read -r -a words <<< "$(cmd "$c")"
+  step "test-$c" "$E2E_CAP_S" --log "$OUT/e2e-$c.log" env -C vllm "${ENV[@]}" "${words[@]}"
+done
 rm -f "vllm/$TEST_FILE"
-git -C vllm checkout -q --detach -f "$ARM_SHA"
+timeout --kill-after=5 30 git -C vllm checkout -q --detach -f "$ARM_SHA"
 [ "${KIT_OFFLINE_TEST:-}" = 1 ] && git -C "$OFFLINE_VLLM_SRC" worktree remove --force "$PWD/vllm"
 finish
 exit "$VERDICT_RC"
