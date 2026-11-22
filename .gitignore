@@ -192,6 +192,10 @@ Thumbs.db
 # stray local build of cmd/queuelabrun, anchored so it cannot also swallow new files under cmd/queuelabrun/
 /queuelabrun
 
+# stray local builds of cmd/capacityrun, at the root or beside its source; one beside the source was committed once
+/capacityrun
+/cmd/capacityrun/capacityrun
+
 # Raw chaos-run records were excluded here, and queuelab inherited the rule without anyone asking whether it
 # fit. It does not. This lab's thesis is that the record outlives the terminal and that a conclusion nobody
 # can re-derive is prose -- and its records sat outside version control while committed documents told
