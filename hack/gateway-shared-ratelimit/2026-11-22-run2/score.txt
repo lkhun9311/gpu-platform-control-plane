@@ -1,0 +1,33 @@
+arm	rep	replicas	store	sent	admitted	completed	cut200	429	503	no_status	other	unsent	T_s	bound	admitted/bound	stub
+memory-1	1	1	memory	600	64	64	0	536	0	0	0	0	59.90	64.90	0.99	64
+memory-3	1	3	memory	600	192	192	0	408	0	0	0	0	59.90	64.90	2.96	192
+redis-3	1	3	redis	600	64	64	0	536	0	0	0	0	59.90	64.90	0.99	64
+memory-1	2	1	memory	600	64	64	0	536	0	0	0	0	59.90	64.90	0.99	64
+memory-3	2	3	memory	600	192	192	0	408	0	0	0	0	59.90	64.90	2.96	192
+redis-3	2	3	redis	600	64	64	0	536	0	0	0	0	59.90	64.90	0.99	64
+memory-1	3	1	memory	600	64	64	0	536	0	0	0	0	59.90	64.90	0.99	64
+memory-3	3	3	memory	600	192	192	0	408	0	0	0	0	59.90	64.90	2.96	192
+redis-3	3	3	redis	600	64	64	0	536	0	0	0	0	59.90	64.90	0.99	64
+
+
+latency (nearest rank; p99=max means the sample is under 100 and p99 is its maximum)
+  memory-1-1: completed end-to-end ms p99=max p50=12.3 max=14.2 n=64; completed TTFT ms p99=max p50=5.9 max=7.8 n=64; 429 ms p99=0.8 p50=0.5 max=1.0 n=536
+  memory-3-1: completed end-to-end ms p99=13.3 p50=12.3 max=13.8 n=192; completed TTFT ms p99=6.9 p50=5.9 max=7.4 n=192; 429 ms p99=0.8 p50=0.5 max=0.9 n=408
+  redis-3-1: completed end-to-end ms p99=max p50=12.5 max=15.6 n=64; completed TTFT ms p99=max p50=6.1 max=8.4 n=64; 429 ms p99=1.0 p50=0.7 max=1.3 n=536
+  memory-1-2: completed end-to-end ms p99=max p50=12.3 max=13.3 n=64; completed TTFT ms p99=max p50=5.9 max=7.0 n=64; 429 ms p99=0.8 p50=0.5 max=2.0 n=536
+  memory-3-2: completed end-to-end ms p99=13.6 p50=12.3 max=13.6 n=192; completed TTFT ms p99=7.1 p50=5.9 max=7.1 n=192; 429 ms p99=0.7 p50=0.5 max=2.0 n=408
+  redis-3-2: completed end-to-end ms p99=max p50=12.5 max=14.1 n=64; completed TTFT ms p99=max p50=6.1 max=7.7 n=64; 429 ms p99=1.0 p50=0.7 max=1.1 n=536
+  memory-1-3: completed end-to-end ms p99=max p50=12.3 max=13.2 n=64; completed TTFT ms p99=max p50=5.9 max=6.9 n=64; 429 ms p99=0.9 p50=0.5 max=1.9 n=536
+  memory-3-3: completed end-to-end ms p99=13.2 p50=12.3 max=13.2 n=192; completed TTFT ms p99=6.8 p50=6.0 max=6.9 n=192; 429 ms p99=0.7 p50=0.5 max=1.0 n=408
+  redis-3-3: completed end-to-end ms p99=max p50=12.5 max=14.6 n=64; completed TTFT ms p99=max p50=6.1 max=8.3 n=64; 429 ms p99=0.9 p50=0.7 max=1.1 n=536
+pods memory-1-1: before [gateway-f765495c9-zpcnd:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-zpcnd:ok=64,degraded=0,redis_errors=0]
+pods memory-3-1: before [gateway-f765495c9-gchgz:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-qlmv9:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-zpcnd:ok=64,degraded=0,redis_errors=0] after [gateway-f765495c9-gchgz:ok=64,degraded=0,redis_errors=0 gateway-f765495c9-qlmv9:ok=64,degraded=0,redis_errors=0 gateway-f765495c9-zpcnd:ok=128,degraded=0,redis_errors=0]
+pods redis-3-1: before [gateway-5d8cf7d4b8-5snkm:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-894wl:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-z9g9r:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-5snkm:ok=20,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-894wl:ok=22,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-z9g9r:ok=22,degraded=0,redis_errors=0]
+pods memory-1-2: before [gateway-f765495c9-xln8v:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-xln8v:ok=64,degraded=0,redis_errors=0]
+pods memory-3-2: before [gateway-f765495c9-9f4wj:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-hz2lg:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-xln8v:ok=64,degraded=0,redis_errors=0] after [gateway-f765495c9-9f4wj:ok=64,degraded=0,redis_errors=0 gateway-f765495c9-hz2lg:ok=64,degraded=0,redis_errors=0 gateway-f765495c9-xln8v:ok=128,degraded=0,redis_errors=0]
+pods redis-3-2: before [gateway-5d8cf7d4b8-29ph8:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-htnjz:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-v792l:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-29ph8:ok=19,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-htnjz:ok=24,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-v792l:ok=21,degraded=0,redis_errors=0]
+pods memory-1-3: before [gateway-f765495c9-6j9qh:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-6j9qh:ok=64,degraded=0,redis_errors=0]
+pods memory-3-3: before [gateway-f765495c9-6j9qh:ok=64,degraded=0,redis_errors=0 gateway-f765495c9-dnv4w:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-tms4z:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-6j9qh:ok=128,degraded=0,redis_errors=0 gateway-f765495c9-dnv4w:ok=64,degraded=0,redis_errors=0 gateway-f765495c9-tms4z:ok=64,degraded=0,redis_errors=0]
+pods redis-3-3: before [gateway-5d8cf7d4b8-4kdvf:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-75n46:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-j9fpk:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-4kdvf:ok=25,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-75n46:ok=16,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-j9fpk:ok=23,degraded=0,redis_errors=0]
+
+VALID
