@@ -1,9 +1,10 @@
 """Unit checks for the vLLM HF3FS preemption kits' verdict.py, on the real CPU logs of both arms and on built GPU logs.
 
-usage: python3 -I hack/vllm-hf3fs-preemption-kit-check.py KIT_DIR FAKE_DIR [--p2]
+usage: python3 -I hack/vllm-hf3fs-preemption-kit-check.py KIT_DIR FAKE_DIR [--p2 | --p3]
 FAKE_DIR holds cpu-logs/e2e-{control,fix}.log, the two arms run on CPU at kit p1's pinned trees, where the GPU test skips.
 --p2 checks kit p2 instead: it reads cpu-logs-p2/, the same runs at kit p2's trees,
 and adds the checks of p2's KV memory lines on run p1's real GPU logs in gpu-p1-logs/.
+--p3 checks kit p3 the same way, on cpu-logs-p3/ and run p2's real GPU logs in gpu-p2-logs/.
 Prints one ok or FAIL line per check and exits 1 if any failed.
 """
 
@@ -19,10 +20,12 @@ import tempfile
 # python3 -I ignores PYTHONDONTWRITEBYTECODE, so the import below would leave __pycache__ in the kit, which the session ships.
 sys.dont_write_bytecode = True
 KIT, FAKES = sys.argv[1], sys.argv[2]
-P2 = sys.argv[3:] == ["--p2"]
-if sys.argv[3:] not in ([], ["--p2"]):
+# Each later kit: its CPU logs, the earlier run whose real GPU logs it is checked on, and the KV memory that run had.
+LATER = {"--p2": ("cpu-logs-p2", "p1", "6.1 GiB"), "--p3": ("cpu-logs-p3", "p2", "14.92 GiB")}
+P2 = len(sys.argv) == 4 and sys.argv[3] in LATER
+if sys.argv[3:] not in ([], ["--p2"], ["--p3"]):
     sys.exit(f"unexpected arguments {sys.argv[3:]}")
-CPU_LOGS = "cpu-logs-p2" if P2 else "cpu-logs"
+CPU_LOGS, RUN, KV_GIB = LATER[sys.argv[3]] if P2 else ("cpu-logs", None, None)
 spec = importlib.util.spec_from_file_location("verdict", os.path.join(KIT, "verdict.py"))
 V = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(V)
@@ -211,15 +214,15 @@ check("verdict.txt prints each arm's summary, held line, page errors and traceba
       and "  held line: held=[20, 21, 22, 23] reused=[21, 22] hold_timed_out=False" in t and "  page errors: [0.9731, 1.0214]" in t
       and "    E   AssertionError: [0.9731, 1.0214]" in t and t.rstrip().endswith("VERDICT: CONFIRMED"))
 
-# ---------------------------------------------------------------- kit p2: the KV memory lines, on run p1's real GPU logs
+# ---------------------------------------------------------------- kits p2 and p3: the KV memory lines, on the earlier run's real GPU logs
 if P2:
-    gpu = {a: (read("gpu-p1-logs", f"e2e-{a}.log"), 1) for a in V.ARMS}
+    gpu = {a: (read(f"gpu-{RUN}-logs", f"e2e-{a}.log"), 1) for a in V.ARMS}
     r = judged(control=gpu["control"], fix=gpu["fix"])
     t = r["_text"]
-    check("run p1's real logs: NOT RUN in both arms on KV cache memory; exit 4",
+    check(f"run {RUN}'s real logs: NOT RUN in both arms on KV cache memory; exit 4",
           r["verdict"] == "NOT RUN" and r["_rc"] == 4 and all(r["arms"][a]["gpu"] == "not run" and "KV cache memory" in r["arms"][a]["why"] for a in V.ARMS))
-    check("run p1's real logs: each arm prints vLLM's 'Available KV cache memory' line and the startup check's 'available KV cache memory' line",
-          t.count("kv memory: ") >= 4 and t.count("Available KV cache memory: 6.1 GiB") == 2
+    check(f"run {RUN}'s real logs: each arm prints vLLM's 'Available KV cache memory' line and the startup check's 'available KV cache memory' line",
+          t.count("kv memory: ") >= 4 and t.count(f"Available KV cache memory: {KV_GIB}") == 2
           and t.count("larger than the available KV cache memory (0.03 GiB)") >= 2)
     one = "(MainProcess pid=1) INFO 11-22 13:08:49 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB\n"
     r = judged(control=(one + CONTROL[0], CONTROL[1]))
