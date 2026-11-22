@@ -37,7 +37,9 @@ DURATION_S=${DURATION_S:-30}
 REPS=${REPS:-3}
 EVENT_REPS=${EVENT_REPS:-1}
 # Without set -e a malformed count would make seq print nothing and the run would skip arms silently.
-[[ "$REPS" =~ ^[0-9]+$ && "$EVENT_REPS" =~ ^[0-9]+$ ]] || { echo "REPS and EVENT_REPS must be whole numbers" >&2; exit 2; }
+# A leading zero is refused because bash arithmetic would read 08 as a bad octal number.
+[[ "$REPS" =~ ^(0|[1-9][0-9]*)$ && "$EVENT_REPS" =~ ^(0|[1-9][0-9]*)$ ]] \
+  || { echo "REPS and EVENT_REPS must be whole numbers without a leading zero" >&2; exit 2; }
 [ $((REPS + EVENT_REPS)) -gt 0 ] || { echo "REPS and EVENT_REPS are both 0, so there is nothing to run" >&2; exit 2; }
 # Redis returns at about 21 s and the killed Pod is replaced by about 27 s, so a shorter run ends before its event clears.
 if [ "$EVENT_REPS" -gt 0 ] && [ "$DURATION_S" -lt 30 ]; then
