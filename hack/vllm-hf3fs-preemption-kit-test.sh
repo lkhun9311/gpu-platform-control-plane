@@ -324,5 +324,9 @@ else
   check "the kit and the runner are committed at HEAD, so the runner checks can run ($(cat "$WORK/clone.err"))" "false"
 fi
 
+# The session ships the kit directory as committed, so this test must leave nothing in it or beside its own scripts.
+check "the kit directory and the fakes hold no bytecode or other untracked file after the run" \
+  "[ -z \"\$(git -C '$ROOT' status --porcelain --untracked-files=all --ignored -- '$KITREL' hack/vllm-hf3fs-preemption-fake hack/vllm-hf3fs-preemption-kit-check.py)\" ]"
+
 echo
 if [ "$failures" = 0 ]; then echo "all checks passed"; else echo "$failures check(s) failed" >&2; exit 1; fi

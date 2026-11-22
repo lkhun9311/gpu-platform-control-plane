@@ -14,6 +14,8 @@ import shutil
 import sys
 import tempfile
 
+# python3 -I ignores PYTHONDONTWRITEBYTECODE, so the import below would leave __pycache__ in the kit, which the session ships.
+sys.dont_write_bytecode = True
 KIT, FAKES = sys.argv[1], sys.argv[2]
 spec = importlib.util.spec_from_file_location("verdict", os.path.join(KIT, "verdict.py"))
 V = importlib.util.module_from_spec(spec)
