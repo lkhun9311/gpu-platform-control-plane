@@ -64,6 +64,9 @@ docs/superpowers/*
 # is invisible to `git status` and a commit simply leaves it behind -- which is what happened to this one.
 # A pattern rather than a name, because an experiment is expected to arrive with its own directory.
 !/experiments/**/README.md
+# The A10G capacity study's contract and attempt ledger are what its results are checked against, so they are published by name.
+!/experiments/a10g-capacity/CONTRACT.md
+!/experiments/a10g-capacity/attempts.md
 # Upstream contribution work: its index and each item's write-up and run notes are what a reader of the thread checks.
 !/oss/**/*.md
 !/docs/0[0-7]*.md
