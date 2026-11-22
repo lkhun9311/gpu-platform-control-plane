@@ -144,6 +144,12 @@ check("a KV memory failure in step 2 is NOT RUN, exit 4", rec["verdict"] == "NOT
 both = "E   torch.AcceleratorError: CUDA error: an illegal memory access was encountered\nE   (KV cache is needed, which is larger than the available KV cache memory)\n../t.py:1: AcceleratorError\n1 failed in 3.0s\n"
 rec = judged(logs=with_logs(**{"a-2": both}), rcs={"a-2": 1})
 check("an illegal access outranks a harness cause in the same log", rec["arms"]["a"]["step2"]["cause"] == "CUDA illegal memory access")
+captured = ">       assert retry.finish_reason == \"error\"\nE       AssertionError: assert 'length' == 'error'\n" \
+    "------------------------------ Captured log call -------------------------------\n" \
+    "WARNING  huggingface_hub:_http.py:1 Cannot find the requested files in the disk cache, using the local snapshot\n1 failed in 61.2s\n"
+rec = judged(logs=with_logs(**{"a-2": captured}), rcs={"a-2": 1})
+check("a captured log line that looks like a harness cause does not relabel an assertion failure",
+      rec["arms"]["a"]["step2"]["state"] == "RESULT" and rec["arms"]["a"]["step2"]["cause"].startswith("failed: E       AssertionError"))
 fail = ">       assert retry.finish_reason == \"error\"\nE       AssertionError: assert 'length' == 'error'\n1 failed in 61.2s\n"
 rec = judged(logs=with_logs(**{"a-2": fail}), rcs={"a-2": 1})
 check("a plain assertion failure in step 2 is a RESULT naming its E line", rec["verdict"] == "AS EXPECTED" and rec["arms"]["a"]["step2"]["cause"].startswith("failed: E       AssertionError"))
@@ -158,7 +164,7 @@ check("step 1 ignores warnings and deselected tests in its counts", rec["verdict
 rec = judged(logs=with_logs(**{"b-1": "!!! KeyboardInterrupt !!!\n"}), rcs={"b-1": 2})
 check("step 1 with no summary is INCOMPLETE, exit 3", rec["verdict"] == "INCOMPLETE" and "no pytest summary" in rec["arms"]["b"]["step1"]["why"])
 rec = judged(logs=with_logs(**{"b-1": STEP1_B}), rcs={"b-1": 124})
-check("step 1 cut by its cap is INCOMPLETE", rec["verdict"] == "INCOMPLETE")
+check("step 1 cut by its cap is INCOMPLETE for its exit code", rec["verdict"] == "INCOMPLETE" and rec["arms"]["b"]["step1"]["why"] == "pytest exited 124")
 rec = judged(logs=with_logs(**{"b-1": STEP1_B}), rcs={"b-1": 1})
 check("step 1 whose exit code disagrees with its counts is INCOMPLETE", rec["verdict"] == "INCOMPLETE")
 rec = judged(logs=with_logs(**{"b-1": None}))
