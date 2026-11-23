@@ -223,7 +223,7 @@ check "pass: three git ams give the PR's first head, p6 and then 7528cc07's tree
    && command grep -qx 'fence_marker control=0 fix=1 control_wait_for_gathers=1' '$WORK/e2e-pass/out/versions.txt' \
    && command grep -qx 'control test_blob=$TEST_BLOB' '$WORK/e2e-pass/out/versions.txt' && command grep -qx 'fix test_blob=$TEST_BLOB' '$WORK/e2e-pass/out/versions.txt' \
    && ( cd '$WORK/e2e-pass/out' && sha256sum -c --quiet SHA256SUMS ) && ! git -C '$SRC' worktree list | command grep -qF '$WORK/e2e-pass/'"
-for kind in fixnewfail:2:FINDING controlnewpass:5:INCONCLUSIVE controlfirstfail:5:INCONCLUSIVE fixnonzero:5:INCONCLUSIVE fixnotimeout:5:INCONCLUSIVE \
+for kind in fixnewfail:2:FINDING controlnewpass:5:INCONCLUSIVE controlnewother:5:INCONCLUSIVE controlfirstfail:5:INCONCLUSIVE fixnonzero:5:INCONCLUSIVE fixnotimeout:5:INCONCLUSIVE \
   setupboth:4:'NOT RUN' controlkv:4:'NOT RUN' skip:3:INCOMPLETE; do
   k=${kind%%:*} rest=${kind#*:} want_rc=${rest%%:*} want=${rest#*:}
   e2e "$KIT" "$k" FAKE_MODE="$k"; rc=$?
@@ -271,6 +271,7 @@ while IFS='|' read -r name sedexpr; do
   m=$(mutant "$name" verdict.py "$sedexpr")
   mcheck "mutant: verdict $name is caught" "caught '$m'"
 done <<'MUTANTS'
+accepts a CONTROL failure of the new test anywhere|s/^    elif not control\["new_expected"\]:$/    elif False:/
 accepts a CONTROL pass of the new test|s/^    elif not control\["new_failed"\]:$/    elif False:/
 lets FIX fail the new test|s/^    if fix\["new_failed"\]:$/    if False:/
 accepts CONTROL failing the first test|s/^    elif control\["gpu"\] != "passed":$/    elif False:/

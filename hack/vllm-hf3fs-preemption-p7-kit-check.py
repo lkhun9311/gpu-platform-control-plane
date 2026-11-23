@@ -34,7 +34,9 @@ TF = "tests/v1/kv_connector/unit/test_hf3fs_preemption.py"
 FIRST = "TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv"
 NEW = "TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads"
 GPU_ENV = {"cuda_available": True, "device_name": "NVIDIA A10G", "torch": "t", "torch_cuda": "13.0", "triton": "3"}
-NEW_E = ["E   assert (None is not None)", "E    +  where None = <_SaveGather object at 0x7f00>.cuda_event"]
+# As pytest's --tb=short prints it: the failing source line, then its E lines.
+NEW_E = ["    assert gather.cuda_event is not None and gather.cuda_event.query()", "E   assert (None is not None)",
+         "E    +  where None = <_SaveGather object at 0x7f00>.cuda_event"]
 DUR = [f"61.20s call     {TF}::{FIRST}", f"9.10s call     {TF}::{NEW}"]
 
 
@@ -97,13 +99,19 @@ check("CONFIRMED: FIX passes both, the first with every held-save page error 0.0
 check("the printout has each arm's summary verbatim, CONTROL's new-test E lines verbatim, the held and page-error lines and the durations",
       "  pytest summary (verbatim): 1 failed, 1 passed, 21 warnings in 72.34s (0:01:12)\n" in t
       and "  pytest summary (verbatim): 2 passed, 21 warnings in 72.34s (0:01:12)\n" in t
-      and "    E   assert (None is not None)\n" in t and "    E    +  where None = <_SaveGather object at 0x7f00>.cuda_event\n" in t
+      and "    E   assert (None is not None)\n" in t and "assert gather.cuda_event is not None" not in t.split("VERDICT")[0].split("FIX:")[1] and "    E    +  where None = <_SaveGather object at 0x7f00>.cuda_event\n" in t
       and "  held-save page errors: [0.0, 0.0, 0.0]" in t and t.count(f"    61.20s call     {TF}::{FIRST}") == 2
       and t.count(f"    9.10s call     {TF}::{NEW}") == 2 and "test_failed_gather_still_fences_its_reads: FAILED" in t
       and "test_failed_gather_still_fences_its_reads: passed" in t and t.rstrip().endswith("VERDICT: CONFIRMED"))
 r = judged(control=log())
 check("INCONCLUSIVE: CONTROL passes the new test, so it does not catch the bug; exit 5",
       r["verdict"] == "INCONCLUSIVE" and r["_rc"] == 5 and "CONTROL passed the new test" in r["why"])
+r = judged(control=log(new="failed", new_e=["    llm = _hf3fs_llm(tmp_path)", "E   RuntimeError: Engine core initialization failed. See root cause above."]))
+check("INCONCLUSIVE: CONTROL fails the new test in its setup, not at the fence's asserts", r["verdict"] == "INCONCLUSIVE" and "not at the fence's asserts" in r["why"])
+r = judged(control=log(new="failed", new_e=["    with pytest.raises(RuntimeError, match=\"could not fence\"):", "E   Failed: DID NOT RAISE <class 'RuntimeError'>"]))
+check("CONFIRMED: CONTROL fails the new test where pytest.raises saw no 'could not fence' RuntimeError", r["verdict"] == "CONFIRMED")
+r = judged(control=log(new="failed", new_e=["    assert len(manager._unfenced_buffers) == 2", "E   AttributeError: 'AsyncOperationManager' object has no attribute '_unfenced_buffers'"]))
+check("CONFIRMED: CONTROL fails the new test at the missing _unfenced_buffers", r["verdict"] == "CONFIRMED")
 r = judged(control=log(first="mismatch", new="failed", errors="[0.0, 1.0049]"))
 check("INCONCLUSIVE: CONTROL fails the first test too, where p6's code passes it", r["verdict"] == "INCONCLUSIVE" and "CONTROL's first test mismatch" in r["why"])
 r = judged(fix=log(new="failed"))

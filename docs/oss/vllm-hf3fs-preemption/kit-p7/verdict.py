@@ -15,7 +15,8 @@ The rules, in order:
   INCONCLUSIVE when a precondition of the first test is not met in either arm, CONTROL's first test does not pass,
     CONTROL passes the new test, so the test does not catch what it is for,
     FIX's first test passes without its hold timing out, or with a held-save page error other than 0.0;
-  CONFIRMED otherwise: FIX passes both, its first with every held-save page error 0.0, and CONTROL passes the first and fails exactly the new one.
+    CONTROL fails the new test somewhere other than its fence asserts (cuda_event, the "could not fence" raises, _unfenced_buffers),
+  CONFIRMED otherwise: FIX passes both, its first with every held-save page error 0.0, and CONTROL passes the first and fails exactly the new one there.
 Exit status: 0 CONFIRMED, 2 FINDING, 3 INCOMPLETE, 4 NOT RUN, 5 INCONCLUSIVE.
 """
 
@@ -56,6 +57,9 @@ GPU_HEADER_RE = re.compile(r"^_+ (?:ERROR at (?:setup|call|teardown) of )?TestHF
 OTHER_HEADER_RE = re.compile(r"^_+ [^_\s].* _+$|^=+ .* =+$")
 NEW_HEADER_RE = re.compile(r"^_+ (?:ERROR at (?:setup|call|teardown) of )?TestHF3FSPreemptionEndToEnd\.test_failed_gather_still_fences_its_reads _+$")
 # --durations=0 prints one line per test phase, as "0.52s call     path::Class::test".
+# How the new test fails without the fence: its cuda_event assert, a pytest.raises that saw no "could not fence" RuntimeError,
+# or the missing _unfenced_buffers; a failure anywhere else, such as in its LLM's setup, does not show the test catching the bug.
+NEW_EXPECTED_RE = re.compile(r"gather\.cuda_event|DID NOT RAISE <class 'RuntimeError'>|could not fence|_unfenced_buffers")
 DURATION_RE = re.compile(r"^\s*[0-9.]+s (setup|call|teardown)\s+\S+::\S+$")
 # The test's precondition asserts, in the order it makes them.
 PRECONDITIONS = (
@@ -78,7 +82,7 @@ def ints(text):
 
 def arm_record(path, rc):
     """One arm's process: its summary, the new test's result, and the first test's state and printed lines."""
-    rec = {"exit": rc, "summary": None, "held_line": None, "errors": None, "traceback": [], "illegal_lines": [], "cpu_failed": [], "max_error": None, "kv_memory_lines": [], "end_errors": None, "old_errors_lines": [], "fail_at": None, "first_e": None, "summary_raw": None, "new_e": [], "new_failed": None, "durations": []}
+    rec = {"exit": rc, "summary": None, "held_line": None, "errors": None, "traceback": [], "illegal_lines": [], "cpu_failed": [], "max_error": None, "kv_memory_lines": [], "end_errors": None, "old_errors_lines": [], "fail_at": None, "first_e": None, "summary_raw": None, "new_e": [], "new_failed": None, "new_expected": False, "durations": []}
     if not os.path.exists(path):
         rec.update(gpu="incomplete", why="no log")
         return rec
@@ -138,6 +142,7 @@ def arm_record(path, rc):
             new_section.append(line)
     rec["new_e"] = [x for x in new_section if x.startswith("E ") or FAIL_AT_RE.match(x)]
     rec["new_failed"] = NEW_TEST in bad if summary is not None else None
+    rec["new_expected"] = bool(NEW_EXPECTED_RE.search("\n".join(new_section)))
     rec["durations"] = [x.rstrip("\r") for x in lines if DURATION_RE.match(x)]
     rec["fail_at"] = next((int(m.group(1)) for m in (FAIL_AT_RE.match(x) for x in section) if m), None)
     rec["illegal_lines"] = [f"{i}:{x}" for i, x in enumerate(lines, start=1) if ILLEGAL_RE.search(x)]
@@ -236,6 +241,10 @@ def judge(out):
     elif not control["new_failed"]:
         rec["verdict"] = "INCONCLUSIVE"
         rec["why"] = "CONTROL passed the new test without the fence, so the test does not catch the bug it is for"
+    elif not control["new_expected"]:
+        rec["verdict"] = "INCONCLUSIVE"
+        rec["why"] = ("CONTROL failed the new test, but not at the fence's asserts, so the failure does not show the test catching the bug: "
+                      + " | ".join(x.strip() for x in control["new_e"][:3]))
     elif fix["hold_timed_out"] is not True:
         rec["verdict"] = "INCONCLUSIVE"
         rec["why"] = "FIX's first test passed but its hold did not time out, so the pass did not come through the hook's wait"

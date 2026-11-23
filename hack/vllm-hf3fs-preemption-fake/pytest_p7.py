@@ -8,6 +8,7 @@ It prints --durations=0's lines before the summary, as pytest does.
 FAKE_MODE bends the run:
   fixnewfail       FIX fails the new test;
   controlnewpass   CONTROL passes the new test;
+  controlnewother  CONTROL fails the new test in its LLM's setup, not at the fence's asserts;
   controlfirstfail CONTROL fails the first test's page comparison;
   fixnonzero       FIX's first test passes with a held-save page error of 0.0012;
   fixnotimeout     FIX's first test passes without its hold timing out;
@@ -86,10 +87,15 @@ if failed:
             print("\n".join(prints))
     if new_fails:
         print("____________ TestHF3FSPreemptionEndToEnd.test_failed_gather_still_fences_its_reads ____________")
-        print(f"{TF}:354: in test_failed_gather_still_fences_its_reads")
-        print("    assert gather.cuda_event is not None and gather.cuda_event.query()")
-        print("E   assert (None is not None)")
-        print("E    +  where None = <_SaveGather object at 0x7f00>.cuda_event")
+        if arm == "control" and mode == "controlnewother":
+            print(f"{TF}:325: in test_failed_gather_still_fences_its_reads")
+            print("    llm = _hf3fs_llm(tmp_path)")
+            print("E   RuntimeError: Engine core initialization failed. See root cause above.")
+        else:
+            print(f"{TF}:354: in test_failed_gather_still_fences_its_reads")
+            print("    assert gather.cuda_event is not None and gather.cuda_event.query()")
+            print("E   assert (None is not None)")
+            print("E    +  where None = <_SaveGather object at 0x7f00>.cuda_event")
     print("=========================== short test summary info ============================")
     for t in failed:
         print(f"FAILED {TF}::{t}")
