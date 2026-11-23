@@ -2,7 +2,7 @@
 
 Issue [#673](https://github.com/lkhun9311/gpu-platform-control-plane/issues/673).
 The rules are in [`CONTRACT.md`](CONTRACT.md), committed before any GPU session, and every launched session is listed in [`attempts.md`](attempts.md).
-No GPU result exists yet; this directory holds the contract, the kit, its offline evidence and the gateway's share measured on kind.
+The GPU results of the two included sessions are in [`RESULTS.md`](RESULTS.md); this directory also holds the contract, the kit, its offline evidence and the gateway's share measured on kind.
 
 ## Files
 
@@ -38,13 +38,13 @@ This is the gateway's share on a CPU node with a stub; it is never added to a GP
 
 ## Launching a session
 
-The runner is `feat/llmd-1598-real-gpu-ab:hack/gpu-kit-session.sh`, which pull request #686 proposes for `dev`; until that merges it is not on `dev`, so it runs from a clean checkout of that branch.
+The runner is [`hack/gpu-kit-session.sh`](../../hack/gpu-kit-session.sh) on `dev`, merged by pull request #686 as commit `4b38c545`; sessions 1 to 3 ran it before that merge from `feat/llmd-1598-real-gpu-ab` at `06b8b59d` (each session's `session-provenance.txt`), whose copy of the file is identical to the one on `dev`.
 Its own tree must stay clean, so `OUT` points outside it.
 Another study holds the account's whole G and VT Spot quota between 17:00 and 22:00 UTC, so a launch then fails before any instance exists.
 
 ```bash
 bash hack/a10g-capacity-kit-test.sh        # in this worktree; must print "all checks passed"
-git -C ~/workspace/gpu-platform-control-plane worktree add --detach .claude/worktrees/gpukit-runner origin/feat/llmd-1598-real-gpu-ab
+git -C ~/workspace/gpu-platform-control-plane worktree add --detach .claude/worktrees/gpukit-runner origin/dev
 cd ~/workspace/gpu-platform-control-plane/.claude/worktrees/gpukit-runner
 SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.xlarge \
   OUT=$HOME/workspace/gpu-platform-control-plane/.claude/worktrees/a10g-capacity/experiments/a10g-capacity/runs/s1 \
