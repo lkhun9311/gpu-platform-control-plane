@@ -4,94 +4,45 @@ Kubernetes-native control plane that manages GPUs as a platform resource.
 
 ## Overview
 
-Most GPU setups stop at running a single workload. This project treats the GPU as a shared platform resource, covering node readiness, multi-tenant quota, serving, and training through one Kubernetes-native control plane.
+This is a Kubernetes control plane that treats GPUs as tenant resources.
+A tenant gets an aggregate GPU ceiling from a `GPUQuotaPolicy`, serves models through `InferenceDeployment` objects, and runs training as `MLTrainingJob` objects admitted through Kueue.
+Serving follows one lifecycle: **deploy → admission → observe → restore**.
+The operator renders the serving Deployment and Service from the CR, the tenant-aware gateway admits requests by what the controller reports in force, status and metrics show what is actually serving, and a CI job restores a failed release to its last known good spec.
+The restore runs on a CPU stub in CI ([#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677)); it is not an in-cluster rollback.
 
-## Upstream open-source validation
+## Serving lifecycle
 
-The benchmark harness and the paid GPU session tooling in this repository are also used to measure changes proposed to upstream open-source projects.
-Each result below was posted on the upstream thread, and its raw rows are committed here.
-Every case, with its environment, baseline, result, reproduction command, cost and upstream status, is in [`docs/16_OSS_VALIDATION_CASE_STUDIES.md`](docs/16_OSS_VALIDATION_CASE_STUDIES.md).
-Upstream contribution work (kits, session scripts and run records) lives under [`oss/`](oss/README.md), separate from the platform's own code.
-
-### vLLM #58420: SRPF scheduling and its starvation threshold
-
-[vllm-project/vllm#58420](https://github.com/vllm-project/vllm/pull/58420) proposes a Shortest Remaining Prefill First scheduling policy.
-Its author asked for a measurement on real hardware, and later asked for a sweep of the new `VLLM_SRPF_STARVATION_THRESHOLD` setting.
-
-![Short-request TTFT p99 by scheduling arm](oss/vllm/58420-srpf/2026-11-19-threshold-run1/ttft-p99.svg)
-
-| Arm | Short TTFT p99 (ms) | vs fcfs | Long completion p95 (ms) | vs fcfs |
-|---|---:|---:|---:|---:|
-| fcfs | 5,983.5 | | 6,868.0 | |
-| priority | 1,476.4 | −75.3% | 7,936.8 | +15.6% |
-| srpf, threshold 2 | 1,717.6 | −71.3% | 7,901.8 | +15.1% |
-| srpf, threshold 3 | 1,799.2 | −69.9% | 7,814.1 | +13.8% |
-| srpf, threshold 5 | 1,942.3 | −67.5% | 7,791.6 | +13.4% |
-| srpf, threshold 8 | 2,176.3 | −63.6% | 7,683.8 | +11.9% |
-| srpf, threshold 10 | 2,359.4 | −60.6% | 7,685.5 | +11.9% |
-
-- **Workload:** a frozen open-loop trace of 4,102 requests: 3,917 short (68 input / 64 output tokens) and 185 long (7,695 input / 16 output tokens).
-  The replay sends each request at its scheduled time, and TTFT is measured from that time.
-- **Setup:** Qwen2.5-3B-Instruct on one A10G (g5.xlarge Spot, ap-northeast-2).
-  The engine is vLLM's CI image for the PR's merge base, pinned by digest, with the PR head's `scheduler.py` overlaid and pinned by sha256.
-- **Arms:** seven arms ran on one instance in a seeded order.
-  Every request completed in every arm, with no preemptions.
-- **Proof that the threshold took effect:** each engine core recorded the `srpf_starvation_threshold` its scheduler held after `Scheduler.__init__`.
-  An arm counts only if every engine core reports the arm's value.
-- **Outcome upstream:**
-  - The result went against the expectation in the thread: a lower threshold gave a better short-request p99.
-  - The author [made 3 the new default](https://github.com/vllm-project/vllm/pull/58420#issuecomment-6987567919), and the PR description now cites this sweep.
-  - [Results comment](https://github.com/vllm-project/vllm/pull/58420#issuecomment-6987224085).
-- **Cost:** about 83 minutes of one g5.xlarge Spot instance, about $0.98, with termination confirmed.
-
-What this does not show:
-
-- It is one run per arm, on one GPU model and one model size.
-  The differences in long completion p95 between thresholds are small enough that one run cannot rank them.
-- The vLLM PR is open and not merged.
-  The harness here is this repository's own tooling, not a tool adopted by the vLLM project.
-
-| Piece | Where |
-|---|---|
-| Trace (frozen, with SHA256SUMS) | [`hack/eks-serve/holdcap-study/diagnostic/`](hack/eks-serve/holdcap-study/diagnostic/) |
-| Open-loop replay | [`internal/bench/replay.go`](internal/bench/replay.go) |
-| Arms, pins and engine-core checks | [`internal/bench/srpf_sweep.go`](internal/bench/srpf_sweep.go), [`cmd/benchharness/srpfsweep.go`](cmd/benchharness/srpfsweep.go) |
-| Paid session (launch, deadlines, teardown) | [`oss/vllm/58420-srpf/vllm-58420-session.sh`](oss/vllm/58420-srpf/vllm-58420-session.sh) |
-| Raw rows, per-arm summary, arm table | [`oss/vllm/58420-srpf/2026-11-19-threshold-run1/`](oss/vllm/58420-srpf/2026-11-19-threshold-run1/) |
-| Earlier runs 1–8 | [`oss/vllm/58420-srpf/`](oss/vllm/58420-srpf/) |
-
-To check the session offline, with fakes for AWS and the engine, run `bash oss/vllm/58420-srpf/vllm-58420-session-test.sh`.
-To recompute the table from the raw rows, run the following.
-It uses only the Python standard library.
-It matches the table to within 0.1 ms, a rounding difference from the harness's own summary.
-
-```bash
-python3 - <<'EOF'
-import gzip, json, math
-d = "oss/vllm/58420-srpf/2026-11-19-threshold-run1/sr-run/sweep"
-pct = lambda v, p: sorted(v)[max(0, math.ceil(p / 100 * len(v)) - 1)]
-for arm in ["fcfs", "priority", "srpf-s2", "srpf-s3", "srpf-s5", "srpf-s8", "srpf-s10"]:
-    short, long_ = [], []
-    for line in gzip.open(f"{d}/raw-{arm}.jsonl.gz", "rt"):
-        r = json.loads(line)
-        scheduled = r["replayOriginUnixNanos"] + r["scheduledOffsetMs"] * 1e6
-        if r["isNoisy"]:
-            long_.append((r["endUnixNanos"] - scheduled) / 1e6)
-        else:
-            short.append((r["firstTokenUnixNanos"] - scheduled) / 1e6)
-    print(f"{arm:9} short TTFT p99 {pct(short, 99):8.1f} ms  long completion p95 {pct(long_, 95):8.1f} ms")
-EOF
+```mermaid
+flowchart LR
+  deploy["Deploy<br/>InferenceDeployment CR<br/>→ owned Deployment + Service"]
+  admit["Admission<br/>controller reports the mode in force<br/>→ gateway admits per tenant"]
+  observe["Observe<br/>status.phase and conditions,<br/>gateway metrics and alerts"]
+  restore["Restore<br/>last known good CR spec<br/>(CI, CPU stub)"]
+  deploy --> admit --> observe --> restore
+  restore -. "re-deploy" .-> deploy
 ```
 
-Repeating the paid run needs an AWS account that allows g5 instances, and the session asks for confirmation before it launches anything.
-
-### Other upstream threads measured with this repository
-
-| Upstream thread | What was measured here | Evidence |
+| Step | What the code does | Where |
 |---|---|---|
-| [vllm-project/vllm#67811](https://github.com/vllm-project/vllm/pull/67811) (adaptive prefill time budget, open) | The PR's `serve.py` baseline against its opt-in mode on one A10G, then a traced re-run that located a stall. [1](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967453629), [2](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6967700360), [3](https://github.com/vllm-project/vllm/pull/67811#issuecomment-6968495394) | [`oss/vllm/67811-prefill-budget/`](oss/vllm/67811-prefill-budget/) |
-| [vllm-project/aibrix#3439](https://github.com/vllm-project/aibrix/issues/3439) (a failed metric source lets the rest scale down, open) | Replayed on a kind lab with an autoscaled InferenceDeployment | [`docs/15_AIBRIX_AUTOSCALING_LAB.md`](docs/15_AIBRIX_AUTOSCALING_LAB.md), [`hack/aibrix-lane2/`](hack/aibrix-lane2/) |
-| [vllm-project/vllm#68548](https://github.com/vllm-project/vllm/pull/68548) (single-token TPOT metric fix, open) | vLLM's own metrics pytest before and after the fix, in the CI image on one A10G: before failed as expected, after passed 3 of 3 | [`oss/vllm/68548-tpot/runs/2026-11-18-run1/`](oss/vllm/68548-tpot/runs/2026-11-18-run1/) |
+| Deploy | `Reconcile` creates or updates a Deployment and a Service owned by the `InferenceDeployment`. The container comes from `spec.image` and `spec.model`, or, with `spec.engine.vllm` set, `mutateEngineDeployment` renders the pinned vLLM engine instead. `computeInfDPhase` maps the rollout to `status.phase` | [`inferencedeployment_controller.go`](internal/controller/inferencedeployment_controller.go), [`inference_engine.go`](internal/controller/inference_engine.go) |
+| Admission | The gateway resolves the API key to a tenant and applies that tenant's token bucket. `admissionInForce` reports HoldCap in `status.admission` only once the capped engine is the only Pod serving. The gateway reads that status, not the spec alone (`backendAdmission`), and picks the admitter per backend (`admissionFor`) | [`inference_admission.go`](internal/controller/inference_admission.go), [`server.go`](internal/gateway/server.go), [`ratelimit.go`](internal/gateway/ratelimit.go), [`router.go`](internal/gateway/router.go), [`holdcap.go`](internal/gateway/holdcap.go) |
+| Observe | `status.phase` with the `Available`, `AdmissionInForce` and `EngineInForce` conditions; gateway metrics, alert rules, dashboards and the runbook's serving section, revised in [#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679) to say what they measure | [`metrics.go`](internal/gateway/metrics.go), [`gateway_rules.yaml`](config/prometheus/gateway_rules.yaml), [`operator_dashboard.json`](config/prometheus/operator_dashboard.json), [`OPERATOR_RUNBOOK.md`](docs/runbook/OPERATOR_RUNBOOK.md) |
+| Restore | The reconciler watches the Deployment and Service it owns (`SetupWithManager`) and re-applies the fields it renders when they change. A release is verified and, on failure, restored to the last known good CR spec by `hack/serving-release.sh` in CI, on a CPU stub ([#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677)) | [`inferencedeployment_controller.go`](internal/controller/inferencedeployment_controller.go), [`serving-release.sh`](hack/serving-release.sh), [`serving-release.yml`](.github/workflows/serving-release.yml) |
+
+## Headline results
+
+Each row says what was measured, under which run, with links to the evidence.
+A row whose result is not measured yet says so and claims nothing.
+
+| Result | As measured | Evidence |
+|---|---|---|
+| HoldCap admission on the product path, EKS, one A10G | Run 3's registered verdict: **observed on these traces**. On one g5.xlarge Spot A10G in EKS, deployed by Argo CD, switching one `InferenceDeployment` from Off to HoldCap cut the premium tenant's TTFT p99 to **0.280, 0.283 and 0.305** of Off's in blocks 851, 852 and 853 (limit 0.85), against an Off that binds priority by tier. Every contender completed, at a median 1.26 to 1.38 times Off's (limit 1.5); 0 refusals, 0 preemptions; every cell valid. One run of one card on three traces is one observation, not a rate. Runs 1 and 2, against an Off that bound no priority, missed their registered verdict ("not met") | [run 3](hack/eks-serve/holdcap-study/runs/20261021T021149Z/README.md); registered in [the design page](docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md#run-3-the-bound-off-registered-2026-10-21-before-it-ran) before it ran; product [`329cba2`](https://github.com/lkhun9311/gpu-platform-control-plane/tree/329cba20b5f391b37d5c47fd89c5bee73efa2057), tooling [`53ce5f1`](https://github.com/lkhun9311/gpu-platform-control-plane/tree/53ce5f12973f3e3e93e06b73baab3a6067cfc940); raw rows per cell in [`cells/`](hack/eks-serve/holdcap-study/runs/20261021T021149Z/holdcap-study/cells/); [run 1](hack/eks-serve/holdcap-study/runs/20261015T050622Z/README.md), [run 2](hack/eks-serve/holdcap-study/runs/20261015T225425Z/README.md) |
+| Shared tenant rate limit across gateway replicas, kind, CPU stub | One tenant at 60 requests a minute with burst 5, open loop at 10 requests a second for 60 s, on one kind node. Three gateway replicas admitted **192** in each of three repetitions with per-Pod memory buckets and **64** with the shared Redis store, against a one-bucket bound of 64.90; admitted equalled the stub backend's served count in every arm. With Redis stopped, the default local policy kept answering with per-replica buckets and the closed policy refused with 503. Not large scale, not Redis high availability, no GPU, loopback latency only; HoldCap is not supported in this multi-gateway profile | [run 2](hack/gateway-shared-ratelimit/2026-11-22-run2/README.md), with its per-request rows and `score.txt`; [design](docs/superpowers/specs/2026-11-21-gateway-shared-ratelimit-design.md); [#670](https://github.com/lkhun9311/gpu-platform-control-plane/pull/670) |
+| Release verification and restore in CI, kind, CPU stub | In the CI run on the pull request's final commit, the self-test passed: the healthy candidate passed, and the TTFT-regression and never-Ready candidates failed and were restored, each restore passing the same Ready check and gateway smoke. With the saved spec corrupted, the self-test failed as it must, and the CI job asserting that passed. A manual gate run with the never-Ready candidate was red, with the candidate failed and restored. A release pipeline on a CPU stub only: not vLLM deployment automation, GitOps rollback or zero downtime | [design and scope](hack/serving-release.md); [self-test run](https://github.com/lkhun9311/gpu-platform-control-plane/actions/runs/45046898293) at `bfa4772`; [gate run](https://github.com/lkhun9311/gpu-platform-control-plane/actions/runs/45046828971) at `ba23017`; [#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677) |
+| One serving alert delivered, kind, CPU stub | With a model left with no engine Pod, `GatewayUpstreamErrorsReachingClients` reached a webhook receiver through Alertmanager **367.2 s** after the fault started, most of it the rule's 57 s to first match and its 5-minute hold; the resolved notification arrived 297.7 s after the fault ended, and exactly one of each was received. Not a page to a person, not a GPU engine | [record](hack/gateway-alert-delivery.md) and [evidence](hack/gateway-alert-delivery-20261122T160709Z/), run at `e08e6e3b`; [#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679) |
+| Capacity, overload and recovery on one A10G | Two included sessions, reported separately; the first launch was excluded after a Spot reclaim. On one g5.xlarge Spot A10G with vLLM v0.27.1, Qwen2.5-3B, 512 tokens in and 128 out and prefix caching off, the highest stable rate of the pilot's ladder was **8 req/s** in both sessions (p99 TTFT 1,688.9 and 1,643.6 ms, n=385 each); 10 req/s was unstable. The 150 s saturation stage at 8 req/s then **did not hold** in either (p99 TTFT 3,698.1 and 3,547.6 ms, n=1,095 each, against 2,000 ms). A 90 s overload at 12 req/s completed every request, with p99 TTFT near 37 s, and the contract's recovery rule found recovery **60 s** after it in both sessions. Each of six warm engine restarts served again after 43.9 to 53.8 s. Running sequences peaked at 64, the profile's `--max-num-seqs`, while KV cache usage peaked at 9.9% or less. Not a maximum A10G capacity, not latency through the gateway, not HA | [results](https://github.com/lkhun9311/gpu-platform-control-plane/blob/b69771ceb790b002fc43e2bd57e95aeeb19eb5d8/experiments/a10g-capacity/RESULTS.md), [contract](https://github.com/lkhun9311/gpu-platform-control-plane/blob/b69771ceb790b002fc43e2bd57e95aeeb19eb5d8/experiments/a10g-capacity/CONTRACT.md) committed before the first session, [attempt ledger](https://github.com/lkhun9311/gpu-platform-control-plane/blob/b69771ceb790b002fc43e2bd57e95aeeb19eb5d8/experiments/a10g-capacity/attempts.md); raw runs [s2](https://github.com/lkhun9311/gpu-platform-control-plane/tree/b69771ceb790b002fc43e2bd57e95aeeb19eb5d8/experiments/a10g-capacity/runs/s2/run/results) and [s3](https://github.com/lkhun9311/gpu-platform-control-plane/tree/b69771ceb790b002fc43e2bd57e95aeeb19eb5d8/experiments/a10g-capacity/runs/s3/run/results); [#678](https://github.com/lkhun9311/gpu-platform-control-plane/pull/678), [docs/17](docs/17_SERVING_RELEASE_AND_CAPACITY.md#capacity-overload-and-recovery-on-one-a10g-673) |
+
+The noisy-neighbour contention measurement and the invalid admission-guard run are summarised under [The measurement, first](#contention-and-the-admission-guard-in-brief).
 
 ## Latest results (2026-10-27 to 2026-11-08)
 
@@ -108,10 +59,25 @@ Every paid run was on rented A10Gs in ap-northeast-2, and each record states how
 | Linux diagnosis | Five memory-limit cases on kind, 15 of 15 as registered, including a Pod that is `Succeeded` with exit 0 while its container reason is `OOMKilled` | [results](experiments/linux-diagnosis/README.md) |
 | Network diagnosis | Seven cases (DNS, packet loss, refused and timed-out connections), 21 of 21, each told apart by a capture on the client | [results](experiments/network-diagnosis/README.md) |
 | Tenant boundary | Per-tenant RBAC, default-deny NetworkPolicy, Pod Security baseline and a ClusterQueue `namespaceSelector`, rendered from one template. On kind with Calico: 23 of 23 checks (2 allowed, 8 refused by RBAC, 4 by admission, 6 connections reached, 3 timed out) | [design](docs/superpowers/specs/2026-11-07-tenant-boundary-design.md), [run](hack/tenant-boundary/2026-11-07-run1/results.jsonl) |
-| Runbook and drill | A fresh AI agent given only the runbook acted as the on-call engineer for three incidents (pending job, GPU fault, lost node) and resolved all three safely with no intervention. The drill found the re-admission loop above and gaps in the runbook, which were then fixed | [runbook](docs/runbook/OPERATOR_RUNBOOK.md), [drill](hack/drill/README.md) |
-| Review | Before each result was published, gpt-6-astra reviewed it adversarially, area by area. A finding was fixed only after it was checked against the code and the raw records, and fixes were mutated to confirm a test fails without them | [r1](docs/superpowers/specs/2026-11-07-review-r1-restart-controller.md) to [r9](docs/superpowers/specs/2026-11-07-review-r9-public-docs.md), [architecture](docs/superpowers/specs/2026-11-07-architecture-review-design.md) |
+
+## Upstream open-source validation
+
+<a id="vllm-58420-srpf-scheduling-and-its-starvation-threshold"></a>
+<a id="other-upstream-threads-measured-with-this-repository"></a>
+Upstream contribution work (vLLM, SGLang, llm-d, AIBrix, Kubernetes), with the kits, session scripts and run records behind each thread, is indexed with its status in [`oss/README.md`](oss/README.md); the case studies are in [`docs/16_OSS_VALIDATION_CASE_STUDIES.md`](docs/16_OSS_VALIDATION_CASE_STUDIES.md).
 
 ## The measurement, first
+
+### Contention and the admission guard, in brief
+
+| Result | As measured | Evidence |
+|---|---|---|
+| Noisy neighbour, one shared engine | A measurement of contention, not of isolation. Victim TTFT p99 is about **23.0x** its isolated value with one engine serving both tenants: 174 ms isolated against 3,998 ms shared, the median of five repetitions per arm, on a rented A10G on 2026-10-01. The run bought no split-card arm | [section below](#the-frozen-contract-run); collected at [`7b69214`](https://github.com/lkhun9311/gpu-platform-control-plane/tree/7b6921439c41f32843fba9fe6eeb793e64a30732); config [`platform_v1_gpusharingbenchmark_executable.yaml`](https://github.com/lkhun9311/gpu-platform-control-plane/blob/7b6921439c41f32843fba9fe6eeb793e64a30732/config/samples/platform_v1_gpusharingbenchmark_executable.yaml); raw rows in [the evidence release](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/evidence-m5c-2026-10-01), digests in [docs/12](docs/12_EVIDENCE_CHECKSUMS.md), analysis version [`cc920d3`](https://github.com/lkhun9311/gpu-platform-control-plane/tree/cc920d34a574576eae320043dae90bdfcfff1fdd); per-repetition values in [docs/13](docs/13_PER_REPETITION_VALUES.md) |
+| KV-cache-aware admission guard (M5-b) | A negative result. On a paid GPU run on 2026-09-03 the guard missed its pre-registered premium-tail target, and the harness declared the run invalid and made no protection claim. The KV-occupancy signal the guard was named for never fired at this load; its refusals came from the waiting-queue condition. The measured ratios stay in the write-up and are not on this screen, because the raw rows behind them are not public | [write-up](hack/m5d-writeup.md), [analysis](docs/superpowers/specs/2026-09-04-the-layer-not-the-signal.md), [record listing](docs/captures/m5b-run-20260903-091356/numbers.md). The run's session log records the gateway built at [`559fec3`](https://github.com/lkhun9311/gpu-platform-control-plane/tree/559fec3511200c1b6373ee0cc8d7a49b7281c475) and the engine digest pinned in [`config/vllm/deployment.yaml`](https://github.com/lkhun9311/gpu-platform-control-plane/blob/559fec3511200c1b6373ee0cc8d7a49b7281c475/config/vllm/deployment.yaml) at that commit. The raw rows and that log are not public |
+
+The two measured rows are different runs under different loads with different isolated baselines, so they are not compared or combined.
+
+### The frozen-contract run
 
 The control plane is the instrument. This is what it measured on a rented A10G under the **frozen execution
 contract** — ten cells, five repetitions per arm, 2026-10-01:
@@ -248,7 +214,7 @@ bindings rather than a missing afternoon of work.
 15.7 min against the runner's assumed 10, so ten cells need about 212 min and the deadline was 160. It cost
 **$0.25** and bought one cell, not a comparison. The afternoon run, after the deadline and the credential
 guard were both derived from the matrix's own stopping rule, completed **10 of 10 cells** in about 126
-minutes for **$1.44** — commit `7b69214`, and the table at the top of this file is that run. Total spend for
+minutes for **$1.44** — commit `7b69214`, and the table at the top of [this section](#the-measurement-first) is that run. Total spend for
 the pair: **$1.69**. *(These are estimates from the runs' durations and list prices; no billing reconciliation is archived for either run, so "spend" means estimated spend. Labelled 2026-11-07.)*
 
 Both commits are the tree the evidence was **collected** from, which each run's archive records in its own
@@ -263,6 +229,15 @@ afternoon run replaced the headline, so the file said the measurement was from 2
 2026-09-13 here. The correction is recorded rather than quietly applied, because a reader who saw the old
 text should be able to tell which sentence moved.
 
+## Review and drill records
+
+How the 2026-10-27 to 2026-11-08 results above were checked before publication, and how the runbook was exercised.
+
+| Area | Result | Record |
+|---|---|---|
+| Runbook and drill | A fresh AI agent given only the runbook acted as the on-call engineer for three incidents (pending job, GPU fault, lost node) and resolved all three safely with no intervention. The drill found the re-admission loop above and gaps in the runbook, which were then fixed | [runbook](docs/runbook/OPERATOR_RUNBOOK.md), [drill](hack/drill/README.md) |
+| Review | Before each result was published, gpt-6-astra reviewed it adversarially, area by area. A finding was fixed only after it was checked against the code and the raw records, and fixes were mutated to confirm a test fails without them | [r1](docs/superpowers/specs/2026-11-07-review-r1-restart-controller.md) to [r9](docs/superpowers/specs/2026-11-07-review-r9-public-docs.md), [architecture](docs/superpowers/specs/2026-11-07-architecture-review-design.md) |
+
 ## Scope
 
 The control plane is organized into the following areas:
@@ -275,10 +250,10 @@ no code in this repository, and saying which is which is more useful to a reader
 | Node readiness         | Mirror a Node's `Ready` condition into a `NodeHealth` CR and taint on degradation                | Built. Until 2026-11 this row said the CR was hand-created and there was no GPU-specific fault detection; both have changed. `--provision-nodehealth` gives every GPU node a `NodeHealth`, and the operator scrapes each node's DCGM exporter and taints and displaces work on an Xid 79 or ECC DBE fault ([result](docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md)). The faults were injected into DCGM's cache on a real A10G; no hardware fault has been observed |
 | Multi-tenant quota     | Sync an aggregate per-tenant GPU ceiling from `GPUQuotaPolicy` into a namespace `ResourceQuota`, or into a Kueue `ClusterQueue` for training, and supply the gateway's rate limits | Built. There is no isolation policy in the type — the earlier wording said so and the API has never had one. Isolation is a separate per-tenant bundle rendered from `config/tenant/bundle.yaml.tmpl` (RBAC, default-deny NetworkPolicy, Pod Security baseline, LimitRange), and each generated ClusterQueue now carries a `namespaceSelector` for its tenant's namespaces; proven on kind with Calico, not on EKS ([design](docs/superpowers/specs/2026-11-07-tenant-boundary-design.md)). `spec.gpuClass` is recorded and **not** enforced per class: one aggregate `requests.nvidia.com/gpu` key is capped regardless of class |
 | Inference serving      | Manage serving workloads declaratively via `InferenceDeployment`                                 | Built. One engine is describable: `spec.engine.vllm` renders the pinned vLLM profile of the admission study, and `spec.admission: HoldCap` serves it under the rule of Finding 9. A paid session checked the rendered arguments, the status and the rollout on an A10G, with no gateway and no latency measured ([record](hack/holdcap-conformance/runs/20261011T030610Z/README.md)) |
-| Training admission     | Translate `MLTrainingJob` into queued `batch/v1` Jobs admitted through Kueue (M6)                | Built. A distributed job with `distributed.maxRestarts` above 0 is stopped whole on a failure and restarted only once the old attempt's Job, Pods and Workload are gone and every node that held a rank is Ready or fenced; measured on EKS in the results table at the top. It also reports what the tenant waited: `admitToRunningSeconds` on the CR and a histogram beside it, and it refuses the window when Kueue carried no usable stamp, when it never saw the admission, or when the interval comes out negative. **It does not establish continuous observation**: if the admission stamp was persisted and this controller was then down while the Pod became ready, the next transition it sees subtracts the stamp from `now` and publishes a figure that includes the downtime, with `Observed=True`. What the field means is admission to *first observed* readiness |
-| Gateway                | Tenant-aware serving gateway: API key → tenant, token bucket, model routing, proxy, metrics      | Built, unit-tested and **deployed on kind** — in front of a stub backend ([observability](hack/observability-kind.md), [chaos](hack/chaos-fr002-serving-pod-killed.md)), driven by the benchmark harness through its real pipeline with no GPU ([path](hack/m5b-gateway-path.md)), chained to a real vLLM running on CPU ([chain](hack/m5b-chain-live-evidence.log), where the `InferenceDeployment` is a routing record and not a vLLM deployment), and deployed into the kind cluster of the paid A10G sessions. **Deployed to EKS through the GitOps path on 2026-09-25** — Argo CD installed by its own Terraform root, `config/argocd/root.yaml` applied, and the gateway it deployed answered `/readyz` 200, refused an unregistered key with 401 `unauthorized`, and accepted a key from the Secret with 403 `no_policy`. That is authentication reaching the key store, **not** proof of serving: no backend was deployed, and `device-plugin`, `observability` and `samples` are manual and stayed `OutOfSync`, so the claim is about the automated baseline ([pre-registration and result](docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md)). **On 2026-10-12 it served a request on EKS**: a second GitOps cycle routed one tenant's streaming request through it, under HoldCap admission, to a controller-rendered vLLM engine on an A10G, and the answer came back 200; the engine recovered from a deleted Pod and answered again, and the teardown left nothing billing ([record](hack/eks-serve/runs/20261012T095840Z/README.md)). One request at a time, in one session: not operation. The token bucket is per Pod: two replicas admitted 68 against a bound of 34.90, 1.95x, in three of three repetitions on kind, which is why the gateway runs one replica ([experiment](experiments/gateway-replica-limit/README.md)) |
+| Training admission     | Translate `MLTrainingJob` into queued `batch/v1` Jobs admitted through Kueue (M6)                | Built. A distributed job with `distributed.maxRestarts` above 0 is stopped whole on a failure and restarted only once the old attempt's Job, Pods and Workload are gone and every node that held a rank is Ready or fenced; measured on EKS in the [latest results](#latest-results-2026-10-27-to-2026-11-08) table. It also reports what the tenant waited: `admitToRunningSeconds` on the CR and a histogram beside it, and it refuses the window when Kueue carried no usable stamp, when it never saw the admission, or when the interval comes out negative. **It does not establish continuous observation**: if the admission stamp was persisted and this controller was then down while the Pod became ready, the next transition it sees subtracts the stamp from `now` and publishes a figure that includes the downtime, with `Observed=True`. What the field means is admission to *first observed* readiness |
+| Gateway                | Tenant-aware serving gateway: API key → tenant, token bucket, model routing, proxy, metrics      | Built, unit-tested and **deployed on kind** — in front of a stub backend ([observability](hack/observability-kind.md), [chaos](hack/chaos-fr002-serving-pod-killed.md)), driven by the benchmark harness through its real pipeline with no GPU ([path](hack/m5b-gateway-path.md)), chained to a real vLLM running on CPU ([chain](hack/m5b-chain-live-evidence.log), where the `InferenceDeployment` is a routing record and not a vLLM deployment), and deployed into the kind cluster of the paid A10G sessions. **Deployed to EKS through the GitOps path on 2026-09-25** — Argo CD installed by its own Terraform root, `config/argocd/root.yaml` applied, and the gateway it deployed answered `/readyz` 200, refused an unregistered key with 401 `unauthorized`, and accepted a key from the Secret with 403 `no_policy`. That is authentication reaching the key store, **not** proof of serving: no backend was deployed, and `device-plugin`, `observability` and `samples` are manual and stayed `OutOfSync`, so the claim is about the automated baseline ([pre-registration and result](docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md)). **On 2026-10-12 it served a request on EKS**: a second GitOps cycle routed one tenant's streaming request through it, under HoldCap admission, to a controller-rendered vLLM engine on an A10G, and the answer came back 200; the engine recovered from a deleted Pod and answered again, and the teardown left nothing billing ([record](hack/eks-serve/runs/20261012T095840Z/README.md)). One request at a time, in one session: not operation. The token bucket is per Pod: two replicas admitted 68 against a bound of 34.90, 1.95x, in three of three repetitions on kind, which is why the gateway runs one replica ([experiment](experiments/gateway-replica-limit/README.md)). That is still the deployed default: `config/gateway` runs one replica on the memory store, and HoldCap is supported only there. Since #670, `--rate-limit-store=redis` shares one bucket per tenant across replicas as a separate multi-gateway profile with admission off, measured on kind in the headline results above |
 | Admission guard        | KV-cache-aware three-arm admission guard and open-loop benchmark harness (M5-b)                  | **Built and measured on a paid GPU.** The guard missed its pre-registered 1.25x premium-tail target at 83.7x over four repetitions, and the harness declared the run invalid rather than reporting a protection claim. Re-analysing the same rows at no further spend then found the occupancy signal the milestone was named for had been unreachable by construction and never fired at all ([write-up](hack/m5d-writeup.md), [analysis](docs/superpowers/specs/2026-09-04-the-layer-not-the-signal.md)) |
-| Performance isolation  | Measure multi-tenant noisy-neighbor p99 contention under GPU sharing                             | **Measured on a rented A10G — the table at the top of this file.** Under the frozen contract the victim's TTFT p99 is **23.0x** its isolated value with one shared engine, five repetitions, 23,274 of 23,275 premium requests completed, no interval published. This run bought no **split card**. The earlier three-arm pilot measured it at a shorter prompt and timeout, 27.2x shared and 14.5x split over two repetitions, and a fifteen-cell rerun on 2026-10-02 at the longer prompt reversed it: `timeSlicing` 14,868 ms against `shared`'s 4,001, answer INCONCLUSIVE (the ⚠️ block at the top of this file; [pre-registration and result](docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md)). Nine paid pilots and six capacity-ladder sessions produced it. What is **not** built: the `GpuSharingBenchmark` CRD registers the protocol and refuses a badly declared one, and nothing writes its `status.result` — so the numbers are a harness result rather than a control-plane one. The defects the instrument had before it could be trusted are described in [docs/10](docs/10_WHAT_I_GOT_WRONG.md) rather than here |
+| Performance isolation  | Measure multi-tenant noisy-neighbor p99 contention under GPU sharing                             | **Measured on a rented A10G — the table in [The measurement, first](#the-measurement-first).** Under the frozen contract the victim's TTFT p99 is **23.0x** its isolated value with one shared engine, five repetitions, 23,274 of 23,275 premium requests completed, no interval published. This run bought no **split card**. The earlier three-arm pilot measured it at a shorter prompt and timeout, 27.2x shared and 14.5x split over two repetitions, and a fifteen-cell rerun on 2026-10-02 at the longer prompt reversed it: `timeSlicing` 14,868 ms against `shared`'s 4,001, answer INCONCLUSIVE (the ⚠️ block under [The measurement, first](#the-measurement-first); [pre-registration and result](docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md)). Nine paid pilots and six capacity-ladder sessions produced it. What is **not** built: the `GpuSharingBenchmark` CRD registers the protocol and refuses a badly declared one, and nothing writes its `status.result` — so the numbers are a harness result rather than a control-plane one. The defects the instrument had before it could be trusted are described in [docs/10](docs/10_WHAT_I_GOT_WRONG.md) rather than here |
 | Paid-run harness       | Pin what a GPU-renting script does before it can be run against a card                            | Built, and enforced: `make spot-lifecycle` is a prerequisite of `make infra-validate`, which CI runs. Four runners, 68 recorded scenarios plus one source-order assertion — 69 checks (counted on 2026-10-09 from the `run_scenario` calls per `scenarios_*` function: 16 microtest, 11 price-of-protection, 23 m5c, 18 queuelab, and the single assertion at `characterize.sh:938`; earlier figures in this row, 53, 72 and 64, were wrong or overtaken): every scenario runs the real script with `aws` and `sleep` replaced by recording stubs and diffs the AWS calls, exit status, messages and run-directory contents against a golden. It pins the **host** side. What it cannot tell — whether a cluster then comes up — is covered separately by two rehearsals that run for real on a local kind cluster: `hack/test/rehearse-bringup.sh` extracts the GPU-free span of a session's user-data, and `hack/test/rehearse-m5c-matrix.sh` runs the M5-c matrix itself with stub engines and simulated devices |
 | Failure & recovery     | Inject failure scenarios and record an operational evidence trail                                | Built — `WorkloadRun` CRD, controller and driver — and **run for real**: deleting a serving Pod produced a trail nobody wrote by hand, and the run exposed a defect envtest could not. Two of three scenarios are recordable ([evidence](hack/m6-kind-e2e.md)) |
 | Ledger                 | A SQLite ledger projecting CR/status/events                                                      | **Storage, projector, reader and a CLI** — 2 of 6 tables. `cmd/platformctl` dispatches `workload-runs project`, `list` and `get`; the earlier "no command yet" was stale. **It has now projected a cluster**: one `WorkloadRun` from an M7 run, `seen=1 written=1 events-new=3`, and a second pass reported `events-already=3` so the idempotence is measured ([record](hack/ledger-first-projection.md)). Four of the six tables still do not exist, and nothing runs the projector on a schedule |
@@ -463,14 +438,22 @@ api/            CRD types
 internal/       the substance: five reconcilers, the serving gateway,
                 the admission guard and benchmark harness, the queuelab
                 measurement layer
-cmd/            controller manager, gateway, benchmark harness, queuelab runner
-config/         kustomize manifests (CRD, RBAC, manager, Kueue fixtures)
-hack/           local cluster config and the M6 end-to-end script + evidence
+cmd/            controller manager, gateway, benchmark harness, queuelab runner,
+                platformctl and the other measurement CLIs
+config/         kustomize manifests (CRD, RBAC, manager, gateway, Kueue fixtures,
+                Prometheus rules and dashboards, tenant bundle)
+hack/           session scripts and their run records (paid EC2 and kind),
+                local cluster config, and the repository's own checks
+experiments/    one-off questions asked of the platform, kept apart from its code
+oss/            upstream contribution work: validation kits, session scripts and
+                run records, indexed in oss/README.md
 infra/          Terraform for the AWS hosting path (bootstrap applied; cluster applied
                 and destroyed on 2026-09-18 and again on 2026-09-25, not applied now)
-docs/           design documents and specs
+docs/           design documents, specs, findings and the runbook
 test/           e2e test scaffolding
 ```
+
+Training-to-serving lineage (a served answer traced back to its training data) was checked as an experiment on kind with a CPU model, in [`experiments/mlops-lineage/`](experiments/mlops-lineage/README.md); it is not a platform feature.
 
 ## License
 
