@@ -162,10 +162,10 @@ func fakeEngine(t *testing.T, ready *atomic.Bool) *httptest.Server {
 			if i == body.MaxTokens-1 {
 				fr = `"length"`
 			}
-			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":%s}]}\n\n", fr)
+			_, _ = fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":%s}]}\n\n", fr)
 			f.Flush()
 		}
-		fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}\n\ndata: [DONE]\n\n", prompt, body.MaxTokens)
+		_, _ = fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}\n\ndata: [DONE]\n\n", prompt, body.MaxTokens)
 	}))
 }
 
@@ -211,7 +211,7 @@ func readRows(t *testing.T, path string) []bench.RawRow {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	rows, err := bench.ReadRawRows(bufio.NewReader(f))
 	if err != nil {
 		t.Fatal(err)
