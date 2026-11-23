@@ -28,8 +28,15 @@ python3 - "$DASH" "$tmp/rules.yaml" <<'PY'
 import json, sys
 
 dash = json.load(open(sys.argv[1]))
+
+# A collapsed row keeps its children under its own "panels", so a top-level loop never reads them.
+def walk(panels):
+    for p in panels:
+        yield p
+        yield from walk(p.get("panels", []))
+
 rules = []
-for panel in dash.get("panels", []):
+for panel in walk(dash.get("panels", [])):
     for i, target in enumerate(panel.get("targets", [])):
         expr = target.get("expr")
         if not expr:
@@ -60,18 +67,32 @@ import json, re, subprocess, sys
 
 dash = json.load(open(sys.argv[1]))
 
-exprs = [t["expr"] for p in dash.get("panels", []) for t in p.get("targets", []) if t.get("expr")]
+def walk(panels):
+    for p in panels:
+        yield p
+        yield from walk(p.get("panels", []))
+
+exprs = [t["expr"] for p in walk(dash.get("panels", [])) for t in p.get("targets", []) if t.get("expr")]
 referenced = set()
 for e in exprs:
     referenced |= set(re.findall(r"\b(gpuplatform_[a-z_]+|gpuaas_[a-z_]+)\b", e))
 
+# A custom collector names its series in prometheus.NewDesc rather than in an Opts struct, as holdcap.go does for
+# backend_admission_mode, so both forms count as a definition.
 def defined(path, prefix):
     src = open(path).read()
     return {prefix + m for m in re.findall(r'Name:\s*metricPrefix\s*\+\s*"([a-z_]+)"', src)} | \
-           {prefix + m for m in re.findall(r'Name:\s*"([a-z_]+)"', src)}
+           {prefix + m for m in re.findall(r'Name:\s*"([a-z_]+)"', src)} | \
+           {prefix + m for m in re.findall(r'NewDesc\(\s*metricPrefix\s*\+\s*"([a-z_]+)"', src)}
 
-exported = defined("internal/controller/metrics.go", "gpuplatform_") \
-         | defined("internal/gateway/metrics.go", "gpuaas_gateway_")
+# Every non-test gateway file, not metrics.go alone: responses_cut_short_total is defined beside the code that
+# counts it, in cutshort.go, and a check that read one file reported it as never exported.
+import glob
+gateway_sources = sorted(p for p in glob.glob("internal/gateway/*.go") if not p.endswith("_test.go"))
+
+exported = defined("internal/controller/metrics.go", "gpuplatform_")
+for path in gateway_sources:
+    exported |= defined(path, "gpuaas_gateway_")
 
 # Prometheus appends _bucket, _sum and _count to a histogram's series; the Go source only names the base.
 # A first version of this check flagged gpuaas_gateway_request_duration_seconds_bucket as missing while that
@@ -92,8 +113,9 @@ def histograms(path, prefix):
             names.add(prefix + m)
     return names
 
-histogram_metrics = histograms("internal/controller/metrics.go", "gpuplatform_") \
-                  | histograms("internal/gateway/metrics.go", "gpuaas_gateway_")
+histogram_metrics = histograms("internal/controller/metrics.go", "gpuplatform_")
+for path in gateway_sources:
+    histogram_metrics |= histograms(path, "gpuaas_gateway_")
 
 HISTOGRAM_SUFFIXES = ("_bucket", "_sum", "_count")
 
@@ -117,6 +139,45 @@ if missing:
 print("  all %d platform metrics referenced are exported by the Go source" % len(referenced))
 for m in sorted(referenced):
     print("    %s" % m)
+PY
+
+# ---- 3. a gateway panel never draws an absent series as zero ----------------
+# A gateway counter has no series until its first increment, so "no 5xx since start" and "0 per second" are
+# different statements, and only the second is a measurement.
+# The operator panels fill absence with 0 * up on purpose, gated on the scrape being up; the gateway panels do not,
+# and this keeps them from acquiring that pattern or a noValue of 0 by copy.
+python3 - "$DASH" <<'PY'
+import json, re, sys
+
+dash = json.load(open(sys.argv[1]))
+
+def walk(panels):
+    for p in panels:
+        yield p
+        yield from walk(p.get("panels", []))
+
+bad = []
+for panel in walk(dash.get("panels", [])):
+    exprs = [t.get("expr", "") for t in panel.get("targets", [])]
+    if not any("gpuaas_gateway_" in e for e in exprs):
+        continue
+    # noValue can be set for the whole panel or, through an override, for one field of it.
+    field_config = panel.get("fieldConfig", {})
+    no_values = [field_config.get("defaults", {}).get("noValue", "")]
+    for override in field_config.get("overrides", []):
+        no_values += [p.get("value", "") for p in override.get("properties", []) if p.get("id") == "noValue"]
+    for no_value in no_values:
+        if re.fullmatch(r"\s*0(\.0*)?\s*", str(no_value)):
+            bad.append("%s: noValue %r" % (panel.get("title"), no_value))
+    for e in exprs:
+        if re.search(r"\bor\b", e) or "vector(0)" in e:
+            bad.append("%s: %s" % (panel.get("title"), e))
+if bad:
+    print("FAIL: a gateway panel renders an absent series as zero:", file=sys.stderr)
+    for b in bad:
+        print("  %s" % b, file=sys.stderr)
+    sys.exit(1)
+print("  no gateway panel renders an absent series as zero")
 PY
 
 echo "dashboard checks passed"
