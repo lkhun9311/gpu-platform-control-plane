@@ -38,7 +38,7 @@ The dashboard's Gateway row in [`config/prometheus/operator_dashboard.json`](../
 | panel | counts |
 |---|---|
 | Requests that ended in 5xx (final status) | requests, by the status the client got; a stream cut after its 200 is not here |
-| Failed backend attempts and fallback rescues | attempts, so a request tried twice counts twice, and requests a second backend rescued |
+| Failed backend attempts and fallback rescues | failed attempts, so a request whose two attempts both failed counts twice; and, as a separate series, requests a second backend rescued |
 | Responses cut short after starting (no status label) | started responses that ended early, by cause |
 | Gateway time to first byte (TTFB) p99 and p50, not TTFT | first byte, a lower bound on time to first token |
 | Gateway scrape targets up | whether an empty panel means no events or no scrape |
