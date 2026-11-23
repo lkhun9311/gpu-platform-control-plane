@@ -17,7 +17,7 @@
 # #68414 and #68415 are not part of run 4: state.sh, verdict.py, kda-state.sh, kda-verdict.py and their pins and diffs stay as runs 2 and 3 ran them, and none is shipped or judged.
 #
 # THE ITEM.
-# The diffs are the runtime session's, in storage/open-source/contributions/vllm (its commit f11148fc), byte for byte and pinned below by sha256.
+# The diffs are the runtime session's, in storage/open-source/contributions/vllm (its commit e0a7a986, f11148fc before storage's 2026-11-22 history rewrite), byte for byte and pinned below by sha256.
 # stride-fix.diff is commit 541d8b9771 on 545ef08189, and stride-test.diff is its test-file part alone.
 # The test is test_state_index_table_stride_does_not_change_results in tests/kernels/fla/test_fused_sigmoid_gating_delta_rule.py, with cases recurrent, sigmoid_gating and kda.
 # BEFORE runs `-k stride` and all three must fail; AFTER runs `-k stride`, all three must pass, and then the whole file, all 21 of whose cases must pass.
