@@ -60,8 +60,6 @@ Every paid run was on rented A10Gs in ap-northeast-2, and each record states how
 | Linux diagnosis | Five memory-limit cases on kind, 15 of 15 as registered, including a Pod that is `Succeeded` with exit 0 while its container reason is `OOMKilled` | [results](experiments/linux-diagnosis/README.md) |
 | Network diagnosis | Seven cases (DNS, packet loss, refused and timed-out connections), 21 of 21, each told apart by a capture on the client | [results](experiments/network-diagnosis/README.md) |
 | Tenant boundary | Per-tenant RBAC, default-deny NetworkPolicy, Pod Security baseline and a ClusterQueue `namespaceSelector`, rendered from one template. On kind with Calico: 23 of 23 checks (2 allowed, 8 refused by RBAC, 4 by admission, 6 connections reached, 3 timed out) | [design](docs/superpowers/specs/2026-11-07-tenant-boundary-design.md), [run](hack/tenant-boundary/2026-11-07-run1/results.jsonl) |
-| Runbook and drill | A fresh AI agent given only the runbook acted as the on-call engineer for three incidents (pending job, GPU fault, lost node) and resolved all three safely with no intervention. The drill found the re-admission loop above and gaps in the runbook, which were then fixed | [runbook](docs/runbook/OPERATOR_RUNBOOK.md), [drill](hack/drill/README.md) |
-| Review | Before each result was published, gpt-6-astra reviewed it adversarially, area by area. A finding was fixed only after it was checked against the code and the raw records, and fixes were mutated to confirm a test fails without them | [r1](docs/superpowers/specs/2026-11-07-review-r1-restart-controller.md) to [r9](docs/superpowers/specs/2026-11-07-review-r9-public-docs.md), [architecture](docs/superpowers/specs/2026-11-07-architecture-review-design.md) |
 
 ## Upstream open-source validation
 
@@ -231,6 +229,15 @@ true for exactly as long as the morning failure was the only CR-driven run. It w
 afternoon run replaced the headline, so the file said the measurement was from 2026-10-01 at the top and from
 2026-09-13 here. The correction is recorded rather than quietly applied, because a reader who saw the old
 text should be able to tell which sentence moved.
+
+## Review and drill records
+
+How the 2026-10-27 to 2026-11-08 results above were checked before publication, and how the runbook was exercised.
+
+| Area | Result | Record |
+|---|---|---|
+| Runbook and drill | A fresh AI agent given only the runbook acted as the on-call engineer for three incidents (pending job, GPU fault, lost node) and resolved all three safely with no intervention. The drill found the re-admission loop above and gaps in the runbook, which were then fixed | [runbook](docs/runbook/OPERATOR_RUNBOOK.md), [drill](hack/drill/README.md) |
+| Review | Before each result was published, gpt-6-astra reviewed it adversarially, area by area. A finding was fixed only after it was checked against the code and the raw records, and fixes were mutated to confirm a test fails without them | [r1](docs/superpowers/specs/2026-11-07-review-r1-restart-controller.md) to [r9](docs/superpowers/specs/2026-11-07-review-r9-public-docs.md), [architecture](docs/superpowers/specs/2026-11-07-architecture-review-design.md) |
 
 ## Scope
 
