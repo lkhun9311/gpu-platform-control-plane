@@ -14,6 +14,10 @@ case "${1:-}" in
   -m)
     [ "${2:-}" = pytest ] || { echo "fake python: only -m pytest is faked, not -m ${2:-}" >&2; exit 2; }
     shift 2
+    # Kit p7's two-test file has its own fake, which tells the arms apart by the fence.
+    if command grep -q 'def test_failed_gather_still_fences_its_reads' tests/v1/kv_connector/unit/test_hf3fs_preemption.py 2>/dev/null; then
+      exec python3 -I -B "$(dirname "$0")/pytest_p7.py" "$@"
+    fi
     exec python3 -I -B "$(dirname "$0")/pytest_p1.py" "$@"
     ;;
   */bench_preempt.py)
