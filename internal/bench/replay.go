@@ -480,7 +480,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				EndNanos:            elapsedSince(start, res.EndAt),
 				TerminalNanos:       elapsedSince(start, returnedAt),
 			}
-			r.Disposition = dispositionOf(res)
+			r.Disposition = DispositionOf(res)
 			r.SendUnixNanos = sendNanos
 			r.FirstTokenUnixNanos = res.FirstTokenUnixNanos
 			r.EndUnixNanos = res.EndUnixNanos

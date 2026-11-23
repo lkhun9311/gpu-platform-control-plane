@@ -46,8 +46,10 @@ const (
 // It was "transport", which charged the cancellation to the system under test.
 const errKindCancelled = "cancelled"
 
-// dispositionOf names how a dispatched request ended.
-func dispositionOf(res SendResult) string {
+// DispositionOf names how a dispatched request ended.
+//
+// It is exported so a load generator outside this package judges a stream by the same rule Replay records, not by its HTTP status.
+func DispositionOf(res SendResult) string {
 	switch {
 	case res.ErrorKind != "":
 		return res.ErrorKind

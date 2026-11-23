@@ -77,11 +77,25 @@ func olderPolicy(a, b *platformv1.GPUQuotaPolicy) bool {
 	return a.CreationTimestamp.Before(&b.CreationTimestamp)
 }
 
+// RateLimiter decides whether a tenant's request is within its GPUQuotaPolicy's rate limit.
+//
+// A refusal reports how long until the next token, or zero when there is no wait to report.
+// An error means the limiter could not decide at all, which the caller answers with 503 rather than 429, because
+// nobody measured the tenant over its budget.
+// A nil rl is an unlimited tenant and is always allowed.
+//
+// Two stores implement it: bucketRegistry in this process, and redisLimiter shared by every replica
+// (docs/superpowers/specs/2026-11-21-gateway-shared-ratelimit-design.md).
+type RateLimiter interface {
+	Decide(ctx context.Context, tenant string, rl *platformv1.GPUQuotaRateLimit) (allowed bool, wait time.Duration, err error)
+}
+
 // bucketRegistry holds one token-bucket limiter per tenant.
 //
 // Design rationale (design spec Components section): a map[tenant]*rate.Limiter.
 //
-// The gateway runs a single replica, so an in-memory map suffices and distributed buckets are out of scope.
+// Each process has its own map, so N replicas on this store multiply a tenant's limit by N, measured at 1.95x for
+// two (experiments/gateway-replica-limit); the redis store is what runs more than one.
 //
 // Concurrent requests read and write the map, so a Mutex guards it.
 type bucketRegistry struct {
@@ -111,6 +125,12 @@ func newBucketRegistry() *bucketRegistry {
 // a tenant that is genuinely over budget.
 // Nil-safe by design: that is the only case it exists to answer.
 func (b *bucketRegistry) configured() bool { return b != nil }
+
+// Decide is Reserve as a RateLimiter; the memory store always decides, so it never returns an error.
+func (b *bucketRegistry) Decide(_ context.Context, tenant string, rl *platformv1.GPUQuotaRateLimit) (bool, time.Duration, error) {
+	ok, wait := b.Reserve(tenant, rl)
+	return ok, wait, nil
+}
 
 // Allow reports whether tenant may issue a request now, consuming one token if so.
 //
@@ -176,8 +196,7 @@ func (b *bucketRegistry) Reserve(tenant string, rl *platformv1.GPUQuotaRateLimit
 	//
 	// Allow decides, and the wait is read afterwards without taking anything.
 	// Reserving to learn the wait and cancelling on refusal was tried and put the bucket in debt: a reservation
-	// cancelled after a later one was taken restores nothing, so overlapping refusals spent tokens no request used
-	// (codex review of the branch).
+	// cancelled after a later one was taken restores nothing, so overlapping refusals spent tokens no request used.
 	if limiter.Allow() {
 		return true, 0
 	}
