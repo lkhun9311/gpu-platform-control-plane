@@ -361,7 +361,7 @@ What the gateway does:
 Measured on kind, three gateway replicas, one tenant at 60 requests/min with burst 5, 10 requests a second for 60 s, Redis scaled to 0 for 10.7 to 11.7 s, three repetitions ([run 2](../../hack/gateway-shared-ratelimit/2026-11-22-run2/README.md), event arms; counts in its `events/score.txt`):
 - `local`: admitted 104 / 105 / 102 against a one-bucket bound of 64.90, no request failed, and the 3 / 4 / 4 streams in flight all completed.
 - `closed`: 503s 118 / 125 / 123, the last sent 1.1 to 2.0 s after Redis was ready, and the 3 / 3 / 4 streams in flight all completed.
-- Each replica counted 7 to 10 Redis errors per outage, about one per second; in the first repetition of each policy two requests waited out the 100 ms deadline (seq 104 and 105 in `events/redis-3-down-closed-1.tsv`, 106 and 107 in `events/redis-3-down-local-1.tsv`; the README counts one for `closed`).
+- Each replica counted 7 to 10 Redis errors per outage, about one per second; in the first repetition of each policy two requests waited out the 100 ms deadline (seq 104 and 105 in `events/redis-3-down-closed-1.tsv`, 106 and 107 in `events/redis-3-down-local-1.tsv`).
 - A CPU stub on one node over loopback: not a real network, a remote Redis or a GPU engine.
 
 Steps:
