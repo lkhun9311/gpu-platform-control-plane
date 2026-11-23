@@ -1,0 +1,220 @@
+{
+ "arms": {
+  "control": {
+   "counts": {
+    "failed": 1,
+    "passed": 1
+   },
+   "cpu_failed": [
+    "TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads"
+   ],
+   "durations": [
+    "188.14s call     tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv",
+    "4.19s call     tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads",
+    "0.43s teardown tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv",
+    "0.42s teardown tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads"
+   ],
+   "end_errors": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "errors": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "exit": 1,
+   "fail_at": null,
+   "first_e": "E   assert (None is not None)",
+   "gpu": "passed",
+   "held": [
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46
+   ],
+   "held_line": "held=[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] reused=[33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] hold_timed_out=True",
+   "hold_timed_out": true,
+   "illegal_lines": [],
+   "kv_memory_lines": [
+    "37:(MainProcess pid=2380) INFO 11-23 07:04:11 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB",
+    "372:(MainProcess pid=2380) INFO 11-23 07:05:13 [gpu_worker.py:846] Available KV cache memory: 6.12 GiB",
+    "409:INFO     vllm.v1.worker.gpu_worker:gpu_worker.py:846 Available KV cache memory: 6.12 GiB"
+   ],
+   "max_error": 0.0,
+   "new_e": [
+    "tests/v1/kv_connector/unit/test_hf3fs_preemption.py:349: in test_failed_gather_still_fences_its_reads",
+    "E   assert (None is not None)",
+    "E    +  where None = <vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector._SaveGather object at 0x7728dd4c0f50>.cuda_event"
+   ],
+   "new_expected": true,
+   "new_failed": true,
+   "old_errors_lines": [],
+   "reused": [
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46
+   ],
+   "summary": "1 failed, 1 passed, 21 warnings in 193.54s (0:03:13)",
+   "summary_raw": "1 failed, 1 passed, 21 warnings in 193.54s (0:03:13)",
+   "traceback": []
+  },
+  "fix": {
+   "counts": {
+    "passed": 2
+   },
+   "cpu_failed": [],
+   "durations": [
+    "53.13s call     tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv",
+    "3.19s call     tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads",
+    "0.37s teardown tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv",
+    "0.35s teardown tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads"
+   ],
+   "end_errors": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "errors": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "exit": 0,
+   "fail_at": null,
+   "first_e": null,
+   "gpu": "passed",
+   "held": [
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46
+   ],
+   "held_line": "held=[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] reused=[33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] hold_timed_out=True",
+   "hold_timed_out": true,
+   "illegal_lines": [],
+   "kv_memory_lines": [
+    "36:(MainProcess pid=2980) INFO 11-23 07:05:31 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB",
+    "371:(MainProcess pid=2980) INFO 11-23 07:06:22 [gpu_worker.py:846] Available KV cache memory: 6.12 GiB"
+   ],
+   "max_error": 0.0,
+   "new_e": [],
+   "new_expected": false,
+   "new_failed": false,
+   "old_errors_lines": [],
+   "reused": [
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46
+   ],
+   "summary": "2 passed, 21 warnings in 57.12s",
+   "summary_raw": "2 passed, 21 warnings in 57.12s",
+   "traceback": []
+  }
+ },
+ "env": {
+  "cuda_available": true,
+  "device_count": 1,
+  "device_name": "NVIDIA A10G",
+  "python": "3.12.15",
+  "torch": "2.14.0+cu130",
+  "torch_cuda": "13.0",
+  "triton": "3.8.0"
+ },
+ "gaps": [],
+ "verdict": "CONFIRMED",
+ "why": "FIX passed both tests, the first with every held-save page error 0.0 and hold_timed_out=True; CONTROL passed the first and failed exactly the new one"
+}

@@ -1,0 +1,15 @@
+nvidia-smi exit=0 t=0
+clone-vllm exit=0 t=15
+materialize-base exit=0 t=15
+git-am exit=0 t=16
+git-am-gathers exit=0 t=16
+git-am-fence exit=0 t=16
+venv exit=0 t=16
+install-vllm exit=0 t=52
+install-test exit=0 t=53
+pip-freeze exit=0 t=53
+envprobe exit=0 t=56
+download-model exit=0 t=63
+test-control exit=1 t=278
+test-fix exit=0 t=345
+verdict exit=0 t=345

@@ -1,0 +1,47 @@
+nvidia-smi exit=0 t=0
+clone-vllm exit=0 t=15
+materialize-base exit=0 t=15
+git-am exit=0 t=16
+git-am-gathers exit=0 t=16
+git-am-fence exit=0 t=16
+venv exit=0 t=16
+install-vllm exit=0 t=52
+install-test exit=0 t=53
+pip-freeze exit=0 t=53
+envprobe exit=0 t=56
+download-model exit=0 t=63
+test-control exit=1 t=278
+test-fix exit=0 t=345
+gpu: NVIDIA A10G torch: 2.14.0+cu130 cuda: 13.0 triton: 3.8.0
+CONTROL: first test passed (exit 1): 1 failed, 1 passed, 21 warnings in 193.54s (0:03:13)
+  held line: held=[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] reused=[33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] hold_timed_out=True
+  held-save page errors: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  end-of-run page errors (information only): [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  pytest summary (verbatim): 1 failed, 1 passed, 21 warnings in 193.54s (0:03:13)
+  test_failed_gather_still_fences_its_reads: FAILED
+    tests/v1/kv_connector/unit/test_hf3fs_preemption.py:349: in test_failed_gather_still_fences_its_reads
+    E   assert (None is not None)
+    E    +  where None = <vllm.distributed.kv_transfer.kv_connector.v1.hf3fs.hf3fs_connector._SaveGather object at 0x7728dd4c0f50>.cuda_event
+  durations (verbatim):
+    188.14s call     tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+    4.19s call     tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads
+    0.43s teardown tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+    0.42s teardown tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads
+  kv memory: 37:(MainProcess pid=2380) INFO 11-23 07:04:11 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB
+  kv memory: 372:(MainProcess pid=2380) INFO 11-23 07:05:13 [gpu_worker.py:846] Available KV cache memory: 6.12 GiB
+  kv memory: 409:INFO     vllm.v1.worker.gpu_worker:gpu_worker.py:846 Available KV cache memory: 6.12 GiB
+FIX: first test passed (exit 0): 2 passed, 21 warnings in 57.12s
+  held line: held=[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] reused=[33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] hold_timed_out=True
+  held-save page errors: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  end-of-run page errors (information only): [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  pytest summary (verbatim): 2 passed, 21 warnings in 57.12s
+  test_failed_gather_still_fences_its_reads: passed
+  durations (verbatim):
+    53.13s call     tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+    3.19s call     tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads
+    0.37s teardown tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_preempted_request_saves_its_own_kv
+    0.35s teardown tests/v1/kv_connector/unit/test_hf3fs_preemption.py::TestHF3FSPreemptionEndToEnd::test_failed_gather_still_fences_its_reads
+  kv memory: 36:(MainProcess pid=2980) INFO 11-23 07:05:31 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB
+  kv memory: 371:(MainProcess pid=2980) INFO 11-23 07:06:22 [gpu_worker.py:846] Available KV cache memory: 6.12 GiB
+WHY: FIX passed both tests, the first with every held-save page error 0.0 and hold_timed_out=True; CONTROL passed the first and failed exactly the new one
+VERDICT: CONFIRMED

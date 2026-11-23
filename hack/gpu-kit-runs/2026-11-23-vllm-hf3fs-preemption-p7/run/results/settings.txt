@@ -1,0 +1,17 @@
+kit=p7
+upstream=https://github.com/vllm-project/vllm.git
+base=0e3c8dbdae9d55149b0fba4e6c1014b4b08c9c73 tree e6819e279d40268d45eee2bfa134d5d04b05e53f
+pr_head=base plus fix-and-tests.patch (sha256 8da42418ce7bcd85a85c19067a8c4da2dece1dbb485b765e0471759abed30eb6) by git am, tree 441714150d9afe8fd27523f66f288568e8a8c1e8, the tree of 4ec2f316fb847673a5edb3ce337a0abae9263899
+p6=pr_head plus gathers.patch (sha256 ae802dc58d3eda026d09b1f5ec201f74dde9bd4e871dcd8c918554dd1029b1cd) by git am, tree e7475ec46141b6764a1cf9874bcd7efa1e7003db, the tree of 23884c5eb20699e463f177d06d0ecde297fb3e46
+fix=p6 plus fence.patch (sha256 62aee4be428e28801471d6d2e92a02ae2004dc4b426a23bb5ebf533d2966af5f) by git am, pinned by tree 49fd5c2fdd30efa118592a9d243ba9adf884e639, the tree of 7528cc07f44ca7f864118fad29e08ea36abf19ef
+control=p6's code with only 7528cc07f44ca7f864118fad29e08ea36abf19ef's test file, pinned by tree f0db55b74fe67706789aac52722e8a3390fecf52
+test_file=tests/v1/kv_connector/unit/test_hf3fs_preemption.py blob 912b5f88eaaeba37b2b4b16f2091b6c99fd2aeb4
+model=facebook/opt-125m
+model_rev_pin=27dcfa74d334bc871f3234de431e71c6eeba5dd6
+model_bin_sha256_pin=2d74da6615135c58cf3cf9ad4cb11e7c613ff9e55fe658a47ab83b6c8d1174a9
+budget_s=900
+arm_cap_s=360
+wheel_commit=e2052f5c7ad64564f00dd4592e77c27785c9333f (the base's first parent)
+order=control fix, each in its own process
+command=python -m pytest tests/v1/kv_connector/unit/test_hf3fs_preemption.py -q -s --tb=short --durations=0
+hub_offline=1 for the test runs
