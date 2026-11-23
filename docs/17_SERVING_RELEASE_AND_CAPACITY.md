@@ -4,7 +4,8 @@ This document ties together three pieces of serving work: what one A10G can carr
 Each section is filled only after its issue's done-when is met.
 Until then the section says it is pending, and nothing in it is a result.
 
-Status on 2026-11-23: all three sections are pending.
+Status on 2026-11-23: the release restore is in review in [#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677) and the dashboards, runbook and alert in [#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679); capacity is not measured yet.
+The README's headline rows for #677 and #679 summarise those pull requests' own records, which become this document's sections when they merge.
 
 ## Contents
 
@@ -22,8 +23,8 @@ This document adds the evidence for the observe and restore steps and for the ca
 
 ## Capacity, overload and recovery on one A10G (#673)
 
-**Pending.** Tracked in [#673](https://github.com/lkhun9311/gpu-platform-control-plane/issues/673).
-No measurement is reported here yet.
+**Not measured yet.** Tracked in [#673](https://github.com/lkhun9311/gpu-platform-control-plane/issues/673).
+No measurement is reported here yet, and nothing else in this document waits for one.
 
 When filled, this section will hold:
 
@@ -35,8 +36,8 @@ When filled, this section will hold:
 
 ## Release verification and restore in CI (#674)
 
-**Pending.** Tracked in [#674](https://github.com/lkhun9311/gpu-platform-control-plane/issues/674).
-No pipeline run is reported here yet.
+**In review** in [#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677), for [#674](https://github.com/lkhun9311/gpu-platform-control-plane/issues/674).
+Its record is [hack/serving-release.md at the PR head](https://github.com/lkhun9311/gpu-platform-control-plane/blob/bfa47726373194348f20b6226893ba1d97340bd1/hack/serving-release.md); it moves here when the pull request merges.
 
 When filled, this section will hold:
 
@@ -48,8 +49,8 @@ When filled, this section will hold:
 
 ## Serving dashboards, alerts and runbook (#675)
 
-**Pending.** Tracked in [#675](https://github.com/lkhun9311/gpu-platform-control-plane/issues/675).
-No alert rehearsal is reported here yet.
+**In review** in [#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679), for [#675](https://github.com/lkhun9311/gpu-platform-control-plane/issues/675).
+Its record is [hack/gateway-alert-delivery.md at the PR head](https://github.com/lkhun9311/gpu-platform-control-plane/blob/23fc8f276a86ab821120c13ef7def4169620fbac/hack/gateway-alert-delivery.md); it moves here when the pull request merges.
 
 When filled, this section will hold:
 
