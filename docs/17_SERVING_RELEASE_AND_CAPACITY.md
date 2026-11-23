@@ -33,6 +33,19 @@ The design, the judging rule, the modes and the artifacts are in [`hack/serving-
 Merged in [#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679).
 The alert record is [`hack/gateway-alert-delivery.md`](../hack/gateway-alert-delivery.md), with its evidence in [`hack/gateway-alert-delivery-20261122T160709Z/`](../hack/gateway-alert-delivery-20261122T160709Z/); the serving runbook section is section 8 of [`docs/runbook/OPERATOR_RUNBOOK.md`](runbook/OPERATOR_RUNBOOK.md).
 
+The dashboard's Gateway row in [`config/prometheus/operator_dashboard.json`](../config/prometheus/operator_dashboard.json) now has one panel per question, and the runbook's section 8 explains which request each one counts:
+
+| panel | counts |
+|---|---|
+| Requests that ended in 5xx (final status) | requests, by the status the client got; a stream cut after its 200 is not here |
+| Failed backend attempts and fallback rescues | attempts, so a request tried twice counts twice, and requests a second backend rescued |
+| Responses cut short after starting (no status label) | started responses that ended early, by cause |
+| Gateway time to first byte (TTFB) p99 and p50, not TTFT | first byte, a lower bound on time to first token |
+| Gateway scrape targets up | whether an empty panel means no events or no scrape |
+
+The runbook's section 8.4 names what it does not cover: central logging, TPOT in Grafana, and gateway HA.
+Its last item, a Redis outage entry, was written before #670 merged and still says shared rate limiting is not on `dev`; that entry remains to be written.
+
 - On kind with a CPU stub, with a model left with no engine Pod, `GatewayUpstreamErrorsReachingClients` reached a webhook receiver through Alertmanager 367.2 s after the fault started, most of it the rule's 57 s to first match and its 5-minute hold.
 - The resolved notification arrived 297.7 s after the fault ended, and exactly one of each was received.
 - Scope: not a page to a person, not a GPU engine.
