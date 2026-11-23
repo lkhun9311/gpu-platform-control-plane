@@ -1,0 +1,104 @@
+{
+ "arms": {
+  "fix": {
+   "counts": {
+    "passed": 1
+   },
+   "cpu_failed": [],
+   "end_errors": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "errors": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "exit": 0,
+   "fail_at": null,
+   "first_e": null,
+   "gpu": "passed",
+   "held": [
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46
+   ],
+   "held_line": "held=[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] reused=[33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] hold_timed_out=True",
+   "hold_timed_out": true,
+   "illegal_lines": [],
+   "kv_memory_lines": [
+    "37:(MainProcess pid=2260) INFO 11-23 02:35:03 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB"
+   ],
+   "max_error": 0.0,
+   "old_errors_lines": [],
+   "reused": [
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46
+   ],
+   "summary": "1 passed, 21 warnings in 204.89s (0:03:24)",
+   "summary_raw": "1 passed, 21 warnings in 204.89s (0:03:24)",
+   "traceback": []
+  }
+ },
+ "env": {
+  "cuda_available": true,
+  "device_count": 1,
+  "device_name": "NVIDIA A10G",
+  "python": "3.12.15",
+  "torch": "2.14.0+cu130",
+  "torch_cuda": "13.0",
+  "triton": "3.8.0"
+ },
+ "gaps": [],
+ "verdict": "CONFIRMED",
+ "why": "FIX passed its one test with every held-save page error 0.0 (15 pages), every precondition met and hold_timed_out=True"
+}

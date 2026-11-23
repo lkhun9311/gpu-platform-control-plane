@@ -1,0 +1,4 @@
+b2-fix-128-1 free_gb=58
+b2-fix-128-2 free_gb=58
+b2-fix-128-3 free_gb=58
+b2-fix-2304-1 free_gb=58

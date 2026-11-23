@@ -1,0 +1,17 @@
+fix_patch_sha256=8da42418ce7bcd85a85c19067a8c4da2dece1dbb485b765e0471759abed30eb6
+gathers_patch_sha256=ae802dc58d3eda026d09b1f5ec201f74dde9bd4e871dcd8c918554dd1029b1cd
+base commit=0e3c8dbdae9d55149b0fba4e6c1014b4b08c9c73 tree=e6819e279d40268d45eee2bfa134d5d04b05e53f
+base_first_parent=e2052f5c7ad64564f00dd4592e77c27785c9333f wheel_commit=e2052f5c7ad64564f00dd4592e77c27785c9333f
+pr_head commit=67d5167facde481503832bd00479a26b64e6ca8e tree=441714150d9afe8fd27523f66f288568e8a8c1e8 parent=0e3c8dbdae9d55149b0fba4e6c1014b4b08c9c73
+fix commit=d5f4684391856be926f9487c41311662f2dc7a1b tree=e7475ec46141b6764a1cf9874bcd7efa1e7003db parent=67d5167facde481503832bd00479a26b64e6ca8e
+fix_defs handle_preemptions=1 wait_for_gathers=1 wait_for_saves=0 hook_calls_gathers=1
+fix test_blob=b5edb870ccf6d8e90634ee652b275cb6d7ed58e8
+Using precompiled wheel commit e2052f5c7ad64564f00dd4592e77c27785c9333f with variant cu132
+test_pins=pytest==9.2.0 pytest-asyncio==1.4.0 tblib==3.1.0 httpx==0.27.2
+{"cuda_available": true, "device_count": 1, "device_name": "NVIDIA A10G", "python": "3.12.15", "torch": "2.14.0+cu130", "torch_cuda": "13.0", "triton": "3.8.0"}
+model_rev=27dcfa74d334bc871f3234de431e71c6eeba5dd6
+fix test_blob=b5edb870ccf6d8e90634ee652b275cb6d7ed58e8
+fix test_blob=b5edb870ccf6d8e90634ee652b275cb6d7ed58e8
+fix test_blob=b5edb870ccf6d8e90634ee652b275cb6d7ed58e8
+fix test_blob=b5edb870ccf6d8e90634ee652b275cb6d7ed58e8
+fix test_blob=b5edb870ccf6d8e90634ee652b275cb6d7ed58e8

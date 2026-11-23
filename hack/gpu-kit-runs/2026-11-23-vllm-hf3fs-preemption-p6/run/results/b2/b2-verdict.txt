@@ -1,0 +1,114 @@
+B2, the bench arm on FIX: a separate section that does not change the verdict above.
+b2 FIX pool 128 run 1 (exit 0):
+  has_fix=true fix_wait="wait_for_gathers" pool_blocks=128 wall_s=30.819515999000032 output_tok_per_s=531.611203775283 step_ms_p50=7.9343939999887425 step_ms_p90=9.356046999994305 step_ms_p99=15.318361209999695 step_ms_max=35.17575900002612 preemptions=51 wait_calls=51 wait_total_s=0.025690873000087322 wait_ms_p50=0.025160000006962946 wait_ms_max=20.5854019999947 stored_keys=1883 storage_pages=14563
+  stored_keys 1883 beside b1 at pool 128: CONTROL 1882/1883/1883, FIX 1883/1883/1883
+  save failure lines in its log: 0
+  verbatim:
+    {
+      "has_fix": true,
+      "fix_wait": "wait_for_gathers",
+      "pool_blocks": 128,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 30.819515999000032,
+      "output_tok_per_s": 531.611203775283,
+      "steps": 3638,
+      "step_ms_p50": 7.9343939999887425,
+      "step_ms_p90": 9.356046999994305,
+      "step_ms_p99": 15.318361209999695,
+      "step_ms_max": 35.17575900002612,
+      "preemptions": 51,
+      "wait_calls": 51,
+      "wait_total_s": 0.025690873000087322,
+      "wait_ms_p50": 0.025160000006962946,
+      "wait_ms_max": 20.5854019999947,
+      "mean_step_ms": 8.424262435953931,
+      "stored_keys": 1883,
+      "storage_pages": 14563
+    }
+b2 FIX pool 128 run 2 (exit 0):
+  has_fix=true fix_wait="wait_for_gathers" pool_blocks=128 wall_s=30.88330395899999 output_tok_per_s=530.5131867286948 step_ms_p50=7.958851000012146 step_ms_p90=9.38766769997983 step_ms_p99=14.842696160018251 step_ms_max=37.463652999974784 preemptions=51 wait_calls=51 wait_total_s=0.024651761000200167 wait_ms_p50=0.022061000038320344 wait_ms_max=21.687464000024193 stored_keys=1883 storage_pages=14563
+  stored_keys 1883 beside b1 at pool 128: CONTROL 1882/1883/1883, FIX 1883/1883/1883
+  save failure lines in its log: 0
+  verbatim:
+    {
+      "has_fix": true,
+      "fix_wait": "wait_for_gathers",
+      "pool_blocks": 128,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 30.88330395899999,
+      "output_tok_per_s": 530.5131867286948,
+      "steps": 3638,
+      "step_ms_p50": 7.958851000012146,
+      "step_ms_p90": 9.38766769997983,
+      "step_ms_p99": 14.842696160018251,
+      "step_ms_max": 37.463652999974784,
+      "preemptions": 51,
+      "wait_calls": 51,
+      "wait_total_s": 0.024651761000200167,
+      "wait_ms_p50": 0.022061000038320344,
+      "wait_ms_max": 21.687464000024193,
+      "mean_step_ms": 8.442301262782177,
+      "stored_keys": 1883,
+      "storage_pages": 14563
+    }
+b2 FIX pool 128 run 3 (exit 0):
+  has_fix=true fix_wait="wait_for_gathers" pool_blocks=128 wall_s=30.716668123000034 output_tok_per_s=533.3911846946702 step_ms_p50=7.898379499977182 step_ms_p90=9.373264299983932 step_ms_p99=15.235030929991355 step_ms_max=39.24860000000763 preemptions=51 wait_calls=51 wait_total_s=0.028948669000214977 wait_ms_p50=0.024201000087487046 wait_ms_max=25.27751400003808 stored_keys=1883 storage_pages=14563
+  stored_keys 1883 beside b1 at pool 128: CONTROL 1882/1883/1883, FIX 1883/1883/1883
+  save failure lines in its log: 0
+  verbatim:
+    {
+      "has_fix": true,
+      "fix_wait": "wait_for_gathers",
+      "pool_blocks": 128,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 30.716668123000034,
+      "output_tok_per_s": 533.3911846946702,
+      "steps": 3638,
+      "step_ms_p50": 7.898379499977182,
+      "step_ms_p90": 9.373264299983932,
+      "step_ms_p99": 15.235030929991355,
+      "step_ms_max": 39.24860000000763,
+      "preemptions": 51,
+      "wait_calls": 51,
+      "wait_total_s": 0.028948669000214977,
+      "wait_ms_p50": 0.024201000087487046,
+      "wait_ms_max": 25.27751400003808,
+      "mean_step_ms": 8.396207579438501,
+      "stored_keys": 1883,
+      "storage_pages": 14563
+    }
+b2 FIX pool 2304 run 1 (exit 0):
+  has_fix=true fix_wait="wait_for_gathers" pool_blocks=2304 wall_s=3.830730765000112 output_tok_per_s=4276.99073756219 step_ms_p50=15.438072000051761 step_ms_p90=20.346804400014662 step_ms_p99=23.905913480050454 step_ms_max=71.16376500005117 preemptions=0 wait_calls=0 wait_total_s=0 wait_ms_p50=null wait_ms_max=null stored_keys=2003 storage_pages=14563
+  stored_keys 2003 beside b1 at pool 2304: CONTROL 2003, FIX 2003
+  save failure lines in its log: 0
+  verbatim:
+    {
+      "has_fix": true,
+      "fix_wait": "wait_for_gathers",
+      "pool_blocks": 2304,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 3.830730765000112,
+      "output_tok_per_s": 4276.99073756219,
+      "steps": 259,
+      "step_ms_p50": 15.438072000051761,
+      "step_ms_p90": 20.346804400014662,
+      "step_ms_p99": 23.905913480050454,
+      "step_ms_max": 71.16376500005117,
+      "preemptions": 0,
+      "wait_calls": 0,
+      "wait_total_s": 0,
+      "wait_ms_p50": null,
+      "wait_ms_max": null,
+      "mean_step_ms": 14.454371610038756,
+      "stored_keys": 2003,
+      "storage_pages": 14563
+    }
+B2: VALID

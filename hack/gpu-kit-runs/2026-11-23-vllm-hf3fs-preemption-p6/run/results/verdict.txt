@@ -1,0 +1,9 @@
+gpu: NVIDIA A10G torch: 2.14.0+cu130 cuda: 13.0 triton: 3.8.0
+FIX: GPU test passed (exit 0): 1 passed, 21 warnings in 204.89s (0:03:24)
+  held line: held=[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] reused=[33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46] hold_timed_out=True
+  held-save page errors: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  end-of-run page errors (information only): [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  pytest summary (verbatim): 1 passed, 21 warnings in 204.89s (0:03:24)
+  kv memory: 37:(MainProcess pid=2260) INFO 11-23 02:35:03 [gpu_worker.py:846] Available KV cache memory: 6.1 GiB
+WHY: FIX passed its one test with every held-save page error 0.0 (15 pages), every precondition met and hold_timed_out=True
+VERDICT: CONFIRMED

@@ -1,0 +1,22 @@
+kit=p6
+upstream=https://github.com/vllm-project/vllm.git
+base=0e3c8dbdae9d55149b0fba4e6c1014b4b08c9c73 tree e6819e279d40268d45eee2bfa134d5d04b05e53f
+pr_head=base plus fix-and-tests.patch (sha256 8da42418ce7bcd85a85c19067a8c4da2dece1dbb485b765e0471759abed30eb6) by git am, tree 441714150d9afe8fd27523f66f288568e8a8c1e8, the tree of 4ec2f316fb847673a5edb3ce337a0abae9263899
+fix=pr_head plus gathers.patch (sha256 ae802dc58d3eda026d09b1f5ec201f74dde9bd4e871dcd8c918554dd1029b1cd) by git am, pinned by tree e7475ec46141b6764a1cf9874bcd7efa1e7003db, the tree of 23884c5eb20699e463f177d06d0ecde297fb3e46
+control=none: kit p5's, unchanged by gathers.patch
+test_file=tests/v1/kv_connector/unit/test_hf3fs_preemption.py blob b5edb870ccf6d8e90634ee652b275cb6d7ed58e8
+model=facebook/opt-125m
+model_rev_pin=27dcfa74d334bc871f3234de431e71c6eeba5dd6
+model_bin_sha256_pin=2d74da6615135c58cf3cf9ad4cb11e7c613ff9e55fe658a47ab83b6c8d1174a9
+budget_s=1200
+arm_cap_s=300
+wheel_commit=e2052f5c7ad64564f00dd4592e77c27785c9333f (the base's first parent)
+order=fix, each in its own process
+command=python -m pytest tests/v1/kv_connector/unit/test_hf3fs_preemption.py -q -s --tb=short
+p6=1
+p6_budget_s=600
+b2=1
+b2_cap_s=240
+bench_sha256_pin=7dee7790119fd3ee5db8b59116d1fe4266fea639847286f7dce8daa1085907f3
+b2_order=fix:128:1 fix:128:2 fix:128:3 fix:2304:1, each in its own process: python bench_preempt.py --pool-blocks POOL --out ARM-POOL-RUN.json
+hub_offline=1 for the test runs
