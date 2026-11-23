@@ -308,7 +308,7 @@ A 503 comes from one of seven places, and only the last is the engine:
 | the engine answered 503 itself | `internal/gateway/proxy.go:874` | passed through as the engine's status; not retried and not a failed attempt, so `upstream_errors_total` stays flat |
 
 `sum by (tenant, model) (rate(gpuaas_gateway_requests_total{code="503"}[5m]))` gives the labels; then
-`kubectl -n gpu-platform-control-plane-system logs deploy/gateway | grep -E 'cannot read the api-keys secret|rate limiter was never initialised|rate limit could not be decided|per-process feature cannot run|cannot write the request record'`.
+`kubectl -n gpu-platform-control-plane-system logs -l app.kubernetes.io/component=gateway --prefix --tail=-1 | grep -E 'cannot read the api-keys secret|rate limiter was never initialised|rate limit could not be decided|per-process feature cannot run|cannot write the request record'`.
 If none of those lines appear and the labels carry a model, read that model's engine logs (step 2 of 8.1): an engine still loading weights, out of memory, or at capacity answers 503 with the connection accepted.
 
 ### 8.3 The request record and its trade-offs
@@ -343,10 +343,11 @@ No `--rate-limit-redis-failure-policy` means `local` (`cmd/gateway/main.go:152`)
 
 How to tell the store is down (each replica judges Redis on its own, so read every Pod):
 - `gpuaas_gateway_ratelimit_redis_available` is 0 (`internal/gateway/metrics.go:185`); it returns to 1 only on that replica's next successful call.
+  It starts at 1 before any call (`ratelimit_redis.go:188`) and only a rate-limited tenant's request calls Redis, so a 1 is the last answer seen, not a health check.
 - `gpuaas_gateway_ratelimit_redis_errors_total` rises: timeouts, refused connections, script errors (`metrics.go:167`).
 - `gpuaas_gateway_ratelimit_degraded_decisions_total{policy}` rises: requests decided without Redis (`metrics.go:176`).
 - `gpuaas_gateway_ratelimit_redis_seconds` piling at the deadline is a Redis too slow to answer, which counts as down (`metrics.go:158`).
-- Logs, `kubectl -n gpu-platform-control-plane-system logs -l app.kubernetes.io/component=gateway --prefix`: `Redis rate limit store failed; deciding by the failure policy` once as a replica enters the outage (`internal/gateway/ratelimit_redis.go:251`) and `Redis rate limit store answered again; the shared budget is in force` once as it leaves (`ratelimit_redis.go:260`); under `closed`, `rate limit could not be decided; refusing` for every refused request (`server.go:595`).
+- Logs, `kubectl -n gpu-platform-control-plane-system logs -l app.kubernetes.io/component=gateway --prefix --tail=-1` (with `-l`, kubectl shows only 10 lines per Pod otherwise): `Redis rate limit store failed; deciding by the failure policy` once as a replica enters the outage (`internal/gateway/ratelimit_redis.go:251`) and `Redis rate limit store answered again; the shared budget is in force` once as it leaves (`ratelimit_redis.go:260`); under `closed`, `rate limit could not be decided; refusing` for every refused request (`server.go:595`).
 - No rule in `config/prometheus/gateway_rules.yaml` reads these series.
   Under `closed` the 503s count in `requests_total` with `model=""` (`server.go:597`), so enough limited traffic fires `GatewayUpstreamErrorsReachingClients` for `model=""`; under `local` nothing fires.
 
@@ -360,7 +361,7 @@ What the gateway does:
 Measured on kind, three gateway replicas, one tenant at 60 requests/min with burst 5, 10 requests a second for 60 s, Redis scaled to 0 for 10.7 to 11.7 s, three repetitions ([run 2](../../hack/gateway-shared-ratelimit/2026-11-22-run2/README.md), event arms; counts in its `events/score.txt`):
 - `local`: admitted 104 / 105 / 102 against a one-bucket bound of 64.90, no request failed, and the 3 / 4 / 4 streams in flight all completed.
 - `closed`: 503s 118 / 125 / 123, the last sent 1.1 to 2.0 s after Redis was ready, and the 3 / 3 / 4 streams in flight all completed.
-- Each replica counted 7 to 10 Redis errors per outage, about one per second; in one repetition of each policy two requests waited out the 100 ms deadline.
+- Each replica counted 7 to 10 Redis errors per outage, about one per second; in the first repetition of each policy two requests waited out the 100 ms deadline (seq 104 and 105 in `events/redis-3-down-closed-1.tsv`, 106 and 107 in `events/redis-3-down-local-1.tsv`; the README counts one for `closed`).
 - A CPU stub on one node over loopback: not a real network, a remote Redis or a GPU engine.
 
 Steps:
