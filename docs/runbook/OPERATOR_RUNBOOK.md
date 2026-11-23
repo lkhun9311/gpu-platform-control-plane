@@ -366,7 +366,7 @@ Measured on kind, three gateway replicas, one tenant at 60 requests/min with bur
 
 Steps:
 1. Confirm Redis from the address in `--rate-limit-redis-addr`: its Pod and endpoints, then `kubectl -n <redis-ns> exec <redis-pod> -- redis-cli ping`, with `REDISCLI_AUTH` set if it has a password.
-   Errors with Redis answering point at the address, the network or the password; the log line in step one carries the error.
+   Errors with Redis answering point at the address, the network or the password; the `Redis rate limit store failed` log line carries the error.
 2. Under `local`, decide whether up to replicas × each tenant's limit is acceptable for the outage.
    If not, scaling the gateway to one replica makes the local bucket the tenant's limit again, at the cost of capacity and of the streams on the removed Pods.
    Changing the policy to `closed` is a restart of every replica, and refuses every limited tenant until Redis answers.
