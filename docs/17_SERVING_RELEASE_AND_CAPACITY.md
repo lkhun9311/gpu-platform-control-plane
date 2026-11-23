@@ -1,30 +1,46 @@
 # 17. Serving release and capacity
 
-This document ties together three pieces of serving work: what one A10G can carry, how a bad serving release is taken back, and what the serving dashboards and alerts actually measure.
-Each section is filled only after its issue's done-when is met.
-Until then the section says it is pending, and nothing in it is a result.
+This document ties together three pieces of serving work: how a bad serving release is taken back, what the serving dashboards and alerts actually measure, and what one A10G can carry.
+Each section states what its record measured and links that record; a section with no measurement says so and claims nothing.
 
-Status on 2026-11-23: the release restore is in review in [#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677) and the dashboards, runbook and alert in [#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679); capacity is not measured yet.
-The README's headline rows for #677 and #679 summarise those pull requests' own records, which become this document's sections when they merge.
+Status on 2026-11-23: the release restore ([#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677)) and the dashboards, runbook and alert ([#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679)) are merged into `dev`; capacity ([#673](https://github.com/lkhun9311/gpu-platform-control-plane/issues/673)) is not measured yet, and nothing else here waits for it.
 
 ## Contents
 
 - [Serving lifecycle this document covers](#serving-lifecycle-this-document-covers)
-- [Capacity, overload and recovery on one A10G (#673)](#capacity-overload-and-recovery-on-one-a10g-673)
 - [Release verification and restore in CI (#674)](#release-verification-and-restore-in-ci-674)
 - [Serving dashboards, alerts and runbook (#675)](#serving-dashboards-alerts-and-runbook-675)
+- [Capacity, overload and recovery on one A10G (#673)](#capacity-overload-and-recovery-on-one-a10g-673)
 - [Rules for every result in this document](#rules-for-every-result-in-this-document)
 
 ## Serving lifecycle this document covers
 
 The lifecycle is deploy, admission, observe and restore, as drawn in the README's [serving lifecycle](../README.md#serving-lifecycle).
-The deploy and admission steps exist in the code today.
-This document adds the evidence for the observe and restore steps and for the capacity of one card.
+This document collects the evidence for the restore and observe steps and, once it exists, for the capacity of one card.
+
+## Release verification and restore in CI (#674)
+
+Merged in [#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677).
+The design, the judging rule, the modes and the artifacts are in [`hack/serving-release.md`](../hack/serving-release.md); the job is [`.github/workflows/serving-release.yml`](../.github/workflows/serving-release.yml).
+
+- In the [self-test run](https://github.com/lkhun9311/gpu-platform-control-plane/actions/runs/45046898293) on the pull request's final commit `bfa4772`, the healthy candidate passed, and the TTFT-regression and never-Ready candidates failed and were restored, each restore passing the same Ready check and gateway smoke.
+- In the same run, with the saved spec corrupted, the self-test failed as it must, and the CI job asserting that passed.
+- A manual [gate run](https://github.com/lkhun9311/gpu-platform-control-plane/actions/runs/45046828971) at `ba23017` with the never-Ready candidate was red, with the candidate failed and restored.
+- Scope: a release pipeline on a CPU stub, not vLLM deployment automation, GitOps rollback or zero downtime.
+
+## Serving dashboards, alerts and runbook (#675)
+
+Merged in [#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679).
+The alert record is [`hack/gateway-alert-delivery.md`](../hack/gateway-alert-delivery.md), with its evidence in [`hack/gateway-alert-delivery-20261122T160709Z/`](../hack/gateway-alert-delivery-20261122T160709Z/); the serving runbook section is section 8 of [`docs/runbook/OPERATOR_RUNBOOK.md`](runbook/OPERATOR_RUNBOOK.md).
+
+- On kind with a CPU stub, with a model left with no engine Pod, `GatewayUpstreamErrorsReachingClients` reached a webhook receiver through Alertmanager 367.2 s after the fault started, most of it the rule's 57 s to first match and its 5-minute hold.
+- The resolved notification arrived 297.7 s after the fault ended, and exactly one of each was received.
+- Scope: not a page to a person, not a GPU engine.
 
 ## Capacity, overload and recovery on one A10G (#673)
 
 **Not measured yet.** Tracked in [#673](https://github.com/lkhun9311/gpu-platform-control-plane/issues/673).
-No measurement is reported here yet, and nothing else in this document waits for one.
+No measurement is reported here, and nothing else in this document waits for one.
 
 When filled, this section will hold:
 
@@ -33,30 +49,6 @@ When filled, this section will hold:
 - the attempt ledger, with every launched GPU session and its outcome
 - per repeat: saturation, overload, recovery and the restart window, each as code SHA, config, raw rows, calculation and the sentence the result allows
 - what it does not claim: universal capacity, end-to-end GPU latency through the gateway, HA
-
-## Release verification and restore in CI (#674)
-
-**In review** in [#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677), for [#674](https://github.com/lkhun9311/gpu-platform-control-plane/issues/674).
-Its record is [hack/serving-release.md at the PR head](https://github.com/lkhun9311/gpu-platform-control-plane/blob/bfa47726373194348f20b6226893ba1d97340bd1/hack/serving-release.md); it moves here when the pull request merges.
-
-When filled, this section will hold:
-
-- the self-test: the healthy candidate passes, and the TTFT-regression and never-Ready candidates fail and are restored
-- a gate run with a bad candidate that is red and shows the restore
-- a broken restore that turns the self-test red
-- links to each run's artifacts: the CR before, the candidate, and the CR after
-- the scope: a release pipeline on a CPU stub, not vLLM deployment automation, GitOps rollback or zero downtime
-
-## Serving dashboards, alerts and runbook (#675)
-
-**In review** in [#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679), for [#675](https://github.com/lkhun9311/gpu-platform-control-plane/issues/675).
-Its record is [hack/gateway-alert-delivery.md at the PR head](https://github.com/lkhun9311/gpu-platform-control-plane/blob/23fc8f276a86ab821120c13ef7def4169620fbac/hack/gateway-alert-delivery.md); it moves here when the pull request merges.
-
-When filled, this section will hold:
-
-- the changed dashboard panels and their queries
-- one alert's firing and resolved notifications at a local test receiver, next to the fault's start and end times
-- what the runbook does not cover: central logging, TPOT in Grafana, HA
 
 ## Rules for every result in this document
 
