@@ -38,7 +38,7 @@ This is the gateway's share on a CPU node with a stub; it is never added to a GP
 
 ## Launching a session
 
-The runner is `hack/gpu-kit-session.sh`, which is on `feat/llmd-1598-real-gpu-ab` and not yet on `dev`, so it runs from a clean checkout of that branch.
+The runner is `feat/llmd-1598-real-gpu-ab:hack/gpu-kit-session.sh`, which pull request #686 proposes for `dev`; until that merges it is not on `dev`, so it runs from a clean checkout of that branch.
 Its own tree must stay clean, so `OUT` points outside it.
 Another study holds the account's whole G and VT Spot quota between 17:00 and 22:00 UTC, so a launch then fails before any instance exists.
 
