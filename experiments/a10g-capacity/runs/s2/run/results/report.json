@@ -1,0 +1,740 @@
+{
+  "contract": "a10g-capacity-673-v1",
+  "exclusions": [],
+  "stages": {
+    "warmup": {
+      "lag": {
+        "sent": 123,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "warmup": {
+          "excluded": "warm-up",
+          "ledger": {
+            "planned": 123,
+            "unsent": 0,
+            "sent": 123,
+            "completed": 123,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 123
+            }
+          }
+        }
+      }
+    },
+    "pilot/rung-01": {
+      "lag": {
+        "sent": 151,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 3,
+          "measured_from_ms": 10000,
+          "ledger": {
+            "planned": 122,
+            "unsent": 0,
+            "sent": 122,
+            "completed": 122,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 122
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 122,
+            "p99": 230.492522,
+            "p90": 148.463277,
+            "p50": 98.714968
+          },
+          "e2e": {
+            "n": 122,
+            "p99": 2941.959947,
+            "p90": 2840.46841,
+            "p50": 2543.770984
+          },
+          "tpot": {
+            "n": 122,
+            "p99": 22.29214205511811,
+            "p90": 21.289249377952757,
+            "p50": 19.20682211023622
+          },
+          "completed_rps": 2.44,
+          "output_tokens_per_s": 312.32,
+          "engine": {
+            "scrapes": 60,
+            "waiting": 1.0,
+            "running": 13.0,
+            "kv": 0.01997436003473807,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 60,
+            "util_pct": 95.0,
+            "mem_mib": 20367.0
+          }
+        }
+      }
+    },
+    "pilot/rung-02": {
+      "lag": {
+        "sent": 227,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 4,
+          "measured_from_ms": 10000,
+          "ledger": {
+            "planned": 189,
+            "unsent": 0,
+            "sent": 189,
+            "completed": 189,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 189
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 189,
+            "p99": 279.032284,
+            "p90": 179.104041,
+            "p50": 124.05934
+          },
+          "e2e": {
+            "n": 189,
+            "p99": 3484.545267,
+            "p90": 3310.223651,
+            "p50": 2898.212025
+          },
+          "tpot": {
+            "n": 189,
+            "p99": 25.938264433070866,
+            "p90": 24.770095007874016,
+            "p50": 21.91071909448819
+          },
+          "completed_rps": 3.78,
+          "output_tokens_per_s": 483.84,
+          "engine": {
+            "scrapes": 60,
+            "waiting": 1.0,
+            "running": 20.0,
+            "kv": 0.030561184400975994,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 60,
+            "util_pct": 97.0,
+            "mem_mib": 20367.0
+          }
+        }
+      }
+    },
+    "pilot/rung-03": {
+      "lag": {
+        "sent": 284,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 5,
+          "measured_from_ms": 10000,
+          "ledger": {
+            "planned": 235,
+            "unsent": 0,
+            "sent": 235,
+            "completed": 235,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 235
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 235,
+            "p99": 232.548783,
+            "p90": 177.086328,
+            "p50": 119.169969
+          },
+          "e2e": {
+            "n": 235,
+            "p99": 3850.17917,
+            "p90": 3680.311037,
+            "p50": 3136.78887
+          },
+          "tpot": {
+            "n": 235,
+            "p99": 29.11668096062992,
+            "p90": 27.804478173228347,
+            "p50": 23.574858606299212
+          },
+          "completed_rps": 4.7,
+          "output_tokens_per_s": 601.6,
+          "engine": {
+            "scrapes": 60,
+            "waiting": 0.0,
+            "running": 27.0,
+            "kv": 0.04036226789628217,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 60,
+            "util_pct": 97.0,
+            "mem_mib": 20373.0
+          }
+        }
+      }
+    },
+    "pilot/rung-04": {
+      "lag": {
+        "sent": 382,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 6,
+          "measured_from_ms": 10000,
+          "ledger": {
+            "planned": 318,
+            "unsent": 0,
+            "sent": 318,
+            "completed": 318,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 318
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 318,
+            "p99": 292.21216,
+            "p90": 223.935142,
+            "p50": 150.069664
+          },
+          "e2e": {
+            "n": 318,
+            "p99": 5025.824527,
+            "p90": 4379.906028,
+            "p50": 3973.946942
+          },
+          "tpot": {
+            "n": 318,
+            "p99": 38.43821433070866,
+            "p90": 33.07284443307086,
+            "p50": 30.005168897637795
+          },
+          "completed_rps": 6.36,
+          "output_tokens_per_s": 814.08,
+          "engine": {
+            "scrapes": 60,
+            "waiting": 1.0,
+            "running": 40.0,
+            "kv": 0.060253918365658965,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 60,
+            "util_pct": 97.0,
+            "mem_mib": 20373.0
+          }
+        }
+      }
+    },
+    "pilot/rung-05": {
+      "lag": {
+        "sent": 466,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 8,
+          "measured_from_ms": 10000,
+          "ledger": {
+            "planned": 385,
+            "unsent": 0,
+            "sent": 385,
+            "completed": 385,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 385
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 385,
+            "p99": 1688.867281,
+            "p90": 946.966121,
+            "p50": 197.70235
+          },
+          "e2e": {
+            "n": 385,
+            "p99": 8367.451816,
+            "p90": 7811.19992,
+            "p50": 5728.605421
+          },
+          "tpot": {
+            "n": 385,
+            "p99": 58.85783024409449,
+            "p90": 57.89904288188976,
+            "p50": 41.817202007874016
+          },
+          "completed_rps": 7.7,
+          "output_tokens_per_s": 985.6,
+          "engine": {
+            "scrapes": 60,
+            "waiting": 13.0,
+            "running": 64.0,
+            "kv": 0.0968115462553244,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 60,
+            "util_pct": 97.0,
+            "mem_mib": 20373.0
+          }
+        }
+      }
+    },
+    "pilot/rung-06": {
+      "lag": {
+        "sent": 647,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "rung": {
+          "segment": "rung",
+          "rate_rps": 10,
+          "measured_from_ms": 10000,
+          "ledger": {
+            "planned": 533,
+            "unsent": 0,
+            "sent": 533,
+            "completed": 533,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 533
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 533,
+            "p99": 15142.321527,
+            "p90": 14510.600663,
+            "p50": 7549.161939
+          },
+          "e2e": {
+            "n": 533,
+            "p99": 21972.210113,
+            "p90": 20729.760703,
+            "p50": 14962.757975
+          },
+          "tpot": {
+            "n": 533,
+            "p99": 58.646021094488184,
+            "p90": 58.51217298425197,
+            "p50": 58.260430771653546
+          },
+          "completed_rps": 10.66,
+          "output_tokens_per_s": 1364.48,
+          "engine": {
+            "scrapes": 60,
+            "waiting": 127.0,
+            "running": 64.0,
+            "kv": 0.09817625408378483,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 60,
+            "util_pct": 97.0,
+            "mem_mib": 20373.0
+          }
+        }
+      }
+    },
+    "cycle": {
+      "lag": {
+        "sent": 3066,
+        "lagged": 0,
+        "fraction": 0.0,
+        "ok": true
+      },
+      "segments": {
+        "baseline": {
+          "segment": "baseline",
+          "rate_rps": 2,
+          "measured_from_ms": 15000,
+          "ledger": {
+            "planned": 261,
+            "unsent": 0,
+            "sent": 261,
+            "completed": 261,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 261
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 261,
+            "p99": 245.595962,
+            "p90": 141.136898,
+            "p50": 96.659728
+          },
+          "e2e": {
+            "n": 261,
+            "p99": 2816.660556,
+            "p90": 2673.478309,
+            "p50": 2478.871858
+          },
+          "tpot": {
+            "n": 261,
+            "p99": 21.13826430708661,
+            "p90": 20.04441160629921,
+            "p50": 18.699886212598425
+          },
+          "completed_rps": 1.9333333333333333,
+          "output_tokens_per_s": 247.46666666666667,
+          "engine": {
+            "scrapes": 150,
+            "waiting": 0.0,
+            "running": 11.0,
+            "kv": 0.017079525247094773,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 150,
+            "util_pct": 96.0,
+            "mem_mib": 20373.0
+          }
+        },
+        "saturation": {
+          "segment": "saturation",
+          "rate_rps": 8,
+          "measured_from_ms": 165000,
+          "ledger": {
+            "planned": 1095,
+            "unsent": 0,
+            "sent": 1095,
+            "completed": 1095,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 1095
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 1095,
+            "p99": 3698.149704,
+            "p90": 3134.44288,
+            "p50": 541.926611
+          },
+          "e2e": {
+            "n": 1095,
+            "p99": 11185.849583,
+            "p90": 10644.274571,
+            "p50": 7630.73934
+          },
+          "tpot": {
+            "n": 1095,
+            "p99": 59.33495625984252,
+            "p90": 59.08199305511811,
+            "p50": 56.418864433070866
+          },
+          "completed_rps": 8.11111111111111,
+          "output_tokens_per_s": 1038.2222222222222,
+          "engine": {
+            "scrapes": 150,
+            "waiting": 36.0,
+            "running": 64.0,
+            "kv": 0.09796948017038165,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 150,
+            "util_pct": 97.0,
+            "mem_mib": 20373.0
+          }
+        },
+        "overload": {
+          "segment": "overload",
+          "rate_rps": 12,
+          "measured_from_ms": 300000,
+          "ledger": {
+            "planned": 1083,
+            "unsent": 0,
+            "sent": 1083,
+            "completed": 1083,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 1083
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 1083,
+            "p99": 36833.153527,
+            "p90": 33604.158828,
+            "p50": 18629.373793
+          },
+          "e2e": {
+            "n": 1083,
+            "p99": 44219.827731,
+            "p90": 40940.186075,
+            "p50": 26045.691857
+          },
+          "tpot": {
+            "n": 1083,
+            "p99": 58.4839304015748,
+            "p90": 58.253231007874014,
+            "p50": 58.05458786614173
+          },
+          "completed_rps": 12.033333333333333,
+          "output_tokens_per_s": 1540.2666666666667,
+          "engine": {
+            "scrapes": 90,
+            "waiting": 313.0,
+            "running": 64.0,
+            "kv": 0.09796948017038165,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 90,
+            "util_pct": 97.0,
+            "mem_mib": 20373.0
+          }
+        },
+        "recovery": {
+          "segment": "recovery",
+          "rate_rps": 2,
+          "measured_from_ms": 390000,
+          "ledger": {
+            "planned": 477,
+            "unsent": 0,
+            "sent": 477,
+            "completed": 477,
+            "rejected": 0,
+            "failed": 0,
+            "cross": {
+              "200/done": 477
+            }
+          },
+          "completed_fraction": 1.0,
+          "ttft": {
+            "n": 477,
+            "p99": 30527.91901,
+            "p90": 10071.631378,
+            "p50": 100.31238
+          },
+          "e2e": {
+            "n": 477,
+            "p99": 37868.689195,
+            "p90": 14887.263727,
+            "p50": 2529.046642
+          },
+          "tpot": {
+            "n": 477,
+            "p99": 57.9404924015748,
+            "p90": 40.19052180314961,
+            "p50": 19.060634818897636
+          },
+          "completed_rps": 1.9875,
+          "output_tokens_per_s": 254.4,
+          "engine": {
+            "scrapes": 240,
+            "waiting": 315.0,
+            "running": 64.0,
+            "kv": 0.09784541582233985,
+            "kv_name": "vllm:kv_cache_usage_perc"
+          },
+          "gpu": {
+            "samples": 240,
+            "util_pct": 97.0,
+            "mem_mib": 20373.0
+          }
+        }
+      },
+      "saturation_held": {
+        "stable": false,
+        "reasons": [
+          "S2 p99 TTFT 3698.1 ms > 2000 ms",
+          "S3 last-third median TTFT 1108.7 ms > 2.0 x 215.2 + 100 ms"
+        ],
+        "ledger": {
+          "planned": 1095,
+          "unsent": 0,
+          "sent": 1095,
+          "completed": 1095,
+          "rejected": 0,
+          "failed": 0,
+          "cross": {
+            "200/done": 1095
+          }
+        },
+        "completed_fraction": 1.0,
+        "ttft": {
+          "n": 1095,
+          "p99": 3698.149704,
+          "p90": 3134.44288,
+          "p50": 541.926611
+        },
+        "first_third_median_ms": 215.152877,
+        "last_third_median_ms": 1108.674091
+      },
+      "recovery": {
+        "recovered": true,
+        "recovery_s": 60,
+        "limit_p90_ms": 236.70534700000002,
+        "windows": [
+          {
+            "start_s": 0,
+            "sent": 22,
+            "completed": 22,
+            "p90_ttft_ms": 33112.323729,
+            "state": "not recovered"
+          },
+          {
+            "start_s": 20,
+            "sent": 45,
+            "completed": 45,
+            "p90_ttft_ms": 19064.40257,
+            "state": "not recovered"
+          },
+          {
+            "start_s": 40,
+            "sent": 38,
+            "completed": 38,
+            "p90_ttft_ms": 1809.967512,
+            "state": "not recovered"
+          },
+          {
+            "start_s": 60,
+            "sent": 46,
+            "completed": 46,
+            "p90_ttft_ms": 139.427722,
+            "state": "recovered"
+          },
+          {
+            "start_s": 80,
+            "sent": 42,
+            "completed": 42,
+            "p90_ttft_ms": 137.880912,
+            "state": "recovered"
+          },
+          {
+            "start_s": 100,
+            "sent": 40,
+            "completed": 40,
+            "p90_ttft_ms": 135.673408,
+            "state": "recovered"
+          },
+          {
+            "start_s": 120,
+            "sent": 47,
+            "completed": 47,
+            "p90_ttft_ms": 146.535901,
+            "state": "recovered"
+          },
+          {
+            "start_s": 140,
+            "sent": 39,
+            "completed": 39,
+            "p90_ttft_ms": 138.600247,
+            "state": "recovered"
+          },
+          {
+            "start_s": 160,
+            "sent": 38,
+            "completed": 38,
+            "p90_ttft_ms": 106.144768,
+            "state": "recovered"
+          },
+          {
+            "start_s": 180,
+            "sent": 40,
+            "completed": 40,
+            "p90_ttft_ms": 196.136971,
+            "state": "recovered"
+          },
+          {
+            "start_s": 200,
+            "sent": 36,
+            "completed": 36,
+            "p90_ttft_ms": 148.046682,
+            "state": "recovered"
+          },
+          {
+            "start_s": 220,
+            "sent": 44,
+            "completed": 44,
+            "p90_ttft_ms": 130.245627,
+            "state": "recovered"
+          }
+        ]
+      },
+      "engine_drain_s": 47.047306060791016
+    }
+  },
+  "restarts": [
+    {
+      "index": 1,
+      "outcome": "serving",
+      "window_s": 45.552346,
+      "probes": 89
+    },
+    {
+      "index": 2,
+      "outcome": "serving",
+      "window_s": 47.161264,
+      "probes": 92
+    },
+    {
+      "index": 3,
+      "outcome": "serving",
+      "window_s": 43.850868000000006,
+      "probes": 86
+    }
+  ],
+  "plan": {
+    "run": true,
+    "r_low": 2.0,
+    "r_sat": 8,
+    "r_over": 12.0,
+    "overload_is_overload": true,
+    "segments": "baseline:2:150,saturation:8:150,overload:12:90,recovery:2:240",
+    "status": "saturated",
+    "first_unstable": 10
+  },
+  "included_by_x3_x5": true
+}

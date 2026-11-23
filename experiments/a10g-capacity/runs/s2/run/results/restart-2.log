@@ -1,0 +1,4 @@
+a10g-vllm
+a10g-vllm
+restart 2: serving 47161 ms after the kill, 92 probe(s)
+restart-2 exit=0 t=2339

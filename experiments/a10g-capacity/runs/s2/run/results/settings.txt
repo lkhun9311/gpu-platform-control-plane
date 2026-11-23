@@ -1,0 +1,7 @@
+contract=a10g-capacity-673-v1
+contract_sha256=7e2195988bcf310522379548f40e51faf32ad3e8743b61e8e02484e85742f553
+image=vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+source=https://github.com/lkhun9311/gpu-platform-control-plane@b45b1e519c63143f8da63c6bc1bedb518f334c7f
+go=go1.27.4.linux-amd64.tar.gz sha256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+budget_s=3200 pilot_budget_s=900 rung_worst_s=155 cycle_worst_s=690 restart_worst_s=260
+warmup=warmup:2:60 rungs=3 4 5 6 8 10 12 14 16 18 20 24 28 restarts=3

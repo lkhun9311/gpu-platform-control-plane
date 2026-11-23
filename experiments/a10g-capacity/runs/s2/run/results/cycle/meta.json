@@ -1,0 +1,46 @@
+{
+  "contract": "a10g-capacity-673-v1",
+  "seed": 6750,
+  "target": "http://127.0.0.1:8000",
+  "outputTokens": 128,
+  "timeoutS": 60,
+  "poolSize": 293,
+  "segments": [
+    {
+      "name": "baseline",
+      "rateRps": 2,
+      "durationS": 150,
+      "startMs": 0,
+      "endMs": 150000,
+      "planned": 286
+    },
+    {
+      "name": "saturation",
+      "rateRps": 8,
+      "durationS": 150,
+      "startMs": 150000,
+      "endMs": 300000,
+      "planned": 1220
+    },
+    {
+      "name": "overload",
+      "rateRps": 12,
+      "durationS": 90,
+      "startMs": 300000,
+      "endMs": 390000,
+      "planned": 1083
+    },
+    {
+      "name": "recovery",
+      "rateRps": 2,
+      "durationS": 240,
+      "startMs": 390000,
+      "endMs": 630000,
+      "planned": 477
+    }
+  ],
+  "startedUtc": "2026-11-23T00:29:13.152860268Z",
+  "endedUtc": "2026-11-23T00:39:45.113344611Z",
+  "rows": 3066,
+  "reconciled": true
+}

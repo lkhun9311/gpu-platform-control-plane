@@ -1,0 +1,10 @@
+{
+  "run": true,
+  "r_low": 2.0,
+  "r_sat": 8,
+  "r_over": 12.0,
+  "overload_is_overload": true,
+  "segments": "baseline:2:150,saturation:8:150,overload:12:90,recovery:2:240",
+  "status": "saturated",
+  "first_unstable": 10
+}

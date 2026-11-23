@@ -1,0 +1,13 @@
+Qwen/Qwen2.5-3B-Instruct
+--dtype=half
+--max-model-len=16384
+--max-num-seqs=64
+--gpu-memory-utilization=0.90
+--no-enable-prefix-caching
+--max-num-batched-tokens=512
+--scheduling-policy=priority
+--no-async-scheduling
+--port=8000
+--served-model-name=qwen2.5-3b-instruct
+--revision=aa8e72537993ba99e69dfaafa59ed015b17504d1
+--tokenizer-revision=aa8e72537993ba99e69dfaafa59ed015b17504d1

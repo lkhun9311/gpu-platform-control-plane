@@ -1,0 +1,22 @@
+{
+  "contract": "a10g-capacity-673-v1",
+  "seed": 6735,
+  "target": "http://127.0.0.1:8000",
+  "outputTokens": 128,
+  "timeoutS": 60,
+  "poolSize": 466,
+  "segments": [
+    {
+      "name": "rung",
+      "rateRps": 8,
+      "durationS": 60,
+      "startMs": 0,
+      "endMs": 60000,
+      "planned": 466
+    }
+  ],
+  "startedUtc": "2026-11-23T00:26:42.682189308Z",
+  "endedUtc": "2026-11-23T00:27:45.131459731Z",
+  "rows": 466,
+  "reconciled": true
+}
