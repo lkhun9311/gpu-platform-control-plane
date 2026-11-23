@@ -136,7 +136,7 @@ def b2_json(pool, **over):
     return json.dumps(d, indent=2)
 
 
-def b2_judged(runs=None, drop=(), rcs=None, stopped=None, logs=None, raw=None):
+def b2_judged(runs=None, drop=(), rcs=None, stopped=None, logs=None, raw=None, nolog=()):
     d = tempfile.mkdtemp(prefix="hf3fs-b2-")
     try:
         os.makedirs(os.path.join(d, "b2"))
@@ -147,7 +147,8 @@ def b2_judged(runs=None, drop=(), rcs=None, stopped=None, logs=None, raw=None):
             if name in drop:
                 continue
             open(os.path.join(d, "b2", f"{name}.json"), "w").write((raw or {}).get(name) or (runs or {}).get(name) or b2_json(pool))
-            open(os.path.join(d, "b2", f"{name}.log"), "w").write((logs or {}).get(name, "INFO start\n"))
+            if name not in nolog:
+                open(os.path.join(d, "b2", f"{name}.log"), "w").write((logs or {}).get(name, "INFO start\n"))
         open(os.path.join(d, "status.txt"), "w").write("\n".join(status) + "\n")
         if stopped:
             open(os.path.join(d, "b2", "STOPPED"), "w").write(stopped)
@@ -176,6 +177,12 @@ check("b2 INVALID (b): 1,800 keys at pool 128, more than 1% under b1's; exit 6",
       r["state"] == "INVALID" and r["_rc"] == 6 and "fix-128-3: (b) stored_keys=1800 is not within 1% of b1 at pool 128" in r["_text"])
 r = b2_judged(runs={"fix-128-2": b2_json(128, stored_keys=1902)})
 check("b2 INVALID (b): 1,902 keys at pool 128, more than 1% over b1's", r["state"] == "INVALID" and "(b) stored_keys=1902" in r["_text"])
+for keys, ok in ((1864, False), (1865, True), (1900, True), (1901, False)):
+    r = b2_judged(runs={"fix-128-1": b2_json(128, stored_keys=keys)})
+    check(f"b2 (b): {keys} keys at pool 128 is {'within' if ok else 'outside'} 1% of every b1 value, 1,864.17 to 1,900.82",
+          (r["state"] == "VALID") == ok)
+r = b2_judged(nolog=("fix-128-2",))
+check("b2 INCOMPLETE: a run without its log cannot be shown free of save failures (a)", r["state"] == "INCOMPLETE" and "fix-128-2: no readable log" in r["_text"])
 r = b2_judged(runs={"fix-2304-1": b2_json(2304, stored_keys=2002)})
 check("b2 INVALID (c): 2,002 keys at pool 2304, within 1% of b1's 2,003 but not exactly it",
       r["state"] == "INVALID" and "fix-2304-1: (c) stored_keys=2002, not exactly 2003" in r["_text"] and "(b)" not in r["_text"].split("B2 INVALID")[1])

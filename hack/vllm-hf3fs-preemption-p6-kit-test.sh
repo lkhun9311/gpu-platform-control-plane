@@ -325,6 +325,8 @@ b2_verdict.py|misses the save failure lines (a)|s/^SAVE_FAILURE_RE = re.compile(
 b2_verdict.py|misses only Write operation failed (a)|s/|Write operation failed|/|/
 b2_verdict.py|misses the only-allocated line (a)|s/^SHORT_RE = re.compile(.*$/SHORT_RE = re.compile(r"NEVER MATCHES")/
 b2_verdict.py|drops the 1% rule (b)|s/^        if not lo <= keys <= hi:$/        if False:/
+b2_verdict.py|uses the outer envelope of the b1 bands (b)|s/^        lo, hi = max(v \* (1 - B1_TOLERANCE) for v in b1_values(pool)), min(v \* (1 + B1_TOLERANCE) for v in b1_values(pool))$/        lo, hi = min(b1_values(pool)) * (1 - B1_TOLERANCE), max(b1_values(pool)) * (1 + B1_TOLERANCE)/
+b2_verdict.py|takes a run without its log (a)|s/^        if not run\["log_ok"\]:$/        if False:/
 b2_verdict.py|widens the 1% rule to 10% (b)|s/^B1_TOLERANCE = 0.01$/B1_TOLERANCE = 0.1/
 b2_verdict.py|drops the exact 2,003 rule at pool 2304 (c)|s/^        if pool == CONTROL_POOL and keys != CONTROL_POOL_KEYS:$/        if False:/
 b2_verdict.py|lets a preempting pool-2304 run through|s/^        if pool == CONTROL_POOL and d.get("preemptions") != 0:$/        if False:/

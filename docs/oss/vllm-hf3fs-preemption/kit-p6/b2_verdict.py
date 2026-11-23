@@ -71,10 +71,17 @@ def judge(out):
             except ValueError as e:
                 run["error"] = f"unreadable JSON: {e}"
         log = os.path.join(b2, f"{name}.log")
-        if os.path.exists(log):
+        # Rule (a) reads the log, so a run without a readable one cannot be shown free of save failures.
+        try:
             run["failures"] = [x.strip() for x in open(log, errors="replace") if SAVE_FAILURE_RE.search(x) or SHORT_RE.search(x)]
+            run["log_ok"] = True
+        except OSError as e:
+            run["log_ok"] = False
+            run["log_error"] = f"no readable log: {e}"
         rec["runs"].append(run)
         d = run["data"]
+        if not run["log_ok"]:
+            rec["incomplete"].append(f"{name}: {run['log_error']}, so rule (a) cannot be checked")
         if d is None:
             rec["incomplete"].append(f"{name}: " + (run.get("error") or "no JSON") + f" (exit {run['exit']})")
             continue
@@ -98,7 +105,8 @@ def judge(out):
         if not isinstance(keys, int):
             rec["incomplete"].append(f"{name}: stored_keys={keys!r} is not a count")
             continue
-        lo, hi = min(b1_values(pool)) * (1 - B1_TOLERANCE), max(b1_values(pool)) * (1 + B1_TOLERANCE)
+        # Within 1% of every b1 value: the intersection of their bands, 1,864.17 to 1,900.82 at pool 128.
+        lo, hi = max(v * (1 - B1_TOLERANCE) for v in b1_values(pool)), min(v * (1 + B1_TOLERANCE) for v in b1_values(pool))
         if not lo <= keys <= hi:
             rec["invalid"].append(f"{name}: (b) stored_keys={keys} is not within {B1_TOLERANCE:.0%} of {b1_text(pool)}")
         if pool == CONTROL_POOL and keys != CONTROL_POOL_KEYS:
