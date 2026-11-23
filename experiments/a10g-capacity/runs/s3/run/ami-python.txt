@@ -1,0 +1,3 @@
+no python3.12 on PATH
+no python on PATH
+Python 3.10.12
