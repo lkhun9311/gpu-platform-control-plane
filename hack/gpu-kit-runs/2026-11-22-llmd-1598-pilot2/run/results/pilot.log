@@ -1,0 +1,25 @@
+09:23:57 engines AK ready in 95 s
+09:24:40 cell ramp-A-A1-64 A1 A rate=64 v=2: 1968 rows in 42.9 s
+09:25:23 cell ramp-A-A1-80 A1 A rate=80 v=2: 2353 rows in 43.1 s
+09:26:06 cell ramp-A-A3-64 A3 A rate=64 v=2: 1968 rows in 42.8 s
+09:26:49 cell ramp-A-A3-80 A3 A rate=80 v=2: 2353 rows in 42.8 s
+09:27:32 cell ramp-A-A3-100 A3 A rate=100 v=2: 2913 rows in 43.0 s
+09:28:15 cell ramp-A-A3-125 A3 A rate=125 v=2: 3756 rows in 43.3 s
+09:28:59 cell ramp-A-A3-156 A3 A rate=156 v=2: 4713 rows in 43.6 s
+09:29:47 cell ramp-A-A3-195 A3 A rate=195 v=2: 5822 rows in 47.6 s
+09:30:34 cell K-A1 A1 K rate=None v=2: 804 rows in 47.5 s
+09:31:16 cell Kequal-A1 A1 K rate=None v=2: 768 rows in 41.6 s
+09:32:04 cell Kstagger-A1 A1 K rate=None v=2: 804 rows in 47.9 s
+09:33:04 engines W ready in 60 s
+09:35:21 cell ramp-W942-A1-1.75 A1 W942 rate=1.75 v=2: 216 rows in 136.7 s
+09:36:49 cell ramp-W942-A1-2.9 A1 W942 rate=2.9 v=2: 216 rows in 87.8 s
+09:37:52 cell ramp-W942-A1-4.4 A1 W942 rate=4.4 v=2: 216 rows in 62.5 s
+09:38:53 engines B ready in 61 s
+09:39:46 cell ramp-B-A1-64 A1 B rate=64 v=2: 2554 rows in 52.9 s
+09:40:39 cell ramp-B-A1-80 A1 B rate=80 v=2: 3287 rows in 52.9 s
+09:41:32 cell ramp-B-A1-100 A1 B rate=100 v=2: 4049 rows in 53.0 s
+09:42:25 cell ramp-B-A1-125 A1 B rate=125 v=2: 5010 rows in 53.3 s
+09:43:19 cell ramp-B-A1-156 A1 B rate=156 v=2: 6170 rows in 53.6 s
+09:44:12 cell ramp-B-A3-64 A3 B rate=64 v=2: 2554 rows in 52.9 s
+09:45:05 cell ramp-B-A3-80 A3 B rate=80 v=2: 3287 rows in 52.9 s
+09:45:58 cell ramp-B-A3-100 A3 B rate=100 v=2: 4049 rows in 53.1 s

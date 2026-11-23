@@ -1,0 +1,22 @@
+commit=404fe84ce8109f25ab9189f12cb1c99dcfa91609
+kit_repo=/home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/llmd-1598
+kit_path=docs/oss/llmd-1598/kit
+kit_commit=404fe84ce8109f25ab9189f12cb1c99dcfa91609
+ami_id=ami-097edab977037f65f
+ami_name=Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016
+region=ap-northeast-2
+instance_type=g5.12xlarge
+max_spot_price=3.48
+gpus=4
+cost_cap_usd=4.00
+volume=120 GB gp3, 500 MiB/s, 6000 IOPS
+all_in_rate=3.5483
+worst_case_usd=3.9623
+uv=0.12.22 sha256 b9980552309f09c15172b8be828555e375097f16deb459795ce7bfd200380f0b
+python=cpython-3.12.15-linux-x86_64-gnu
+inputs_sha256=7498e129dad7f9a7d30492535a575e9ebb1d9001064fd464390c3ba684be282b
+harness_end_from_launch_s=3600
+stop_from_launch_s=3720
+termination_from_launch_s=4020
+run_id=2026-11-22-llmd-1598-pilot2-6b5f37f4
+kit_env=STAGE=pilot2;BUDGET_S=3250

@@ -142,3 +142,17 @@ ResizeStarted	an upstream Kubernetes Pod event reason for in-place resize; docs/
 ResizeCompleted	the upstream Kubernetes Pod event reason that closes an in-place resize; cited beside ResizeStarted in docs/16 for the same #142885 runs
 PrepareCompleted	a checkpoint state of the kubernetes-sigs/dra-driver-nvidia-gpu kubelet plugin; docs/16 names it from issue #1278, not code of this repository
 hack/local-up-cluster.sh	a script in kubernetes/kubernetes, not in this repository; docs/16 says "Kubernetes' own" of it on the same line
+
+# --- upstream llm-d-router names the llm-d-router 1598 A/B design cites, 2026-11-23 ----------------------
+# Each was checked against llm-d/llm-d-router at 733d0e4e, the commit the design pins for A1, or against #4313's diff where the entry says so.
+RotateScoredEndpoints	an llm-d-router function in pkg/epp/framework/plugins/scheduling/picker/common.go at 733d0e4e; the 1598 design cites it as `picker/common.go` to explain A3's strict rotation
+NextCounter	an llm-d-router function in the same picker/common.go at 733d0e4e, cited beside RotateScoredEndpoints by the 1598 design
+EndpointReserver	an interface llm-d/llm-d-router#4313 adds in pkg/epp/framework/interface/requesthandling/reserver.go; it is not on llm-d-router main, and the 1598 design names it as #4313's mechanism
+ReserveResult	the EndpointReserver method #4313 adds and implements in the inflight-load producer; the 1598 design names it to record that #4313 logs nothing when it reserves
+TokenizedRequest	an llm-d-router type in pkg/epp/framework/common/request/types.go at 733d0e4e; the 1598 design cites the router's dataproducer/tokenizer/client_tokens.go beside it
+GetBlockSize	an llm-d-router method in the approximate prefix producer's plugin.go at 733d0e4e; the 1598 design cites it as `approximateprefix/plugin.go` with #1158
+InFlightLoad.Tokens	an llm-d-router struct field in pkg/epp/framework/plugins/datalayer/attribute/concurrency/data_types.go at 733d0e4e; the 1598 design names it as the EPP's own load signal
+scheduler_profile.go	pkg/epp/scheduling/scheduler_profile.go in llm-d-router at 733d0e4e, not in this repository; the 1598 design says "the router's" of it on the same line
+docs/discovery.md	a document in llm-d-router at 733d0e4e, not in this repository; the 1598 design says "llm-d-router's" of it on the same line
+test/perf	a directory in llm-d-router at 733d0e4e, not this repository's test/; the 1598 design says "the router's" of it on every line that names it
+optimized-baseline.yaml	test/perf/config/router-configs/optimized-baseline.yaml in llm-d-router at 733d0e4e, not in this repository; the 1598 design says "the router's" of it on the same line

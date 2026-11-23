@@ -1,0 +1,13 @@
+endpoints:
+- name: vllm-0
+  address: "127.0.0.1"
+  port: "8000"
+- name: vllm-1
+  address: "127.0.0.1"
+  port: "8001"
+- name: vllm-2
+  address: "127.0.0.1"
+  port: "8002"
+- name: vllm-3
+  address: "127.0.0.1"
+  port: "8003"

@@ -1,0 +1,3671 @@
+{
+ "apparatus_failures": {},
+ "b_pressure": {
+  "is_pressure": false,
+  "lost_share": 0.0
+ },
+ "calibration": {
+  "cold_p50_A_s": 0.07550311088562012,
+  "cold_p50_B_s": 0.05051469802856445,
+  "cold_p50_W942_s": 1.0154619216918945,
+  "peak_median_ttft_s": 0.230910062789917,
+  "peak_prefill_tps": 8869.254008489355,
+  "preload_ttft_s": [
+   0.4800426959991455,
+   0.47472310066223145,
+   0.4745597839355469
+  ],
+  "slo_A_s": 0.23,
+  "slo_B_s": 0.16,
+  "slo_W942_s": 3.05,
+  "warm_p50_A_s": 0.024506568908691406,
+  "warm_p50_B_s": 0.023679256439208984,
+  "warm_p50_W942_s": 0.04698371887207031
+ },
+ "cells": {
+  "calib-peak": {
+   "arm": "A3",
+   "block": "A",
+   "cell": "calib-peak",
+   "checks": {
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 0,
+   "epp_sched_p99_s": 0.0005,
+   "imbalance_cv": null,
+   "imbalance_windows": 0,
+   "lag_p99_s": null,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 5,
+      "prompt": 10240,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 5,
+      "preemptions": 0,
+      "prompt": 10240,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 5,
+      "prompt": 10240,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 5,
+      "preemptions": 0,
+      "prompt": 10240,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 5,
+      "prompt": 10240,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 5,
+      "preemptions": 0,
+      "prompt": 10240,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 5,
+      "prompt": 10240,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 5,
+      "preemptions": 0,
+      "prompt": 10240,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 0,
+   "reused_fraction": null,
+   "sampler": "ok",
+   "ttft_p50_s": null,
+   "ttft_p95_s": null,
+   "ttft_p99_s": null,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "iso-A-cold": {
+   "arm": "A3",
+   "block": "A",
+   "cell": "iso-A-cold",
+   "checks": {
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 0,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 1.0419676611211843,
+   "imbalance_windows": 12,
+   "lag_p99_s": null,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 160,
+      "prompt": 2720,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 2720,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 160,
+      "prompt": 2720,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 2720,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 160,
+      "prompt": 2720,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 2720,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 160,
+      "prompt": 2720,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 2720,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 0,
+   "reused_fraction": null,
+   "sampler": "ok",
+   "ttft_p50_s": null,
+   "ttft_p95_s": null,
+   "ttft_p99_s": null,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "iso-A-warm": {
+   "arm": "A3",
+   "block": "A",
+   "cell": "iso-A-warm",
+   "checks": {
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 0,
+   "epp_sched_p99_s": 0.0005,
+   "imbalance_cv": 0.9334167921365104,
+   "imbalance_windows": 11,
+   "lag_p99_s": null,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 2640,
+      "generation": 192,
+      "prompt": 3264,
+      "success": 6
+     },
+     "engine": {
+      "cached": 2640,
+      "generation": 192,
+      "preemptions": 0,
+      "prompt": 3264,
+      "success": 6
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 2112,
+      "generation": 160,
+      "prompt": 2720,
+      "success": 5
+     },
+     "engine": {
+      "cached": 2112,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 2720,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 2112,
+      "generation": 160,
+      "prompt": 2720,
+      "success": 5
+     },
+     "engine": {
+      "cached": 2112,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 2720,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 2112,
+      "generation": 160,
+      "prompt": 2720,
+      "success": 5
+     },
+     "engine": {
+      "cached": 2112,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 2720,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 0,
+   "reused_fraction": null,
+   "sampler": "ok",
+   "ttft_p50_s": null,
+   "ttft_p95_s": null,
+   "ttft_p99_s": null,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "iso-B-cold": {
+   "arm": "A3",
+   "block": "B",
+   "cell": "iso-B-cold",
+   "checks": {
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 0,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.8365048577302671,
+   "imbalance_windows": 11,
+   "lag_p99_s": null,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 160,
+      "prompt": 1440,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 1440,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 160,
+      "prompt": 1440,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 1440,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 160,
+      "prompt": 1440,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 1440,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 160,
+      "prompt": 1440,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 1440,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 0,
+   "reuse": {
+    "first_fills": 0,
+    "lost_reuse": 0,
+    "lost_share": null,
+    "measured": 0
+   },
+   "reused_fraction": null,
+   "sampler": "ok",
+   "ttft_p50_s": null,
+   "ttft_p95_s": null,
+   "ttft_p99_s": null,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "iso-B-warm": {
+   "arm": "A3",
+   "block": "B",
+   "cell": "iso-B-warm",
+   "checks": {
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 0,
+   "epp_sched_p99_s": 0.0005,
+   "imbalance_cv": 0.9674367830807648,
+   "imbalance_windows": 11,
+   "lag_p99_s": null,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 1360,
+      "generation": 192,
+      "prompt": 1728,
+      "success": 6
+     },
+     "engine": {
+      "cached": 1360,
+      "generation": 192,
+      "preemptions": 0,
+      "prompt": 1728,
+      "success": 6
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 1088,
+      "generation": 160,
+      "prompt": 1440,
+      "success": 5
+     },
+     "engine": {
+      "cached": 1088,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 1440,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 1088,
+      "generation": 160,
+      "prompt": 1440,
+      "success": 5
+     },
+     "engine": {
+      "cached": 1088,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 1440,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 1088,
+      "generation": 160,
+      "prompt": 1440,
+      "success": 5
+     },
+     "engine": {
+      "cached": 1088,
+      "generation": 160,
+      "preemptions": 0,
+      "prompt": 1440,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 0,
+   "reuse": {
+    "first_fills": 0,
+    "lost_reuse": 0,
+    "lost_share": null,
+    "measured": 0
+   },
+   "reused_fraction": null,
+   "sampler": "ok",
+   "ttft_p50_s": null,
+   "ttft_p95_s": null,
+   "ttft_p99_s": null,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "iso-W942-cold": {
+   "arm": "A3",
+   "block": "W942",
+   "cell": "iso-W942-cold",
+   "checks": {
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 0,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 1.4404190961769214,
+   "imbalance_windows": 40,
+   "lag_p99_s": null,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 320,
+      "prompt": 39680,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 320,
+      "preemptions": 0,
+      "prompt": 39680,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 320,
+      "prompt": 39680,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 320,
+      "preemptions": 0,
+      "prompt": 39680,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 320,
+      "prompt": 39680,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 320,
+      "preemptions": 0,
+      "prompt": 39680,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 320,
+      "prompt": 39680,
+      "success": 5
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 320,
+      "preemptions": 0,
+      "prompt": 39680,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 0,
+   "reused_fraction": null,
+   "sampler": "ok",
+   "ttft_p50_s": null,
+   "ttft_p95_s": null,
+   "ttft_p99_s": null,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "iso-W942-warm": {
+   "arm": "A3",
+   "block": "W942",
+   "cell": "iso-W942-warm",
+   "checks": {
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 0,
+   "epp_sched_p99_s": 0.002,
+   "imbalance_cv": 1.3492712654298367,
+   "imbalance_windows": 26,
+   "lag_p99_s": null,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 39600,
+      "generation": 384,
+      "prompt": 47616,
+      "success": 6
+     },
+     "engine": {
+      "cached": 39600,
+      "generation": 384,
+      "preemptions": 0,
+      "prompt": 47616,
+      "success": 6
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 31680,
+      "generation": 320,
+      "prompt": 39680,
+      "success": 5
+     },
+     "engine": {
+      "cached": 31680,
+      "generation": 320,
+      "preemptions": 0,
+      "prompt": 39680,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 31680,
+      "generation": 320,
+      "prompt": 39680,
+      "success": 5
+     },
+     "engine": {
+      "cached": 31680,
+      "generation": 320,
+      "preemptions": 0,
+      "prompt": 39680,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 31680,
+      "generation": 320,
+      "prompt": 39680,
+      "success": 5
+     },
+     "engine": {
+      "cached": 31680,
+      "generation": 320,
+      "preemptions": 0,
+      "prompt": 39680,
+      "success": 5
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 0,
+   "reused_fraction": null,
+   "sampler": "ok",
+   "ttft_p50_s": null,
+   "ttft_p95_s": null,
+   "ttft_p99_s": null,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "iso-preload": {
+   "arm": "A3",
+   "block": "A",
+   "cell": "iso-preload",
+   "checks": {
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 0,
+   "epp_sched_p99_s": 0.0005,
+   "imbalance_cv": 1.3660254037844386,
+   "imbalance_windows": 2,
+   "lag_p99_s": null,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 1,
+      "prompt": 4000,
+      "success": 1
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1,
+      "preemptions": 0,
+      "prompt": 4000,
+      "success": 1
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 1,
+      "prompt": 4000,
+      "success": 1
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1,
+      "preemptions": 0,
+      "prompt": 4000,
+      "success": 1
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 1,
+      "prompt": 4000,
+      "success": 1
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1,
+      "preemptions": 0,
+      "prompt": 4000,
+      "success": 1
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 0,
+      "preemptions": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 0,
+   "reused_fraction": null,
+   "sampler": "ok",
+   "ttft_p50_s": null,
+   "ttft_p95_s": null,
+   "ttft_p99_s": null,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "log-A-A1-v2": {
+   "arm": "A1",
+   "block": "A",
+   "cell": "log-A-A1-v2",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 1741,
+   "epp_sched_p99_s": 0.0001,
+   "imbalance_cv": 1.0351279373452815,
+   "imbalance_windows": 31,
+   "lag_p99_s": 0.0013518333435058594,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 533504,
+      "generation": 16972,
+      "prompt": 567392,
+      "success": 1043
+     },
+     "engine": {
+      "cached": 533504,
+      "generation": 16972,
+      "preemptions": 0,
+      "prompt": 567392,
+      "success": 1043
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 0,
+      "preemptions": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 534016,
+      "generation": 17031,
+      "prompt": 567936,
+      "success": 1044
+     },
+     "engine": {
+      "cached": 534016,
+      "generation": 17031,
+      "preemptions": 0,
+      "prompt": 567936,
+      "success": 1044
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 0,
+      "preemptions": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 1741,
+   "reused_fraction": 0.9411764705882353,
+   "sampler": "ok",
+   "ttft_p50_s": 0.05861806869506836,
+   "ttft_p95_s": 0.21878719329833984,
+   "ttft_p99_s": 0.28790736198425293,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 2
+  },
+  "log-A-A1-v5": {
+   "arm": "A1",
+   "block": "A",
+   "cell": "log-A-A1-v5",
+   "checks": {
+    "credit_join": true,
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 1741,
+   "credit": {
+    "completed": 1741,
+    "completed_no_reuse": 0,
+    "credited": 1741,
+    "in_flight": 0,
+    "no_reuse_share": 0.0
+   },
+   "credit_join_share": 1.0,
+   "credit_rows": 1741,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 1.0481599834255078,
+   "imbalance_windows": 32,
+   "lag_p99_s": 0.0009033679962158203,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 533504,
+      "generation": 16972,
+      "prompt": 567392,
+      "success": 1043
+     },
+     "engine": {
+      "cached": 533504,
+      "generation": 16972,
+      "preemptions": 0,
+      "prompt": 567392,
+      "success": 1043
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 0,
+      "preemptions": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 534016,
+      "generation": 17031,
+      "prompt": 567936,
+      "success": 1044
+     },
+     "engine": {
+      "cached": 534016,
+      "generation": 17031,
+      "preemptions": 0,
+      "prompt": 567936,
+      "success": 1044
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 0,
+      "preemptions": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 1741,
+   "reused_fraction": 0.9411764705882353,
+   "sampler": "ok",
+   "ttft_p50_s": 0.06021428108215332,
+   "ttft_p95_s": 0.2178809642791748,
+   "ttft_p99_s": 0.28356003761291504,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "log-K-A1-v2": {
+   "arm": "A1",
+   "block": "K",
+   "bursts": [
+    {
+     "basis": "envoy",
+     "burst": 0,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 15,
+      "127.0.0.1:8003": 21
+     },
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 21,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "envoy",
+     "burst": 1,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 15,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "envoy",
+     "burst": 2,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 22
+     },
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 22,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "envoy",
+     "burst": 3,
+     "counts": {
+      "127.0.0.1:8000": 21,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 15
+     },
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 21,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "envoy",
+     "burst": 4,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 22,
+      "127.0.0.1:8003": 14
+     },
+     "idle_engine": [
+      "127.0.0.1:8002"
+     ],
+     "largest": 22,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "envoy",
+     "burst": 5,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 22,
+      "127.0.0.1:8002": 14,
+      "127.0.0.1:8003": 14
+     },
+     "idle_engine": [
+      "127.0.0.1:8001"
+     ],
+     "largest": 22,
+     "valid": true,
+     "why": "ok"
+    }
+   ],
+   "cell": "log-K-A1-v2",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 384,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.5401559192318016,
+   "imbalance_windows": 14,
+   "lag_p99_s": 0.007584810256958008,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 1469,
+      "prompt": 69312,
+      "success": 102
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1469,
+      "preemptions": 0,
+      "prompt": 69312,
+      "success": 102
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 1531,
+      "prompt": 70592,
+      "success": 98
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1531,
+      "preemptions": 0,
+      "prompt": 70592,
+      "success": 98
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 1554,
+      "prompt": 70592,
+      "success": 98
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1554,
+      "preemptions": 0,
+      "prompt": 70592,
+      "success": 98
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 1725,
+      "prompt": 70400,
+      "success": 104
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1725,
+      "preemptions": 0,
+      "prompt": 70400,
+      "success": 104
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "mean_largest_valid": 21.5,
+   "n_eval": 384,
+   "reused_fraction": 0.0,
+   "sampler": "ok",
+   "ttft_p50_s": 0.8277733325958252,
+   "ttft_p95_s": 1.259476900100708,
+   "ttft_p99_s": 1.4427943229675293,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "valid_bursts": 6,
+   "verbosity": 2
+  },
+  "log-K-A1-v5": {
+   "arm": "A1",
+   "block": "K",
+   "bursts": [
+    {
+     "basis": "epp",
+     "burst": 0,
+     "counts": {
+      "127.0.0.1:8000": 12,
+      "127.0.0.1:8001": 15,
+      "127.0.0.1:8002": 19,
+      "127.0.0.1:8003": 18
+     },
+     "idle_engine": [
+      "127.0.0.1:8003"
+     ],
+     "largest": 19,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "epp",
+     "burst": 1,
+     "counts": {
+      "127.0.0.1:8000": 29,
+      "127.0.0.1:8001": 8,
+      "127.0.0.1:8002": 7,
+      "127.0.0.1:8003": 20
+     },
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 29,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "epp",
+     "burst": 2,
+     "counts": {
+      "127.0.0.1:8000": 26,
+      "127.0.0.1:8001": 14,
+      "127.0.0.1:8002": 7,
+      "127.0.0.1:8003": 17
+     },
+     "idle_engine": [
+      "127.0.0.1:8000"
+     ],
+     "largest": 26,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "epp",
+     "burst": 3,
+     "counts": {
+      "127.0.0.1:8000": 11,
+      "127.0.0.1:8001": 11,
+      "127.0.0.1:8002": 30,
+      "127.0.0.1:8003": 12
+     },
+     "idle_engine": [
+      "127.0.0.1:8002"
+     ],
+     "largest": 30,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "epp",
+     "burst": 4,
+     "counts": {
+      "127.0.0.1:8000": 20,
+      "127.0.0.1:8001": 16,
+      "127.0.0.1:8002": 11,
+      "127.0.0.1:8003": 17
+     },
+     "idle_engine": [
+      "127.0.0.1:8001"
+     ],
+     "largest": 20,
+     "valid": true,
+     "why": "ok"
+    },
+    {
+     "basis": "epp",
+     "burst": 5,
+     "counts": {
+      "127.0.0.1:8000": 14,
+      "127.0.0.1:8001": 18,
+      "127.0.0.1:8002": 18,
+      "127.0.0.1:8003": 14
+     },
+     "idle_engine": [
+      "127.0.0.1:8001"
+     ],
+     "largest": 18,
+     "valid": true,
+     "why": "ok"
+    }
+   ],
+   "cell": "log-K-A1-v5",
+   "checks": {
+    "credit_join": true,
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 384,
+   "credit": {
+    "completed": 0,
+    "completed_no_reuse": 0,
+    "credited": 0,
+    "in_flight": 0,
+    "no_reuse_share": null
+   },
+   "credit_join_share": 1.0,
+   "credit_rows": 0,
+   "epp_sched_p99_s": 0.05,
+   "imbalance_cv": 0.8373438476703383,
+   "imbalance_windows": 17,
+   "lag_p99_s": 0.007378578186035156,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 0,
+      "generation": 1834,
+      "prompt": 76928,
+      "success": 116
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1834,
+      "preemptions": 0,
+      "prompt": 76928,
+      "success": 116
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 1391,
+      "prompt": 60608,
+      "success": 86
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1391,
+      "preemptions": 0,
+      "prompt": 60608,
+      "success": 86
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 0,
+      "generation": 1443,
+      "prompt": 70048,
+      "success": 97
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1443,
+      "preemptions": 0,
+      "prompt": 70048,
+      "success": 97
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 1611,
+      "prompt": 73312,
+      "success": 103
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 1611,
+      "preemptions": 0,
+      "prompt": 73312,
+      "success": 103
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "mean_largest_valid": 23.666666666666668,
+   "n_eval": 384,
+   "reused_fraction": 0.0,
+   "sampler": "ok",
+   "ttft_p50_s": 0.8294494152069092,
+   "ttft_p95_s": 1.5510451793670654,
+   "ttft_p99_s": 1.9398338794708252,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "valid_bursts": 6,
+   "verbosity": 5
+  },
+  "pressure-B-A1": {
+   "arm": "A1",
+   "block": "B",
+   "cell": "pressure-B-A1",
+   "checks": {
+    "credit_join": true,
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 312,
+   "credit": {
+    "completed": 306,
+    "completed_no_reuse": 0,
+    "credited": 306,
+    "in_flight": 0,
+    "no_reuse_share": 0.0
+   },
+   "credit_join_share": 1.0,
+   "credit_rows": 306,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.609537777174093,
+   "imbalance_windows": 41,
+   "lag_p99_s": 0.0002570152282714844,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 24832,
+      "generation": 1710,
+      "prompt": 31968,
+      "success": 111
+     },
+     "engine": {
+      "cached": 24832,
+      "generation": 1710,
+      "preemptions": 0,
+      "prompt": 31968,
+      "success": 111
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 20480,
+      "generation": 1567,
+      "prompt": 26208,
+      "success": 91
+     },
+     "engine": {
+      "cached": 20480,
+      "generation": 1567,
+      "preemptions": 0,
+      "prompt": 26208,
+      "success": 91
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 24064,
+      "generation": 1872,
+      "prompt": 30816,
+      "success": 107
+     },
+     "engine": {
+      "cached": 24064,
+      "generation": 1872,
+      "preemptions": 0,
+      "prompt": 30816,
+      "success": 107
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 22016,
+      "generation": 1648,
+      "prompt": 27936,
+      "success": 97
+     },
+     "engine": {
+      "cached": 22016,
+      "generation": 1648,
+      "preemptions": 0,
+      "prompt": 27936,
+      "success": 97
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 312,
+   "reuse": {
+    "first_fills": 6,
+    "lost_reuse": 0,
+    "lost_share": 0.0,
+    "measured": 312
+   },
+   "reused_fraction": 0.8717948717948718,
+   "sampler": "ok",
+   "ttft_p50_s": 0.037558794021606445,
+   "ttft_p95_s": 0.05298423767089844,
+   "ttft_p99_s": 0.05971074104309082,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-A-10": {
+   "arm": "A3",
+   "block": "A",
+   "cell": "ramp-A-10",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 224,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.43934399218677667,
+   "imbalance_windows": 30,
+   "lag_p99_s": 0.0008172988891601562,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 35328,
+      "generation": 1177,
+      "prompt": 38624,
+      "success": 71
+     },
+     "engine": {
+      "cached": 35328,
+      "generation": 1177,
+      "preemptions": 0,
+      "prompt": 38624,
+      "success": 71
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 35328,
+      "generation": 1199,
+      "prompt": 38624,
+      "success": 71
+     },
+     "engine": {
+      "cached": 35328,
+      "generation": 1199,
+      "preemptions": 0,
+      "prompt": 38624,
+      "success": 71
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 35328,
+      "generation": 1038,
+      "prompt": 38624,
+      "success": 71
+     },
+     "engine": {
+      "cached": 35328,
+      "generation": 1038,
+      "preemptions": 0,
+      "prompt": 38624,
+      "success": 71
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 34816,
+      "generation": 1145,
+      "prompt": 38080,
+      "success": 70
+     },
+     "engine": {
+      "cached": 34816,
+      "generation": 1145,
+      "preemptions": 0,
+      "prompt": 38080,
+      "success": 70
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 224,
+   "reused_fraction": 0.9411764705882353,
+   "sampler": "ok",
+   "ttft_p50_s": 0.025550365447998047,
+   "ttft_p95_s": 0.05020475387573242,
+   "ttft_p99_s": 0.05203962326049805,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-A-20": {
+   "arm": "A3",
+   "block": "A",
+   "cell": "ramp-A-20",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 485,
+   "epp_sched_p99_s": 0.0005,
+   "imbalance_cv": 0.29151230196735123,
+   "imbalance_windows": 30,
+   "lag_p99_s": 0.0010592937469482422,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 74752,
+      "generation": 2614,
+      "prompt": 80512,
+      "success": 148
+     },
+     "engine": {
+      "cached": 74752,
+      "generation": 2614,
+      "preemptions": 0,
+      "prompt": 80512,
+      "success": 148
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 74752,
+      "generation": 2410,
+      "prompt": 80512,
+      "success": 148
+     },
+     "engine": {
+      "cached": 74752,
+      "generation": 2410,
+      "preemptions": 0,
+      "prompt": 80512,
+      "success": 148
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 74240,
+      "generation": 2394,
+      "prompt": 79968,
+      "success": 147
+     },
+     "engine": {
+      "cached": 74240,
+      "generation": 2394,
+      "preemptions": 0,
+      "prompt": 79968,
+      "success": 147
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 74240,
+      "generation": 2483,
+      "prompt": 79968,
+      "success": 147
+     },
+     "engine": {
+      "cached": 74240,
+      "generation": 2483,
+      "preemptions": 0,
+      "prompt": 79968,
+      "success": 147
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 485,
+   "reused_fraction": 0.9411764705882353,
+   "sampler": "ok",
+   "ttft_p50_s": 0.04181957244873047,
+   "ttft_p95_s": 0.052027225494384766,
+   "ttft_p99_s": 0.057196617126464844,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-A-40": {
+   "arm": "A3",
+   "block": "A",
+   "cell": "ramp-A-40",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 956,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.19878628517655833,
+   "imbalance_windows": 31,
+   "lag_p99_s": 0.0006372928619384766,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 144896,
+      "generation": 4894,
+      "prompt": 155040,
+      "success": 285
+     },
+     "engine": {
+      "cached": 144896,
+      "generation": 4894,
+      "preemptions": 0,
+      "prompt": 155040,
+      "success": 285
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 144896,
+      "generation": 4490,
+      "prompt": 155040,
+      "success": 285
+     },
+     "engine": {
+      "cached": 144896,
+      "generation": 4490,
+      "preemptions": 0,
+      "prompt": 155040,
+      "success": 285
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 144896,
+      "generation": 4684,
+      "prompt": 155040,
+      "success": 285
+     },
+     "engine": {
+      "cached": 144896,
+      "generation": 4684,
+      "preemptions": 0,
+      "prompt": 155040,
+      "success": 285
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 144384,
+      "generation": 4692,
+      "prompt": 154496,
+      "success": 284
+     },
+     "engine": {
+      "cached": 144384,
+      "generation": 4692,
+      "preemptions": 0,
+      "prompt": 154496,
+      "success": 284
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 956,
+   "reused_fraction": 0.9411764705882353,
+   "sampler": "ok",
+   "ttft_p50_s": 0.04604840278625488,
+   "ttft_p95_s": 0.05450749397277832,
+   "ttft_p99_s": 0.058455705642700195,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-A-80": {
+   "arm": "A3",
+   "block": "A",
+   "cell": "ramp-A-80",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 1993,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.16942516090736776,
+   "imbalance_windows": 32,
+   "lag_p99_s": 0.0006105899810791016,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 305664,
+      "generation": 9572,
+      "prompt": 325856,
+      "success": 599
+     },
+     "engine": {
+      "cached": 305664,
+      "generation": 9572,
+      "preemptions": 0,
+      "prompt": 325856,
+      "success": 599
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 305664,
+      "generation": 10277,
+      "prompt": 325856,
+      "success": 599
+     },
+     "engine": {
+      "cached": 305664,
+      "generation": 10277,
+      "preemptions": 0,
+      "prompt": 325856,
+      "success": 599
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 305664,
+      "generation": 9755,
+      "prompt": 325856,
+      "success": 599
+     },
+     "engine": {
+      "cached": 305664,
+      "generation": 9755,
+      "preemptions": 0,
+      "prompt": 325856,
+      "success": 599
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 305152,
+      "generation": 10064,
+      "prompt": 325312,
+      "success": 598
+     },
+     "engine": {
+      "cached": 305152,
+      "generation": 10064,
+      "preemptions": 0,
+      "prompt": 325312,
+      "success": 598
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 1993,
+   "reused_fraction": 0.9411764705882353,
+   "sampler": "ok",
+   "ttft_p50_s": 0.04973554611206055,
+   "ttft_p95_s": 0.05857348442077637,
+   "ttft_p99_s": 0.0643930435180664,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-B-10": {
+   "arm": "A3",
+   "block": "B",
+   "cell": "ramp-B-10",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 312,
+   "epp_sched_p99_s": 0.0005,
+   "imbalance_cv": 0.3905576934827129,
+   "imbalance_windows": 41,
+   "lag_p99_s": 0.0013384819030761719,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 8512,
+      "generation": 1598,
+      "prompt": 29376,
+      "success": 102
+     },
+     "engine": {
+      "cached": 8512,
+      "generation": 1598,
+      "preemptions": 0,
+      "prompt": 29376,
+      "success": 102
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 10496,
+      "generation": 1752,
+      "prompt": 29376,
+      "success": 102
+     },
+     "engine": {
+      "cached": 10496,
+      "generation": 1752,
+      "preemptions": 0,
+      "prompt": 29376,
+      "success": 102
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 8448,
+      "generation": 1693,
+      "prompt": 29088,
+      "success": 101
+     },
+     "engine": {
+      "cached": 8448,
+      "generation": 1693,
+      "preemptions": 0,
+      "prompt": 29088,
+      "success": 101
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 8848,
+      "generation": 1754,
+      "prompt": 29088,
+      "success": 101
+     },
+     "engine": {
+      "cached": 8848,
+      "generation": 1754,
+      "preemptions": 0,
+      "prompt": 29088,
+      "success": 101
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 312,
+   "reuse": {
+    "first_fills": 94,
+    "lost_reuse": 88,
+    "lost_share": 0.28205128205128205,
+    "measured": 312
+   },
+   "reused_fraction": 0.36413817663817666,
+   "sampler": "ok",
+   "ttft_p50_s": 0.04969978332519531,
+   "ttft_p95_s": 0.0744481086730957,
+   "ttft_p99_s": 0.07688570022583008,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-B-20": {
+   "arm": "A3",
+   "block": "B",
+   "cell": "ramp-B-20",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 616,
+   "epp_sched_p99_s": 0.0005,
+   "imbalance_cv": 0.25629038675211,
+   "imbalance_windows": 41,
+   "lag_p99_s": 0.0005872249603271484,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 21392,
+      "generation": 3430,
+      "prompt": 61056,
+      "success": 212
+     },
+     "engine": {
+      "cached": 21392,
+      "generation": 3430,
+      "preemptions": 0,
+      "prompt": 61056,
+      "success": 212
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 22688,
+      "generation": 3503,
+      "prompt": 61056,
+      "success": 212
+     },
+     "engine": {
+      "cached": 22688,
+      "generation": 3503,
+      "preemptions": 0,
+      "prompt": 61056,
+      "success": 212
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 21696,
+      "generation": 3608,
+      "prompt": 61056,
+      "success": 212
+     },
+     "engine": {
+      "cached": 21696,
+      "generation": 3608,
+      "preemptions": 0,
+      "prompt": 61056,
+      "success": 212
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 20080,
+      "generation": 3425,
+      "prompt": 61056,
+      "success": 212
+     },
+     "engine": {
+      "cached": 20080,
+      "generation": 3425,
+      "preemptions": 0,
+      "prompt": 61056,
+      "success": 212
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 616,
+   "reuse": {
+    "first_fills": 57,
+    "lost_reuse": 291,
+    "lost_share": 0.4724025974025974,
+    "measured": 616
+   },
+   "reused_fraction": 0.37653318903318905,
+   "sampler": "ok",
+   "ttft_p50_s": 0.05042409896850586,
+   "ttft_p95_s": 0.07615828514099121,
+   "ttft_p99_s": 0.0801694393157959,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-B-40": {
+   "arm": "A3",
+   "block": "B",
+   "cell": "ramp-B-40",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 1154,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.17816736353206084,
+   "imbalance_windows": 41,
+   "lag_p99_s": 0.0005638599395751953,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 40336,
+      "generation": 6302,
+      "prompt": 111168,
+      "success": 386
+     },
+     "engine": {
+      "cached": 40336,
+      "generation": 6302,
+      "preemptions": 0,
+      "prompt": 111168,
+      "success": 386
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 41072,
+      "generation": 6433,
+      "prompt": 111168,
+      "success": 386
+     },
+     "engine": {
+      "cached": 41072,
+      "generation": 6433,
+      "preemptions": 0,
+      "prompt": 111168,
+      "success": 386
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 41376,
+      "generation": 6282,
+      "prompt": 111168,
+      "success": 386
+     },
+     "engine": {
+      "cached": 41376,
+      "generation": 6282,
+      "preemptions": 0,
+      "prompt": 111168,
+      "success": 386
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 42768,
+      "generation": 5979,
+      "prompt": 110880,
+      "success": 385
+     },
+     "engine": {
+      "cached": 42768,
+      "generation": 5979,
+      "preemptions": 0,
+      "prompt": 110880,
+      "success": 385
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 1154,
+   "reuse": {
+    "first_fills": 28,
+    "lost_reuse": 626,
+    "lost_share": 0.5424610051993067,
+    "measured": 1154
+   },
+   "reused_fraction": 0.37979010206046604,
+   "sampler": "ok",
+   "ttft_p50_s": 0.06594634056091309,
+   "ttft_p95_s": 0.08311605453491211,
+   "ttft_p99_s": 0.10174751281738281,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-B-80": {
+   "arm": "A3",
+   "block": "B",
+   "cell": "ramp-B-80",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 2415,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.12202585480474597,
+   "imbalance_windows": 41,
+   "lag_p99_s": 0.0009157657623291016,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 78272,
+      "generation": 13434,
+      "prompt": 234144,
+      "success": 813
+     },
+     "engine": {
+      "cached": 78272,
+      "generation": 13434,
+      "preemptions": 0,
+      "prompt": 234144,
+      "success": 813
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 85344,
+      "generation": 13061,
+      "prompt": 233856,
+      "success": 812
+     },
+     "engine": {
+      "cached": 85344,
+      "generation": 13061,
+      "preemptions": 0,
+      "prompt": 233856,
+      "success": 812
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 90544,
+      "generation": 13331,
+      "prompt": 233856,
+      "success": 812
+     },
+     "engine": {
+      "cached": 90544,
+      "generation": 13331,
+      "preemptions": 0,
+      "prompt": 233856,
+      "success": 812
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 89712,
+      "generation": 13420,
+      "prompt": 233856,
+      "success": 812
+     },
+     "engine": {
+      "cached": 89712,
+      "generation": 13420,
+      "preemptions": 0,
+      "prompt": 233856,
+      "success": 812
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 2415,
+   "reuse": {
+    "first_fills": 3,
+    "lost_reuse": 1380,
+    "lost_share": 0.5714285714285714,
+    "measured": 2415
+   },
+   "reused_fraction": 0.3706234184495054,
+   "sampler": "ok",
+   "ttft_p50_s": 0.07750701904296875,
+   "ttft_p95_s": 0.11607646942138672,
+   "ttft_p99_s": 0.1363525390625,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-W942-1.75": {
+   "arm": "A3",
+   "block": "W942",
+   "cell": "ramp-W942-1.75",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 223,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.6773795645796957,
+   "imbalance_windows": 127,
+   "lag_p99_s": 0.0007288455963134766,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 184320,
+      "generation": 3584,
+      "prompt": 444416,
+      "success": 56
+     },
+     "engine": {
+      "cached": 184320,
+      "generation": 3584,
+      "preemptions": 0,
+      "prompt": 444416,
+      "success": 56
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 168960,
+      "generation": 3584,
+      "prompt": 444416,
+      "success": 56
+     },
+     "engine": {
+      "cached": 168960,
+      "generation": 3584,
+      "preemptions": 0,
+      "prompt": 444416,
+      "success": 56
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 145920,
+      "generation": 3584,
+      "prompt": 444416,
+      "success": 56
+     },
+     "engine": {
+      "cached": 145920,
+      "generation": 3584,
+      "preemptions": 0,
+      "prompt": 444416,
+      "success": 56
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 130560,
+      "generation": 3520,
+      "prompt": 436480,
+      "success": 55
+     },
+     "engine": {
+      "cached": 130560,
+      "generation": 3520,
+      "preemptions": 0,
+      "prompt": 436480,
+      "success": 55
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 223,
+   "reused_fraction": 0.3558512946622306,
+   "sampler": "ok",
+   "ttft_p50_s": 1.0133514404296875,
+   "ttft_p95_s": 1.7385499477386475,
+   "ttft_p99_s": 1.8744544982910156,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-W942-2.9": {
+   "arm": "A3",
+   "block": "W942",
+   "cell": "ramp-W942-2.9",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 223,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.4832717987700648,
+   "imbalance_windows": 79,
+   "lag_p99_s": 0.0010182857513427734,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 176640,
+      "generation": 3584,
+      "prompt": 444416,
+      "success": 56
+     },
+     "engine": {
+      "cached": 176640,
+      "generation": 3584,
+      "preemptions": 0,
+      "prompt": 444416,
+      "success": 56
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 168960,
+      "generation": 3584,
+      "prompt": 444416,
+      "success": 56
+     },
+     "engine": {
+      "cached": 168960,
+      "generation": 3584,
+      "preemptions": 0,
+      "prompt": 444416,
+      "success": 56
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 153600,
+      "generation": 3584,
+      "prompt": 444416,
+      "success": 56
+     },
+     "engine": {
+      "cached": 153600,
+      "generation": 3584,
+      "preemptions": 0,
+      "prompt": 444416,
+      "success": 56
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 138240,
+      "generation": 3520,
+      "prompt": 436480,
+      "success": 55
+     },
+     "engine": {
+      "cached": 138240,
+      "generation": 3520,
+      "preemptions": 0,
+      "prompt": 436480,
+      "success": 55
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 223,
+   "reused_fraction": 0.36019094459713585,
+   "sampler": "ok",
+   "ttft_p50_s": 1.0146324634552002,
+   "ttft_p95_s": 2.780827760696411,
+   "ttft_p99_s": 3.2216010093688965,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "ramp-W942-4.4": {
+   "arm": "A3",
+   "block": "W942",
+   "cell": "ramp-W942-4.4",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 223,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.38743048207352787,
+   "imbalance_windows": 53,
+   "lag_p99_s": 0.0012426376342773438,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 176640,
+      "generation": 3520,
+      "prompt": 436480,
+      "success": 55
+     },
+     "engine": {
+      "cached": 176640,
+      "generation": 3520,
+      "preemptions": 0,
+      "prompt": 436480,
+      "success": 55
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 176640,
+      "generation": 3648,
+      "prompt": 452352,
+      "success": 57
+     },
+     "engine": {
+      "cached": 176640,
+      "generation": 3648,
+      "preemptions": 0,
+      "prompt": 452352,
+      "success": 57
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 184320,
+      "generation": 3648,
+      "prompt": 452352,
+      "success": 57
+     },
+     "engine": {
+      "cached": 184320,
+      "generation": 3648,
+      "preemptions": 0,
+      "prompt": 452352,
+      "success": 57
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 115200,
+      "generation": 3456,
+      "prompt": 428544,
+      "success": 54
+     },
+     "engine": {
+      "cached": 115200,
+      "generation": 3456,
+      "preemptions": 0,
+      "prompt": 428544,
+      "success": 54
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 223,
+   "reused_fraction": 0.36887024446694633,
+   "sampler": "ok",
+   "ttft_p50_s": 2.9353535175323486,
+   "ttft_p95_s": 6.288924217224121,
+   "ttft_p99_s": 6.716988801956177,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "switch-A-A2": {
+   "arm": "A2",
+   "block": "A",
+   "cell": "switch-A-A2",
+   "checks": {
+    "credit_join": true,
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 1741,
+   "credit": {
+    "completed": 1741,
+    "completed_no_reuse": 0,
+    "credited": 1741,
+    "in_flight": 0,
+    "no_reuse_share": 0.0
+   },
+   "credit_join_share": 1.0,
+   "credit_rows": 1741,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 1.0348504467125887,
+   "imbalance_windows": 31,
+   "lag_p99_s": 0.00066375732421875,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 533504,
+      "generation": 16972,
+      "prompt": 567392,
+      "success": 1043
+     },
+     "engine": {
+      "cached": 533504,
+      "generation": 16972,
+      "preemptions": 0,
+      "prompt": 567392,
+      "success": 1043
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 0,
+      "preemptions": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 534016,
+      "generation": 17031,
+      "prompt": 567936,
+      "success": 1044
+     },
+     "engine": {
+      "cached": 534016,
+      "generation": 17031,
+      "preemptions": 0,
+      "prompt": 567936,
+      "success": 1044
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "engine": {
+      "cached": 0,
+      "generation": 0,
+      "preemptions": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 1741,
+   "reused_fraction": 0.9411764705882353,
+   "sampler": "ok",
+   "ttft_p50_s": 0.05987906455993652,
+   "ttft_p95_s": 0.21806859970092773,
+   "ttft_p99_s": 0.28539609909057617,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  },
+  "switch-A-A3": {
+   "arm": "A3",
+   "block": "A",
+   "cell": "switch-A-A3",
+   "checks": {
+    "dispatch_lag": true,
+    "idle_at_start": true,
+    "joins": true,
+    "ledger": true,
+    "reset": true,
+    "sampler_4hz": true
+   },
+   "completed": 1741,
+   "epp_sched_p99_s": 0.001,
+   "imbalance_cv": 0.1105890683852537,
+   "imbalance_windows": 31,
+   "lag_p99_s": 0.0006010532379150391,
+   "ledger": {
+    "127.0.0.1:8000": {
+     "client": {
+      "cached": 266240,
+      "generation": 8589,
+      "prompt": 283968,
+      "success": 522
+     },
+     "engine": {
+      "cached": 266240,
+      "generation": 8589,
+      "preemptions": 0,
+      "prompt": 283968,
+      "success": 522
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8001": {
+     "client": {
+      "cached": 266240,
+      "generation": 8567,
+      "prompt": 283968,
+      "success": 522
+     },
+     "engine": {
+      "cached": 266240,
+      "generation": 8567,
+      "preemptions": 0,
+      "prompt": 283968,
+      "success": 522
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8002": {
+     "client": {
+      "cached": 266240,
+      "generation": 8573,
+      "prompt": 283968,
+      "success": 522
+     },
+     "engine": {
+      "cached": 266240,
+      "generation": 8573,
+      "preemptions": 0,
+      "prompt": 283968,
+      "success": 522
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    },
+    "127.0.0.1:8003": {
+     "client": {
+      "cached": 265728,
+      "generation": 8274,
+      "prompt": 283424,
+      "success": 521
+     },
+     "engine": {
+      "cached": 265728,
+      "generation": 8274,
+      "preemptions": 0,
+      "prompt": 283424,
+      "success": 521
+     },
+     "exact": true,
+     "excess": {
+      "cached": 0,
+      "generation": 0,
+      "prompt": 0,
+      "success": 0
+     },
+     "incomplete_rows": 0,
+     "ok": true
+    }
+   },
+   "n_eval": 1741,
+   "reused_fraction": 0.9411764705882353,
+   "sampler": "ok",
+   "ttft_p50_s": 0.049071311950683594,
+   "ttft_p95_s": 0.05876660346984863,
+   "ttft_p99_s": 0.0707554817199707,
+   "unexplained": [],
+   "unparsable_envoy_lines": 0,
+   "unparsable_epp_lines": 0,
+   "verbosity": 5
+  }
+ },
+ "k_effect": {
+  "mean_largest_by_cell": {
+   "log-K-A1-v2": 21.5,
+   "log-K-A1-v5": 23.666666666666668
+  },
+  "mixed": false,
+  "shows": false,
+  "threshold": 24
+ },
+ "logging": {
+  "epp_sched_p99_delta_s": {
+   "A": 0.0009,
+   "K": 0.049
+  },
+  "k_share_delta": 2.166666666666668,
+  "keep_v5": false
+ },
+ "plan_cells_missing": [],
+ "ramps": {
+  "A": {
+   "kind": "at_least",
+   "r": 80,
+   "results": [
+    [
+     10,
+     true
+    ],
+    [
+     20,
+     true
+    ],
+    [
+     40,
+     true
+    ],
+    [
+     80,
+     true
+    ]
+   ],
+   "slo_s": 0.23
+  },
+  "B": {
+   "kind": "at_least",
+   "r": 80,
+   "results": [
+    [
+     10,
+     true
+    ],
+    [
+     20,
+     true
+    ],
+    [
+     40,
+     true
+    ],
+    [
+     80,
+     true
+    ]
+   ],
+   "slo_s": 0.16
+  },
+  "W942": {
+   "kind": "bracketed",
+   "r": 2.9,
+   "results": [
+    [
+     1.75,
+     true
+    ],
+    [
+     2.9,
+     true
+    ],
+    [
+     4.4,
+     false
+    ]
+   ],
+   "slo_s": 3.05
+  }
+ },
+ "skipped": [],
+ "stopped": null,
+ "timings": {
+  "engines_AK_s": 93.1,
+  "engines_B_s": 62.1,
+  "engines_W_s": 60.1,
+  "plan_s": 1359.3
+ },
+ "verdict": "APPARATUS HOLDS"
+}

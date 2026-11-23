@@ -1,0 +1,29 @@
+12:09:21 engines AK ready in 93 s
+12:09:37 cell calib-peak A3 A rate=None v=5: 20 rows in 16.0 s
+12:09:59 cell iso-A-cold A3 A rate=None v=5: 20 rows in 22.0 s
+12:10:21 cell iso-A-warm A3 A rate=None v=5: 21 rows in 21.7 s
+12:10:23 cell iso-preload A3 A rate=None v=5: 3 rows in 2.8 s
+12:11:05 cell ramp-A-10 A3 A rate=10 v=5: 283 rows in 42.1 s
+12:11:48 cell ramp-A-20 A3 A rate=20 v=5: 590 rows in 42.1 s
+12:12:30 cell ramp-A-40 A3 A rate=40 v=5: 1139 rows in 42.4 s
+12:13:13 cell ramp-A-80 A3 A rate=80 v=5: 2395 rows in 42.5 s
+12:13:55 cell log-A-A1-v2 A1 A rate=72.0 v=2: 2087 rows in 42.5 s
+12:14:38 cell log-A-A1-v5 A1 A rate=72.0 v=5: 2087 rows in 42.5 s
+12:15:07 cell log-K-A1-v2 A1 K rate=None v=2: 402 rows in 29.5 s
+12:15:39 cell log-K-A1-v5 A1 K rate=None v=5: 402 rows in 31.4 s
+12:16:21 cell switch-A-A2 A2 A rate=72.0 v=5: 2087 rows in 42.5 s
+12:17:04 cell switch-A-A3 A3 A rate=72.0 v=5: 2087 rows in 42.5 s
+12:18:06 engines B ready in 62 s
+12:18:27 cell iso-B-cold A3 B rate=None v=5: 20 rows in 21.5 s
+12:18:49 cell iso-B-warm A3 B rate=None v=5: 21 rows in 21.5 s
+12:19:39 cell ramp-B-10 A3 B rate=10 v=5: 406 rows in 50.1 s
+12:20:31 cell ramp-B-20 A3 B rate=20 v=5: 848 rows in 52.3 s
+12:21:24 cell ramp-B-40 A3 B rate=40 v=5: 1543 rows in 52.2 s
+12:22:16 cell ramp-B-80 A3 B rate=80 v=5: 3249 rows in 52.6 s
+12:23:08 cell pressure-B-A1 A1 B rate=10 v=5: 406 rows in 52.2 s
+12:24:09 engines W ready in 60 s
+12:24:54 cell iso-W942-cold A3 W942 rate=None v=5: 20 rows in 45.1 s
+12:25:29 cell iso-W942-warm A3 W942 rate=None v=5: 21 rows in 35.1 s
+12:27:51 cell ramp-W942-1.75 A3 W942 rate=1.75 v=5: 223 rows in 141.5 s
+12:29:21 cell ramp-W942-2.9 A3 W942 rate=2.9 v=5: 223 rows in 90.1 s
+12:30:26 cell ramp-W942-4.4 A3 W942 rate=4.4 v=5: 223 rows in 64.9 s
