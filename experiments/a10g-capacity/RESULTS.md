@@ -141,7 +141,7 @@ During each window the single engine served nothing; with one replica there is n
 
 ## What the engine data shows about the limit
 
-In both sessions, from the 8 req/s rung upward, the engine's `running` gauge peaked at 64 in every rung and every stage, while KV usage peaked at 9.9% or less and `waiting` grew from 12 or 13 (8 req/s rung) to 127 (10 req/s rung) and to 313 or 314 (overload).
+In both sessions the engine's `running` gauge peaked at 64 in the 8 and 10 req/s rungs and in the saturation, overload and recovery stages, and at 40 or less in every lower rung and in the baseline; in all of those, KV usage peaked at 9.9% or less and `waiting` grew from 12 or 13 (8 req/s rung) to 127 (10 req/s rung) and to 313 or 314 (overload).
 64 is the profile's `--max-num-seqs`: [`internal/engineargs/engineargs.go:36`](../../internal/engineargs/engineargs.go) renders `--max-num-seqs=64` for the reviewed v0.27.1 row, and each session's engine ran with it ([`runs/s2/run/results/engine-args.txt:4`](runs/s2/run/results/engine-args.txt), [`runs/s3/run/results/engine-args.txt:4`](runs/s3/run/results/engine-args.txt)).
 So in these sessions the queue formed while the batch was at the sequence cap and the KV cache was about one tenth used: the data are consistent with the sequence cap, not KV capacity, being what bounded concurrency.
 They do not show what a higher `--max-num-seqs` would give: no session ran another value, and the per-token decode time also rose (TPOT p50 about 19 ms at 3 req/s against about 58 ms at 10 req/s in both sessions, `report.txt` lines 9 and 44), so lifting the cap is a hypothesis for a new contract, not a result of this one.
