@@ -46,9 +46,10 @@ bash hack/llmd-1598-kit-test.sh
 
 The main sessions (X1 to X3, Y1 to Y3) are written after P2, from P2's registered grid.
 
-## Launch of the K-only third pilot (not run; needs the owner's go)
+## Launch of the K-only third pilot
 
 The second pilot ran on 2026-11-22 (`hack/gpu-kit-runs/2026-11-22-llmd-1598-pilot2`).
+The third pilot ran on 2026-11-22 from 17:01:06Z to its confirmed termination at 17:16:12Z (`hack/gpu-kit-runs/2026-11-22-llmd-1598-pilot3`), with the command below; its verdict was APPARATUS HOLDS.
 
 ```
 SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab INSTANCE_TYPE=g5.12xlarge OUT=hack/gpu-kit-runs/<date>-llmd-1598-pilot3 \

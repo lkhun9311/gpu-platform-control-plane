@@ -1,6 +1,6 @@
 # A real-GPU A/B for llm-d-router #1598, bursty request distribution
 
-Date: 2026-11-21. Status: **design, revised five times ("Revisions" at the end); the first pilot ran on 2026-11-21 ($1.95) and the second on 2026-11-22 (about $1.97); a K-only third pilot is designed, not launched; the main run is not bought; nothing posted upstream.**
+Date: 2026-11-21. Status: **design, revised five times ("Revisions" at the end); the first pilot ran on 2026-11-21 ($1.95) and the second on 2026-11-22 (about $1.97); the K-only third pilot ran on 2026-11-22 (at most $0.893, 906 s billed) and its verdict was APPARATUS HOLDS; the main run is not bought and moves to a new pull request; nothing posted upstream.**
 Budget: pilot about $3 (spent $1.95), main run about $20 to $24; **the third revision ("Main-run design after the pilot") adds a second pilot and supersedes the main-run load, sessions and cost below where they differ; the fourth and fifth are the owner's dated amendments.**
 This page fixes the arms, workloads, apparatus, measurements, pre-registered criteria and cost before any harness code is written.
 The harness is built in a follow-up, from this page.
