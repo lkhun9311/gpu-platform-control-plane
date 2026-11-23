@@ -71,6 +71,8 @@ docs/superpowers/*
 # The A10G capacity study's contract and attempt ledger are what its results are checked against, so they are published by name.
 !/experiments/a10g-capacity/CONTRACT.md
 !/experiments/a10g-capacity/attempts.md
+# Its results document is published by name for the same reason: it is what the README row and the issue cite.
+!/experiments/a10g-capacity/RESULTS.md
 # Upstream contribution work: its index and each item's write-up and run notes are what a reader of the thread checks.
 !/oss/**/*.md
 !/docs/0[0-7]*.md
