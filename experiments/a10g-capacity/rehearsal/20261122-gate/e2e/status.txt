@@ -1,0 +1,27 @@
+engine-start exit=0 t=0
+first_ready_s=2
+warmup exit=0 t=9
+rung-01 exit=0 t=16
+drain-01 exit=0 t=16
+rung-01 verdict=0 rate=30
+rung-02 exit=0 t=23
+drain-02 exit=0 t=23
+rung-02 verdict=0 rate=40
+rung-03 exit=0 t=30
+drain-03 exit=0 t=31
+rung-03 verdict=0 rate=50
+rung-04 exit=0 t=37
+drain-04 exit=0 t=38
+rung-04 verdict=0 rate=60
+rung-05 exit=0 t=45
+drain-05 exit=0 t=45
+rung-05 verdict=0 rate=80
+rung-06 exit=0 t=53
+drain-06 exit=0 t=53
+rung-06 verdict=10 rate=100
+plan exit=0 t=53
+cycle exit=0 t=117
+restart-1 exit=0 t=119
+restart-2 exit=0 t=120
+restart-3 exit=0 t=122
+report exit=0 t=122

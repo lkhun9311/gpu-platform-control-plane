@@ -1,0 +1,78 @@
+contract a10g-capacity-673-v1
+pilot: saturated, R_sat 8, first unstable 10
+[warmup] dispatch lag: 0 of 123 over the bound
+  warmup: planned 123 = unsent 0 + sent 123; sent = completed 123 + rejected 0 + failed 0; http/stream {'200/done': 123}
+[pilot/rung-01] dispatch lag: 0 of 151 over the bound
+  rung: planned 122 = unsent 0 + sent 122; sent = completed 122 + rejected 0 + failed 0; http/stream {'200/done': 122}
+    TTFT: p99 230.5 ms, p90 148.5 ms, p50 98.7 ms, n=122; completed fraction 1.0
+    E2E: p99 2942.0 ms, p90 2840.5 ms, p50 2543.8 ms, n=122; 2.44 completed req/s, 312.3 output tok/s
+    TPOT: p99 22.3 ms, p90 21.3 ms, p50 19.2 ms, n=122
+    GPU peak of 1 s samples: {'samples': 60, 'util_pct': 95.0, 'mem_mib': 20367.0}
+    engine peak of 1 s scrapes: {'scrapes': 60, 'waiting': 1.0, 'running': 13.0, 'kv': 0.01997436003473807, 'kv_name': 'vllm:kv_cache_usage_perc'}
+[pilot/rung-02] dispatch lag: 0 of 227 over the bound
+  rung: planned 189 = unsent 0 + sent 189; sent = completed 189 + rejected 0 + failed 0; http/stream {'200/done': 189}
+    TTFT: p99 279.0 ms, p90 179.1 ms, p50 124.1 ms, n=189; completed fraction 1.0
+    E2E: p99 3484.5 ms, p90 3310.2 ms, p50 2898.2 ms, n=189; 3.78 completed req/s, 483.8 output tok/s
+    TPOT: p99 25.9 ms, p90 24.8 ms, p50 21.9 ms, n=189
+    GPU peak of 1 s samples: {'samples': 60, 'util_pct': 97.0, 'mem_mib': 20367.0}
+    engine peak of 1 s scrapes: {'scrapes': 60, 'waiting': 1.0, 'running': 20.0, 'kv': 0.030561184400975994, 'kv_name': 'vllm:kv_cache_usage_perc'}
+[pilot/rung-03] dispatch lag: 0 of 284 over the bound
+  rung: planned 235 = unsent 0 + sent 235; sent = completed 235 + rejected 0 + failed 0; http/stream {'200/done': 235}
+    TTFT: p99 232.5 ms, p90 177.1 ms, p50 119.2 ms, n=235; completed fraction 1.0
+    E2E: p99 3850.2 ms, p90 3680.3 ms, p50 3136.8 ms, n=235; 4.70 completed req/s, 601.6 output tok/s
+    TPOT: p99 29.1 ms, p90 27.8 ms, p50 23.6 ms, n=235
+    GPU peak of 1 s samples: {'samples': 60, 'util_pct': 97.0, 'mem_mib': 20373.0}
+    engine peak of 1 s scrapes: {'scrapes': 60, 'waiting': 0.0, 'running': 27.0, 'kv': 0.04036226789628217, 'kv_name': 'vllm:kv_cache_usage_perc'}
+[pilot/rung-04] dispatch lag: 0 of 382 over the bound
+  rung: planned 318 = unsent 0 + sent 318; sent = completed 318 + rejected 0 + failed 0; http/stream {'200/done': 318}
+    TTFT: p99 292.2 ms, p90 223.9 ms, p50 150.1 ms, n=318; completed fraction 1.0
+    E2E: p99 5025.8 ms, p90 4379.9 ms, p50 3973.9 ms, n=318; 6.36 completed req/s, 814.1 output tok/s
+    TPOT: p99 38.4 ms, p90 33.1 ms, p50 30.0 ms, n=318
+    GPU peak of 1 s samples: {'samples': 60, 'util_pct': 97.0, 'mem_mib': 20373.0}
+    engine peak of 1 s scrapes: {'scrapes': 60, 'waiting': 1.0, 'running': 40.0, 'kv': 0.060253918365658965, 'kv_name': 'vllm:kv_cache_usage_perc'}
+[pilot/rung-05] dispatch lag: 0 of 466 over the bound
+  rung: planned 385 = unsent 0 + sent 385; sent = completed 385 + rejected 0 + failed 0; http/stream {'200/done': 385}
+    TTFT: p99 1688.9 ms, p90 947.0 ms, p50 197.7 ms, n=385; completed fraction 1.0
+    E2E: p99 8367.5 ms, p90 7811.2 ms, p50 5728.6 ms, n=385; 7.70 completed req/s, 985.6 output tok/s
+    TPOT: p99 58.9 ms, p90 57.9 ms, p50 41.8 ms, n=385
+    GPU peak of 1 s samples: {'samples': 60, 'util_pct': 97.0, 'mem_mib': 20373.0}
+    engine peak of 1 s scrapes: {'scrapes': 60, 'waiting': 13.0, 'running': 64.0, 'kv': 0.0968115462553244, 'kv_name': 'vllm:kv_cache_usage_perc'}
+[pilot/rung-06] dispatch lag: 0 of 647 over the bound
+  rung: planned 533 = unsent 0 + sent 533; sent = completed 533 + rejected 0 + failed 0; http/stream {'200/done': 533}
+    TTFT: p99 15142.3 ms, p90 14510.6 ms, p50 7549.2 ms, n=533; completed fraction 1.0
+    E2E: p99 21972.2 ms, p90 20729.8 ms, p50 14962.8 ms, n=533; 10.66 completed req/s, 1364.5 output tok/s
+    TPOT: p99 58.6 ms, p90 58.5 ms, p50 58.3 ms, n=533
+    GPU peak of 1 s samples: {'samples': 60, 'util_pct': 97.0, 'mem_mib': 20373.0}
+    engine peak of 1 s scrapes: {'scrapes': 60, 'waiting': 127.0, 'running': 64.0, 'kv': 0.09817625408378483, 'kv_name': 'vllm:kv_cache_usage_perc'}
+[cycle] dispatch lag: 0 of 3066 over the bound
+  baseline: planned 261 = unsent 0 + sent 261; sent = completed 261 + rejected 0 + failed 0; http/stream {'200/done': 261}
+    TTFT: p99 245.6 ms, p90 141.1 ms, p50 96.7 ms, n=261; completed fraction 1.0
+    E2E: p99 2816.7 ms, p90 2673.5 ms, p50 2478.9 ms, n=261; 1.93 completed req/s, 247.5 output tok/s
+    TPOT: p99 21.1 ms, p90 20.0 ms, p50 18.7 ms, n=261
+    GPU peak of 1 s samples: {'samples': 150, 'util_pct': 96.0, 'mem_mib': 20373.0}
+    engine peak of 1 s scrapes: {'scrapes': 150, 'waiting': 0.0, 'running': 11.0, 'kv': 0.017079525247094773, 'kv_name': 'vllm:kv_cache_usage_perc'}
+  saturation: planned 1095 = unsent 0 + sent 1095; sent = completed 1095 + rejected 0 + failed 0; http/stream {'200/done': 1095}
+    TTFT: p99 3698.1 ms, p90 3134.4 ms, p50 541.9 ms, n=1095; completed fraction 1.0
+    E2E: p99 11185.8 ms, p90 10644.3 ms, p50 7630.7 ms, n=1095; 8.11 completed req/s, 1038.2 output tok/s
+    TPOT: p99 59.3 ms, p90 59.1 ms, p50 56.4 ms, n=1095
+    GPU peak of 1 s samples: {'samples': 150, 'util_pct': 97.0, 'mem_mib': 20373.0}
+    engine peak of 1 s scrapes: {'scrapes': 150, 'waiting': 36.0, 'running': 64.0, 'kv': 0.09796948017038165, 'kv_name': 'vllm:kv_cache_usage_perc'}
+  overload: planned 1083 = unsent 0 + sent 1083; sent = completed 1083 + rejected 0 + failed 0; http/stream {'200/done': 1083}
+    TTFT: p99 36833.2 ms, p90 33604.2 ms, p50 18629.4 ms, n=1083; completed fraction 1.0
+    E2E: p99 44219.8 ms, p90 40940.2 ms, p50 26045.7 ms, n=1083; 12.03 completed req/s, 1540.3 output tok/s
+    TPOT: p99 58.5 ms, p90 58.3 ms, p50 58.1 ms, n=1083
+    GPU peak of 1 s samples: {'samples': 90, 'util_pct': 97.0, 'mem_mib': 20373.0}
+    engine peak of 1 s scrapes: {'scrapes': 90, 'waiting': 313.0, 'running': 64.0, 'kv': 0.09796948017038165, 'kv_name': 'vllm:kv_cache_usage_perc'}
+  recovery: planned 477 = unsent 0 + sent 477; sent = completed 477 + rejected 0 + failed 0; http/stream {'200/done': 477}
+    TTFT: p99 30527.9 ms, p90 10071.6 ms, p50 100.3 ms, n=477; completed fraction 1.0
+    E2E: p99 37868.7 ms, p90 14887.3 ms, p50 2529.0 ms, n=477; 1.99 completed req/s, 254.4 output tok/s
+    TPOT: p99 57.9 ms, p90 40.2 ms, p50 19.1 ms, n=477
+    GPU peak of 1 s samples: {'samples': 240, 'util_pct': 97.0, 'mem_mib': 20373.0}
+    engine peak of 1 s scrapes: {'scrapes': 240, 'waiting': 315.0, 'running': 64.0, 'kv': 0.09784541582233985, 'kv_name': 'vllm:kv_cache_usage_perc'}
+  saturation held: False ['S2 p99 TTFT 3698.1 ms > 2000 ms', 'S3 last-third median TTFT 1108.7 ms > 2.0 x 215.2 + 100 ms']
+  recovery: 60 s after the overload ended (p90 limit 236.7 ms)
+  engine drain: 47.047306060791016
+restart 1: serving, window 45.552346 s, 89 probe(s)
+restart 2: serving, window 47.161264 s, 92 probe(s)
+restart 3: serving, window 43.850868000000006 s, 86 probe(s)
+exclusions: none under X3 to X5

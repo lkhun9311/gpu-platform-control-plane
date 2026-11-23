@@ -1,0 +1,26 @@
+{
+  "stable": true,
+  "reasons": [],
+  "ledger": {
+    "planned": 318,
+    "unsent": 0,
+    "sent": 318,
+    "completed": 318,
+    "rejected": 0,
+    "failed": 0,
+    "cross": {
+      "200/done": 318
+    }
+  },
+  "completed_fraction": 1.0,
+  "ttft": {
+    "n": 318,
+    "p99": 297.466146,
+    "p90": 220.833407,
+    "p50": 150.574034
+  },
+  "first_third_median_ms": 158.204696,
+  "last_third_median_ms": 129.10219,
+  "rate_rps": 6,
+  "rung": 4
+}

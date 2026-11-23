@@ -1,0 +1,874 @@
+{
+  "contract": "a10g-capacity-673-v1",
+  "index": 3,
+  "killAtUtc": "2026-11-23T00:41:47.899148965Z",
+  "killCmd": "docker kill --signal=SIGKILL a10g-vllm",
+  "startCmd": "docker start a10g-vllm",
+  "killReturnedMs": 725.23,
+  "startReturnedMs": 999.946,
+  "probes": [
+    {
+      "sentMs": 999.95,
+      "returnedMs": 1000.775,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 1500.088,
+      "returnedMs": 1503.208,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 2000.841,
+      "returnedMs": 2001.472,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 2501.052,
+      "returnedMs": 2501.684,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 3001.118,
+      "returnedMs": 3001.757,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 3501.322,
+      "returnedMs": 3501.858,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 4001.428,
+      "returnedMs": 4002.096,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 4501.661,
+      "returnedMs": 4502.362,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 5001.773,
+      "returnedMs": 5002.409,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 5501.969,
+      "returnedMs": 5502.643,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 6002.225,
+      "returnedMs": 6002.868,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 6503.174,
+      "returnedMs": 6503.719,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 7004.18,
+      "returnedMs": 7004.776,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 7505.164,
+      "returnedMs": 7505.708,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 8005.259,
+      "returnedMs": 8005.838,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 8506.161,
+      "returnedMs": 8506.677,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 9007.165,
+      "returnedMs": 9007.756,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 9507.293,
+      "returnedMs": 9507.93,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 10007.416,
+      "returnedMs": 10008.035,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 10507.642,
+      "returnedMs": 10508.245,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 11007.759,
+      "returnedMs": 11008.364,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 11507.927,
+      "returnedMs": 11508.506,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 12008.087,
+      "returnedMs": 12008.617,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 12508.113,
+      "returnedMs": 12508.631,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 13008.233,
+      "returnedMs": 13008.779,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 13508.349,
+      "returnedMs": 13508.864,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 14008.426,
+      "returnedMs": 14009.026,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 14508.6,
+      "returnedMs": 14509.258,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 15008.821,
+      "returnedMs": 15009.395,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 15508.942,
+      "returnedMs": 15509.609,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 16009.181,
+      "returnedMs": 16009.774,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 16510.183,
+      "returnedMs": 16510.739,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 17011.203,
+      "returnedMs": 17011.787,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 17511.359,
+      "returnedMs": 17511.946,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 18011.526,
+      "returnedMs": 18012.128,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 18511.649,
+      "returnedMs": 18512.273,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 19011.835,
+      "returnedMs": 19012.492,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 19512.042,
+      "returnedMs": 19512.667,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 20012.167,
+      "returnedMs": 20012.733,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 20512.297,
+      "returnedMs": 20513.018,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 21012.66,
+      "returnedMs": 21013.312,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 21513.678,
+      "returnedMs": 21514.282,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 22013.821,
+      "returnedMs": 22015.035,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 22513.955,
+      "returnedMs": 22514.639,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 23014.105,
+      "returnedMs": 23014.674,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 23514.214,
+      "returnedMs": 23514.774,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 24014.324,
+      "returnedMs": 24014.975,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 24515.304,
+      "returnedMs": 24515.809,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 25016.192,
+      "returnedMs": 25016.794,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 25516.359,
+      "returnedMs": 25516.902,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 26017.428,
+      "returnedMs": 26018.122,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 26517.524,
+      "returnedMs": 26518.268,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 27017.7,
+      "returnedMs": 27018.461,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 27517.808,
+      "returnedMs": 27518.569,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 28021.1,
+      "returnedMs": 28021.652,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 28521.303,
+      "returnedMs": 28524.312,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 29021.961,
+      "returnedMs": 29022.5,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 29521.997,
+      "returnedMs": 29522.605,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 30022.13,
+      "returnedMs": 30022.791,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 30522.239,
+      "returnedMs": 30522.876,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 31022.454,
+      "returnedMs": 31023.101,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 31522.674,
+      "returnedMs": 31523.281,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 32022.809,
+      "returnedMs": 32023.36,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 32522.916,
+      "returnedMs": 32523.615,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 33023.124,
+      "returnedMs": 33023.76,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 33524.102,
+      "returnedMs": 33524.668,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 34024.225,
+      "returnedMs": 34024.791,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 34524.339,
+      "returnedMs": 34524.894,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 35025.181,
+      "returnedMs": 35025.796,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 35525.368,
+      "returnedMs": 35525.966,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 36026.206,
+      "returnedMs": 36026.85,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 36526.42,
+      "returnedMs": 36527.106,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 37027.403,
+      "returnedMs": 37027.946,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 37527.546,
+      "returnedMs": 37528.176,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 38027.724,
+      "returnedMs": 38028.371,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 38527.943,
+      "returnedMs": 38528.559,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 39028.116,
+      "returnedMs": 39028.589,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 39528.167,
+      "returnedMs": 39528.698,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 40028.265,
+      "returnedMs": 40028.809,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 40528.372,
+      "returnedMs": 40528.842,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 41028.398,
+      "returnedMs": 41028.932,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 41528.502,
+      "returnedMs": 41528.962,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 42028.528,
+      "returnedMs": 42029.183,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 42528.73,
+      "returnedMs": 42529.291,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 43028.857,
+      "returnedMs": 43029.572,
+      "httpStatus": 0,
+      "errorKind": "transport",
+      "streamTerminated": false,
+      "promptTokens": 0,
+      "completionTokens": 0,
+      "ok": false
+    },
+    {
+      "sentMs": 43529.753,
+      "returnedMs": 43850.877,
+      "endMs": 43850.868,
+      "httpStatus": 200,
+      "streamTerminated": true,
+      "promptTokens": 512,
+      "completionTokens": 16,
+      "finishReason": "length",
+      "ok": true
+    }
+  ],
+  "windowMs": 43850.868,
+  "outcome": "serving"
+}

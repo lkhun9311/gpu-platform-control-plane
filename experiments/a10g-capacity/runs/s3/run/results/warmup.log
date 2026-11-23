@@ -1,0 +1,2 @@
+stage warmup: 123 rows over 1 segment(s) to /opt/kit/run/results/warmup
+warmup exit=0 t=988

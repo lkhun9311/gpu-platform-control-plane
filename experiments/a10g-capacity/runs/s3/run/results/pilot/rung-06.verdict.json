@@ -1,0 +1,29 @@
+{
+  "stable": false,
+  "reasons": [
+    "S2 p99 TTFT 15239.9 ms > 2000 ms",
+    "S3 last-third median TTFT 13512.4 ms > 2.0 x 4647.0 + 100 ms"
+  ],
+  "ledger": {
+    "planned": 533,
+    "unsent": 0,
+    "sent": 533,
+    "completed": 533,
+    "rejected": 0,
+    "failed": 0,
+    "cross": {
+      "200/done": 533
+    }
+  },
+  "completed_fraction": 1.0,
+  "ttft": {
+    "n": 533,
+    "p99": 15239.916529,
+    "p90": 14615.963404,
+    "p50": 7572.120325
+  },
+  "first_third_median_ms": 4647.024347,
+  "last_third_median_ms": 13512.443206,
+  "rate_rps": 10,
+  "rung": 6
+}

@@ -1,0 +1,33 @@
+ok   unit tests and fixtures (Ran 21 tests)
+ok   fixture stable: exit 0 as required (every rule holds) 
+ok   fixture s1-completion: exit 10 as required (saturation rule S1: 2% of sent requests timed out) -- "S1 completed 247 of 252 sent (0.9802 < 0.99)"
+ok   fixture s2-p99: exit 10 as required (saturation rule S2: p99 TTFT above 2,000 ms) -- "S2 p99 TTFT 2500.0 ms > 2000 ms"
+ok   fixture s3-growth: exit 10 as required (saturation rule S3: TTFT grows across the window while p99 stays under 2,000 ms) -- "S3 last-third median TTFT 832.6 ms > 2.0 x 20.0 + 100 ms"
+ok   fixture few-samples: exit 10 as required (too few samples: fewer than 100 completed, so no p99 and no stability) -- "S2 insufficient samples for p99 (n=73 < 100)"
+ok   fixture ledger-missing-row: exit 2 as required (ledger mismatch: a planned row is missing from the recording) -- REFUSED: <work>/fixtures/ledger-missing-row/rung-01: 303 rows with indices that a
+ok   fixture ledger-unreconciled: exit 2 as required (ledger mismatch: the replay's own reconciliation failed) -- REFUSED: <work>/fixtures/ledger-unreconciled/rung-01: the replay did not reconcil
+ok   fixture ledger-planned: exit 2 as required (ledger mismatch: the trace planned more rows than were recorded) -- REFUSED: <work>/fixtures/ledger-planned/rung-01: 304 rows with indices that are n
+ok   fixture lagged: exit 3 as required (exclusion X5: 4% of sent requests left more than 100 ms late) -- exclusions: X5 pilot/rung-01: 13 of 304 sent requests left more than 100 ms late
+ok   fixture on-time: exit 0 as required (exclusion X5 not met: one late request of about 300 is under 1%) -- exclusions: none under X3 to X5
+ok   fixture recovers: exit 0 as required (recovery at 40 s) 
+ok   fixture never-recovers: exit 10 as required (recovery rule: never three recovered windows inside 180 s) -- "result": "not recovered within 180 s",
+ok   fixture recovers-late: exit 10 as required (recovery rule: recovery would start at 200 s, past the last countable window) -- "result": "not recovered within 180 s",
+ok   fixture recovery-with-failures: exit 10 as required (recovery rule: fast windows that still lose requests are not recovered) -- "result": "not recovered within 180 s",
+ok   fixture baseline-empty: exit 2 as required (too few samples: a baseline with no completed request is no recovery reference) -- REFUSED: the baseline completed no request, so there is no p90 to recover to
+ok   fixture token-contract: exit 3 as required (exclusion X3: a [DONE] stream with 127 completion tokens) -- exclusions: X3 cycle: 1 [DONE] stream(s) broke the token contract (rows [30])
+ok   mutants: 23 of 23 mutants killed
+ok   capacityrun go tests
+ok   SRC_SHA b45b1e519c63143f8da63c6bc1bedb518f334c7f is a commit here
+ok   SRC_SHA is on a pushed branch
+ok   the sender code at SRC_SHA equals this tree's
+ok   run.sh parses
+ok   dry run accepts the contract
+ok   run.sh refuses pin: SRC_SHA is set in the environment; the kit's pins are fixed
+ok   run.sh refuses kit-setting: KIT_RATES is set; the workload, rates and budget are the contract's
+ok   run.sh refuses scale: KIT_TEST_SCALE=2 is not in (0, 1]
+ok   run.sh refuses a non-empty OUT
+ok   end to end: pilot: saturated, R_sat 80, first unstable 100; recovery: 4.0 s after the overload ended (p90 limit 10.9 ms); 3 restarts serving
+ok   a deleted cycle row fails the ledger: exclusions: X4 <work>/e2e-drop/cycle: 3065 rows with indices that are not 0..3065; the trac
+work directory: <work>
+
+all checks passed

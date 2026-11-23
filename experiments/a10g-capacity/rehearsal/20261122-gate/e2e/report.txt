@@ -1,0 +1,78 @@
+contract a10g-capacity-673-v1-rehearsal-x0.1
+pilot: saturated, R_sat 80, first unstable 100
+[warmup] dispatch lag: 0 of 123 over the bound
+  warmup: planned 123 = unsent 0 + sent 123; sent = completed 123 + rejected 0 + failed 0; http/stream {'200/done': 123}
+[pilot/rung-01] dispatch lag: 0 of 151 over the bound
+  rung: planned 122 = unsent 0 + sent 122; sent = completed 122 + rejected 0 + failed 0; http/stream {'200/done': 122}
+    TTFT: p99 5.7 ms, p90 5.6 ms, p50 5.5 ms, n=122; completed fraction 1.0
+    E2E: p99 683.9 ms, p90 683.3 ms, p50 682.4 ms, n=122; 24.40 completed req/s, 3123.2 output tok/s
+    TPOT: p99 5.3 ms, p90 5.3 ms, p50 5.3 ms, n=122
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 23.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-02] dispatch lag: 0 of 227 over the bound
+  rung: planned 189 = unsent 0 + sent 189; sent = completed 189 + rejected 0 + failed 0; http/stream {'200/done': 189}
+    TTFT: p99 5.8 ms, p90 5.6 ms, p50 5.5 ms, n=189; completed fraction 1.0
+    E2E: p99 690.1 ms, p90 689.4 ms, p50 686.1 ms, n=189; 37.80 completed req/s, 4838.4 output tok/s
+    TPOT: p99 5.4 ms, p90 5.4 ms, p50 5.4 ms, n=189
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 33.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-03] dispatch lag: 0 of 284 over the bound
+  rung: planned 235 = unsent 0 + sent 235; sent = completed 235 + rejected 0 + failed 0; http/stream {'200/done': 235}
+    TTFT: p99 5.7 ms, p90 5.6 ms, p50 5.5 ms, n=235; completed fraction 1.0
+    E2E: p99 691.2 ms, p90 689.3 ms, p50 687.4 ms, n=235; 47.00 completed req/s, 6016.0 output tok/s
+    TPOT: p99 5.4 ms, p90 5.4 ms, p50 5.4 ms, n=235
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 35.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-04] dispatch lag: 0 of 382 over the bound
+  rung: planned 318 = unsent 0 + sent 318; sent = completed 318 + rejected 0 + failed 0; http/stream {'200/done': 318}
+    TTFT: p99 5.8 ms, p90 5.6 ms, p50 5.5 ms, n=318; completed fraction 1.0
+    E2E: p99 693.6 ms, p90 692.8 ms, p50 691.7 ms, n=318; 63.60 completed req/s, 8140.8 output tok/s
+    TPOT: p99 5.4 ms, p90 5.4 ms, p50 5.4 ms, n=318
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 48.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-05] dispatch lag: 0 of 466 over the bound
+  rung: planned 385 = unsent 0 + sent 385; sent = completed 385 + rejected 0 + failed 0; http/stream {'200/done': 385}
+    TTFT: p99 91.1 ms, p90 20.5 ms, p50 5.6 ms, n=385; completed fraction 1.0
+    E2E: p99 781.5 ms, p90 710.4 ms, p50 694.8 ms, n=385; 77.00 completed req/s, 9856.0 output tok/s
+    TPOT: p99 5.5 ms, p90 5.5 ms, p50 5.4 ms, n=385
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 0.0, 'running': 59.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[pilot/rung-06] dispatch lag: 0 of 647 over the bound
+  rung: planned 533 = unsent 0 + sent 533; sent = completed 533 + rejected 0 + failed 0; http/stream {'200/done': 533}
+    TTFT: p99 1040.8 ms, p90 922.4 ms, p50 505.3 ms, n=533; completed fraction 1.0
+    E2E: p99 1724.9 ms, p90 1603.4 ms, p50 1196.8 ms, n=533; 106.60 completed req/s, 13644.8 output tok/s
+    TPOT: p99 5.5 ms, p90 5.5 ms, p50 5.4 ms, n=533
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 6, 'waiting': 91.0, 'running': 64.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+[cycle] dispatch lag: 0 of 3066 over the bound
+  baseline: planned 261 = unsent 0 + sent 261; sent = completed 261 + rejected 0 + failed 0; http/stream {'200/done': 261}
+    TTFT: p99 5.9 ms, p90 5.6 ms, p50 5.5 ms, n=261; completed fraction 1.0
+    E2E: p99 689.1 ms, p90 684.2 ms, p50 681.7 ms, n=261; 19.33 completed req/s, 2474.7 output tok/s
+    TPOT: p99 5.4 ms, p90 5.3 ms, p50 5.3 ms, n=261
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 15, 'waiting': 0.0, 'running': 18.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+  saturation: planned 1095 = unsent 0 + sent 1095; sent = completed 1095 + rejected 0 + failed 0; http/stream {'200/done': 1095}
+    TTFT: p99 198.4 ms, p90 96.7 ms, p50 5.6 ms, n=1095; completed fraction 1.0
+    E2E: p99 889.0 ms, p90 786.1 ms, p50 695.3 ms, n=1095; 81.11 completed req/s, 10382.2 output tok/s
+    TPOT: p99 5.5 ms, p90 5.4 ms, p50 5.4 ms, n=1095
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 15, 'waiting': 9.0, 'running': 64.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+  overload: planned 1083 = unsent 0 + sent 1083; sent = completed 1083 + rejected 0 + failed 0; http/stream {'200/done': 1083}
+    TTFT: p99 2718.8 ms, p90 2475.2 ms, p50 1391.7 ms, n=1083; completed fraction 1.0
+    E2E: p99 3402.1 ms, p90 3155.6 ms, p50 2086.0 ms, n=1083; 120.33 completed req/s, 15402.7 output tok/s
+    TPOT: p99 5.5 ms, p90 5.5 ms, p50 5.4 ms, n=1083
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 9, 'waiting': 230.0, 'running': 64.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+  recovery: planned 477 = unsent 0 + sent 477; sent = completed 477 + rejected 0 + failed 0; http/stream {'200/done': 477}
+    TTFT: p99 2053.6 ms, p90 6.1 ms, p50 5.5 ms, n=477; completed fraction 1.0
+    E2E: p99 2738.9 ms, p90 691.2 ms, p50 683.0 ms, n=477; 19.88 completed req/s, 2544.0 output tok/s
+    TPOT: p99 5.4 ms, p90 5.4 ms, p50 5.3 ms, n=477
+    GPU peak of 1 s samples: {'samples': 0, 'util_pct': 'not recorded', 'mem_mib': 'not recorded'}
+    engine peak of 1 s scrapes: {'scrapes': 24, 'waiting': 251.0, 'running': 64.0, 'kv': 'not recorded', 'kv_name': 'not recorded'}
+  saturation held: True []
+  recovery: 4.0 s after the overload ended (p90 limit 10.9 ms)
+  engine drain: 4.054833889007568
+restart 1: serving, window 0.6387759999999999 s, 2 probe(s)
+restart 2: serving, window 0.637688 s, 2 probe(s)
+restart 3: serving, window 0.637347 s, 2 probe(s)
+exclusions: none under X3 to X5

@@ -1,0 +1,123 @@
+{
+  "contract": "a10g-capacity-673-v1-rehearsal-x0.1",
+  "issue": "https://github.com/lkhun9311/gpu-platform-control-plane/issues/673",
+  "workload": {
+    "model": "Qwen/Qwen2.5-3B-Instruct",
+    "model_revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "served_model_name": "qwen2.5-3b-instruct",
+    "engine_image": "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+    "engine_profile": "v0.27.1-a10g",
+    "engine_port": 8000,
+    "prefix_caching": "off",
+    "input_tokens": 512,
+    "input_chars": 2506,
+    "output_tokens": 128,
+    "temperature": 0,
+    "top_p": 1,
+    "repetition_penalty": 1,
+    "ignore_eos": true,
+    "min_tokens_equals_max_tokens": true,
+    "stream": true,
+    "arrival_model": "poisson-open-loop",
+    "rate_unit": "requests per second of intended arrivals",
+    "client_concurrency_cap": "none",
+    "request_timeout_s": 6
+  },
+  "metrics": {
+    "quantile_method": "nearest-rank",
+    "min_samples_p99": 100,
+    "max_dispatch_lag_ms": 100,
+    "max_lagged_fraction": 0.01,
+    "scrape_interval_s": 1,
+    "waiting_metric": "vllm:num_requests_waiting",
+    "running_metric": "vllm:num_requests_running",
+    "kv_metrics": [
+      "vllm:kv_cache_usage_perc",
+      "vllm:gpu_cache_usage_perc"
+    ],
+    "gpu_query": "timestamp,utilization.gpu,memory.used,memory.total"
+  },
+  "warmup": {
+    "rate_rps": 20.0,
+    "duration_s": 6.0,
+    "seed": 6730
+  },
+  "pilot": {
+    "rungs_rps": [
+      30.0,
+      40.0,
+      50.0,
+      60.0,
+      80.0,
+      100.0,
+      120.0,
+      140.0,
+      160.0,
+      180.0,
+      200.0,
+      240.0,
+      280.0
+    ],
+    "rung_s": 6.0,
+    "rung_warmup_s": 1.0,
+    "rung_seeds": [
+      6731,
+      6732,
+      6733,
+      6734,
+      6735,
+      6736,
+      6737,
+      6738,
+      6739,
+      6740,
+      6741,
+      6742,
+      6743
+    ],
+    "drain_idle_s": 0.5,
+    "drain_gauge_timeout_s": 3.0,
+    "budget_s": 90.0
+  },
+  "stability": {
+    "min_completed_fraction": 0.99,
+    "max_p99_ttft_ms": 200.0,
+    "trend_ratio": 2.0,
+    "trend_slack_ms": 10.0
+  },
+  "cycle": {
+    "low_fraction_of_sat": 0.25,
+    "low_min_rps": 15.0,
+    "low_max_fraction_of_sat": 0.5,
+    "overload_factor": 1.5,
+    "baseline_s": 15.0,
+    "saturation_s": 15.0,
+    "overload_s": 9.0,
+    "recovery_s": 24.0,
+    "stage_warmup_s": 1.5,
+    "seed": 6750
+  },
+  "recovery": {
+    "window": "tumbling, by intended arrival, from the end of the overload stage",
+    "window_s": 2.0,
+    "min_window_sent": 15,
+    "consecutive_windows": 3,
+    "p90_ratio": 1.5,
+    "p90_slack_ms": 2.5
+  },
+  "restart": {
+    "count": 3,
+    "idle_before_s": 1.0,
+    "probe_output_tokens": 16,
+    "probe_interval_ms": 50,
+    "probe_timeout_s": 1,
+    "bound_s": 24,
+    "kill_signal": "SIGKILL"
+  },
+  "session": {
+    "budget_s": 320.0,
+    "max_sessions": 3,
+    "min_included_sessions": 2,
+    "deadline": "2026-11-26T18:00:00+09:00"
+  }
+}

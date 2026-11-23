@@ -1,0 +1,22 @@
+{
+  "contract": "a10g-capacity-673-v1",
+  "seed": 6763,
+  "target": "http://127.0.0.1:30280",
+  "outputTokens": 128,
+  "timeoutS": 60,
+  "poolSize": 1755,
+  "segments": [
+    {
+      "name": "kind",
+      "rateRps": 28,
+      "durationS": 60,
+      "startMs": 0,
+      "endMs": 60000,
+      "planned": 1755
+    }
+  ],
+  "startedUtc": "2026-11-22T16:52:55.412524387Z",
+  "endedUtc": "2026-11-22T16:53:56.479536348Z",
+  "rows": 1755,
+  "reconciled": true
+}
