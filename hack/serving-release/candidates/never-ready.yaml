@@ -1,0 +1,15 @@
+# A candidate that must fail on readiness: its /health answers 503 for an hour, far past the bounded wait.
+# The rolling update keeps the old Pod serving meanwhile, so a smoke that ignored the model name would pass it.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: InferenceDeployment
+metadata:
+  name: stub
+  namespace: serving
+spec:
+  model:
+    name: stub-v4-unready
+    storageUri: "stub://profile?tokens=4&ttft-ms=5&itl-ms=2&ready-after-ms=3600000"
+  image: benchharness:serving-release
+  gpuCount: 0
+  replicas: 1
+  port: 8090

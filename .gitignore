@@ -42,6 +42,7 @@ docs/superpowers/*
 !/hack/dcgm-diag/*/README.md
 !/hack/chaos-fr002b-backend-fallback.md
 !/hack/argocd-kind.md
+!/hack/serving-release.md
 !/hack/kueue-deployment-integration.md
 !/hack/kserve-queue-label-propagation.md
 !/hack/m5d-writeup.md

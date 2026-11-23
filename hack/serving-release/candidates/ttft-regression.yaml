@@ -1,0 +1,15 @@
+# A candidate that must fail on latency alone: it becomes Ready and answers correctly, but its first token takes 2.5 s.
+# The smoke's bound is 1 s, so only the TTFT check can turn it red.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: InferenceDeployment
+metadata:
+  name: stub
+  namespace: serving
+spec:
+  model:
+    name: stub-v3-slow
+    storageUri: "stub://profile?tokens=4&ttft-ms=2500&itl-ms=2"
+  image: benchharness:serving-release
+  gpuCount: 0
+  replicas: 1
+  port: 8090
