@@ -251,9 +251,9 @@ check "b2 hasfixfix: a wrong has_fix stops b2 after its first run" "[ \"\$(b2ord
 check "b2 keys2304: the pool-2304 rule (c) is what fires" "b2t b2-keys2304 'fix-2304-1: (c) stored_keys=2002, not exactly 2003'"
 check "b2 savefail: rule (a) fires on the failed write" "b2t b2-savefail 'fix-128-2: (a) 1 save failure lines'"
 check "b2 keysoff: rule (b) fires on 1,800 keys" "b2t b2-keysoff 'fix-128-3: (b) stored_keys=1800'"
-t0=$(date +%s); E2E_OUTER_S=260 e2e "$KIT" b2-hang FAKE_B1=hang BUDGET_S=200 B2_CAP_S=30; rc=$?; took=$(( $(date +%s) - t0 ))
+t0=$(date +%s); E2E_OUTER_S=260 e2e "$KIT" b2-hang FAKE_B1=hang BUDGET_S=150 B2_CAP_S=30; rc=$?; took=$(( $(date +%s) - t0 ))
 check "b2 hang: b2 runs out of budget and stops alone while the test arm's verdict and exit 0 stand; run.sh ends inside BUDGET_S ($took s)" \
-  "[ $rc = 0 ] && kept b2-hang && b2 b2-hang INCOMPLETE && command grep -qF 'the budget ran out before b2-' '$WORK/e2e-b2-hang/out/b2/STOPPED' && [ $took -le 200 ]"
+  "[ $rc = 0 ] && kept b2-hang && b2 b2-hang INCOMPLETE && command grep -qF 'the budget ran out before b2-' '$WORK/e2e-b2-hang/out/b2/STOPPED' && [ $took -le 150 ]"
 e2e "$KIT" b2-only P6=0; rc=$?
 check "P6=0: no test process, all four b2 runs, and run.sh exits with b2's VALID, 0" \
   "[ $rc = 0 ] && b2 b2-only VALID && ! [ -s '$WORK/e2e-b2-only/order' ] && ! [ -e '$WORK/e2e-b2-only/out/verdict.txt' ] && [ \"\$(b2order b2-only)\" = '$B2_ORDER_WANT' ]"
@@ -305,7 +305,7 @@ m=$(mutant b2nopreflight run.sh 's/^    if \[ -n "\$got" \] && \[ "\$got" != "\$
 [ -n "$m" ] && e2e "$m" m-b2nopreflight FAKE_B1=hasfixfix
 mcheck "mutant: a run.sh without b2's has_fix preflight runs on past a wrong tree, and is caught" "[ \"\$(b2order m-b2nopreflight)\" != fix-128 ]"
 m=$(mutant b2stopall run.sh 's/^  if \[ "\$PHASE" = b2 \]; then$/  if false; then/')
-[ -n "$m" ] && E2E_OUTER_S=260 e2e "$m" m-b2stopall FAKE_B1=hang BUDGET_S=200 B2_CAP_S=30
+[ -n "$m" ] && E2E_OUTER_S=260 e2e "$m" m-b2stopall FAKE_B1=hang BUDGET_S=150 B2_CAP_S=30
 mcheck "mutant: a b2 stop that writes the run-wide STOPPED is caught" "! kept m-b2stopall"
 
 # ---------------------------------------------------------------- mutants of verdict.py and b2_verdict.py, caught by the unit checks
