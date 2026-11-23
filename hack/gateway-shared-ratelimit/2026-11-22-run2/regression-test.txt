@@ -1,0 +1,43 @@
+# The loadgen regression tests (experiments/gateway-replica-limit/loadgen/main_test.go at 0e9aaa8a)
+# run against the old main.go (git show 2a6136df:experiments/gateway-replica-limit/loadgen/main.go, copied with the test into a scratch module)
+# and against the new one in the repository. go test -count=1 -v.
+
+## old main.go (2a6136df)
+=== RUN   TestCutStreamAfter200IsNotSuccess
+    main_test.go:122: ok=2 for two streams cut after 200, want 0
+    main_test.go:125: want status200=2 stream_cut=2, got map[limited:0 ok:2 other:0 sent:2 transport_errors:0]
+    main_test.go:129: row map[error: sent_ms:0.010 seq:0 status:200 wrote_ms:0.228]: want status 200, outcome stream_cut, done 0
+    main_test.go:129: row map[error: sent_ms:50.677 seq:1 status:200 wrote_ms:50.909]: want status 200, outcome stream_cut, done 0
+--- FAIL: TestCutStreamAfter200IsNotSuccess (0.05s)
+=== RUN   TestStreamWithoutDoneIsNotSuccess
+    main_test.go:141: want ok=0 stream_cut=2, got map[limited:0 ok:2 other:0 sent:2 transport_errors:0]
+    main_test.go:145: row map[error: sent_ms:0.008 seq:0 status:200 wrote_ms:0.248]: want outcome stream_cut
+    main_test.go:145: row map[error: sent_ms:50.740 seq:1 status:200 wrote_ms:50.995]: want outcome stream_cut
+--- FAIL: TestStreamWithoutDoneIsNotSuccess (0.05s)
+=== RUN   TestCompleteStreamIsSuccess
+    main_test.go:164: row map[error: sent_ms:0.012 seq:0 status:200 wrote_ms:0.230]: want outcome completed, done 1 and a first-token time
+    main_test.go:164: row map[error: sent_ms:50.458 seq:1 status:200 wrote_ms:50.689]: want outcome completed, done 1 and a first-token time
+--- FAIL: TestCompleteStreamIsSuccess (0.05s)
+=== RUN   TestRefusalsAreCountedByStatus
+    main_test.go:183: want ok=0 limited=1 http5xx=1, got map[limited:1 ok:0 other:1 sent:2 transport_errors:0]
+--- FAIL: TestRefusalsAreCountedByStatus (0.05s)
+=== RUN   TestTimeoutAfter200KeepsTheStatus
+    main_test.go:197: loadgen [-url http://127.0.0.1:43767/v1/chat/completions -key k -model m -rate 20 -duration 100ms -out <tmp>/rows.tsv -timeout 300ms]: exit status 2, stdout ""
+--- FAIL: TestTimeoutAfter200KeepsTheStatus (0.00s)
+FAIL
+FAIL	oldloadgen	0.213s
+FAIL
+
+## new main.go (0e9aaa8a)
+=== RUN   TestCutStreamAfter200IsNotSuccess
+--- PASS: TestCutStreamAfter200IsNotSuccess (0.06s)
+=== RUN   TestStreamWithoutDoneIsNotSuccess
+--- PASS: TestStreamWithoutDoneIsNotSuccess (0.06s)
+=== RUN   TestCompleteStreamIsSuccess
+--- PASS: TestCompleteStreamIsSuccess (0.06s)
+=== RUN   TestRefusalsAreCountedByStatus
+--- PASS: TestRefusalsAreCountedByStatus (0.06s)
+=== RUN   TestTimeoutAfter200KeepsTheStatus
+--- PASS: TestTimeoutAfter200KeepsTheStatus (0.36s)
+PASS
+ok  	github.com/lkhun9311/gpu-mlops-platform-control-plane/experiments/gateway-replica-limit/loadgen	0.607s

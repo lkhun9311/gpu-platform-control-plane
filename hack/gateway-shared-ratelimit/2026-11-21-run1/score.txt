@@ -1,0 +1,49 @@
+arm	rep	replicas	store	sent	ok	429	503	transport	other	T_s	bound	ok/bound	stub
+memory-1	1	1	memory	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-3	1	3	memory	300	102	198	0	0	0	29.90	34.90	2.92	102
+redis-3	1	3	redis	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-1	2	1	memory	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-3	2	3	memory	300	102	198	0	0	0	29.90	34.90	2.92	102
+redis-3	2	3	redis	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-1	3	1	memory	300	34	266	0	0	0	29.90	34.90	0.97	34
+memory-3	3	3	memory	300	102	198	0	0	0	29.90	34.90	2.92	102
+redis-3	3	3	redis	300	34	266	0	0	0	29.90	34.90	0.97	34
+redis-3-down-local	1	3	redis	300	75	225	0	0	0	29.90	34.90	2.15	75
+redis-3-down-closed	1	3	redis	300	27	153	120	0	0	29.90	34.90	0.77	27
+redis-3-podkill	1	3	redis	300	34	265	0	1	0	29.90	34.90	0.97	34
+
+redis-3-down-local: event at 10.01s, cleared at 20.63s
+  before  [0, 10.01) ok=15 429=86  (one bucket: 15.0)
+  during  [10.01, 20.63) ok=44 429=62  (one bucket refills 10.6)
+  after   [20.63, 29.90) ok=16 429=77  (one bucket refills 9.3)
+  errors (not 200 or 429): 0
+  200s per second: 5 1 1 1 1 1 1 1 1 1 9 7 4 5 2 3 3 3 3 4 2 4 5 1 1 1 1 1 1 1
+  stub served 75, client saw 75 answered 200
+redis-3-down-closed: event at 10.01s, cleared at 20.66s
+  before  [0, 10.01) ok=14 429=87  (one bucket: 15.0)
+  during  [10.01, 20.66) ok=1 503=105  (one bucket refills 10.7)
+  after   [20.66, 29.90) ok=12 429=66 503=15  (one bucket refills 9.2)
+  errors (not 200 or 429): 120, sent from 10.20s to 22.10s
+  200s per second: 5 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 5 1 1 1 1 1 1 1
+  stub served 27, client saw 27 answered 200
+redis-3-podkill: event at 15.04s, cleared at 26.27s
+  before  [0, 15.04) ok=19 429=132  (one bucket: 20.0)
+  during  [15.04, 26.27) ok=12 429=99 transport=1  (one bucket refills 11.2)
+  after   [26.27, 29.90) ok=3 429=34  (one bucket refills 3.6)
+  errors (not 200 or 429): 1, sent from 15.10s to 15.10s
+  200s per second: 5 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+  stub served 34, client saw 34 answered 200
+pods memory-1-1: before [gateway-f765495c9-lzbl5:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-lzbl5:ok=34,degraded=0,redis_errors=0]
+pods memory-3-1: before [gateway-f765495c9-ktdd4:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-lzbl5:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-r9fkd:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-ktdd4:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-lzbl5:ok=68,degraded=0,redis_errors=0 gateway-f765495c9-r9fkd:ok=34,degraded=0,redis_errors=0]
+pods redis-3-1: before [gateway-5d8cf7d4b8-79frm:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hmhgr:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-r8kkt:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-79frm:ok=7,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hmhgr:ok=16,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-r8kkt:ok=11,degraded=0,redis_errors=0]
+pods memory-1-2: before [gateway-f765495c9-9hkmv:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-9hkmv:ok=34,degraded=0,redis_errors=0]
+pods memory-3-2: before [gateway-f765495c9-56gzf:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-92lzg:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-9hkmv:ok=34,degraded=0,redis_errors=0] after [gateway-f765495c9-56gzf:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-92lzg:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-9hkmv:ok=68,degraded=0,redis_errors=0]
+pods redis-3-2: before [gateway-5d8cf7d4b8-7nk6l:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-96dnl:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-gqw4p:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-7nk6l:ok=13,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-96dnl:ok=12,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-gqw4p:ok=9,degraded=0,redis_errors=0]
+pods memory-1-3: before [gateway-f765495c9-ttl7t:ok=0,degraded=0,redis_errors=0] after [gateway-f765495c9-ttl7t:ok=34,degraded=0,redis_errors=0]
+pods memory-3-3: before [gateway-f765495c9-ms2rz:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-nhl4l:ok=0,degraded=0,redis_errors=0 gateway-f765495c9-ttl7t:ok=34,degraded=0,redis_errors=0] after [gateway-f765495c9-ms2rz:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-nhl4l:ok=34,degraded=0,redis_errors=0 gateway-f765495c9-ttl7t:ok=68,degraded=0,redis_errors=0]
+pods redis-3-3: before [gateway-5d8cf7d4b8-4mrqj:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-7wb7c:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hrb52:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-4mrqj:ok=12,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-7wb7c:ok=11,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hrb52:ok=11,degraded=0,redis_errors=0]
+pods redis-3-down-local-1: before [gateway-5d8cf7d4b8-4mrqj:ok=12,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-7wb7c:ok=11,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-hrb52:ok=11,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-4mrqj:ok=35,degraded=41,redis_errors=10 gateway-5d8cf7d4b8-7wb7c:ok=36,degraded=39,redis_errors=9 gateway-5d8cf7d4b8-hrb52:ok=38,degraded=38,redis_errors=9]
+pods redis-3-down-closed-1: before [gateway-694b976dbf-54dtz:ok=0,degraded=0,redis_errors=0 gateway-694b976dbf-fhv22:ok=0,degraded=0,redis_errors=0 gateway-694b976dbf-jn68x:ok=0,degraded=0,redis_errors=0] after [gateway-694b976dbf-54dtz:ok=7,degraded=32,redis_errors=9 gateway-694b976dbf-fhv22:ok=12,degraded=41,redis_errors=9 gateway-694b976dbf-jn68x:ok=8,degraded=47,redis_errors=10]
+pods redis-3-podkill-1: before [gateway-5d8cf7d4b8-6vfvr:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-phg7d:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-w8224:ok=0,degraded=0,redis_errors=0] after [gateway-5d8cf7d4b8-phg7d:ok=14,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-rghw4:ok=0,degraded=0,redis_errors=0 gateway-5d8cf7d4b8-w8224:ok=15,degraded=0,redis_errors=0]
+
+VALID

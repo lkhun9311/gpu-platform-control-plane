@@ -38,10 +38,13 @@ docs/superpowers/*
 !/hack/distributed-restart-kind-*/README.md
 # The paid restart sessions' records say what ran, what failed before it, and what each figure does not show.
 !/hack/distributed-restart-eks/*/README.md
+# The shared gateway rate limit's kind runs say what each arm measured and what the run does not show.
+!/hack/gateway-shared-ratelimit/*/README.md
 # The DCGM diagnostic's records, free and paid, say what was read and what only a card can show.
 !/hack/dcgm-diag/*/README.md
 !/hack/chaos-fr002b-backend-fallback.md
 !/hack/argocd-kind.md
+!/hack/serving-release.md
 !/hack/kueue-deployment-integration.md
 !/hack/kserve-queue-label-propagation.md
 !/hack/m5d-writeup.md
@@ -50,6 +53,7 @@ docs/superpowers/*
 !/hack/m5b-vllm-sizing.md
 !/hack/queue-drain-under-load.md
 !/hack/alert-firing-verification.md
+!/hack/gateway-alert-delivery.md
 !/hack/queuelab-reclaim-first-result.md
 !/hack/quota-bypass-guard.md
 !/hack/queue-load-under-concurrency.md
