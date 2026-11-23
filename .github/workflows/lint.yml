@@ -6,6 +6,11 @@ on:
 
 permissions: {}
 
+# A newer push to the same ref makes the older run's result moot, so it stops and frees the runner.
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     permissions:

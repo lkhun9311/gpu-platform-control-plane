@@ -224,7 +224,7 @@ check "the runner and the stride verdict name the same image digest and commit, 
 
 # ---------------------------------------------------------------- the diffs and the pins
 dsha() { sha256sum "$1" | cut -d' ' -f1; }
-check "the session pins #68416's two diffs at their own sha256, the ones storage pushed in f11148fc" \
+check "the session pins #68416's two diffs at their own sha256, the ones storage pushed in e0a7a986" \
   "[ \"\$(dsha '$DIR/stride-fix.diff')\" = \"\$(sv STRIDE_FIX_DIFF_SHA256)\" ] && [ \"\$(dsha '$DIR/stride-test.diff')\" = \"\$(sv STRIDE_TEST_DIFF_SHA256)\" ] && [ \"\$(sv STRIDE_FIX_DIFF_SHA256)\" = 0eaef549b2b6919272666660626e70734fb3b07b25ec13d29f52e1d3c178b60a ] && [ \"\$(sv STRIDE_TEST_DIFF_SHA256)\" = 21d8bbecee8dae26df7b75630d3f059513dda2cf022787f8edea28cc04bc5e94 ]"
 check "#68415's diffs stay run 3's, by their sha256" \
   "[ \"\$(dsha '$DIR/kda-fix.diff')\" = 5f98c5d6b71f8c299d1087697cd696ceca4b64ca2c38db469a86b474e86d1f84 ] && [ \"\$(dsha '$DIR/kda-test.diff')\" = b56b698ca429b680cbd1526166ba40b60ff525506658238a64428e013724868a ]"
