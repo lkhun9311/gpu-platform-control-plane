@@ -21,5 +21,10 @@ case "${1:-}" in
     shift
     exec python3 -I -B "$(dirname "$0")/bench_b1.py" "$@"
     ;;
+  */bench_preempt_v2.py)
+    # Kit p6's b2 runs the same fake bench as bench_preempt_v2.py, which also writes fix_wait.
+    shift
+    FAKE_BENCH_V2=1 exec python3 -I -B "$(dirname "$0")/bench_b1.py" "$@"
+    ;;
   *) exec python3 -I -B "$@" ;;
 esac

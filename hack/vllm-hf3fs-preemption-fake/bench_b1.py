@@ -1,4 +1,4 @@
-"""A fake bench_preempt.py for kit p5's offline test, run from the vLLM checkout once per b1 process.
+"""A fake bench_preempt.py for kit p5's offline test, and bench_preempt_v2.py for kit p6's, run from the vLLM checkout once per bench process.
 
 It reads the checkout's connector to report has_fix as the real script does, from AsyncOperationManager.wait_for_saves,
 and writes a JSON with the real script's fields and plausible values.
@@ -9,6 +9,13 @@ FAKE_B1 bends the runs:
   nojson        the first CONTROL pool-128 run exits 1 without a JSON;
   storageshort  the first FIX pool-128 run logs the metadata server's warning that it ran short of pages;
   preempt2304   the FIX pool-2304 run reports preemptions;
+With FAKE_BENCH_V2=1, as bench_preempt_v2.py, it also writes fix_wait, the wait it timed, and stores at pool 128 what b1's runs did,
+and these modes apply to kit p6's FIX runs:
+  nofixwait     fix-128-1 writes no fix_wait;
+  zeropreemptfix fix-128-2 reports no preemption;
+  savefail      fix-128-2 logs a failed write;
+  keysoff       fix-128-3 stores 1,800 keys, more than 1% under b1's;
+  keys2304      fix-2304-1 stores 2,002 keys, within 1% of b1's but not exactly 2,003.
   storedshort   the second FIX pool-128 run stores fewer keys than its load saves;
   hang          every run never returns.
 Each run appends ARM-POOL to FAKE_B1_LOG when it is set, ARM read from the checkout, so the offline test can check the order.
@@ -33,14 +40,19 @@ if not os.environ.get("PYTHONPATH", "").startswith(os.getcwd()):
     sys.exit(f"fake bench: the checkout {os.getcwd()} is not on PYTHONPATH ({os.environ.get('PYTHONPATH')})")
 # The real bench leaves its storage directory under TMPDIR; run.sh gives each run its own and deletes it after.
 tmp = os.environ.get("TMPDIR", "")
-if not tmp or os.path.basename(os.path.dirname(tmp)) != "b1-tmp":
-    sys.exit(f"fake bench: TMPDIR {tmp!r} is not a run's own directory under b1-tmp")
+if not tmp or os.path.basename(os.path.dirname(tmp)) not in ("b1-tmp", "b2-tmp"):
+    sys.exit(f"fake bench: TMPDIR {tmp!r} is not a run's own directory under b1-tmp or b2-tmp")
 left = sorted(set(os.listdir(os.path.dirname(tmp))) - {os.path.basename(tmp)})
 if left:
     sys.exit(f"fake bench: an earlier run's storage is still on disk: {left}")
 with open(os.path.join(tempfile.mkdtemp(prefix="hf3fs-bench-"), "hf3fs_vllm_data_file_0"), "wb") as f:
     f.truncate(8 * 1024 * 1024 * 1024)
-has_fix = "    def wait_for_saves(" in open(CONNECTOR).read()
+source = open(CONNECTOR).read()
+# As the real benches do: v1 looks for wait_for_saves, v2 for wait_for_gathers and then wait_for_saves.
+V2 = os.environ.get("FAKE_BENCH_V2") == "1"
+waits = [n for n in (("wait_for_gathers", "wait_for_saves") if V2 else ("wait_for_saves",)) if f"    def {n}(" in source]
+fix_wait = waits[0] if waits else None
+has_fix = fix_wait is not None
 arm = "fix" if has_fix else "control"
 mode = os.environ.get("FAKE_B1", "")
 if os.environ.get("FAKE_B1_LOG"):
@@ -59,6 +71,10 @@ preempting = args.pool_blocks == 128
 preemptions = 0 if (mode == "zeropreempt" and name == "control-128-2.json") else (412 if preempting else 0)
 if mode == "preempt2304" and name == "fix-2304-1.json":
     preemptions = 3
+if mode == "zeropreemptfix" and name == "fix-128-2.json":
+    preemptions = 0
+if mode == "savefail" and name == "fix-128-2.json":
+    print("(EngineCore pid=7) ERROR 11-23 18:00:02 [hf3fs_connector.py:390] Write operation failed for Saved request 9-aa", file=sys.stderr)
 if mode == "storageshort" and name == "fix-128-1.json":
     print("(EngineCore pid=7) WARNING 11-23 18:00:01 [hf3fs_metadata_server.py:123] Rank 0 only allocated 12 pages for 31 keys", file=sys.stderr)
 waits = arm == "fix" and preemptions > 0
@@ -85,6 +101,15 @@ result = {
     "stored_keys": 1990 if (mode == "storedshort" and name == "fix-128-2.json") else 2003,
     "storage_pages": 14563,
 }
+if V2:
+    # b1 stored 1,882 to 1,883 keys at pool 128, CONTROL and FIX alike, and 2,003 at pool 2304.
+    result["stored_keys"] = 1883 if preempting else 2003
+    if mode == "keysoff" and name == "fix-128-3.json":
+        result["stored_keys"] = 1800
+    if mode == "keys2304" and name == "fix-2304-1.json":
+        result["stored_keys"] = 2002
+    if not (mode == "nofixwait" and name == "fix-128-1.json"):
+        result["fix_wait"] = fix_wait
 print(json.dumps(result, indent=2))
 with open(args.out, "w") as f:
     json.dump(result, f, indent=2)

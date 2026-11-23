@@ -24,6 +24,8 @@ FAKE_MODE bends the run:
   nosummary       FIX dies before its summary;
   setupboth       both arms fail at the prefix cache reset, before the page comparison, as run p3 did;
   oldline         both arms print the older test's "relative page errors" line instead of kit p4's;
+  fixnonzero      FIX passes with a held-save page error of 0.0012 where kit p6 expects 0.0;
+On a gather-only tree, kit p6's, FIX's held-save page errors are all 0.0, as the runtime session expects.
   hang            every run never returns;
   hangterm        every run never returns and ignores SIGTERM, so only the kill after the grace ends it.
 Each run appends its arm to FAKE_ORDER_LOG when it is set, so the offline test can check the order.
@@ -85,6 +87,10 @@ if arm == "control":
     cpu_fail = ["test_scheduler_passes_preempted_requests_to_the_worker", "test_waits_for_the_preempted_request_saves_only"]
 else:
     gpu = ([20, 21, 22, 23], [21, 22], True, [0.0012, 0.0009], None)
+    if "    def wait_for_gathers(" in open(CONNECTOR).read():
+        gpu = ([20, 21, 22, 23], [21, 22], True, [0.0, 0.0, 0.0], None)
+    if mode == "fixnonzero":
+        gpu = ([20, 21, 22, 23], [21, 22], True, [0.0, 0.0012, 0.0], None)
     gpu = {
         "fixmismatch": ([20, 21, 22, 23], [21, 22], True, [0.9731, 1.0214], ["E   AssertionError: [0.9731, 1.0214]", "E   assert 1.0214 < 0.05"]),
         "fixsmallerr": ([20, 21, 22, 23], [21, 22], True, [0.0012, 0.07], ["E   AssertionError: [0.0012, 0.07]", "E   assert 0.07 < 0.05"]),
