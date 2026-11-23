@@ -183,4 +183,6 @@ Under CONTRACT.md section 10, per included session and with its sample counts:
 - **No end-to-end latency through the gateway.** These sessions ran the engine directly; the gateway's share was measured separately on kind ([README](README.md)) and is never added to these figures.
 - **No HA or zero-downtime statement.** One replica on one GPU; each restart window above is a full outage of that replica.
 - **No large-scale statement**: nothing about more GPUs, more replicas, autoscaling or many tenants.
+- **No hardware-variance statement.** Both included sessions ran on a g5.xlarge Spot instance in one zone, each on whichever A10G that launch got; the agreement between them is not a measurement of card-to-card or instance-to-instance spread.
+- **No output-quality statement.** The contract checks each completed request's token counts and finish reason (512 prompt tokens, exactly 128 completion tokens under `ignore_eos`, finish reason `length`), not what the model wrote; nothing here says the answers were correct.
 - No p99 below 100 completed requests appears above; the smallest population with a p99 is 122.
