@@ -1,0 +1,15 @@
+# The release every run starts from, and the spec saved as last known good once its smoke passes.
+# Each release serves its own model name, so the smoke can tell which rendered Pod answered.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: InferenceDeployment
+metadata:
+  name: stub
+  namespace: serving
+spec:
+  model:
+    name: stub-v1
+    storageUri: "stub://profile?tokens=4&ttft-ms=5&itl-ms=2"
+  image: benchharness:serving-release
+  gpuCount: 0
+  replicas: 1
+  port: 8090

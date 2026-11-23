@@ -154,6 +154,50 @@ var (
 		[]string{"tenant"},
 	)
 
+	// redisSeconds is one shared-limiter script call's latency, failures included, because a timeout is the latency an outage adds.
+	redisSeconds = promauto.With(metrics.Registry).NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    metricPrefix + "ratelimit_redis_seconds",
+			Help:    "Seconds one shared rate limit call to Redis took, failed calls included.",
+			Buckets: []float64{0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25},
+		},
+	)
+
+	// redisErrors counts failed shared-limiter calls, each of which opens the breaker.
+	redisErrors = promauto.With(metrics.Registry).NewCounter(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "ratelimit_redis_errors_total",
+			Help: "Shared rate limit calls to Redis that failed: timeouts, refused connections and script errors.",
+		},
+	)
+
+	// redisDegraded counts requests decided without Redis, by failure policy.
+	// Under local each one was judged against a bucket only this replica sees, so the tenant's limit was not the shared one.
+	redisDegraded = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "ratelimit_degraded_decisions_total",
+			Help: "Requests the shared rate limiter decided without Redis, by failure policy (local or closed).",
+		},
+		[]string{"policy"},
+	)
+
+	// redisAvailable is 0 while this replica's breaker keeps it off Redis, so an alert does not have to infer it from a rate.
+	redisAvailable = promauto.With(metrics.Registry).NewGauge(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "ratelimit_redis_available",
+			Help: "1 while this replica decides rate limits through Redis, 0 while its breaker keeps it on the failure policy.",
+		},
+	)
+
+	// singleGatewayRefusals counts requests refused because a per-process feature met the shared store.
+	singleGatewayRefusals = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "single_gateway_refusals_total",
+			Help: "Requests refused with 503 because their backend uses a per-process feature (holdcap or prefix_affinity) while the gateway runs the shared rate limit store.",
+		},
+		[]string{"feature"},
+	)
+
 	// backendFallbacks counts requests a second backend served after the first failed, and it is separate from
 	// upstream_errors_total on purpose: that counter rises on every failed attempt, including the ones a
 	// fallback then rescued, so on its own it cannot tell a degraded model from a broken one.

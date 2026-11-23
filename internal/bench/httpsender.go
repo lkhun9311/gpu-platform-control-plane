@@ -83,6 +83,12 @@ type SenderConn struct {
 	//
 	// Only SenderModeLegacy sets it; see there for why the legacy client needs it to stay what it claims to be.
 	CloseEachRequest bool
+	// MaxConnsPerHost caps the connections open to one host at once, zero meaning no cap.
+	//
+	// No sender mode sets it, because a cap makes dispatch wait for a free connection and turns an open-loop replay closed-loop.
+	// The gateway replica-limit load generator sets it to 1 on purpose: one kept-alive connection makes kube-proxy pick a Pod once per run.
+	// It applies only with MaxIdleConnsPerHost above zero, since a zero pool means http.DefaultTransport, which must not be changed.
+	MaxConnsPerHost int
 }
 
 // The sender modes name whole generations of this client's connection handling, not individual knobs.
@@ -236,7 +242,7 @@ func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout 
 		client: &http.Client{
 			// No redirects: the gateway answers directly, and a redirect would point somewhere unmeasured.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-			Transport:     newSenderTransport(conn.MaxIdleConnsPerHost),
+			Transport:     newSenderTransport(conn.MaxIdleConnsPerHost, conn.MaxConnsPerHost),
 		},
 		gatewayURL: strings.TrimRight(gatewayURL, "/"),
 		model:      model,
@@ -299,7 +305,7 @@ func drainForReuse(body io.Reader) {
 //
 // One Transport per sender, and one sender per replay, is what makes the pool a pool: a Transport owns the
 // idle-connection pool, so one built per request would pool nothing at all.
-func newSenderTransport(maxIdleConnsPerHost int) http.RoundTripper {
+func newSenderTransport(maxIdleConnsPerHost, maxConnsPerHost int) http.RoundTripper {
 	if maxIdleConnsPerHost <= 0 {
 		return nil
 	}
@@ -316,9 +322,10 @@ func newSenderTransport(maxIdleConnsPerHost int) http.RoundTripper {
 	// In a two-tenant noisy-neighbour benchmark that is precisely the coupling the run exists to detect, and
 	// the harness must not introduce it itself.
 	t.MaxIdleConns = 0
-	// MaxConnsPerHost stays zero, as the clone leaves it.
+	// MaxConnsPerHost stays zero, as the clone leaves it, unless the caller asked for a cap (SenderConn.MaxConnsPerHost).
 	// That one blocks dispatch when the limit is reached, which would turn this open-loop sender into a
 	// closed-loop one and reintroduce the coordinated omission the design goes to some trouble to avoid.
+	t.MaxConnsPerHost = maxConnsPerHost
 	//
 	// IdleConnTimeout keeps the clone's 90s.
 	// Zero would mean "never close an idle connection", and a harness that leaks sockets on a long run

@@ -1,0 +1,393 @@
+2026-11-22T16:07:09.808Z provenance: commit=e08e6e3ba84c5fff530d2c8274a28394a033ff51 dirty_files=0 kind=kind v0.33.0 go1.25.7 linux/amd64 kubectl=v1.36.3 helm=v3.16.3+gcfd0749 chart=kube-prometheus-stack-88.3.0.tgz sha256=5609de52e7af33792e6c6678b9443cacaec0cd81feacc956f6da0209a7463cba kueue=v0.18.3 from config/kueue-controller 
+2026-11-22T16:07:09.809Z == images
+sha256:7780b24fce756952f79ec5244218d99d2a4f1f71b0420a589bb0014cadd60d4d
+sha256:3b77f4e97e1caa1c4cedf1cc968e6899a7503a5505e8be2868edbbaff00ba0c8
+sha256:56ad3f2bbfaaa4d9c4a1df7a9fd048fb7a6a7c1d802e91323082a893935c8dfd
+2026-11-22T16:08:48.808Z == cluster gwalert
+Creating cluster "gwalert" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+Set kubectl context to "kind-gwalert"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-gwalert
+
+Have a nice day! 👋
+Image: "controller:alert-delivery" with ID "sha256:7780b24fce756952f79ec5244218d99d2a4f1f71b0420a589bb0014cadd60d4d" not yet present on node "gwalert-control-plane", loading...
+Image: "gateway:alert-delivery" with ID "sha256:3b77f4e97e1caa1c4cedf1cc968e6899a7503a5505e8be2868edbbaff00ba0c8" not yet present on node "gwalert-control-plane", loading...
+Image: "benchharness:alert-delivery" with ID "sha256:56ad3f2bbfaaa4d9c4a1df7a9fd048fb7a6a7c1d802e91323082a893935c8dfd" not yet present on node "gwalert-control-plane", loading...
+2026-11-22T16:09:30.911Z == webhook sink
+namespace/monitoring created
+configmap/alert-sink created
+deployment.apps/alert-sink created
+service/alert-sink created
+deployment.apps/probe created
+2026-11-22T16:09:31.432Z == kube-prometheus-stack
+NAME: kps
+LAST DEPLOYED: Mon Nov 23 01:09:31 2026
+NAMESPACE: monitoring
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+kube-prometheus-stack has been installed. Check its status by running:
+  kubectl --namespace monitoring get pods -l "release=kps"
+
+Get Grafana 'admin' user password by running:
+
+  kubectl --namespace monitoring get secrets kps-grafana -o jsonpath="{.data.admin-password}" | base64 -d ; echo
+
+Access Grafana local instance:
+
+  export POD_NAME=$(kubectl --namespace monitoring get pod -l "app.kubernetes.io/name=grafana,app.kubernetes.io/instance=kps" -oname)
+  kubectl --namespace monitoring port-forward $POD_NAME 3000
+
+Get your grafana admin user password by running:
+
+  kubectl get secret --namespace monitoring -l app.kubernetes.io/component=admin-secret -o jsonpath="{.items[0].data.admin-password}" | base64 --decode ; echo
+
+
+Visit https://github.com/prometheus-operator/kube-prometheus for instructions on how to create & configure Alertmanager and Prometheus instances using the Operator.
+deployment "alert-sink" successfully rolled out
+deployment "probe" successfully rolled out
+pod/prometheus-kps-kube-prometheus-stack-prometheus-0 condition met
+2026-11-22T16:10:51.806Z == kueue from config/kueue-controller
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+error: resource mapping not found for name: "gpu" namespace: "" from "/tmp/tmp.dpF1lWUUEm/kueue.yaml": no matches for kind "ResourceFlavor" in version "kueue.x-k8s.io/v1beta1"
+ensure CRDs are installed first
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+Warning: This version is deprecated. Use v1beta2 instead.
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+Error from server (InternalError): Internal error occurred: failed calling webhook "mresourceflavor.kb.io": failed to call webhook: Post "https://kueue-webhook-service.kueue-system.svc:443/mutate-kueue-x-k8s-io-v1beta2-resourceflavor?timeout=10s": dial tcp 10.96.78.210:443: connect: connection refused
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+Warning: This version is deprecated. Use v1beta2 instead.
+resourceflavor.kueue.x-k8s.io/gpu serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+deployment "kueue-controller-manager" successfully rolled out
+Warning: This version is deprecated. Use v1beta2 instead.
+Warning: resource resourceflavors/gpu is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+resourceflavor.kueue.x-k8s.io/gpu configured
+2026-11-22T16:11:15.430Z == operator and gateway
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager serverside-applied
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 of 1 updated replicas are available...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+secret/gateway-api-keys created
+serviceaccount/gateway serverside-applied
+role.rbac.authorization.k8s.io/gateway-secret-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gateway-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gateway-secret-reader-binding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gateway-rolebinding serverside-applied
+service/gateway serverside-applied
+deployment.apps/gateway serverside-applied
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 0 of 1 updated replicas are available...
+deployment "gateway" successfully rolled out
+2026-11-22T16:11:37.876Z == tenant and backend
+namespace/serving created
+gpuquotapolicy.platform.lkhun9311.github.io/premium-1-quota created
+inferencedeployment.platform.lkhun9311.github.io/demo-llm created
+Waiting for deployment "demo-llm" rollout to finish: 0 of 1 updated replicas are available...
+deployment "demo-llm" successfully rolled out
+2026-11-22T16:11:38.688Z == rules, PodMonitor and load
+podmonitor.monitoring.coreos.com/gateway-metrics created
+prometheusrule.monitoring.coreos.com/gateway-rules created
+deployment.apps/load created
+Waiting for deployment "load" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "load" rollout to finish: 0 of 1 updated replicas are available...
+deployment "load" successfully rolled out
+2026-11-22T16:11:39.389Z == waiting for the inputs
+2026-11-22T16:12:25.161Z	baseline: GatewayUpstreamErrorsReachingClients inactive, 200 rate 0.8710955555555555/s
+2026-11-22T16:12:25.164Z == fault
+inferencedeployment.platform.lkhun9311.github.io/demo-llm patched
+2026-11-22T16:12:25.196Z	FAULT START: InferenceDeployment demo-llm patched to replicas 0
+pod/demo-llm-6fb7b78c86-6dqbj condition met
+2026-11-22T16:12:25.975Z	backend Pods: 0 left besides the load
+2026-11-22T16:12:51.382Z	gateway 5xx observed in Prometheus: 0.3617288888888889/s
+2026-11-22T16:13:26.752Z	observed GatewayUpstreamErrorsReachingClients pending
+2026-11-22T16:18:24.591Z	observed GatewayUpstreamErrorsReachingClients firing
+2026-11-22T16:18:34.719Z	sink holds a firing GatewayUpstreamErrorsReachingClients
+inferencedeployment.platform.lkhun9311.github.io/demo-llm patched
+2026-11-22T16:18:34.753Z	FAULT END: InferenceDeployment demo-llm patched to replicas 1
+Waiting for deployment "demo-llm" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "demo-llm" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "demo-llm" rollout to finish: 0 of 1 updated replicas are available...
+deployment "demo-llm" successfully rolled out
+2026-11-22T16:18:35.462Z	backend rollout complete
+2026-11-22T16:18:52.108Z	gateway 200 rate back above 0.5/s in Prometheus
+2026-11-22T16:23:24.731Z	observed GatewayUpstreamErrorsReachingClients inactive
+2026-11-22T16:23:34.860Z	sink holds a resolved GatewayUpstreamErrorsReachingClients
+2026-11-22T16:23:34.861Z == recording
+2026-11-22T16:23:35.323Z done; evidence in hack/gateway-alert-delivery-20261122T160709Z
+2026-11-22T16:23:35.345Z deleting kind cluster gwalert
+Deleting cluster "gwalert" ...
+Deleted nodes: ["gwalert-control-plane"]

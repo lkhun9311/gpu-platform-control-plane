@@ -269,7 +269,10 @@ func (s *stubStats) reset() {
 type stubProfile struct {
 	// pilot, when set, makes each response produce exactly the request's own output cap and writes the
 	// prospective-admission pilot's step log (stubpilot.go); nil for every other caller.
-	pilot  *stubPilotLog
+	pilot *stubPilotLog
+	// model is the served model name each chunk carries, as vLLM's chunks do; empty leaves the field out.
+	// The serving release smoke reads it to tell the candidate's Pod from an old one that is still answering.
+	model  string
 	tokens int
 	ttft   time.Duration
 	itl    time.Duration
@@ -577,9 +580,10 @@ func stubServe(args []string) error {
 	// serving container it builds, so a stub that did not accept them would fail to parse its own arguments
 	// and crash-loop the moment it is deployed as an InferenceDeployment.
 	//
-	// --model is accepted and ignored: the stub answers for whatever model is asked of it, and the gateway
-	// has already decided the routing by the time a request arrives here.
-	_ = fs.String("model", "", "model name; accepted for InferenceDeployment compatibility and ignored")
+	// The stub answers for whatever model is asked of it, because the gateway has already decided the routing by
+	// the time a request arrives here.
+	// It still names --model in each chunk, so a smoke can tell which rendered release produced the answer.
+	model := fs.String("model", "", "model name; named in each chunk's model field, as vLLM names its served model")
 	modelPath := fs.String("model-path", "", "storage URI; a \"stub://...\" URI overrides the response profile")
 	metrics := fs.Bool("metrics", false, "serve /metrics with a completed-request counter in vLLM's name")
 	tokensFromRequest := fs.Bool("tokens-from-request", false, "answer with the request's own max_tokens rather than --tokens")
@@ -636,6 +640,7 @@ func stubServe(args []string) error {
 	}
 
 	profile := stubProfile{
+		model:             *model,
 		tokens:            *tokens,
 		ttft:              time.Duration(*ttftMs) * time.Millisecond,
 		itl:               time.Duration(*itlMs) * time.Millisecond,
@@ -727,9 +732,19 @@ func stubHealth(readyAfter time.Duration, startedAt time.Time) http.HandlerFunc 
 // stubContentChunk is the i-th of tokens content chunks; with finish reasons on, the last one carries vLLM's reason.
 func stubContentChunk(profile stubProfile, raw []byte, i, tokens int) string {
 	if profile.finishReasons && i == tokens-1 {
-		return fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":%q}]}\n\n", stubFinishReason(raw, tokens))
+		return stubChunk(profile.model, fmt.Sprintf("{\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":%q}]}", stubFinishReason(raw, tokens)))
 	}
-	return "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"
+	return stubChunk(profile.model, "{\"choices\":[{\"delta\":{\"content\":\"x\"}}]}")
+}
+
+// stubChunk frames one SSE data line from a JSON object, naming model first when there is one.
+// Without a model the bytes are exactly what every caller got before the field existed, so no archived rehearsal changes.
+func stubChunk(model, object string) string {
+	if model == "" {
+		return "data: " + object + "\n\n"
+	}
+	name, _ := json.Marshal(model)
+	return "data: {\"model\":" + string(name) + "," + strings.TrimPrefix(object, "{") + "\n\n"
 }
 
 // stubFinishReason is vLLM's reason for a response of tokens tokens: "length" when it reached the request's max_tokens.
@@ -857,8 +872,8 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 				return
 			}
 		}
-		if profile.usage && !emit(fmt.Sprintf("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}\n\n",
-			promptTokens, tokens)) {
+		if profile.usage && !emit(stubChunk(profile.model, fmt.Sprintf("{\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}",
+			promptTokens, tokens))) {
 			return
 		}
 		_ = emit("data: [DONE]\n\n")
