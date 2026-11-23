@@ -1,0 +1,12 @@
+2026-11-22T16:12:25.161Z	baseline: GatewayUpstreamErrorsReachingClients inactive, 200 rate 0.8710955555555555/s
+2026-11-22T16:12:25.196Z	FAULT START: InferenceDeployment demo-llm patched to replicas 0
+2026-11-22T16:12:25.975Z	backend Pods: 0 left besides the load
+2026-11-22T16:12:51.382Z	gateway 5xx observed in Prometheus: 0.3617288888888889/s
+2026-11-22T16:13:26.752Z	observed GatewayUpstreamErrorsReachingClients pending
+2026-11-22T16:18:24.591Z	observed GatewayUpstreamErrorsReachingClients firing
+2026-11-22T16:18:34.719Z	sink holds a firing GatewayUpstreamErrorsReachingClients
+2026-11-22T16:18:34.753Z	FAULT END: InferenceDeployment demo-llm patched to replicas 1
+2026-11-22T16:18:35.462Z	backend rollout complete
+2026-11-22T16:18:52.108Z	gateway 200 rate back above 0.5/s in Prometheus
+2026-11-22T16:23:24.731Z	observed GatewayUpstreamErrorsReachingClients inactive
+2026-11-22T16:23:34.860Z	sink holds a resolved GatewayUpstreamErrorsReachingClients

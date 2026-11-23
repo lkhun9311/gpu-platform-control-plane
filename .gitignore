@@ -50,6 +50,7 @@ docs/superpowers/*
 !/hack/m5b-vllm-sizing.md
 !/hack/queue-drain-under-load.md
 !/hack/alert-firing-verification.md
+!/hack/gateway-alert-delivery.md
 !/hack/queuelab-reclaim-first-result.md
 !/hack/quota-bypass-guard.md
 !/hack/queue-load-under-concurrency.md
