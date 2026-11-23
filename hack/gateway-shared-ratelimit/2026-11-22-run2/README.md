@@ -89,7 +89,7 @@ Redis scaled to 0 at 10.01 s and was ready again at 20.82, 21.69 and 20.78 s.
 
 - During the outage every request but one was refused with 503 and none admitted (rep 3 had one 429); the last 503 was sent at 21.9, 22.7 and 22.7 s, 1.1 to 2.0 s after Redis was ready, against 1.4 s in run 1.
 - Streams in flight: 3, 3 and 4, all completed.
-- One 503 in rep 1, at 10.40 s, took 101.6 ms: the same deadline as above, before the breaker opened.
+- Two 503s in rep 1, sent at 10.40 and 10.50 s, took 101.6 and 101.4 ms: the same deadline as above, before the breaker opened.
 
 ### One gateway Pod killed (`--grace-period=0 --force`)
 

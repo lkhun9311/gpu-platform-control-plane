@@ -44,8 +44,8 @@ The dashboard's Gateway row in [`config/prometheus/operator_dashboard.json`](../
 | Gateway time to first byte (TTFB) p99 and p50, not TTFT | first byte, a lower bound on time to first token |
 | Gateway scrape targets up | whether an empty panel means no events or no scrape |
 
-The runbook's section 8.4 names what it does not cover: central logging, TPOT in Grafana, and gateway HA.
-Its last item, a Redis outage entry, was written before #670 merged and still says shared rate limiting is not on `dev`; that entry remains to be written.
+The runbook's section 8.4 is the Redis outage entry for the shared rate limit store from #670: the metrics and log lines that show it, what the `local` and `closed` failure policies do, and what the kind run measured.
+Section 8.5 names what the runbook does not cover: central logging, TPOT in Grafana, and gateway and Redis HA.
 
 - On kind with a CPU stub, with a model left with no engine Pod, `GatewayUpstreamErrorsReachingClients` reached a webhook receiver through Alertmanager 367.2 s after the fault started, most of it the rule's 57 s to first match and its 5-minute hold.
 - The resolved notification arrived 297.7 s after the fault ended, and exactly one of each was received.

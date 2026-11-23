@@ -252,7 +252,7 @@ Found by the 2026-11-07 drill (`hack/drill/results-20261107/README.md`); each is
 - **Nothing shows a cohort's lendable quota directly**; compute it as in section 2, step 2.
 - **A hung machine is recognised from the console and the Lease, not by the platform** (section 4); the platform does not read the out-of-band console.
 
-## 8. Serving: an engine Pod terminated, a 503 surge
+## 8. Serving: an engine Pod terminated, a 503 surge, a Redis outage
 
 The gateway is `deploy/gateway` in `gpu-platform-control-plane-system`; each model is served by an `InferenceDeployment` in the tenant's target namespace, whose controller owns a Deployment and a Service of the same name (Pods labelled `app.kubernetes.io/instance=<name>`).
 Read the dashboard's Gateway row first. Each panel answers one question, and two of them count the same request differently:
@@ -295,43 +295,88 @@ Steps:
 ### 8.2 A 503 surge
 
 A dead engine shows as 502 or 504, not 503.
-A 503 comes from one of five places, and only the last is the engine:
+A 503 comes from one of seven places, and only the last is the engine:
 
 | source | where | how to tell |
 |---|---|---|
-| the api-keys Secret could not be read | `internal/gateway/server.go:475` | `tenant=""` and `model=""` on the series; log `cannot read the api-keys secret` |
-| the rate limiter was never initialised | `internal/gateway/server.go:512` | `model=""`; log `rate limiter was never initialised` |
-| a holding admitter ran out of room to hold | `internal/gateway/server.go:346` | the response's `X-Admission-Reason` header |
-| the request record's arrival line could not be written | `internal/gateway/server.go:569` | only with `--request-record-path`; log `cannot write the request record` (section 8.3) |
+| the api-keys Secret could not be read | `internal/gateway/server.go:550` | `tenant=""` and `model=""` on the series; log `cannot read the api-keys secret` |
+| the rate limiter was never initialised | `internal/gateway/server.go:588` | `model=""`; log `rate limiter was never initialised` |
+| the shared rate limit store could not answer, under `closed` | `internal/gateway/server.go:598` | `model=""`; body code `rate_limit_unavailable`; log `rate limit could not be decided` (section 8.4) |
+| a holding admitter ran out of room to hold | `internal/gateway/server.go:421` | the response's `X-Admission-Reason` header |
+| the request record's arrival line could not be written | `internal/gateway/server.go:656` | only with `--request-record-path`; log `cannot write the request record` (section 8.3) |
+| a HoldCap or `PrefixAffinity` backend behind the shared store | `internal/gateway/server.go:684` | body code `single_gateway_required`; `gpuaas_gateway_single_gateway_refusals_total{feature}` |
 | the engine answered 503 itself | `internal/gateway/proxy.go:874` | passed through as the engine's status; not retried and not a failed attempt, so `upstream_errors_total` stays flat |
 
 `sum by (tenant, model) (rate(gpuaas_gateway_requests_total{code="503"}[5m]))` gives the labels; then
-`kubectl -n gpu-platform-control-plane-system logs deploy/gateway | grep -E 'cannot read the api-keys secret|rate limiter was never initialised|cannot write the request record'`.
+`kubectl -n gpu-platform-control-plane-system logs -l app.kubernetes.io/component=gateway --prefix --tail=-1 | grep -E 'cannot read the api-keys secret|rate limiter was never initialised|rate limit could not be decided|per-process feature cannot run|cannot write the request record'`.
 If none of those lines appear and the labels carry a model, read that model's engine logs (step 2 of 8.1): an engine still loading weights, out of memory, or at capacity answers 503 with the connection accepted.
 
 ### 8.3 The request record and its trade-offs
 
 With `--request-record-path`, the gateway appends one JSON line per event to that file (`internal/gateway/requestrecord.go`).
-The flag's help says it is for benchmark runs (`cmd/gateway/main.go:168`), and the deployed `config/gateway` does not set it.
+The flag's help says it is for benchmark runs (`cmd/gateway/main.go:187`), and the deployed `config/gateway` does not set it.
 
 - `arrive`, once the body has been read: `requestId`, `tenant`, `arrivedUnixNanos` (`requestrecord.go:48`).
   A request refused before its body is read (401, 403, the limiter's 429) has no arrive line.
-- `done`, on every way out of the handler (`server.go:447`): `requestId`, `tenant`, `tier`, `decision`, `reason`, `status`, `priority`, `answered`, `cutShort`, and the stamps `entered`, `arrived`, `recorded`, `deciding`, `decided`, `handoff`, `released`, `firstContent`, `ended` (`requestrecord.go:71`).
+- `done`, on every way out of the handler (`server.go:522`): `requestId`, `tenant`, `tier`, `decision`, `reason`, `status`, `priority`, `answered`, `cutShort`, and the stamps `entered`, `arrived`, `recorded`, `deciding`, `decided`, `handoff`, `released`, `firstContent`, `ended` (`requestrecord.go:71`).
 
 Three trade-offs, each from the code:
-1. **The arrival line is synced per request.** `arrive` writes and calls `Sync` before it returns, under the recorder's one mutex (`requestrecord.go:129`, the lock at `:134`, the sync at `:139`), and it runs before routing and admission (`server.go:569`).
+1. **The arrival line is synced per request.** `arrive` writes and calls `Sync` before it returns, under the recorder's one mutex (`requestrecord.go:129`, the lock at `:134`, the sync at `:139`), and it runs before routing and admission (`server.go:656`).
    So a request the gateway admits always has a line on disk, and every request with a body waits for an fsync, one at a time across the process.
    `recordedUnixNanos` is stamped after the sync (`requestrecord.go:201`), so that cost is measured rather than assumed.
 2. **The done line has no sync of its own** (`requestrecord.go:142`).
-   It reaches the disk with the next arrival's fsync of the same file, the kernel's writeback, or the sync in `Close` at shutdown (`requestrecord.go:37`, called from `cmd/gateway/main.go:337`).
+   It reaches the disk with the next arrival's fsync of the same file, the kernel's writeback, or the sync in `Close` at shutdown (`requestrecord.go:37`, called from `cmd/gateway/main.go:366`).
    A crash loses the done lines written since the last of these, and a failed done write is ignored (`requestrecord.go:329`); the analysis finds the missing line by its join and treats the arm as ineligible (`requestrecord.go:327`).
-3. **A failed arrival write refuses the request with 503** (`server.go:569`): serving it would leave admitted work the measurement cannot see.
+3. **A failed arrival write refuses the request with 503** (`server.go:656`): serving it would leave admitted work the measurement cannot see.
    The 503 is counted in `requests_total` with the tenant and model, so a full disk or an unwritable record path turns every request with a body into a 503 and can fire `GatewayUpstreamErrorsReachingClients` with every engine healthy.
    Free the space, or restart the gateway without the flag if the run is over.
 
-### 8.4 What this section does not cover
+### 8.4 A Redis outage (shared rate limit store)
+
+This applies only to a gateway started with `--rate-limit-store=redis`; `config/gateway/` ships the default `memory` store at one replica and no Redis (`cmd/gateway/main.go:140`).
+That store is the multi-gateway profile, and it supports only `--admission-mode=off` ([run 2](../../hack/gateway-shared-ratelimit/2026-11-22-run2/README.md), "Two separate supported configurations"): the gateway refuses any other mode at start (`internal/gateway/server.go:250`, called from `cmd/gateway/main.go:487`) and answers 503 `single_gateway_required` for HoldCap and `PrefixAffinity` backends (`server.go:684`).
+It is one Redis with no HA and no failover (`docs/superpowers/specs/2026-11-21-gateway-shared-ratelimit-design.md:234`).
+
+Which policy is in force:
+`kubectl -n gpu-platform-control-plane-system get deploy gateway -o jsonpath='{.spec.template.spec.containers[?(@.name=="gateway")].command} {.spec.template.spec.containers[?(@.name=="gateway")].args}{"\n"}'`.
+No `--rate-limit-redis-failure-policy` means `local` (`cmd/gateway/main.go:152`); `--rate-limit-redis-addr` names the Redis.
+
+How to tell the store is down (each replica judges Redis on its own, so read every Pod):
+- `gpuaas_gateway_ratelimit_redis_available` is 0 (`internal/gateway/metrics.go:185`); it returns to 1 only on that replica's next successful call.
+  It starts at 1 before any call (`ratelimit_redis.go:188`) and only a rate-limited tenant's request calls Redis, so a 1 is the last answer seen, not a health check.
+- `gpuaas_gateway_ratelimit_redis_errors_total` rises: timeouts, refused connections, script errors (`metrics.go:167`).
+- `gpuaas_gateway_ratelimit_degraded_decisions_total{policy}` rises: requests decided without Redis (`metrics.go:176`).
+- `gpuaas_gateway_ratelimit_redis_seconds` piling at the deadline is a Redis too slow to answer, which counts as down (`metrics.go:158`).
+- Logs, `kubectl -n gpu-platform-control-plane-system logs -l app.kubernetes.io/component=gateway --prefix --tail=-1` (with `-l`, kubectl shows only 10 lines per Pod otherwise): `Redis rate limit store failed; deciding by the failure policy` once as a replica enters the outage (`internal/gateway/ratelimit_redis.go:251`) and `Redis rate limit store answered again; the shared budget is in force` once as it leaves (`ratelimit_redis.go:260`); under `closed`, `rate limit could not be decided; refusing` for every refused request (`server.go:595`).
+- No rule in `config/prometheus/gateway_rules.yaml` reads these series.
+  Under `closed` the 503s count in `requests_total` with `model=""` (`server.go:597`), so enough limited traffic fires `GatewayUpstreamErrorsReachingClients` for `model=""`; under `local` nothing fires.
+
+What the gateway does:
+- One call is bounded by `--rate-limit-redis-timeout`, default 100 ms, dial included (`cmd/gateway/main.go:150`, `ratelimit_redis.go:47`), and is never retried, because a lost reply may already have spent the token (`ratelimit_redis.go:177`).
+- A failed call keeps that replica off Redis for one second (`ratelimit_redis.go:49`, `:248`); the first request after that second tries Redis again, so a replica pays the deadline about once a second while Redis is gone.
+- `local` (default): the replica decides from its own in-memory bucket (`ratelimit_redis.go:239`), so a tenant's limit loosens up to replicas × the one-bucket bound.
+- `closed`: 503 with body code `rate_limit_unavailable` and `Retry-After: 1` (`ratelimit_redis.go:243`, `server.go:596`).
+- Either way, a tenant with no `rateLimit` never calls Redis (`ratelimit_redis.go:205`), and an admitted stream does not touch it again.
+
+Measured on kind, three gateway replicas, one tenant at 60 requests/min with burst 5, 10 requests a second for 60 s, Redis scaled to 0 for 10.7 to 11.7 s, three repetitions ([run 2](../../hack/gateway-shared-ratelimit/2026-11-22-run2/README.md), event arms; counts in its `events/score.txt`):
+- `local`: admitted 104 / 105 / 102 against a one-bucket bound of 64.90, no request failed, and the 3 / 4 / 4 streams in flight all completed.
+- `closed`: 503s 118 / 125 / 123, the last sent 1.1 to 2.0 s after Redis was ready, and the 3 / 3 / 4 streams in flight all completed.
+- Each replica counted 7 to 10 Redis errors per outage, about one per second; in the first repetition of each policy two requests waited out the 100 ms deadline (seq 104 and 105 in `events/redis-3-down-closed-1.tsv`, 106 and 107 in `events/redis-3-down-local-1.tsv`).
+- A CPU stub on one node over loopback: not a real network, a remote Redis or a GPU engine.
+
+Steps:
+1. Confirm Redis from the address in `--rate-limit-redis-addr`: its Pod and endpoints, then `kubectl -n <redis-ns> exec <redis-pod> -- redis-cli ping`, with `REDISCLI_AUTH` set if it has a password.
+   Errors with Redis answering point at the address, the network or the password; the `Redis rate limit store failed` log line carries the error.
+2. Under `local`, decide whether up to replicas × each tenant's limit is acceptable for the outage.
+   If not, scaling the gateway to one replica makes the local bucket the tenant's limit again, at the cost of capacity and of the streams on the removed Pods.
+   Changing the policy to `closed` is a restart of every replica, and refuses every limited tenant until Redis answers.
+3. Under `closed`, tell tenants the 503 `rate_limit_unavailable` is not their budget and to retry after `Retry-After`.
+4. Bring Redis back, then watch `gpuaas_gateway_ratelimit_redis_available` return to 1 on every Pod with the `answered again` line.
+   A Redis restarted without persistence starts every bucket full, so each tenant gets one fresh burst (`ratelimit_redis.go:114`).
+
+### 8.5 What this section does not cover
 
 - **Central logging.** The request record is a local file in the gateway Pod and gateway logs are read with `kubectl logs`; nothing ships either elsewhere.
 - **TPOT in Grafana.** The gateway measures first byte and whole-request duration only; no series measures time per output token, so no panel shows it.
-- **HA.** The gateway runs one replica (`config/gateway/deployment.yaml`, because the rate-limit buckets live in process memory), so a gateway Pod restart is an outage for every model; this section has no procedure for it.
-- **A Redis outage.** Shared rate limiting is not on `dev` yet (#670); its entry is added with it.
+- **HA.** The shipped gateway runs one replica (`config/gateway/deployment.yaml`, because the memory store's rate-limit buckets live in process memory), so a gateway Pod restart is an outage for every model; this section has no procedure for it.
+  The shared store's Redis has no HA either (section 8.4).
