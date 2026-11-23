@@ -1,0 +1,3 @@
+name, memory.total [MiB], driver_version
+NVIDIA A10G, 23028 MiB, 595.91.07
+GPU 0: NVIDIA A10G (UUID: GPU-e2580e77-433f-16df-8e23-1b736097425d)

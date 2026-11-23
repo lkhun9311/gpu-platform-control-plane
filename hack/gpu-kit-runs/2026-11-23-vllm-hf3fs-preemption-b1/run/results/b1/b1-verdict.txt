@@ -1,0 +1,208 @@
+B1, the performance run: a separate section that does not change the verdict above.
+b1 CONTROL pool 128 run 1 (exit 0):
+  has_fix=false pool_blocks=128 wall_s=31.742146538999975 output_tok_per_s=516.1591696349144 step_ms_p50=8.272975000011229 step_ms_p90=9.739374499986297 step_ms_p99=15.76668745001368 step_ms_max=35.156862000008005 preemptions=54 wait_calls=0 wait_total_s=0 wait_ms_p50=null wait_ms_max=null stored_keys=1882 storage_pages=14563 (expected_keys=2003)
+  verbatim:
+    {
+      "has_fix": false,
+      "pool_blocks": 128,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 31.742146538999975,
+      "output_tok_per_s": 516.1591696349144,
+      "steps": 3606,
+      "step_ms_p50": 8.272975000011229,
+      "step_ms_p90": 9.739374499986297,
+      "step_ms_p99": 15.76668745001368,
+      "step_ms_max": 35.156862000008005,
+      "preemptions": 54,
+      "wait_calls": 0,
+      "wait_total_s": 0,
+      "wait_ms_p50": null,
+      "wait_ms_max": null,
+      "mean_step_ms": 8.751780271214479,
+      "stored_keys": 1882,
+      "storage_pages": 14563
+    }
+b1 FIX pool 128 run 1 (exit 0):
+  has_fix=true pool_blocks=128 wall_s=31.347290756999996 output_tok_per_s=522.6607979300851 step_ms_p50=8.11624199999983 step_ms_p90=9.521416999979238 step_ms_p99=15.540207360026569 step_ms_max=37.49568700004602 preemptions=51 wait_calls=51 wait_total_s=0.03988559599991959 wait_ms_p50=0.018549999992956145 wait_ms_max=27.961137999966468 stored_keys=1883 storage_pages=14563 (expected_keys=2003)
+  verbatim:
+    {
+      "has_fix": true,
+      "pool_blocks": 128,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 31.347290756999996,
+      "output_tok_per_s": 522.6607979300851,
+      "steps": 3638,
+      "step_ms_p50": 8.11624199999983,
+      "step_ms_p90": 9.521416999979238,
+      "step_ms_p99": 15.540207360026569,
+      "step_ms_max": 37.49568700004602,
+      "preemptions": 51,
+      "wait_calls": 51,
+      "wait_total_s": 0.03988559599991959,
+      "wait_ms_p50": 0.018549999992956145,
+      "wait_ms_max": 27.961137999966468,
+      "mean_step_ms": 8.569525878229964,
+      "stored_keys": 1883,
+      "storage_pages": 14563
+    }
+b1 CONTROL pool 128 run 2 (exit 0):
+  has_fix=false pool_blocks=128 wall_s=31.300404625 output_tok_per_s=523.4437125107931 step_ms_p50=8.107392000027858 step_ms_p90=9.568236399979924 step_ms_p99=15.390433539973856 step_ms_max=33.80572399998982 preemptions=51 wait_calls=0 wait_total_s=0 wait_ms_p50=null wait_ms_max=null stored_keys=1883 storage_pages=14563 (expected_keys=2003)
+  verbatim:
+    {
+      "has_fix": false,
+      "pool_blocks": 128,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 31.300404625,
+      "output_tok_per_s": 523.4437125107931,
+      "steps": 3638,
+      "step_ms_p50": 8.107392000027858,
+      "step_ms_p90": 9.568236399979924,
+      "step_ms_p99": 15.390433539973856,
+      "step_ms_max": 33.80572399998982,
+      "preemptions": 51,
+      "wait_calls": 0,
+      "wait_total_s": 0,
+      "wait_ms_p50": null,
+      "wait_ms_max": null,
+      "mean_step_ms": 8.55630171605304,
+      "stored_keys": 1883,
+      "storage_pages": 14563
+    }
+b1 FIX pool 128 run 2 (exit 0):
+  has_fix=true pool_blocks=128 wall_s=31.715446789999987 output_tok_per_s=516.593699861291 step_ms_p50=8.189132499978768 step_ms_p90=9.630137099992455 step_ms_p99=15.673579199989833 step_ms_max=43.14250599998104 preemptions=51 wait_calls=51 wait_total_s=0.044239835000041694 wait_ms_p50=0.017890000037823484 wait_ms_max=31.92786300002126 stored_keys=1883 storage_pages=14563 (expected_keys=2003)
+  verbatim:
+    {
+      "has_fix": true,
+      "pool_blocks": 128,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 31.715446789999987,
+      "output_tok_per_s": 516.593699861291,
+      "steps": 3638,
+      "step_ms_p50": 8.189132499978768,
+      "step_ms_p90": 9.630137099992455,
+      "step_ms_p99": 15.673579199989833,
+      "step_ms_max": 43.14250599998104,
+      "preemptions": 51,
+      "wait_calls": 51,
+      "wait_total_s": 0.044239835000041694,
+      "wait_ms_p50": 0.017890000037823484,
+      "wait_ms_max": 31.92786300002126,
+      "mean_step_ms": 8.667568590984512,
+      "stored_keys": 1883,
+      "storage_pages": 14563
+    }
+b1 CONTROL pool 128 run 3 (exit 0):
+  has_fix=false pool_blocks=128 wall_s=31.56522875799999 output_tok_per_s=519.0521546861145 step_ms_p50=8.159956999975293 step_ms_p90=9.622645300004251 step_ms_p99=15.57352468998489 step_ms_max=34.63326600001437 preemptions=51 wait_calls=0 wait_total_s=0 wait_ms_p50=null wait_ms_max=null stored_keys=1883 storage_pages=14563 (expected_keys=2003)
+  verbatim:
+    {
+      "has_fix": false,
+      "pool_blocks": 128,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 31.56522875799999,
+      "output_tok_per_s": 519.0521546861145,
+      "steps": 3638,
+      "step_ms_p50": 8.159956999975293,
+      "step_ms_p90": 9.622645300004251,
+      "step_ms_p99": 15.57352468998489,
+      "step_ms_max": 34.63326600001437,
+      "preemptions": 51,
+      "wait_calls": 0,
+      "wait_total_s": 0,
+      "wait_ms_p50": null,
+      "wait_ms_max": null,
+      "mean_step_ms": 8.629136444475234,
+      "stored_keys": 1883,
+      "storage_pages": 14563
+    }
+b1 FIX pool 128 run 3 (exit 0):
+  has_fix=true pool_blocks=128 wall_s=31.516074927999966 output_tok_per_s=519.8616908174656 step_ms_p50=8.152866999978414 step_ms_p90=9.66604720002806 step_ms_p99=15.241953960049852 step_ms_max=38.39169100001527 preemptions=51 wait_calls=51 wait_total_s=0.04210240700012946 wait_ms_p50=0.01841099992816453 wait_ms_max=28.897941999957766 stored_keys=1883 storage_pages=14563 (expected_keys=2003)
+  verbatim:
+    {
+      "has_fix": true,
+      "pool_blocks": 128,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 31.516074927999966,
+      "output_tok_per_s": 519.8616908174656,
+      "steps": 3638,
+      "step_ms_p50": 8.152866999978414,
+      "step_ms_p90": 9.66604720002806,
+      "step_ms_p99": 15.241953960049852,
+      "step_ms_max": 38.39169100001527,
+      "preemptions": 51,
+      "wait_calls": 51,
+      "wait_total_s": 0.04210240700012946,
+      "wait_ms_p50": 0.01841099992816453,
+      "wait_ms_max": 28.897941999957766,
+      "mean_step_ms": 8.615348475535152,
+      "stored_keys": 1883,
+      "storage_pages": 14563
+    }
+b1 CONTROL pool 2304 run 1 (exit 0):
+  has_fix=false pool_blocks=2304 wall_s=3.917723983999963 output_tok_per_s=4182.019985816376 step_ms_p50=15.797010000028422 step_ms_p90=21.032480999974723 step_ms_p99=24.875091660017006 step_ms_max=70.7002269999748 preemptions=0 wait_calls=0 wait_total_s=0 wait_ms_p50=null wait_ms_max=null stored_keys=2003 storage_pages=14563 (expected_keys=2003)
+  verbatim:
+    {
+      "has_fix": false,
+      "pool_blocks": 2304,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 3.917723983999963,
+      "output_tok_per_s": 4182.019985816376,
+      "steps": 259,
+      "step_ms_p50": 15.797010000028422,
+      "step_ms_p90": 21.032480999974723,
+      "step_ms_p99": 24.875091660017006,
+      "step_ms_max": 70.7002269999748,
+      "preemptions": 0,
+      "wait_calls": 0,
+      "wait_total_s": 0,
+      "wait_ms_p50": null,
+      "wait_ms_max": null,
+      "mean_step_ms": 14.793568351348458,
+      "stored_keys": 2003,
+      "storage_pages": 14563
+    }
+b1 FIX pool 2304 run 1 (exit 0):
+  has_fix=true pool_blocks=2304 wall_s=3.891117756999961 output_tok_per_s=4210.615309836321 step_ms_p50=15.504186000043774 step_ms_p90=20.696311599976983 step_ms_p99=24.418194580048294 step_ms_max=71.15842899997915 preemptions=0 wait_calls=0 wait_total_s=0 wait_ms_p50=null wait_ms_max=null stored_keys=2003 storage_pages=14563 (expected_keys=2003)
+  verbatim:
+    {
+      "has_fix": true,
+      "pool_blocks": 2304,
+      "num_requests": 64,
+      "prompt_tokens": 256,
+      "output_tokens": 256,
+      "wall_s": 3.891117756999961,
+      "output_tok_per_s": 4210.615309836321,
+      "steps": 259,
+      "step_ms_p50": 15.504186000043774,
+      "step_ms_p90": 20.696311599976983,
+      "step_ms_p99": 24.418194580048294,
+      "step_ms_max": 71.15842899997915,
+      "preemptions": 0,
+      "wait_calls": 0,
+      "wait_total_s": 0,
+      "wait_ms_p50": null,
+      "wait_ms_max": null,
+      "mean_step_ms": 14.688075328183414,
+      "stored_keys": 2003,
+      "storage_pages": 14563
+    }
+B1 INVALID: control-128-1: stored_keys=1882, fewer than the 2003 blocks its load saves
+B1 INVALID: fix-128-1: stored_keys=1883, fewer than the 2003 blocks its load saves
+B1 INVALID: control-128-2: stored_keys=1883, fewer than the 2003 blocks its load saves
+B1 INVALID: fix-128-2: stored_keys=1883, fewer than the 2003 blocks its load saves
+B1 INVALID: control-128-3: stored_keys=1883, fewer than the 2003 blocks its load saves
+B1 INVALID: fix-128-3: stored_keys=1883, fewer than the 2003 blocks its load saves
+B1: INVALID

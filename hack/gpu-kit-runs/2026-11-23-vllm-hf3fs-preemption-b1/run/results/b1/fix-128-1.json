@@ -1,0 +1,22 @@
+{
+  "has_fix": true,
+  "pool_blocks": 128,
+  "num_requests": 64,
+  "prompt_tokens": 256,
+  "output_tokens": 256,
+  "wall_s": 31.347290756999996,
+  "output_tok_per_s": 522.6607979300851,
+  "steps": 3638,
+  "step_ms_p50": 8.11624199999983,
+  "step_ms_p90": 9.521416999979238,
+  "step_ms_p99": 15.540207360026569,
+  "step_ms_max": 37.49568700004602,
+  "preemptions": 51,
+  "wait_calls": 51,
+  "wait_total_s": 0.03988559599991959,
+  "wait_ms_p50": 0.018549999992956145,
+  "wait_ms_max": 27.961137999966468,
+  "mean_step_ms": 8.569525878229964,
+  "stored_keys": 1883,
+  "storage_pages": 14563
+}
