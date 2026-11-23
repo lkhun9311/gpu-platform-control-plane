@@ -8,8 +8,8 @@ This is a Kubernetes control plane that treats GPUs as tenant resources.
 A tenant gets an aggregate GPU ceiling from a `GPUQuotaPolicy`, serves models through `InferenceDeployment` objects, and runs training as `MLTrainingJob` objects admitted through Kueue.
 Serving follows one lifecycle: **deploy → admission → observe → restore**.
 The operator renders the serving Deployment and Service from the CR, the tenant-aware gateway admits requests by what the controller reports in force, status and metrics show what is actually serving, and a failed release is to be restored to its last known good spec.
-Deploy, admission and observe are in the code today.
-Making the serving dashboards and alerts say exactly what they measure is [#675](https://github.com/lkhun9311/gpu-platform-control-plane/issues/675), and the release restore is [#674](https://github.com/lkhun9311/gpu-platform-control-plane/issues/674); both are pending.
+Deploy, admission and observe are in the code on `dev` today.
+The release restore ([#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677)) and the serving dashboard, runbook and alert fixes ([#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679)) are in review.
 
 ## Serving lifecycle
 
@@ -18,7 +18,7 @@ flowchart LR
   deploy["Deploy<br/>InferenceDeployment CR<br/>→ owned Deployment + Service"]
   admit["Admission<br/>controller reports the mode in force<br/>→ gateway admits per tenant"]
   observe["Observe<br/>status.phase and conditions,<br/>gateway metrics and alerts"]
-  restore["Restore<br/>last known good CR spec<br/>(pending, #674)"]
+  restore["Restore<br/>last known good CR spec<br/>(in review, #677)"]
   deploy --> admit --> observe --> restore
   restore -. "re-deploy" .-> deploy
 ```
@@ -27,8 +27,8 @@ flowchart LR
 |---|---|---|
 | Deploy | `Reconcile` creates or updates a Deployment and a Service owned by the `InferenceDeployment`. The container comes from `spec.image` and `spec.model`, or, with `spec.engine.vllm` set, `mutateEngineDeployment` renders the pinned vLLM engine instead. `computeInfDPhase` maps the rollout to `status.phase` | [`inferencedeployment_controller.go`](internal/controller/inferencedeployment_controller.go), [`inference_engine.go`](internal/controller/inference_engine.go) |
 | Admission | The gateway resolves the API key to a tenant and applies that tenant's token bucket. `admissionInForce` reports HoldCap in `status.admission` only once the capped engine is the only Pod serving. The gateway reads that status, not the spec alone (`backendAdmission`), and picks the admitter per backend (`admissionFor`) | [`inference_admission.go`](internal/controller/inference_admission.go), [`server.go`](internal/gateway/server.go), [`ratelimit.go`](internal/gateway/ratelimit.go), [`router.go`](internal/gateway/router.go), [`holdcap.go`](internal/gateway/holdcap.go) |
-| Observe | `status.phase` with the `Available`, `AdmissionInForce` and `EngineInForce` conditions; gateway metrics, alert rules and dashboards. Making the dashboards and alerts say exactly what they measure is [#675](https://github.com/lkhun9311/gpu-platform-control-plane/issues/675), pending | [`metrics.go`](internal/gateway/metrics.go), [`gateway_rules.yaml`](config/prometheus/gateway_rules.yaml), [`operator_dashboard.json`](config/prometheus/operator_dashboard.json) |
-| Restore | Today the reconciler watches the Deployment and Service it owns (`SetupWithManager`) and re-applies the fields it renders when they change. Restoring a failed release to the last known good CR spec is [#674](https://github.com/lkhun9311/gpu-platform-control-plane/issues/674), pending | [`inferencedeployment_controller.go`](internal/controller/inferencedeployment_controller.go) |
+| Observe | `status.phase` with the `Available`, `AdmissionInForce` and `EngineInForce` conditions; gateway metrics, alert rules and dashboards. Making the dashboards and alerts say exactly what they measure is [#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679), in review | [`metrics.go`](internal/gateway/metrics.go), [`gateway_rules.yaml`](config/prometheus/gateway_rules.yaml), [`operator_dashboard.json`](config/prometheus/operator_dashboard.json) |
+| Restore | Today the reconciler watches the Deployment and Service it owns (`SetupWithManager`) and re-applies the fields it renders when they change. Restoring a failed release to the last known good CR spec is [#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677), in review | [`inferencedeployment_controller.go`](internal/controller/inferencedeployment_controller.go) |
 
 ## Headline results
 
