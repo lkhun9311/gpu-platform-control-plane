@@ -69,7 +69,8 @@ def tracked(*patterns):
     return [p for p in out.split('\n') if p]
 
 # The operator runbook since 2026-11-07: an engineer copies its names and commands literally.
-docs = [d for d in tracked('docs/0*.md', 'docs/1*.md', 'README.md', 'experiments/*/README.md',
+# oss/README.md since 2026-11-21: it indexes the upstream contribution work, and a reader follows its paths to the evidence.
+docs = [d for d in tracked('docs/0*.md', 'docs/1*.md', 'README.md', 'oss/README.md', 'experiments/*/README.md',
                            'docs/superpowers/specs/*.md', 'docs/runbook/*.md')
         if '/captures/' not in d]
 if not docs:
@@ -99,7 +100,7 @@ if len(blob) < 10000:
     sys.exit("source blob is implausibly small; refusing to report success on a scan that read nothing")
 
 TOPLEVEL = ('internal/', 'config/', 'hack/', 'docs/', 'cmd/', 'api/', 'infra/', 'test/',
-            'scripts/', 'tools/', '.github/', 'bin/')
+            'scripts/', 'tools/', '.github/', 'bin/', 'oss/')
 REPO_EXT = r'(ya?ml|go|sh|md|tf|json|mod|log)'
 
 def classify(tok):

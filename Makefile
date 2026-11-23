@@ -400,7 +400,7 @@ infra-fmt: terraform ## Check Terraform formatting under infra/aws.
 	"$(TERRAFORM)" fmt -check -recursive infra/aws
 
 .PHONY: shell-check
-shell-check: ## Parse every shell script under hack/ and .githooks/.
+shell-check: ## Parse every shell script under hack/, oss/ and .githooks/.
 	@# Nothing checked these until 2026-09-22, and hack/gpu-session.sh is the one wrapper that spends money.
 	@# `bash -n` is a parse, not a lint -- it will not find an unquoted expansion -- but it does catch the
 	@# edit that leaves a block unterminated, which is the failure that would surface on a rented card.
@@ -427,13 +427,14 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		hack/test/spot-lifecycle/golden/*/user-data*.sh \
 		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
 		hack/eks-serve/holdcap-study/*.sh hack/eks-serve/prefix-route-study/*.sh hack/slurm-ec2/*.sh hack/slurm-ec2/gpuhc-ec2.sh hack/slurm-ec2/rehearsal-nvidia-smi \
-		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
+		oss/*/*/*.sh .githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
-	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py hack/eks-serve/prefix-route-study/*.py \
+	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/serving-release/*.py hack/eks-serve/holdcap-study/*.py hack/eks-serve/prefix-route-study/*.py \
 		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py \
-		experiments/multi-pod-ddp/*.py experiments/gateway-replica-limit/*.py experiments/mlops-lineage/*.py experiments/mlops-w2/*.py hack/slurm-ec2/*.py hack/test/slurm-ec2/aws; do \
+		experiments/multi-pod-ddp/*.py experiments/gateway-replica-limit/*.py experiments/mlops-lineage/*.py experiments/mlops-w2/*.py hack/slurm-ec2/*.py hack/test/slurm-ec2/aws \
+		oss/*/*/*.py; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \

@@ -53,11 +53,11 @@ None was written for an upstream project; each came from the platform's own paid
 | Piece | What it does | Where |
 |---|---|---|
 | Pinned CI images | Each vLLM session runs vLLM's own post-merge CI image by sha256 digest, and checks the image's `org.opencontainers.image.revision` against the commit the run claims | `public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo@sha256:…` in each run's `session-provenance.txt` and `pytest-summary.txt` |
-| Before and after patch application | A pinned diff is split in two: `vllm/*` is applied to the installed package under `dist-packages`, the rest (tests, docs) to the source checkout. Every touched file's sha256 is pinned for base, before and after, and a mismatch stops the state | `hack/vllm-tpot/state.sh`, `hack/vllm-tpot/pins.txt`, `hack/vllm-gdn-68414/state.sh`, `hack/vllm-gdn-68414/*-pins.txt` |
-| Collection and import probes | The files the test collection actually loads are recorded on the instance and compared with the image; a loaded file that differs from the diff's base voids the case instead of passing it. For #58420 each engine core reports the threshold its scheduler holds after `Scheduler.__init__` | `hack/vllm-gdn-68414/fla_loaded_modules.py`, `hack/vllm-gdn-68414/import-closure.py`, `internal/bench/srpf_sweep.go` |
+| Before and after patch application | A pinned diff is split in two: `vllm/*` is applied to the installed package under `dist-packages`, the rest (tests, docs) to the source checkout. Every touched file's sha256 is pinned for base, before and after, and a mismatch stops the state | `oss/vllm/68548-tpot/state.sh`, `oss/vllm/68548-tpot/pins.txt`, `oss/vllm/68414-gdn/state.sh`, `oss/vllm/68414-gdn/*-pins.txt` |
+| Collection and import probes | The files the test collection actually loads are recorded on the instance and compared with the image; a loaded file that differs from the diff's base voids the case instead of passing it. For #58420 each engine core reports the threshold its scheduler holds after `Scheduler.__init__` | `oss/vllm/68414-gdn/fla_loaded_modules.py`, `oss/vllm/68414-gdn/import-closure.py`, `internal/bench/srpf_sweep.go` |
 | Spot launch, termination sweeper and cost cap | `spot_launch` tags every instance with a study deadline; the sweeper Lambda ends any instance past its deadline; each session computes its worst case before buying and refuses above its cap | `hack/lib/spot-run.sh`, `infra/aws/bootstrap/sweeper/sweeper.py`, `hack/sweeper-exercise.sh` |
-| Evidence archive | Each run gets a directory with `outcome.txt`, `session-provenance.txt`, `termination.txt` and the raw rows; large files left out are listed with their sha256 in `NOT-COMMITTED.sha256` | One directory per run, named by date and label, under the study's `runs/` directory in `hack/`, for example `hack/vllm-gdn-68414/runs/` |
-| Offline tests and mutation runners | Each session script runs offline against fakes for AWS and the engine; the mutation runner breaks each guard and checks the offline test fails | `hack/vllm-58420-session-test.sh`, `hack/vllm-tpot-session-test.sh`, `hack/vllm-gdn-68414-session-test.sh`, `hack/vllm-gdn-68414-session-mutate.sh` |
+| Evidence archive | Each run gets a directory with `outcome.txt`, `session-provenance.txt`, `termination.txt` and the raw rows; large files left out are listed with their sha256 in `NOT-COMMITTED.sha256` | One directory per run, named by date and label, under the study's directory in `oss/` (index: `oss/README.md`), for example `oss/vllm/68414-gdn/runs/` |
+| Offline tests and mutation runners | Each session script runs offline against fakes for AWS and the engine; the mutation runner breaks each guard and checks the offline test fails | `oss/vllm/58420-srpf/vllm-58420-session-test.sh`, `oss/vllm/68548-tpot/vllm-tpot-session-test.sh`, `oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh`, `oss/vllm/68414-gdn/vllm-gdn-68414-session-mutate.sh` |
 | kind labs | Pinned, free clusters that run upstream controllers against simulators, with a timeline sampled every 5 s and the controller's own log | `hack/aibrix-lane2.sh`, `hack/llmd-kv-lab.sh`, [hack/aibrix-pr3509.sh](https://github.com/lkhun9311/gpu-platform-control-plane/blob/ca5efa9ac4ce07b833e54af4f1e722ff2d6ac69c/hack/aibrix-pr3509.sh) (branch feat/aibrix-3509-verify) |
 
 Reuse across the cases:
@@ -86,7 +86,7 @@ Reused: pinned CI image, scheduler overlay pinned by sha256, engine-core probe, 
    One g5.xlarge Spot (A10G), ap-northeast-2c, AMI `ami-097edab977037f65f`.
    Image `vllm-ci-postmerge-repo@sha256:bfb59377…f35467`, vLLM `0.34.0rc1.dev527+g5039f736e`, with the PR head `b8b0d361`'s `scheduler.py` overlaid (sha256 `2b394353…72a`).
    Qwen2.5-3B-Instruct; a frozen open-loop trace of 4,102 requests, 3,917 short and 185 long.
-   Sources: `hack/vllm-58420/2026-11-19-threshold-run1/session-provenance.txt`, `sr-run/sweep/summary.json`.
+   Sources: `oss/vllm/58420-srpf/2026-11-19-threshold-run1/session-provenance.txt`, `sr-run/sweep/summary.json`.
 3. **Baseline.**
    The `fcfs` arm: short TTFT p99 5,983.5 ms, long completion p95 6,868.0 ms (`sr-run/summary.txt`, line 5).
 4. **Result after the change.**
@@ -103,12 +103,12 @@ Reused: pinned CI image, scheduler overlay pinned by sha256, engine-core probe, 
    | srpf, threshold 10 | 2,359.4 | 7,685.5 |
 
    A lower threshold gave a lower short-request p99.
-   Runs 1 to 8 before it (`hack/vllm-58420/2026-11-1[67]-run*/outcome.txt`) show the tooling being made trustworthy.
+   Runs 1 to 8 before it (`oss/vllm/58420-srpf/2026-11-1[67]-run*/outcome.txt`) show the tooling being made trustworthy.
    Runs 2 and 6 returned evidence with every arm refused, because the engine-core probe found `PYTHONPYCACHEPREFIX` unset in the engine core, so the overlay could not be proven in use.
    Run 7 was reclaimed by Spot.
    Run 8 measured six arms on the earlier head, with fcfs at 5,967.4 ms and srpf at 1,939.2 ms short TTFT p99.
 5. **Reproduction command.**
-   `SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM58420_AMI_ID=ami-... bash hack/vllm-58420-session.sh`, offline check `bash hack/vllm-58420-session-test.sh`.
+   `SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM58420_AMI_ID=ami-... bash oss/vllm/58420-srpf/vllm-58420-session.sh`, offline check `bash oss/vllm/58420-srpf/vllm-58420-session-test.sh`.
    Cap: hard stop 12,100 s, worst case 12,400 s at $0.8292/h, about $2.86 (`session.log`, line 2).
    The last request ended 78 minutes after launch (16:41:03 to 17:59:02 UTC, from `launch-time.txt` and the raw rows); the README records the session at about 83 minutes and $0.98, with termination confirmed (`termination.txt`).
    The README's "Upstream open-source validation" section has a standard-library script that recomputes the table from the raw rows.
@@ -127,15 +127,15 @@ Reused: pinned CI image, PR files overlaid, image identity check, Spot launch wi
    The thread named a `serve.py` baseline against the opt-in mode as the next gate.
 2. **Experiment environment.**
    One g5.xlarge Spot (A10G), ap-northeast-2d.
-   Image `vllm-ci-postmerge-repo@sha256:c0c20a4c…eac15`, Qwen2.5-3B-Instruct fp16, `max_num_batched_tokens` 8192 (`hack/vllm-67811/2026-11-18-run1/ap-run/summary.txt`, `ap-run/sweep/ap-*.args.txt`).
+   Image `vllm-ci-postmerge-repo@sha256:c0c20a4c…eac15`, Qwen2.5-3B-Instruct fp16, `max_num_batched_tokens` 8192 (`oss/vllm/67811-prefill-budget/2026-11-18-run1/ap-run/summary.txt`, `ap-run/sweep/ap-*.args.txt`).
 3. **Baseline.**
    `base` (`long_prefill_token_threshold` 1024, adaptive off), median of 5 scored runs: short TTFT p95 1,501 ms, decode token gap p99 549 ms, 351 output tokens/s (`ap-run/sweep/ap-1-base.r0.json` to `ap-1-base.r4.json`; `ap-6-base` repeats it within 1 ms).
 4. **Result after the change.**
    Both adaptive engines stalled in the warm-up invocation and scored 0 of 5 runs (`ap-run/summary.txt`: "ap-2-adaptive: done, 0 of 5 scored runs").
    The comparison arm `t512` (threshold 512) scored 5 of 5: short TTFT p95 839 ms, decode gap p99 287 ms, 346 tokens/s.
-   Run 2 started one adaptive engine and traced every controller call: 7,397 timed steps, warm-up not passed (`hack/vllm-67811/2026-11-18-run2/ap-run/sweep/summary.tsv`).
+   Run 2 started one adaptive engine and traced every controller call: 7,397 timed steps, warm-up not passed (`oss/vllm/67811-prefill-budget/2026-11-18-run2/ap-run/sweep/summary.tsv`).
 5. **Reproduction command.**
-   `SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM67811_AMI_ID=ami-... bash hack/vllm-67811-session.sh`, offline check `bash hack/vllm-67811-session-test.sh`.
+   `SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLM67811_AMI_ID=ami-... bash oss/vllm/67811-prefill-budget/vllm-67811-session.sh`, offline check `bash oss/vllm/67811-prefill-budget/vllm-67811-session-test.sh`.
    Caps from each `session.log`: run 1 13,440 s at $0.7792/h, about $2.91; run 2 4,340 s, about $0.94.
 6. **Upstream status.**
    Open, not merged.
@@ -151,13 +151,13 @@ Reused: pinned CI image, before and after patch application into `dist-packages`
    `vllm:request_time_per_output_token_seconds` recorded a TPOT of 0 for every request with fewer than two output tokens, while `vllm bench serve` excludes them.
 2. **Experiment environment.**
    One g5.xlarge Spot (A10G).
-   Image `vllm-ci-postmerge-repo@sha256:9f77cb65…145bb`, checkout head `3a1c6c43`, vLLM `0.34.0rc1.dev796+g3a1c6c43d`, TinyLlama-1.1B pinned (`hack/vllm-tpot/runs/2026-11-18-run1/tp-run/summary.txt`, `tp-run/sweep/before/versions.txt`).
+   Image `vllm-ci-postmerge-repo@sha256:9f77cb65…145bb`, checkout head `3a1c6c43`, vLLM `0.34.0rc1.dev796+g3a1c6c43d`, TinyLlama-1.1B pinned (`oss/vllm/68548-tpot/runs/2026-11-18-run1/tp-run/summary.txt`, `tp-run/sweep/before/versions.txt`).
 3. **Baseline.**
    The new test alone (`serving-test-only.diff`): `test_tpot_skips_single_token_requests[-text]` failed, `assert (5.0 - 0.0) == 2`, so the histogram count rose by 5 where 2 were expected (`tp-run/sweep/before/tpot-lines.txt`, `before/tpot.log`).
 4. **Result after the change.**
    With `fix.diff`: 3 of 3 parametrisations of the test passed, and the whole test file passed 12 of 12 (`verdict.txt`: `before=failed-as-expected`, `before_delta=5`, `after=passed`, `verdict=confirmed`).
 5. **Reproduction command.**
-   `SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMTPOT_AMI_ID=ami-... bash hack/vllm-tpot-session.sh`, offline check `bash hack/vllm-tpot-session-test.sh`.
+   `SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMTPOT_AMI_ID=ami-... bash oss/vllm/68548-tpot/vllm-tpot-session.sh`, offline check `bash oss/vllm/68548-tpot/vllm-tpot-session-test.sh`.
    Cap: 4,800 s at $0.7792/h, about $1.04 (`session.log`).
    Launch 14:10:25 UTC, both states done 14:32:11 UTC (`launch-time.txt`, `tp-run/summary.txt`).
 6. **Upstream status.**
@@ -174,7 +174,7 @@ Reused: pinned CI images, before and after application into `dist-packages`, col
    - [#68415](https://github.com/vllm-project/vllm/issues/68415): `fused_recurrent_kda` allocates the wrong output shape when key and value sizes differ.
    - [#68416](https://github.com/vllm-project/vllm/issues/68416): recurrent delta-rule kernels read the wrong state slots for strided index tables.
 2. **Experiment environment.**
-   One g5.xlarge Spot (A10G) per run, in `hack/vllm-gdn-68414/runs/`.
+   One g5.xlarge Spot (A10G) per run, in `oss/vllm/68414-gdn/runs/`.
    | Run | Image digest | vLLM commit |
    |---|---|---|
    | 1, 2 | `sha256:45feec27…d99ed` | `8700cc9b` |
@@ -195,10 +195,10 @@ Reused: pinned CI images, before and after application into `dist-packages`, col
 
    Sources: each run's `verdict.txt` or `*-verdict.txt`, `outcome.txt` and `pytest-summary.txt`.
    Run 3's void is the import probe doing its job: the tests passed, but the run could not show they ran against the base the diff was written for, so run 4 repeated #68416 on an image that differs from its diff base only in a recipe.
-   Run 5 is on branch `feat/vllm-gdn-run5`, commit `01234f03`, not pushed; on that branch its record is the directory 2026-11-19-run5-pr-68415-68416-confirmed under `hack/vllm-gdn-68414/runs/`, which has no public link until the branch is pushed.
+   Run 5 is on branch `feat/vllm-gdn-run5`, commit `01234f03`, not pushed; on that branch its record is the directory 2026-11-19-run5-pr-68415-68416-confirmed under `oss/vllm/68414-gdn/runs/`, which has no public link until the branch is pushed.
    Run 6, run 5's two before commands on the full fix in one Spot state, is prepared on branch `feat/vllm-gdn-run6` (`553558c1`) and has not produced a record: **pending**.
 5. **Reproduction command.**
-   `PURCHASE=spot SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash hack/vllm-gdn-68414-session.sh` (run 4's configuration on `dev`), offline check `bash hack/vllm-gdn-68414-session-test.sh`, mutants `bash hack/vllm-gdn-68414-session-mutate.sh` (34 killed for run 4, commit `12279fcc`; 48 for run 5, `854b5166`).
+   `PURCHASE=spot SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab VLLMGDN_AMI_ID=ami-... bash oss/vllm/68414-gdn/vllm-gdn-68414-session.sh` (run 4's configuration on `dev`), offline check `bash oss/vllm/68414-gdn/vllm-gdn-68414-session-test.sh`, mutants `bash oss/vllm/68414-gdn/vllm-gdn-68414-session-mutate.sh` (34 killed for run 4, commit `12279fcc`; 48 for run 5, `854b5166`).
    Caps from each `session.log` or `session-provenance.txt`: run 1 5,040 s at $0.7792/h, about $1.09; run 2 $0.8441; run 3 $0.7013; run 4 $0.6104; run 5 $0.7013; the session refuses any configuration whose worst case reaches $1.50.
    Attempt 1 bought nothing: no zone had g5.xlarge Spot capacity.
 6. **Upstream status.**

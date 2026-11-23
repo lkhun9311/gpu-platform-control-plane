@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -528,5 +529,50 @@ func TestTheStubAnswersWithTheRequestsLengthOnlyWhenAsked(t *testing.T) {
 	}
 	if got := frames(stubProfile{tokens: 2}); got != 2 {
 		t.Errorf("not asked, the stub should keep --tokens 2 and sent %d content frames", got)
+	}
+}
+
+// TestTheStubNamesTheServedModelInEveryChunk pins what the serving release smoke reads to tell which release answered.
+// During a rollout that never becomes Ready the old Pod keeps serving, and without the name its answer passes for the candidate's.
+// Mutation that turns this red: drop the model field from stubChunk, or leave it off the usage chunk.
+func TestTheStubNamesTheServedModelInEveryChunk(t *testing.T) {
+	srv := httptest.NewServer(stubMux(stubProfile{tokens: 3, model: "stub-v2", usage: true, finishReasons: true}, newStubStats()))
+	defer srv.Close()
+	r, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"stream":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Body.Close() }()
+	b, _ := io.ReadAll(r.Body)
+	chunks := 0
+	for line := range strings.SplitSeq(string(b), "\n") {
+		payload, ok := strings.CutPrefix(line, "data: ")
+		if !ok || payload == "[DONE]" {
+			continue
+		}
+		chunks++
+		var c struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal([]byte(payload), &c); err != nil {
+			t.Fatalf("chunk %q is not JSON: %v", payload, err)
+		}
+		if c.Model != "stub-v2" {
+			t.Errorf("chunk %q names model %q, want stub-v2", payload, c.Model)
+		}
+	}
+	// Three content chunks and the usage chunk.
+	if chunks != 4 {
+		t.Errorf("read %d data chunks, want 4", chunks)
+	}
+}
+
+// TestTheStubOmitsTheModelWhenNoneWasGiven pins that callers which never passed --model keep the bytes they always got.
+func TestTheStubOmitsTheModelWhenNoneWasGiven(t *testing.T) {
+	if got := stubChunk("", `{"choices":[]}`); got != "data: {\"choices\":[]}\n\n" {
+		t.Errorf("stubChunk without a model = %q", got)
+	}
+	if got := stubChunk(`a"b`, `{"choices":[]}`); got != "data: {\"model\":\"a\\\"b\",\"choices\":[]}\n\n" {
+		t.Errorf("stubChunk with a quoted model = %q", got)
 	}
 }

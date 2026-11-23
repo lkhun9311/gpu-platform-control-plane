@@ -88,6 +88,11 @@ type Server struct {
 	//
 	// So one process-wide registry holds them all.
 	buckets *bucketRegistry
+	// limiter, when set, decides in place of buckets; it is the shared store InitSharedRateLimiter installs.
+	limiter RateLimiter
+	// sharedStore is true when the rate limit is shared through Redis, which is the declaration that more than one replica may run.
+	// It is what makes the gateway refuse the per-process features those replicas would each apply on their own.
+	sharedStore bool
 	// mode records which admission-control mode admitter implements, purely for the mode label on the admission metrics.
 	//
 	// It travels alongside admitter rather than being derived from it, since the two are set together by SetAdmitter and a type switch on admitter would need one arm per implementation anyway.
@@ -204,6 +209,76 @@ func (s *Server) MarkReady() { s.markReady() }
 //
 // Keeping the type unexported means the bucket internals can change without touching the assembly code.
 func (s *Server) InitRateLimiter() { s.buckets = newBucketRegistry() }
+
+// InitSharedRateLimiter installs the Redis store every replica shares, and returns the function that closes its pool.
+// It does not contact Redis, so a gateway starting during an outage serves by the failure policy rather than not at all.
+func (s *Server) InitSharedRateLimiter(cfg RedisRateLimitConfig) (func() error, error) {
+	l, err := newRedisLimiter(cfg)
+	if err != nil {
+		return nil, err
+	}
+	s.useSharedLimiter(l)
+	return l.Close, nil
+}
+
+// useSharedLimiter is InitSharedRateLimiter with the limiter already built, so a test can install a fake one.
+func (s *Server) useSharedLimiter(l RateLimiter) {
+	s.limiter = l
+	s.sharedStore = true
+}
+
+// rateLimiter is the installed store, or nil when none was.
+// It returns a nil interface rather than one holding a nil *bucketRegistry, so the caller's nil check means what it says.
+func (s *Server) rateLimiter() RateLimiter {
+	if s.limiter != nil {
+		return s.limiter
+	}
+	if s.buckets != nil {
+		return s.buckets
+	}
+	return nil
+}
+
+// CheckSharedStoreAdmission refuses every process-wide admission mode but off under the shared store.
+//
+// static-cap and prospective keep per-backend budgets, which N replicas would multiply by N.
+// serial-prefill and fixed-spacing keep per-backend turn order, which N replicas would run N at a time.
+// kv-aware keeps its engage and release hysteresis per process, and its not-reporting alert joins with unless on(),
+// so one replica's telemetry would hide another's silence; it has not been shown correct at more than one replica.
+// So the supported multi-replica profile is exactly the shared store with admission off, and nothing else is claimed.
+// The shared store is the only reason to run more than one replica, so it is where this is checked.
+func CheckSharedStoreAdmission(mode AdmissionMode) error {
+	if mode == AdmissionOff {
+		return nil
+	}
+	return fmt.Errorf("--admission-mode=%s keeps its state in one gateway process, so it cannot run with the shared "+
+		"rate limit store, which exists to run more than one; use off, or the memory store at one replica", mode)
+}
+
+// Feature labels for a request refused because the shared store met a per-process feature.
+const (
+	singleGatewayHoldCap        = "holdcap"
+	singleGatewayPrefixAffinity = "prefix_affinity"
+)
+
+// singleGatewayFeature names the per-process feature a request would use, when the shared store means other replicas
+// may be applying their own copy of it, or returns empty.
+//
+// HoldCap counts only as the head, because holdCapTargets drops a HoldCap backend from the tail and nothing reaches it there.
+// PrefixAffinity counts when routingPolicyFor selects it, the same rule routing applies.
+// RoundRobin and LeastQueue keep per-replica counters too, but only spread load, and promise nothing N replicas break.
+func (s *Server) singleGatewayFeature(targets []*BackendRef) string {
+	if !s.sharedStore || len(targets) == 0 {
+		return ""
+	}
+	if targets[0].Admission == AdmissionHoldCap {
+		return singleGatewayHoldCap
+	}
+	if routingPolicyFor(targets) == platformv1.RoutingPolicyPrefixAffinity {
+		return singleGatewayPrefixAffinity
+	}
+	return ""
+}
 
 // SetAdmitter installs the admission-control implementation and the mode label it reports on metrics.
 //
@@ -506,13 +581,25 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// An unfinished Server is answered 503, not 429. Both are refusals, but 429 tells the caller they exceeded
 	// a budget that in this state was never being applied, and the retry it invites will be refused the same
 	// way forever.
-	if !s.buckets.configured() {
+	limiter := s.rateLimiter()
+	if limiter == nil {
 		log.FromContext(ctx).Error(nil, "rate limiter was never initialised; refusing rather than serving unlimited",
 			"request_id", rid)
 		s.fail(w, tenant, "", http.StatusServiceUnavailable)
 		return
 	}
-	if ok, wait := s.buckets.Reserve(tenant, policy.Spec.RateLimit); !ok {
+	ok, wait, err := limiter.Decide(ctx, tenant, policy.Spec.RateLimit)
+	if err != nil {
+		// 503, not 429, for the same reason as an uninstalled limiter: nobody measured this tenant over its budget.
+		// Retry-After is a second, the breaker's cooldown, after which the replica asks Redis again.
+		log.FromContext(ctx).Error(err, "rate limit could not be decided; refusing", "tenant", tenant, "request_id", rid)
+		w.Header().Set("Retry-After", "1")
+		requests.WithLabelValues(tenant, "", strconv.Itoa(http.StatusServiceUnavailable)).Inc()
+		writeJSONErrorCode(w, http.StatusServiceUnavailable, "rate_limit_unavailable",
+			"the shared rate limit store is unavailable and this gateway refuses rather than serving unmetered")
+		return
+	}
+	if !ok {
 		// Counted separately from requests{code="429"}; the two answer different questions.
 		rateLimited.WithLabelValues(tenant).Inc()
 		if wait > 0 {
@@ -585,6 +672,17 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.FromContext(ctx).Error(err, "backend lookup failed", "tenant", tenant, "model", meta.Model, "request_id", rid)
 		s.failUnresolvedModel(w, tenant, meta.Model, http.StatusBadGateway)
+		return
+	}
+	// Refused before routing, so a refused request leaves nothing in the prefix index or the outstanding counts.
+	// 503 without Retry-After, because the same request is refused again until the deployment changes.
+	if feature := s.singleGatewayFeature(targets); feature != "" {
+		log.FromContext(ctx).Error(nil, "a per-process feature cannot run with the shared rate limit store; refusing",
+			"feature", feature, "tenant", tenant, "model", meta.Model, "request_id", rid)
+		singleGatewayRefusals.WithLabelValues(feature).Inc()
+		requests.WithLabelValues(tenant, meta.Model, strconv.Itoa(http.StatusServiceUnavailable)).Inc()
+		writeJSONErrorCode(w, http.StatusServiceUnavailable, "single_gateway_required",
+			feature+" keeps its state in one gateway process; serve this model through a single-replica gateway on the memory store")
 		return
 	}
 

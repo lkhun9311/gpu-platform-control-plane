@@ -1,0 +1,14 @@
+# A candidate that must pass: a new release with the same fast profile.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: InferenceDeployment
+metadata:
+  name: stub
+  namespace: serving
+spec:
+  model:
+    name: stub-v2
+    storageUri: "stub://profile?tokens=4&ttft-ms=5&itl-ms=2"
+  image: benchharness:serving-release
+  gpuCount: 0
+  replicas: 1
+  port: 8090
