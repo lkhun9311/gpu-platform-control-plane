@@ -3,7 +3,8 @@
 This document ties together three pieces of serving work: how a bad serving release is taken back, what the serving dashboards and alerts actually measure, and what one A10G can carry.
 Each section states what its record measured and links that record; a section with no measurement says so and claims nothing.
 
-Status on 2026-11-23: the release restore ([#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677)) and the dashboards, runbook and alert ([#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679)) are merged into `dev`; capacity ([#673](https://github.com/lkhun9311/gpu-platform-control-plane/issues/673)) is measured in two included GPU sessions, and its record is in pull request [#678](https://github.com/lkhun9311/gpu-platform-control-plane/pull/678), not yet merged, so this document links it at that pull request's commit.
+Status on 2026-11-23: the release restore ([#677](https://github.com/lkhun9311/gpu-platform-control-plane/pull/677)) and the dashboards, runbook and alert ([#679](https://github.com/lkhun9311/gpu-platform-control-plane/pull/679)) are merged into `dev`; capacity ([#673](https://github.com/lkhun9311/gpu-platform-control-plane/issues/673)) is measured in two included GPU sessions, and its record, pull request [#678](https://github.com/lkhun9311/gpu-platform-control-plane/pull/678), is merged into `dev` as `d658e6d3`.
+This document links that record at the pull request's head `b69771ce`, whose `experiments/a10g-capacity/` is identical to `dev`'s.
 
 ## Contents
 
@@ -52,7 +53,7 @@ Its last item, a Redis outage entry, was written before #670 merged and still sa
 
 ## Capacity, overload and recovery on one A10G (#673)
 
-Tracked in [#673](https://github.com/lkhun9311/gpu-platform-control-plane/issues/673); the record is in [#678](https://github.com/lkhun9311/gpu-platform-control-plane/pull/678), linked here at its commit `b69771ce` because it is not yet on `dev`.
+Tracked in [#673](https://github.com/lkhun9311/gpu-platform-control-plane/issues/673); the record is in [#678](https://github.com/lkhun9311/gpu-platform-control-plane/pull/678), merged into `dev` as `d658e6d3` and linked here at its head `b69771ce`, whose files are the same as `dev`'s.
 The full tables, per rung and per stage with every percentile's `n`, are in [the results document](https://github.com/lkhun9311/gpu-platform-control-plane/blob/b69771ceb790b002fc43e2bd57e95aeeb19eb5d8/experiments/a10g-capacity/RESULTS.md).
 
 - **Contract.** [The measurement contract](https://github.com/lkhun9311/gpu-platform-control-plane/blob/b69771ceb790b002fc43e2bd57e95aeeb19eb5d8/experiments/a10g-capacity/CONTRACT.md) was committed in `e0d4e13a` and last changed in `911c8811` at 2026-11-22T16:16:10Z, before the first GPU session launched at 2026-11-22T23:47:29Z.
