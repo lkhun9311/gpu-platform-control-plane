@@ -1,0 +1,37 @@
+name: Bug
+description: Something behaves differently from what it should
+labels: ["kind/bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest command, test or input that shows it.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: The regression test that fails now and passes after the fix.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [admission, gateway, serving, scheduling, observability, mlops, harness, gpu-runner, infra, ci, upstream]
+    validations:
+      required: true

@@ -1,0 +1,58 @@
+name: PR checks
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  pr-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a kind label and an issue link
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          status=0
+          if ! grep -qE '(^| )kind/' <<<"$LABELS"; then
+            echo "::error::Add a kind/* label (bug, feature, cleanup, documentation, test, experiment)."
+            status=1
+          fi
+          if ! grep -qiE '(fixes|closes|resolves|part of) #[0-9]+' <<<"$BODY"; then
+            echo "::error::Link the issue in the description with 'Fixes #N' or 'Part of #N'."
+            status=1
+          fi
+          if grep -qE '(^| )do-not-merge/' <<<"$LABELS"; then
+            echo "::error::A do-not-merge/* label is set."
+            status=1
+          fi
+          exit $status
+
+      - name: Set the size label from the diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          CHANGED: ${{ github.event.pull_request.additions }}
+          DELETED: ${{ github.event.pull_request.deletions }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          # Same thresholds as the Kubernetes size plugin, on added plus deleted lines.
+          n=$((CHANGED + DELETED))
+          if   [ "$n" -lt 10 ];   then size=XS
+          elif [ "$n" -lt 30 ];   then size=S
+          elif [ "$n" -lt 100 ];  then size=M
+          elif [ "$n" -lt 500 ];  then size=L
+          elif [ "$n" -lt 1000 ]; then size=XL
+          else size=XXL; fi
+          for old in $LABELS; do
+            if [[ "$old" == size/* && "$old" != "size/$size" ]]; then
+              gh pr edit "$PR" -R "$REPO" --remove-label "$old"
+            fi
+          done
+          grep -qw "size/$size" <<<"$LABELS" || gh pr edit "$PR" -R "$REPO" --add-label "size/$size"
