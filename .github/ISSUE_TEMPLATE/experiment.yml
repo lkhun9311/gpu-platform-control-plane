@@ -1,0 +1,39 @@
+name: Experiment
+description: A measurement or study with a recorded result
+labels: ["kind/experiment"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Purpose
+      description: The question the experiment answers, and the decision it feeds.
+    validations:
+      required: true
+  - type: textarea
+    id: method
+    attributes:
+      label: Method
+      description: Setup, arms, sample size and the pass or fail rule, fixed before the run.
+    validations:
+      required: true
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost cap
+      description: Instance type, worst-case cost and the hard stop.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Where the result, the evidence and the verdict are recorded.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [admission, gateway, serving, scheduling, observability, mlops, harness, gpu-runner, infra, ci, upstream]
+    validations:
+      required: true

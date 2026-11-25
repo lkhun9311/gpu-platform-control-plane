@@ -20,6 +20,9 @@ docs/superpowers/*
 # and the interview notes are working material and stay local.
 *.md
 !/README.md
+# GitHub reads the pull request template, and the process doc says how issues and labels are used.
+!/.github/PULL_REQUEST_TEMPLATE.md
+!/docs/process/*.md
 !/infra/**/README.md
 !/hack/m6-kind-e2e.md
 !/hack/m1-m4-kind-e2e.md
