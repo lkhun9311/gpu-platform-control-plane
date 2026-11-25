@@ -1,0 +1,21 @@
+# CodeRabbit reviews pull requests once its GitHub App is installed on this repository.
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - dev
+  path_instructions:
+    - path: "internal/queuelab/**"
+      instructions: "This code produces numbers readers trust. Flag any path that reports a figure the evidence does not support instead of returning an error."
+    - path: "internal/bench/**"
+      instructions: "This code produces numbers readers trust. Flag any path that reports a figure the evidence does not support instead of returning an error."
+chat:
+  auto_reply: true
