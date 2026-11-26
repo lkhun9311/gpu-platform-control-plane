@@ -4,7 +4,7 @@
 #### What this PR does and why
 
 #### Which issue this PR is for
-<!-- "Fixes #123" closes the issue on merge. "Part of #123" links it without closing. One of them is required. -->
+<!-- One of them is required. "Fixes #123" closes the issue only on a merge to main; after a merge to dev, close it by hand. "Part of #123" links it without closing. -->
 Fixes #
 
 #### How it was tested
