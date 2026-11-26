@@ -35,6 +35,11 @@ mkdir -p "$WORK/awsbin"
 cat >"$WORK/awsbin/aws" <<'EOF'
 #!/bin/bash
 echo "aws $*" >> "$AWS_CALLS"
+# A check can hold a session at one AWS call: the call marks itself paused and waits for a resume file.
+if [ -n "${FAKE_PAUSE_ON:-}" ] && [[ "$*" == *"$FAKE_PAUSE_ON"* ]]; then
+  touch "$FAKE_PAUSED"
+  for _ in $(seq 300); do [ -e "$FAKE_RESUME" ] && break; sleep 0.1; done
+fi
 case "$1 $2" in
   "ec2 terminate-instances") [ -z "${FAKE_TERMINATE_FAIL:-}" ] || { echo "An error occurred (UnauthorizedOperation)" >&2; exit 254; } ;;
   "ec2 describe-instances") case "$*" in *State.Name\'*|*"State.Name --output"*) echo "${FAKE_STATE:-terminated}" ;; *) printf '%s\tx\tx\tx\tx\n' "${FAKE_STATE:-terminated}" ;; esac ;;
@@ -221,6 +226,34 @@ check "--end-instance still terminates while another session holds the lock" \
   "[ $rc = 0 ] && command grep -qx 'termination=confirmed' '$WORK/end-locked.out'"
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 unset GPU_KIT_LOCK
+
+# The launch must hold the lock itself until it exits, not only refuse while someone else holds it.
+# launch_repo SCRIPT DIR: a clean git checkout of SCRIPT and its library in DIR, since a launch refuses a dirty tree.
+launch_repo() {
+  mkdir -p "$2/hack/lib" && cp "$1" "$2/hack/gpu-kit-session.sh" && cp "$ROOT/hack/lib/spot-run.sh" "$2/hack/lib/" &&
+    git -C "$2" init -q && git -C "$2" add hack && git -C "$2" -c user.name=t -c user.email=t@t commit -qm s
+}
+mkdir -p "$WORK/kit2/kit" && git -C "$WORK/kit2" init -q && echo 'echo hi' >"$WORK/kit2/kit/run.sh" &&
+  git -C "$WORK/kit2" add kit && git -C "$WORK/kit2" -c user.name=t -c user.email=t@t commit -qm kit
+# retains DIR: whether a launch from DIR, paused at its first AWS call, holds the lock, and releases it once it exits.
+retains() {
+  local lock="$WORK/retain-$RANDOM.lock" pid held
+  rm -f "$WORK/paused" "$WORK/resume"
+  ( cd "$1" && fake env SESSION_CONFIRM=yes OUT="$WORK/out-retain-$RANDOM" GPU_KIT_LOCK="$lock" \
+      FAKE_PAUSE_ON="sts get-caller-identity" FAKE_PAUSED="$WORK/paused" FAKE_RESUME="$WORK/resume" \
+      bash hack/gpu-kit-session.sh "$WORK/kit2/kit" >"$WORK/retain.out" 2>&1 ) &
+  pid=$!
+  for _ in $(seq 100); do [ -e "$WORK/paused" ] && break; sleep 0.1; done
+  if [ ! -e "$WORK/paused" ]; then kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return 2; fi
+  flock -n "$lock" true && held=no || held=yes
+  touch "$WORK/resume"; wait "$pid" 2>/dev/null
+  [ "$held" = yes ] && flock -n "$lock" true
+}
+launch_repo "$S" "$WORK/launch-real"
+check "a launch paused at its first AWS call holds the lock, and releases it when it exits" "retains '$WORK/launch-real'"
+m=$(mutant earlyunlock 's/^printf .pid=%s out=%s since=%s.*$/&\nflock -u 9/')
+mcheck "mutant: a launch that releases the lock right after taking it is caught" \
+  "launch_repo '$m' '$WORK/launch-early' && ! retains '$WORK/launch-early'"
 
 check "the launch asks EC2 to terminate, not stop, on the instance's own shutdown" \
   "command grep -qF -- '--instance-initiated-shutdown-behavior terminate' '$ROOT/hack/lib/spot-run.sh'"
