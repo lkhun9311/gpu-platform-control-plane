@@ -9,7 +9,8 @@ This repository follows the Kubernetes SIG flow.
 3. Add `lifecycle/active` while it is being worked on.
 4. Branch `feat/<issue>-<topic>` from `dev`, commit in small steps, and open a PR to `dev` with `Fixes #N` or `Part of #N`.
 5. The `PR checks` workflow fails without a `kind/*` label, without an issue link, or with a `do-not-merge/*` label, and sets `size/*`.
-6. Merge to `dev` when every check is green. Promotion to `main` is a separate, approved step.
+6. CodeQL scans Go and the workflows, and CodeRabbit reviews the PR. Answer or resolve every CodeRabbit comment before merging; it is a reviewer, not a gate.
+7. Merge to `dev` when every check is green. `Fixes #N` does not close the issue on a merge to `dev`, so close it by hand with a `Status: Done.` comment. Promotion to `main` is a separate, approved step.
 
 ## Labels
 
