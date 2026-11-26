@@ -200,6 +200,28 @@ m=$(mutant kitenvrender 's/-e "s|KIT_ENV_PLACEHOLDER|\$KIT_ENV_WORDS|"/-e "s|KIT
 mcheck "mutant: a render that drops KIT_ENV is caught" "! { kit_env_ud '$m' 'PHASES=3;SWEEP_FREE_GIB=16.2 16.4 16.6' && command grep -qF \"\$kit_env_line\" '$WORK/kitenv.sh'; }"
 check "the session records KIT_ENV in session-provenance.txt" "command grep -qF 'echo \"kit_env=\${KIT_ENV:-}\"' '$S'"
 
+# ---------------------------------------------------------------- one session at a time
+# A holder keeps the lock for the duration of the checks, the way a running session would.
+export GPU_KIT_LOCK="$WORK/session.lock"
+flock "$GPU_KIT_LOCK" sleep 60 &
+holder=$!
+for _ in $(seq 50); do flock -n "$GPU_KIT_LOCK" true 2>/dev/null || break; sleep 0.1; done
+# locked_out SCRIPT: whether SCRIPT refuses a launch while the lock is held, before any AWS call.
+locked_out() {
+  fake env SESSION_CONFIRM=yes OUT="$WORK/out-locked" bash "$1" "$WORK/emptykit" >"$WORK/locked" 2>&1 && return 1
+  command grep -qF 'another GPU kit session holds' "$WORK/locked" && [ ! -s "$AWS_CALLS" ]
+}
+check "a second launch is refused while another session holds the lock, before any AWS call" "locked_out '$S'"
+m=$(mutant nolock '/^flock -n 9 || fail /d')
+mcheck "mutant: without the lock a second launch goes on, and the check catches it" "! locked_out '$m'"
+mkdir -p "$WORK/end-locked"
+fake env OUT="$WORK/end-locked" FAKE_STATE=terminated SPOT_TERMINATE_WAIT=0 SPOT_TERMINATE_TRIES=2 \
+  bash "$S" --end-instance i-0fake >"$WORK/end-locked.out" 2>&1; rc=$?
+check "--end-instance still terminates while another session holds the lock" \
+  "[ $rc = 0 ] && command grep -qx 'termination=confirmed' '$WORK/end-locked.out'"
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+unset GPU_KIT_LOCK
+
 check "the launch asks EC2 to terminate, not stop, on the instance's own shutdown" \
   "command grep -qF -- '--instance-initiated-shutdown-behavior terminate' '$ROOT/hack/lib/spot-run.sh'"
 

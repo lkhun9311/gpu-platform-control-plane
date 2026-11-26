@@ -319,6 +319,15 @@ if [ "${1:-}" = --end-instance ]; then
   exit 0
 fi
 [ "${SESSION_CONFIRM:-}" = yes ] || fail "SESSION_CONFIRM=yes is required: this buys a GPU instance, and it needs an explicit approval"
+# Sessions from several Claude sessions share this machine, and two of them can both pass the live-instance check below before either launches.
+# So the whole launch path holds one machine-wide lock, taken before the first AWS call and released when the script exits.
+# The --end-instance path above stays outside it, so an instance can always be terminated while another session runs.
+GPU_KIT_LOCK=${GPU_KIT_LOCK:-$HOME/.cache/gpu-kit/session.lock}
+command -v flock >/dev/null || fail "flock is not installed"
+mkdir -p "$(dirname "$GPU_KIT_LOCK")" || fail "cannot create the directory of $GPU_KIT_LOCK"
+exec 9>>"$GPU_KIT_LOCK" || fail "cannot open $GPU_KIT_LOCK"
+flock -n 9 || fail "another GPU kit session holds $GPU_KIT_LOCK ($(cat "$GPU_KIT_LOCK.holder" 2>/dev/null || echo 'holder unknown')); one session at a time"
+printf 'pid=%s out=%s since=%s\n' "$$" "$OUT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$GPU_KIT_LOCK.holder"
 KIT=${1:-}
 [ -n "$KIT" ] && [ -f "$KIT/run.sh" ] || fail "the kit directory '${KIT}' has no run.sh"
 for tool in aws python3 git tar sha256sum; do command -v "$tool" >/dev/null || fail "$tool is not installed"; done
